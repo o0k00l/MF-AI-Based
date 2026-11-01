@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Fiduciary Mutual Funds Copilot (Prompt-First & Lean Engine)
 
 A clean, modular fiduciary portfolio analysis and decision-support tool for Indian mutual funds.
@@ -45,3 +46,6 @@ A clean, modular fiduciary portfolio analysis and decision-support tool for Indi
 1. **Option B (Immediate):** Prompt-driven advisor taking verified portfolio numbers (`data/lalit_portfolio/`) and generating actionable recommendations (Regular-to-Direct switches, multi-cap overlap consolidation, and idle cash deployment).
 2. **Option A (Phased Upgrade):** Automated CAS upload, FIFO tax lot engine, and interactive Streamlit UI.
 
+=======
+# MF-AI-Based
+>>>>>>> d33a20870aac6003a9ac316cc57c2cbb4961152b
