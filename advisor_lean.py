@@ -418,6 +418,8 @@ from core.candidate_scoring import FiduciaryScoringEngine, compute_reverse_fed_m
 def _get_stress_tests():
     from stress_test import run_stress_tests as _run_stress_tests
     def _wrapper(custom_holdings=None, target_saa=None):
+        if custom_holdings is None:
+            custom_holdings = holdings
         return _run_stress_tests(
             custom_holdings=custom_holdings,
             target_saa=target_saa,

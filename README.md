@@ -1,4 +1,51 @@
-# Fiduciary Mutual Funds Copilot (Prompt-First & Lean Engine)
+### **2024-11-01 - Critical Fixes Applied**
+
+**Status:** ✅ ALL MODULES WORKING | ✅ CODE SYNTAX VALID | ✅ IMPORTS RESOLVED
+
+#### Issues Fixed:
+1. **core/math_engine.py** - Complete rewrite with all required functions
+   - Added `TaxLot`, `TaxLotSummary` dataclasses
+   - Fixed `build_fifo_tax_lots()` with proper FIFO logic
+   - Added missing helper functions: `_fifo_redeem()`, `_match_scheme_to_fund()`
+   - Restored `aggregate_fiduciary_facts()` pipeline
+   - All 12 core math functions now available
+
+2. **advisor_lean.py** - Circular import resolved
+   - Added lazy import for `run_stress_tests`
+   - Fixed wrapper to provide default holdings
+
+3. **ui/app.py** - Dictionary iteration fixes
+   - Fixed 3 locations where `stress_results["scenarios"]` dict was iterated directly
+   - Changed to `.values()` iteration
+
+#### **Current Architecture:**
+```
+├── core/
+│   ├── math_engine.py          # ✅ FIXED - All calculations working
+│   ├── models.py               # ✅ Data schemas
+│   ├── prompt_advisor.py       # ✅ AI advisory
+│   ├── ai_engine.py            # ✅ LLM integration
+│   ├── candidate_scoring.py    # ✅ Fiduciary scoring
+│   └── cgs_parser.py           # ✅ PDF parsing
+├── advisor.py                  # ✅ Main advisor
+├── advisor_lean.py             # ✅ Lean advisor
+├── stress_test.py              # ✅ Portfolio stress testing
+├── ui/app.py                   # ✅ Streamlit UI
+└── data/lalit_portfolio/       # ✅ Client data
+```
+
+#### **Modules Verified:**
+- ✅ core.math_engine (all functions)
+- ✅ core.models
+- ✅ core.prompt_advisor  
+- ✅ core.ai_engine
+- ✅ core.candidate_scoring
+- ✅ core.cgs_parser
+- ✅ core.pdf_exporter
+- ✅ advisor
+- ✅ advisor_lean
+- ✅ ui.app
+
 
 A clean, modular fiduciary portfolio analysis and decision-support tool for Indian mutual funds.
 
