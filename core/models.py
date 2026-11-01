@@ -14,8 +14,14 @@ class PlanType(str, Enum):
 
 class AssetClass(str, Enum):
     EQUITY = "Equity"
+    LARGE_CAP = "Large_Cap"
+    MID_CAP = "Mid_Cap"
+    SMALL_CAP = "Small_Cap"
+    MULTI_CAP = "Multi_Cap"
+    FLEXI_CAP = "Flexi_Cap"
     DEBT = "Debt"
     HYBRID = "Hybrid"
+    HYBRID_BALANCED = "Hybrid_Balanced"
     CASH = "Cash"
     INTERNATIONAL = "International"
     OTHER = "Other"
@@ -40,6 +46,7 @@ class HoldingItem(BaseModel):
     top_holdings: List[str] = Field(default_factory=list)
     risk_tier: Optional[str] = None
     xirr_pct: Optional[float] = None
+    expense_ratio_pct: float = 0.0
 
 
 class FeeBleedAnalysis(BaseModel):

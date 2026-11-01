@@ -307,6 +307,7 @@ def load_holdings_from_cas_excel(
         # Plan detection
         scheme_lower = scheme_str.lower()
         plan = PlanType.DIRECT if "direct" in scheme_lower else PlanType.REGULAR
+        is_direct = plan == PlanType.DIRECT
 
         # Fuzzy match to fund metrics
         matched_metric = _find_matching_metric(scheme_str, metrics_map, aliases_map)
@@ -336,21 +337,22 @@ def load_holdings_from_cas_excel(
         holdings.append(
             HoldingItem(
                 fund_id=fund_id,
+                scheme=scheme_str,
                 fund_name=scheme_str,
-                folio_no=folio_str,
+                folio=folio_str,
+                is_direct=is_direct,
                 plan=plan,
                 invested_value_inr=invested,
                 current_value_inr=current,
-                expense_ratio_pct=er,
-                category=category,
                 asset_class=asset_class,
                 equity_pct=eq_pct,
                 debt_pct=debt_pct,
-                large_cap_pct=lc_pct,
-                mid_cap_pct=mc_pct,
-                small_cap_pct=sc_pct,
-                sharpe_ratio=sharpe,
+                hybrid_pct=0.0,
+                international_pct=0.0,
+                units=0.0,
+                nav=0.0,
                 top_holdings=top_h,
+                expense_ratio_pct=er,
             )
         )
 
@@ -420,7 +422,7 @@ def calculate_fee_bleed(holdings: List[HoldingItem], default_commission_rate: fl
         annual_bleed += fund_bleed
         details.append({
             "fund_name": h.fund_name,
-            "folio_no": h.folio_no,
+            "folio_no": h.folio,
             "current_value_inr": round(h.current_value_inr, 2),
             "estimated_annual_commission_inr": round(fund_bleed, 2),
             "expense_ratio_pct": round(h.expense_ratio_pct, 2)
@@ -438,11 +440,11 @@ def calculate_fee_bleed(holdings: List[HoldingItem], default_commission_rate: fl
     ten_year_compounded_loss = annual_bleed * annuity_factor
 
     return FeeBleedAnalysis(
-        annual_bleed_inr=round(annual_bleed, 2),
+        annual_commission_leakage_inr=round(annual_bleed, 2),
         ten_year_compounded_loss_inr=round(ten_year_compounded_loss, 2),
         regular_funds_count=len(regular_holdings),
-        regular_portfolio_value_inr=round(total_regular_val, 2),
-        details=details
+        regular_funds=details,
+        direct_alternatives={}
     )
 
 
@@ -809,6 +811,7 @@ def calculate_cash_deployment(
     bank_cash_inr: float = 0.0,
     emergency_buffer_inr: float = 0.0,
     stp_months: int = 6,
+    emergency_months: float = 6.0,
 ) -> CashDeploymentPlan:
     """
     Computes cash deployment waterfall for bank balances.
@@ -818,12 +821,15 @@ def calculate_cash_deployment(
     stp_monthly = deployable / stp_months if stp_months > 0 else 0.0
 
     return CashDeploymentPlan(
-        total_bank_cash_inr=round(bank_cash_inr, 2),
-        emergency_buffer_inr=round(emergency_buffer_inr, 2),
+        total_cash_inr=round(bank_cash_inr, 2),
+        emergency_reserve_inr=round(emergency_buffer_inr, 2),
+        emergency_months=emergency_months,
         deployable_surplus_inr=round(deployable, 2),
-        immediate_lump_sum_inr=0.0,
+        stp_recommendation=None,
         stp_monthly_amount_inr=round(stp_monthly, 2),
         stp_duration_months=stp_months,
+        stp_source_fund=None,
+        stp_target_fund=None,
     )
 
 
