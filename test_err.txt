@@ -1,0 +1,40 @@
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+    import sys; sys.stderr = open('test_err.txt', 'w'); import warnings; warnings.filterwarnings('ignore'); from core.math_engine import aggregate_fiduciary_facts; from pathlib import Path; cas = Path('data/lalit_portfolio/statements/cas_detailed_report_2026_10_09_174452.xlsx'); metrics = Path('data/lalit_portfolio/fund_metrics.json'); config = Path('data/lalit_portfolio/config.json'); aliases = Path('data/lalit_portfolio/fund_aliases.json'); facts = aggregate_fiduciary_facts(cas, metrics, config, aliases); print('Total AUM:', facts.total_portfolio_value_inr); print('Fee Bleed:', facts.fee_bleed.annual_commission_leakage_inr); print('Holdings:', facts.holdings_count)
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                       ~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\l9999\Documents\VSworks\Mutual funds only prompt Based\core\math_engine.py", line 938, in aggregate_fiduciary_facts
+    holdings = load_holdings_from_cas_excel(cas_path, metrics_path, aliases_path)
+  File "C:\Users\l9999\Documents\VSworks\Mutual funds only prompt Based\core\math_engine.py", line 337, in load_holdings_from_cas_excel
+    HoldingItem(
+    ~~~~~~~~~~~^
+        fund_id=fund_id,
+        ^^^^^^^^^^^^^^^^
+    ...<14 lines>...
+        top_holdings=top_h,
+        ^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\l9999\AppData\Local\Python\pythoncore-3.15-64\Lib\site-packages\pydantic\main.py", line 280, in __init__
+    validated_self = self.__pydantic_validator__.validate_python(data, self_instance=self)
+pydantic_core._pydantic_core.ValidationError: 7 validation errors for HoldingItem
+scheme
+  Field required [type=missing, input_value={'fund_id': 'HDFC BAF', '...Eternal', 'Coal India']}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.14/v/missing
+folio
+  Field required [type=missing, input_value={'fund_id': 'HDFC BAF', '...Eternal', 'Coal India']}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.14/v/missing
+is_direct
+  Field required [type=missing, input_value={'fund_id': 'HDFC BAF', '...Eternal', 'Coal India']}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.14/v/missing
+hybrid_pct
+  Field required [type=missing, input_value={'fund_id': 'HDFC BAF', '...Eternal', 'Coal India']}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.14/v/missing
+international_pct
+  Field required [type=missing, input_value={'fund_id': 'HDFC BAF', '...Eternal', 'Coal India']}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.14/v/missing
+units
+  Field required [type=missing, input_value={'fund_id': 'HDFC BAF', '...Eternal', 'Coal India']}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.14/v/missing
+nav
+  Field required [type=missing, input_value={'fund_id': 'HDFC BAF', '...Eternal', 'Coal India']}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.14/v/missing

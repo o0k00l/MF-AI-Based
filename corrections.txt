@@ -1,0 +1,301 @@
+# ============================================================
+# ARCHITECTURAL CORRECTIONS - NEW FUNCTIONS
+# ============================================================
+
+def calculate_weighted_lookthrough_overlap(
+    holdings: List[Dict[str, Any]],
+    threshold_pct: float = 10.0
+) -> List[Dict[str, Any]]:
+    stock_fund_weights: Dict[str, Dict[str, float]] = {}
+    fund_total_value: Dict[str, float] = {}
+    
+    for h in holdings:
+        if not h.get('top_holdings'):
+            continue
+        fund_total_value[h.get('fund_id', h.get('scheme', ''))] = h['value']
+        weight_per_stock = 100.0 / len(h['top_holdings'])
+        for stock in h['top_holdings']:
+            if stock not in stock_fund_weights:
+                stock_fund_weights[stock] = {}
+            stock_fund_weights[stock][h.get('fund_id', h.get('scheme', ''))] = weight_per_stock
+    
+    fund_ids = list(fund_total_value.keys())
+    results = []
+    
+    for i in range(len(fund_ids)):
+        for j in range(i + 1, len(fund_ids)):
+            fa = fund_ids[i]
+            fb = fund_ids[j]
+            
+            shared_stocks = []
+            weighted_overlap = 0.0
+            sector_weights: Dict[str, float] = {}
+            
+            for stock, fund_weights in stock_fund_weights.items():
+                if fa in fund_weights and fb in fund_weights:
+                    weight_a = fund_weights[fa]
+                    weight_b = fund_weights[fb]
+                    combined = weight_a + weight_b
+                    
+                    shared_stocks.append({
+                        'stock': stock,
+                        'weight_a_pct': round(weight_a, 2),
+                        'weight_b_pct': round(weight_b, 2),
+                        'combined_weight_pct': round(combined, 2)
+                    })
+                    weighted_overlap += combined
+            
+            if not shared_stocks:
+                continue
+            
+            set_a = set(stock for stock in stock_fund_weights if fa in stock_fund_weights[stock])
+            set_b = set(stock for stock in stock_fund_weights if fb in stock_fund_weights[stock])
+            jaccard = len(set_a & set_b) / len(set_a | set_b) if (set_a | set_b) else 0
+            
+            if weighted_overlap >= 20.0:
+                verdict = 'HIGH_CONCENTRATION'
+            elif weighted_overlap >= 10.0:
+                verdict = 'MODERATE'
+            else:
+                verdict = 'ACCEPTABLE'
+            
+            if weighted_overlap >= threshold_pct:
+                results.append({
+                    'fund_a': fa,
+                    'fund_b': fb,
+                    'weighted_overlap_pct': round(weighted_overlap, 2),
+                    'jaccard_similarity': round(jaccard * 100, 2),
+                    'shared_stocks': shared_stocks,
+                    'sector_concentration': sector_weights,
+                    'verdict': verdict
+                })
+    
+    results.sort(key=lambda x: x['weighted_overlap_pct'], reverse=True)
+    return results
+
+
+def calculate_risk_distribution_detailed(holdings: List[Dict[str, Any]]) -> Dict[str, Any]:
+    tier_counts: Dict[str, int] = {}
+    tier_values: Dict[str, float] = {}
+    total_value = sum(h['value'] for h in holdings)
+    
+    for h in holdings:
+        tier = h.get('risk_tier', 'Unknown')
+        if tier not in tier_counts:
+            tier_counts[tier] = 0
+            tier_values[tier] = 0.0
+        tier_counts[tier] += 1
+        tier_values[tier] += h['value']
+    
+    tier_pct = {t: round((v / total_value) * 100, 2) for t, v in tier_values.items()} if total_value > 0 else {}
+    
+    return {
+        'risk_tier_distribution': tier_counts,
+        'risk_tier_values': tier_pct,
+        'portfolio_beta': None,
+        'max_drawdown_pct': None,
+        'downside_capture_ratio': None,
+        'volatility_annualized_pct': None
+    }
+
+
+def calculate_switch_cost_analysis(
+    source_fund: str,
+    target_fund: str,
+    source_holding: Dict[str, Any],
+    target_fund_ter: float,
+    is_intra_amc: bool = False,
+    holding_period_days: int = 365,
+    current_nav: float = 0.0,
+    purchase_nav: float = 0.0
+) -> Dict[str, Any]:
+    exit_load_pct = 1.0 if holding_period_days < 365 else 0.0
+    exit_load_inr = source_holding['value'] * (exit_load_pct / 100.0)
+    
+    gain_pct = ((current_nav - purchase_nav) / purchase_nav) * 100 if purchase_nav > 0 else 0
+    gain_inr = source_holding['value'] * (gain_pct / 100.0)
+    
+    if holding_period_days > 365:
+        ltcg_exemption = 125000.0
+        taxable_ltcg = max(0, gain_inr - ltcg_exemption)
+        ltcg_tax = taxable_ltcg * 0.125
+        stcg_tax = 0.0
+    else:
+        stcg_tax = gain_inr * 0.20
+        ltcg_tax = 0.0
+    
+    capital_gains_tax = stcg_tax + ltcg_tax
+    net_switch_cost = exit_load_inr + capital_gains_tax
+    net_switch_cost_pct = (net_switch_cost / source_holding['value']) * 100 if source_holding['value'] > 0 else 0
+    
+    return {
+        'source_fund': source_fund,
+        'target_fund': target_fund,
+        'exit_load_pct': exit_load_pct,
+        'exit_load_inr': round(exit_load_inr, 2),
+        'capital_gains_tax_inr': round(capital_gains_tax, 2),
+        'stcg_tax_inr': round(stcg_tax, 2),
+        'ltcg_tax_inr': round(ltcg_tax, 2),
+        'net_switch_cost_inr': round(net_switch_cost, 2),
+        'net_switch_cost_pct': round(net_switch_cost_pct, 2),
+        'is_intra_amc': is_intra_amc,
+        'warning': 'Intra-AMC switches trigger capital gains tax and exit loads per Sections 47 & 112A'
+    }
+
+
+def calculate_saa_drift_minimizer(
+    holdings: List[Dict[str, Any]],
+    target_allocation: Dict[str, float],
+    sip_budget_inr: float
+) -> Dict[str, Any]:
+    total_val = sum(h['value'] for h in holdings)
+    if total_val <= 0:
+        return {
+            'current_allocation': {},
+            'target_allocation': target_allocation,
+            'sip_budget_inr': sip_budget_inr,
+            'recommended_sip_allocation': {},
+            'drift_after_sip': {},
+            'total_drift_l2_norm': 0.0
+        }
+    
+    current_alloc = {}
+    for h in holdings:
+        asset = h.get('asset_class', 'Equity')
+        if asset not in current_alloc:
+            current_alloc[asset] = 0.0
+        current_alloc[asset] += h['value']
+    
+    current_pct = {k: (v / total_val) * 100 for k, v in current_alloc.items()}
+    target_pct = target_allocation
+    gaps = {k: target_pct.get(k, 0) - current_pct.get(k, 0) for k in set(current_pct) | set(target_pct)}
+    
+    positive_gaps = {k: v for k, v in gaps.items() if v > 0}
+    total_positive_gap = sum(positive_gaps.values())
+    
+    sip_alloc = {}
+    if total_positive_gap > 0:
+        for asset, gap in positive_gaps.items():
+            sip_alloc[asset] = sip_budget_inr * (gap / total_positive_gap)
+    else:
+        for asset in target_pct:
+            sip_alloc[asset] = sip_budget_inr / len(target_pct)
+    
+    new_total = total_val + sip_budget_inr
+    projected_alloc = {}
+    for asset in set(current_pct) | set(target_pct):
+        current_val = current_alloc.get(asset, 0)
+        sip_val = sip_alloc.get(asset, 0)
+        projected_alloc[asset] = ((current_val + sip_val) / new_total) * 100
+    
+    drift = {k: projected_alloc.get(k, 0) - target_pct.get(k, 0) for k in target_pct}
+    import math
+    l2_norm = math.sqrt(sum(d * d for d in drift.values()))
+    
+    return {
+        'current_allocation': current_pct,
+        'target_allocation': target_pct,
+        'sip_budget_inr': sip_budget_inr,
+        'recommended_sip_allocation': sip_alloc,
+        'drift_after_sip': drift,
+        'total_drift_l2_norm': round(l2_norm, 2)
+    }
+
+
+def check_eligibility_gates(
+    fund_data: Dict[str, Any],
+    min_aum_crore: float = 500,
+    max_concentration_top10_pct: float = 30.0,
+    max_sector_concentration_pct: float = 25.0,
+    min_manager_tenure_years: float = 3.0
+) -> Dict[str, Any]:
+    failed = []
+    
+    aum = fund_data.get('aum_crore', 0)
+    liquidity_ok = aum >= 500
+    if not liquidity_ok:
+        failed.append('Liquidity: AUM {aum}Cr < 500Cr minimum'.format(aum=aum))
+    
+    aum_stable = fund_data.get('aum_stable', True)
+    if not aum_stable:
+        failed.append('AUM Stability: Significant outflows detected')
+    
+    top10 = fund_data.get('concentration_top10_pct', 0)
+    concentration_ok = top10 <= 30.0
+    if not concentration_ok:
+        failed.append('Concentration: Top 10 holdings {top10}% > 30.0%'.format(top10=top10))
+    
+    sector_conc = fund_data.get('max_sector_concentration_pct', 0)
+    sector_ok = sector_conc <= 25.0
+    if not sector_ok:
+        failed.append('Sector Concentration: {sector_conc}% > 25.0%'.format(sector_conc=sector_conc))
+    
+    mandate_ok = fund_data.get('mandate_suitable', True)
+    if not mandate_ok:
+        failed.append('Mandate Suitability: Strategy mismatch with investor profile')
+    
+    data_ok = fund_data.get('data_complete', True)
+    if not data_ok:
+        failed.append('Data Integrity: Incomplete or stale data')
+    
+    tenure = fund_data.get('manager_tenure_years', 0)
+    tenure_ok = tenure >= 3.0
+    if not tenure_ok:
+        failed.append('Manager Tenure: {tenure} years < 3.0 minimum'.format(tenure=tenure))
+    
+    passed = len(failed) == 0
+    
+    return {
+        'fund_id': fund_data.get('fund_id', ''),
+        'fund_name': fund_data.get('fund_name', ''),
+        'passed': passed,
+        'failed_gates': failed,
+        'liquidity_gate': liquidity_ok,
+        'aum_stability_gate': True,
+        'concentration_gate': concentration_ok,
+        'mandate_suitability_gate': mandate_ok,
+        'data_integrity_gate': True,
+        'manager_tenure_gate': tenure_ok,
+        'details': {
+            'aum_crore': aum,
+            'top10_concentration_pct': top10,
+            'sector_concentration_pct': sector_conc,
+            'manager_tenure_years': tenure
+        }
+    }
+
+
+def evaluate_no_action(
+    current_portfolio: List[Dict[str, Any]],
+    candidate_funds: List[Dict[str, Any]],
+    min_improvement_threshold: float = 5.0
+) -> Dict[str, Any]:
+    best_improvement = 0.0
+    best_fund = None
+    
+    for fund in candidate_funds:
+        if not fund.get('eligibility', {}).get('passed', False):
+            continue
+        improvement = fund.get('composite_score', 0)
+        if improvement > best_improvement:
+            best_improvement = improvement
+            best_fund = fund
+    
+    no_improvement = best_improvement < 5.0
+    current_adequate = no_improvement
+    
+    if no_improvement:
+        reason = 'No candidate fund offers >5.0 pts improvement over current portfolio. Best: {best_fund} at {best_improvement:.1f} pts.'.format(best_fund=best_fund.get('fund_name', 'None') if best_fund else 'None', best_improvement=best_improvement)
+        hold_rec = 'Retain all current holdings. Pause new SIP deployment. Review quarterly.'
+    else:
+        reason = 'Found improvement candidate: {best_fund} (+{best_improvement:.1f} pts)'.format(best_fund=best_fund.get('fund_name', 'None'), best_improvement=best_improvement)
+        hold_rec = 'Proceed with candidate evaluation.'
+    
+    return {
+        'action': 'NO_ACTION' if no_improvement else 'PROCEED',
+        'reason': reason,
+        'current_portfolio_adequate': current_adequate,
+        'no_improvement_found': no_improvement,
+        'hold_recommendation': hold_rec,
+        'sip_deployment_pause': no_improvement
+    }

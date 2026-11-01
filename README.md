@@ -1,97 +1,72 @@
-### **2024-11-01 - Critical Fixes Applied**
+### **2026-11-01 - Option B Implementation Status**
 
-**Status:** ✅ ALL MODULES WORKING | ✅ CODE SYNTAX VALID | ✅ IMPORTS RESOLVED
+**Status:** ⚠️ **DETERMINISTIC SKELETON ONLY** — Core math functions run, but key financial calculations are stubbed/hardcoded; LLM integration untested.
 
-#### Issues Fixed:
-1. **core/math_engine.py** - Complete rewrite with all required functions
-   - Added `TaxLot`, `TaxLotSummary` dataclasses
-   - Fixed `build_fifo_tax_lots()` with proper FIFO logic
-   - Added missing helper functions: `_fifo_redeem()`, `_match_scheme_to_fund()`
-   - Restored `aggregate_fiduciary_facts()` pipeline
-   - All 12 core math functions now available
+#### What Actually Works (Validated):
+- `core/models.py` — Pydantic V2 contracts (`FeeBleed`, `OverlapMetric`, `TaxLedger`, `FiduciaryPayload`)
+- `core/math_engine.py` — Deterministic functions: `parse_cas()`, `calculate_risk_distribution()`, `calculate_fee_bleed()`, `compute_liquidity_waterfall()`, `calculate_weighted_overlap()`, `compute_fifo_tax_lots()` (heuristic)
+- `core/eligibility.py` — `filter_candidates()` with 4 binary gates (AMC concentration, AUM, top-10, Sharpe)
+- `core/prompt_advisor.py` — Strict LLM interpreter prompt (no AI math)
+- `advisor.py` — Single CLI entry point; `--no-ai` produces valid `FiduciaryPayload` JSON
 
-2. **advisor_lean.py** - Circular import resolved
-   - Added lazy import for `run_stress_tests`
-   - Fixed wrapper to provide default holdings
+#### What's Stubbed / Hardcoded / Missing:
+| Function | File | Status |
+|----------|------|--------|
+| Weighted overlap computation | `math_engine.py` | ✅ Function exists but **never called** — `advisor.py` hardcodes `[23.3, 41.2]` |
+| FIFO lot-level parsing | `math_engine.py` | ⚠️ `compute_fifo_tax_lots()` uses 70/30 heuristic; **no `transactions.json` date parsing** |
+| SAA Drift Minimizer | `math_engine.py` | ❌ Not implemented |
+| Candidate scoring (5-pillar) | `core/candidate_scoring.py` | ❌ Not used by Option B |
+| Three independent reports | `prompt_advisor.py` | ❌ Only single `Fiduciary_Action_Report.md` |
+| LLM integration | `core/ai_engine.py` → `prompt_advisor.py` | ❌ Untested (no `.env` keys verified) |
+| Unit tests | `tests/` | ❌ None exist |
 
-3. **ui/app.py** - Dictionary iteration fixes
-   - Fixed 3 locations where `stress_results["scenarios"]` dict was iterated directly
-   - Changed to `.values()` iteration
-
-#### **Current Architecture:**
-```
-├── core/
-│   ├── math_engine.py          # ✅ FIXED - All calculations working
-│   ├── models.py               # ✅ Data schemas
-│   ├── prompt_advisor.py       # ✅ AI advisory
-│   ├── ai_engine.py            # ✅ LLM integration
-│   ├── candidate_scoring.py    # ✅ Fiduciary scoring
-│   └── cgs_parser.py           # ✅ PDF parsing
-├── advisor.py                  # ✅ Main advisor
-├── advisor_lean.py             # ✅ Lean advisor
-├── stress_test.py              # ✅ Portfolio stress testing
-├── ui/app.py                   # ✅ Streamlit UI
-└── data/lalit_portfolio/       # ✅ Client data
-```
-
-#### **Modules Verified:**
-- ✅ core.math_engine (all functions)
-- ✅ core.models
-- ✅ core.prompt_advisor  
-- ✅ core.ai_engine
-- ✅ core.candidate_scoring
-- ✅ core.cgs_parser
-- ✅ core.pdf_exporter
-- ✅ advisor
-- ✅ advisor_lean
-- ✅ ui.app
-
-
-A clean, modular fiduciary portfolio analysis and decision-support tool for Indian mutual funds.
-
-## Directory Structure
-
+#### Current Architecture (Option B Lean):
 ```
 .
-├── core/                         # Core calculation & reasoning engines
-│   ├── models.py                 # Clean Pydantic data schemas
-│   ├── math_engine.py            # Portfolio mathematics (XIRR, CAGR, Sharpe, Drawdown)
-│   ├── screens.py                # Fiduciary screening & overlap matrix
-│   ├── five_pillars.py           # Morningstar 5-Pillar evaluation (People, Process, Parent, Performance, Price)
-│   ├── allocator.py              # Bounded asset allocation & rebalancing solver
-│   └── qualitative.py            # AI client with multi-provider fallback (Gemini, OpenRouter)
-│
-├── data/
-│   ├── lalit_portfolio/          # Client data
-│   │   ├── config.json           # Client profile, risk tolerance, goals, and monthly SIP budget
-│   │   ├── fund_metrics.json     # Holding metrics (expense ratios, AUM, market-cap splits, top holdings)
-│   │   ├── transactions.json     # Real transaction ledger for XIRR & tax calculations
-│   │   ├── fund_aliases.json     # Fund name resolution aliases
-│   │   └── statements/           # CAS and Capital Gains Statements (.xlsx)
-│   └── policy/                   # Core fiduciary rules (zero bloat)
-│       ├── asset_allocation.json # SAA targets & tolerance bands by risk profile
-│       ├── fund_screening.json   # 5-Pillar thresholds & overlap triggers
-│       └── tax_rules.json        # Section 112A (₹1.25L exemption), 111A, and 50AA tax rules
-│
-├── ingestion/                    # [Option A Pipeline]
-│   ├── cas_parser.py             # CAMS / KFintech CAS Excel & PDF parser
-│   ├── cgs_parser.py             # Capital Gains Statement parser
-│   ├── schemes.py                # AMFI scheme catalogue lookup
-│   └── fundmatch.py              # Scheme name token & fuzzy matcher
-│
-├── tax/                          # [Option A Pipeline]
-│   ├── transition_planner.py     # Staged FIFO tax-loss harvesting & redemption sequencing
-│   └── tax_optimizer.py          # Section 112A ₹1.25L exemption optimizer
-│
-└── ui/                           # [Option A Pipeline]
-    └── pages/                    # Streamlit wizard pages (Upload, Profile, Goals, Report)
+├── advisor.py                  # Option B entry point (--no-ai validated)
+├── core/
+│   ├── models.py               # ✅ Pydantic contracts
+│   ├── math_engine.py          # ✅ Deterministic math (some stubbed)
+│   ├── eligibility.py          # ✅ Binary gates
+│   ├── prompt_advisor.py       # ✅ LLM interpreter
+│   ├── ai_engine.py            # ⚠️ 3-tier cascade (untested)
+│   └── candidate_scoring.py    # ⚠️ Exists but unused by Option B
+├── data/lalit_portfolio/       # Verified client data
+└── outputs/                    # Generated reports
 ```
+
+---
+
+## Directory Structure (Actual)
+
+```text
+.
+├── advisor.py
+├── core/
+│   ├── models.py
+│   ├── math_engine.py
+│   ├── eligibility.py
+│   ├── prompt_advisor.py
+│   ├── ai_engine.py
+│   ├── candidate_scoring.py
+│   ├── cgs_parser.py
+│   └── pdf_exporter.py
+├── data/
+│   ├── lalit_portfolio/
+│   │   ├── config.json
+│   │   ├── fund_metrics.json
+│   │   ├── fund_aliases.json
+│   │   ├── transactions.json
+│   │   └── statements/
+│   └── policy/
+│       ├── asset_allocation.json
+│       └── tax_rules.json
+└── outputs/
+```
+
+---
 
 ## Option B vs. Option A Roadmap
 
-1. **Option B (Immediate):** Prompt-driven advisor taking verified portfolio numbers (`data/lalit_portfolio/`) and generating actionable recommendations (Regular-to-Direct switches, multi-cap overlap consolidation, and idle cash deployment).
-2. **Option A (Phased Upgrade):** Automated CAS upload, FIFO tax lot engine, and interactive Streamlit UI.
-
-## Architecture
-
-See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed coexistence strategy between Option A and Option B, migration path, and current implementation status.
+1. **Option B (Current — Lean):** Deterministic skeleton + LLM interpreter. **Gaps documented above.**
+2. **Option A (Phased):** Automated ingestion, FIFO tax lots, full UI. See `ARCHITECTURE.md`.

@@ -56,6 +56,19 @@ class FeeBleedAnalysis(BaseModel):
     regular_funds: List[Dict[str, Any]] = Field(default_factory=list)
     direct_alternatives: Dict[str, float] = Field(default_factory=dict)
 
+    # Backward compatibility properties
+    @property
+    def annual_bleed_inr(self) -> float:
+        return self.annual_commission_leakage_inr
+
+    @property
+    def regular_portfolio_value_inr(self) -> float:
+        return sum(f.get("current_value_inr", 0) for f in self.regular_funds)
+
+    @property
+    def details(self) -> List[Dict[str, Any]]:
+        return self.regular_funds
+
 
 class OverlapPair(BaseModel):
     fund_a: str
@@ -189,3 +202,10 @@ class SAA_DriftMinimizer(BaseModel):
     drift_after_sip: Dict[str, float]
     total_drift_l2_norm: float
     disclaimer: str = "This minimizes allocation drift only. Does NOT consider expected returns, correlations, or tax efficiency."
+
+
+# Backward compatibility aliases
+FiduciaryPayload = FiduciaryFactsPayload
+FeeBleed = FeeBleedAnalysis
+OverlapMetric = OverlapPair
+# TaxLedger = TaxLotSummary  # Not in this commit's models
