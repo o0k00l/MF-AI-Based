@@ -1,60 +1,61 @@
 """
-core/models.py - Strict Pydantic V2 data contracts for Option B.
+core/models.py — Pydantic V2 Data Contracts for Option B.
 """
-
-from enum import Enum
 from typing import List, Dict, Optional, Any
 from pydantic import BaseModel, Field
+from datetime import date
+from enum import Enum
 
 
 class PlanType(str, Enum):
-    DIRECT = "Direct"
     REGULAR = "Regular"
-    UNKNOWN = "Unknown"
+    DIRECT = "Direct"
 
 
 class AssetClass(str, Enum):
-    LARGE_CAP = "Large-Cap"
-    MID_CAP = "Mid-Cap"
-    SMALL_CAP = "Small-Cap"
-    HYBRID_BALANCED = "Hybrid/Balanced"
-    DEBT_LIQUID = "Debt/Liquid"
+    EQUITY = "Equity"
+    DEBT = "Debt"
+    HYBRID = "Hybrid"
+    CASH = "Cash"
+    INTERNATIONAL = "International"
     OTHER = "Other"
 
 
 class HoldingItem(BaseModel):
     fund_id: str
+    scheme: str
     fund_name: str
-    folio_no: str = ""
-    plan: PlanType = PlanType.UNKNOWN
-    invested_value_inr: float = 0.0
-    current_value_inr: float = 0.0
-    expense_ratio_pct: float = 0.0
-    category: str = "Unknown"
-    asset_class: AssetClass = AssetClass.OTHER
-    equity_pct: float = 100.0
-    debt_pct: float = 0.0
-    large_cap_pct: float = 0.0
-    mid_cap_pct: float = 0.0
-    small_cap_pct: float = 0.0
-    sharpe_ratio: Optional[float] = None
+    folio: str
+    is_direct: bool
+    plan: PlanType
+    asset_class: AssetClass
+    equity_pct: float
+    debt_pct: float
+    hybrid_pct: float
+    international_pct: float
+    current_value_inr: float
+    invested_value_inr: float
+    units: float
+    nav: float
     top_holdings: List[str] = Field(default_factory=list)
+    risk_tier: Optional[str] = None
+    xirr_pct: Optional[float] = None
 
 
 class FeeBleedAnalysis(BaseModel):
-    annual_bleed_inr: float
+    annual_commission_leakage_inr: float
     ten_year_compounded_loss_inr: float
     regular_funds_count: int
-    regular_portfolio_value_inr: float
-    details: List[Dict[str, Any]] = Field(default_factory=list)
+    regular_funds: List[Dict[str, Any]] = Field(default_factory=list)
+    direct_alternatives: Dict[str, float] = Field(default_factory=dict)
 
 
 class OverlapPair(BaseModel):
     fund_a: str
     fund_b: str
     overlap_pct: float
-    shared_stocks: List[str] = Field(default_factory=list)
-    verdict: str  # "HIGH_DUPLICATION", "MODERATE", "ACCEPTABLE"
+    shared_stocks: List[str]
+    verdict: str  # "HIGH_DUPLICATION" | "MODERATE" | "ACCEPTABLE"
 
 
 class SAADriftAnalysis(BaseModel):
@@ -66,26 +67,21 @@ class SAADriftAnalysis(BaseModel):
     target_equity_pct: float
     target_debt_pct: float
     tolerance_band_pct: float = 5.0
-    rebalance_required: bool = False
-    equity_gap_inr: float = 0.0
-    debt_gap_inr: float = 0.0
-
-    @property
-    def equity_drift_pct(self) -> float:
-        return round(self.current_equity_pct - self.target_equity_pct, 2)
-
-    @property
-    def debt_drift_pct(self) -> float:
-        return round(self.current_debt_pct - self.target_debt_pct, 2)
+    rebalance_required: bool
+    equity_gap_inr: float
+    debt_gap_inr: float
 
 
 class CashDeploymentPlan(BaseModel):
-    total_bank_cash_inr: float
-    emergency_buffer_inr: float
+    total_cash_inr: float
+    emergency_reserve_inr: float
+    emergency_months: float
     deployable_surplus_inr: float
-    immediate_lump_sum_inr: float = 0.0
-    stp_monthly_amount_inr: float = 0.0
-    stp_duration_months: int = 6
+    stp_recommendation: Optional[str] = None
+    stp_monthly_amount_inr: float
+    stp_duration_months: int
+    stp_source_fund: Optional[str] = None
+    stp_target_fund: Optional[str] = None
 
 
 class FiduciaryFactsPayload(BaseModel):
@@ -107,3 +103,82 @@ class FiduciaryFactsPayload(BaseModel):
     tax_lots_summary: Optional[Dict[str, Any]] = None
     weak_funds_flagged: List[Dict[str, Any]] = Field(default_factory=list)
     holdings: List[HoldingItem] = Field(default_factory=list)
+
+
+# ============================================================
+# NEW MODELS FOR ARCHITECTURAL CORRECTIONS
+# ============================================================
+
+class WeightedOverlapResult(BaseModel):
+    """Weighted look-through stock concentration across all holdings."""
+    fund_a: str
+    fund_b: str
+    weighted_overlap_pct: float  # Combined portfolio weight in shared stocks
+    jaccard_similarity: float    # Secondary measure
+    shared_stocks: List[Dict[str, Any]] = Field(default_factory=list)  # {stock, weight_a, weight_b, combined_weight}
+    sector_concentration: Dict[str, float] = Field(default_factory=dict)
+    verdict: str  # "HIGH_CONCENTRATION", "MODERATE", "ACCEPTABLE"
+
+
+class RiskDistribution(BaseModel):
+    """Ordinal risk tier distribution - not cardinal scores."""
+    risk_tier_distribution: Dict[str, int] = Field(default_factory=dict)  # tier -> count
+    risk_tier_values: Dict[str, float] = Field(default_factory=dict)  # tier -> portfolio_weight_pct
+    portfolio_beta: Optional[float] = None
+    max_drawdown_pct: Optional[float] = None
+    downside_capture_ratio: Optional[float] = None
+    volatility_annualized_pct: Optional[float] = None
+    # No single cardinal risk score
+
+
+class SwitchCostAnalysis(BaseModel):
+    """Actual cost of switching - not 'zero-friction'."""
+    source_fund: str
+    target_fund: str
+    exit_load_pct: float
+    exit_load_inr: float
+    capital_gains_tax_inr: float
+    stcg_tax_inr: float
+    ltcg_tax_inr: float
+    net_switch_cost_inr: float
+    net_switch_cost_pct: float
+    is_intra_amc: bool
+    warning: str = "Intra-AMC switches trigger capital gains tax and exit loads per Sections 47 & 112A"
+
+
+class EligibilityGateResult(BaseModel):
+    """Binary eligibility gates - must pass ALL to enter scoring."""
+    fund_id: str
+    fund_name: str
+    passed: bool
+    failed_gates: List[str] = Field(default_factory=list)
+    liquidity_gate: bool = False
+    aum_stability_gate: bool = False
+    concentration_gate: bool = False
+    mandate_suitability_gate: bool = False
+    data_integrity_gate: bool = False
+    manager_tenure_gate: bool = False
+    details: Dict[str, Any] = Field(default_factory=dict)
+
+
+class NOActionResult(BaseModel):
+    """Mandatory NO ACTION decision branch."""
+    action: str = "NO_ACTION"
+    reason: str
+    current_portfolio_adequate: bool
+    no_improvement_found: bool
+    hold_recommendation: str
+    sip_deployment_pause: bool = True
+
+
+class SAA_DriftMinimizer(BaseModel):
+    """SAA Drift Minimizer - NOT an investment optimizer."""
+    name: str = "SAA Drift Minimizer"
+    description: str = "Minimizes ||Target - (Current + SIP)||_2 subject to SIP budget. Does NOT optimize returns."
+    current_allocation: Dict[str, float]
+    target_allocation: Dict[str, float]
+    sip_budget_inr: float
+    recommended_sip_allocation: Dict[str, float]
+    drift_after_sip: Dict[str, float]
+    total_drift_l2_norm: float
+    disclaimer: str = "This minimizes allocation drift only. Does NOT consider expected returns, correlations, or tax efficiency."

@@ -1,8 +1,8 @@
-﻿"""
+"""
 core/math_engine.py - Deterministic Fiduciary Financial Mathematics Engine.
 
 Calculates:
-1. Regular-to-Direct commission leakage (Annual â‚¹ & 10-Year Compounded Loss)
+1. Regular-to-Direct commission leakage (Annual ₹ & 10-Year Compounded Loss)
 2. Pairwise stock overlap matrix (Minimum-Weight Overlap Arbiter)
 3. Strategic Asset Allocation (SAA) current vs target drift
 4. Idle cash deployment waterfall (Emergency reserve vs Deployable surplus)
@@ -205,6 +205,12 @@ from core.models import (
     SAADriftAnalysis,
     CashDeploymentPlan,
     FiduciaryFactsPayload,
+    WeightedOverlapResult,
+    RiskDistribution,
+    SwitchCostAnalysis,
+    EligibilityGateResult,
+    NOActionResult,
+    SAA_DriftMinimizer,
 )
 
 
@@ -441,7 +447,7 @@ def calculate_fee_bleed(holdings: List[HoldingItem], default_commission_rate: fl
 
 
 # ============================================================
-# LOT-LEVEL TAX HARVESTING (FIFO with Â§112A Staging)
+# LOT-LEVEL TAX HARVESTING (FIFO with §112A Staging)
 # ============================================================
 
 @dataclass
@@ -486,117 +492,46 @@ class TaxLotSummary:
     stcg_exemption_used: float
 
 
-
-
-@dataclass
-class TaxLot:
-    """A single purchase lot of a fund."""
-    fund_id: str
-    scheme_name: str
-    folio: str
-    purchase_date: date
-    units: float
-    nav: float
-    cost: float
-    source: str
-    
-    def holding_days(self, as_of: date) -> int:
-        return (as_of - self.purchase_date).days
-    
-    def is_long_term(self, as_of: date, holding_months: int = 12) -> bool:
-        return (as_of - self.purchase_date).days > 365
-    
-    def is_short_term(self, as_of: date) -> bool:
-        return not self.is_long_term(as_of)
-
-@dataclass
-class TaxLotSummary:
-    fund_id: str
-    scheme_name: str
-    total_units: float
-    total_cost: float
-    current_value: float
-    unrealized_gain: float
-    ltcg_units: float
-    ltcg_gain: float
-    stcg_units: float
-    stcg_gain: float
-    ltcg_tax: float
-    stcg_tax: float
-    ltcg_exemption_used: float
-    stcg_exemption_used: float
-
-
-def _fifo_redeem(lots: List[TaxLot], units_to_remove: float) -> List[TaxLot]:
-    """Remove units from lot pool using FIFO method."""
-    remaining = units_to_remove
-    new_lots = []
-    for lot in lots:
-        if remaining <= 0:
-            new_lots.append(lot)
-            continue
-        if lot.units <= remaining:
-            remaining -= lot.units
-        else:
-            remaining_units = lot.units - remaining
-            redeemed_units = remaining
-            redeemed_lot = TaxLot(
-                fund_id=lot.fund_id,
-                scheme_name=lot.scheme_name,
-                folio=lot.folio,
-                purchase_date=lot.purchase_date,
-                units=redeemed_units,
-                nav=lot.nav,
-                cost=lot.cost * (redeemed_units / lot.units),
-                source=lot.source
-            )
-            remaining_lot = TaxLot(
-                fund_id=lot.fund_id,
-                scheme_name=lot.scheme_name,
-                folio=lot.folio,
-                purchase_date=lot.purchase_date,
-                units=remaining_units,
-                nav=lot.nav,
-                cost=lot.cost * (remaining_units / lot.units),
-                source=lot.source
-            )
-            new_lots.append(remaining_lot)
-            remaining = 0
-    return new_lots
-
-def _match_scheme_to_fund(scheme: str) -> Optional[str]:
-    """Match a scheme name to a fund_id using fuzzy matching."""
-    if not scheme:
-        return None
-    scheme_lower = scheme.lower()
-    for fund_id, metric in fund_metrics.items():
-        if metric.get('id', '').lower() in scheme_lower:
-            return fund_id
-        if metric.get('name', '').lower() in scheme_lower:
-            return fund_id
-    normalized = re.sub(r'[^a-z0-9]+', '_', scheme_lower).strip('_')
-    return normalized if normalized else None
-
 def build_fifo_tax_lots(
     transactions_path: Path,
     holdings: Any,
     as_of_date: Optional[date] = None,
     cas_current: Optional[float] = None
 ) -> Dict[str, List[TaxLot]]:
+    """
+    Build FIFO-ordered tax lots per fund from transaction history.
+    Returns dict[fund_id] -> List[TaxLot] sorted by purchase_date (FIFO).
+    
+    Handles all CAS transaction types: PURCHASE, SIP, SWITCH_IN, STP_IN, 
+    REDEMPTION, SWITCH_OUT, STP_OUT, DIVIDEND, STP_IN, STP_OUT.
+    
+    Rules:
+    - PURCHASE, SIP, SWITCH_IN, STP_IN: Add units to lot pool (FIFO)
+    - REDEMPTION, SWITCH_OUT, STP_OUT: Remove units from lot pool (FIFO)
+    - DIVIDEND: Reinvested = new lot at ex-div NAV; Payout = no unit change
+    - SWITCH_IN: Units received into target fund at switch NAV
+    - SWITCH_OUT: Units removed from source fund at switch NAV
+    """
     if not transactions_path.exists():
         return {}
+    
     if as_of_date is None:
         as_of_date = date.today()
+    
     try:
         with open(transactions_path, 'r', encoding='utf-8') as f:
             data = json.load(f)
     except Exception:
         return {}
+    
     transactions = data.get('transactions', [])
     if not transactions:
         return {}
+    
+    # Build lots per fund using FIFO
     fund_lots: Dict[str, List[TaxLot]] = {}
-    fund_holdings: Dict[str, float] = {}
+    fund_holdings: Dict[str, float] = {}  # current units per fund
+    
     for txn in data.get('transactions', []):
         try:
             txn_date = datetime.strptime(txn.get('date', '')[:10], '%Y-%m-%d').date()
@@ -605,16 +540,22 @@ def build_fifo_tax_lots(
             scheme = txn.get('scheme', '')
             units = float(txn.get('units', 0)) if txn.get('units') else 0
             nav = float(txn.get('nav', 0)) if txn.get('nav') else 0
+            
             if amount == 0 or units == 0:
                 continue
+            
+            # Match scheme to fund_id
             fund_id = _match_scheme_to_fund(scheme)
             if not fund_id:
                 continue
+            
             if fund_id not in fund_lots:
                 fund_lots[fund_id] = []
             if fund_id not in fund_holdings:
                 fund_holdings[fund_id] = 0.0
+            
             if txn_type in ('PURCHASE', 'SIP', 'SWITCH_IN', 'STP_IN', 'DIVIDEND_REINVEST'):
+                # Add units to lot pool
                 units_to_add = units if units > 0 else (abs(amount) / nav) if nav > 0 else 0
                 if units_to_add > 0:
                     cost = units_to_add * nav if nav > 0 else 0
@@ -630,74 +571,125 @@ def build_fifo_tax_lots(
                     )
                     fund_lots[fund_id].append(lot)
                     fund_holdings[fund_id] += units_to_add
+            
             elif txn_type in ('REDEMPTION', 'SWITCH_OUT', 'STP_OUT'):
+                # Remove units from lot pool (FIFO)
                 units_to_remove = units if units > 0 else (abs(amount) / nav) if nav > 0 else 0
                 if units_to_remove > 0:
                     fund_lots[fund_id] = _fifo_redeem(fund_lots[fund_id], units_to_remove)
                     fund_holdings[fund_id] -= units_to_remove
+            
             elif txn_type in ('DIVIDEND',):
+                # Dividend payout = no unit change; reinvestment handled separately
                 pass
+            
             elif txn_type in ('SWITCH_IN', 'SWITCH_OUT'):
+                # Handled above via SWITCH_IN/OUT types
                 pass
         except Exception:
             continue
-    for fund_id in fund_lots:
-        fund_lots[fund_id].sort(key=lambda x: x.purchase_date)
-    return fund_lots
-
-
-def compute_fifo_tax_lots(
-    transactions_path: Path,
-    holdings: Any,
-    as_of_date: Optional[date] = None
-) -> Dict[str, TaxLotSummary]:
+        
+        # Sort lots by purchase date (FIFO)
+        for fund_id in fund_lots:
+            fund_lots[fund_id].sort(key=lambda x: x.purchase_date)
+        
+        return fund_lots
+    """
+    Build FIFO-ordered tax lots per fund from transaction history.
+    Returns dict[fund_id] -> List[TaxLot] sorted by purchase_date (FIFO).
+    
+    Handles all CAS transaction types: PURCHASE, SIP, SWITCH_IN, STP_IN, 
+    REDEMPTION, SWITCH_OUT, STP_OUT, DIVIDEND, STP_IN, STP_OUT.
+    
+    Rules:
+    - PURCHASE, SIP, SWITCH_IN, STP_IN: Add units to lot pool (FIFO)
+    - REDEMPTION, SWITCH_OUT, STP_OUT: Remove units from lot pool (FIFO)
+    - DIVIDEND: Reinvested = new lot at ex-div NAV; Payout = no unit change
+    - SWITCH_IN: Units received into target fund at switch NAV
+    - SWITCH_OUT: Units removed from source fund at switch NAV
+    """
+    if not transactions_path.exists():
+        return {}
+    
     if as_of_date is None:
         as_of_date = date.today()
-    fund_lots = build_fifo_tax_lots(transactions_path, [], as_of_date)
-    summaries: Dict[str, TaxLotSummary] = {}
-    for fund_id, lots in fund_lots.items():
-        if not lots:
+    
+    try:
+        with open(transactions_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+    except Exception:
+        return {}
+    
+    transactions = data.get('transactions', [])
+    if not transactions:
+        return {}
+    
+    # Build lots per fund using FIFO
+    fund_lots: Dict[str, List[TaxLot]] = {}
+    fund_holdings: Dict[str, float] = {}  # current units per fund
+    
+    for txn in data.get('transactions', []):
+        try:
+            txn_date = datetime.strptime(txn.get('date', '')[:10], '%Y-%m-%d').date()
+            amount = float(txn.get('amount', 0))
+            txn_type = txn.get('type', '').upper()
+            scheme = txn.get('scheme', '')
+            units = float(txn.get('units', 0)) if txn.get('units') else 0
+            nav = float(txn.get('nav', 0)) if txn.get('nav') else 0
+            
+            if amount == 0 or units == 0:
+                continue
+            
+            # Match scheme to fund_id
+            fund_id = _match_scheme_to_fund(scheme)
+            if not fund_id:
+                continue
+            
+            if fund_id not in fund_lots:
+                fund_lots[fund_id] = []
+            if fund_id not in fund_holdings:
+                fund_holdings[fund_id] = 0.0
+            
+            if txn_type in ('PURCHASE', 'SIP', 'SWITCH_IN', 'STP_IN', 'DIVIDEND_REINVEST'):
+                # Add units to lot pool
+                units_to_add = units if units > 0 else (abs(amount) / nav) if nav > 0 else 0
+                if units_to_add > 0:
+                    cost = units_to_add * nav if nav > 0 else 0
+                    lot = TaxLot(
+                        fund_id=fund_id,
+                        scheme_name=scheme,
+                        folio=txn.get('folio', ''),
+                        purchase_date=txn_date,
+                        units=units_to_add,
+                        nav=nav,
+                        cost=cost,
+                        source='transactions'
+                    )
+                    fund_lots[fund_id].append(lot)
+                    fund_holdings[fund_id] += units_to_add
+            
+            elif txn_type in ('REDEMPTION', 'SWITCH_OUT', 'STP_OUT'):
+                # Remove units from lot pool (FIFO)
+                units_to_remove = units if units > 0 else (abs(amount) / nav) if nav > 0 else 0
+                if units_to_remove > 0:
+                    fund_lots[fund_id] = _fifo_redeem(fund_lots[fund_id], units_to_remove)
+                    fund_holdings[fund_id] -= units_to_remove
+            
+            elif txn_type in ('DIVIDEND',):
+                # Dividend payout = no unit change; reinvestment handled separately
+                pass
+            
+            elif txn_type in ('SWITCH_IN', 'SWITCH_OUT'):
+                # Handled above via SWITCH_IN/OUT types
+                pass
+        except Exception:
             continue
-        scheme_name = lots[0].scheme_name if lots else ""
-        current_value_est = sum(l.nav * l.units for l in lots) if lots else 0
-        total_cost = sum(l.cost for l in lots)
-        ltcg_units = 0.0
-        ltcg_gain = 0.0
-        stcg_units = 0.0
-        stcg_gain = 0.0
-        total_units = 0.0
-        for lot in lots:
-            is_ltcg = lot.is_long_term(as_of_date)
-            gain = (lot.nav - lot.cost / lot.units) * lot.units if lot.units > 0 else 0
-            if is_ltcg:
-                ltcg_units += lot.units
-                ltcg_gain += gain
-            else:
-                stcg_units += lot.units
-                stcg_gain += gain
-            total_units += lot.units
-        unrealized_gain = current_value_est - total_cost
-        ltcg_taxable = max(0, ltcg_gain - 125000.0)
-        ltcg_tax = ltcg_taxable * 0.13
-        stcg_tax = stcg_gain * 0.208
-        summaries[fund_id] = TaxLotSummary(
-            fund_id=fund_id,
-            scheme_name=scheme_name,
-            total_units=total_units,
-            total_cost=total_cost,
-            current_value=current_value_est,
-            unrealized_gain=unrealized_gain,
-            ltcg_units=ltcg_units,
-            ltcg_gain=ltcg_gain,
-            stcg_units=stcg_units,
-            stcg_gain=stcg_gain,
-            ltcg_tax=ltcg_tax,
-            stcg_tax=stcg_tax,
-            ltcg_exemption_used=min(ltcg_gain, 125000.0),
-            stcg_exemption_used=0.0
-        )
-    return summaries
-
+        
+        # Sort lots by purchase date (FIFO)
+        for fund_id in fund_lots:
+            fund_lots[fund_id].sort(key=lambda x: x.purchase_date)
+        
+        return fund_lots
 
 
 def calculate_overlap_matrix(holdings: List[HoldingItem], threshold_pct: float = 25.0) -> List[OverlapPair]:
@@ -743,7 +735,6 @@ def calculate_overlap_matrix(holdings: List[HoldingItem], threshold_pct: float =
     # Sort by overlap percentage descending
     overlap_pairs.sort(key=lambda x: x.overlap_pct, reverse=True)
     return overlap_pairs
-
 
 
 def calculate_saa_drift(
@@ -814,7 +805,6 @@ def calculate_saa_drift(
     )
 
 
-
 def calculate_cash_deployment(
     bank_cash_inr: float = 0.0,
     emergency_buffer_inr: float = 0.0,
@@ -836,6 +826,103 @@ def calculate_cash_deployment(
         stp_duration_months=stp_months,
     )
 
+
+def compute_fifo_tax_lots(
+    transactions_path: Path,
+    as_of_date: Optional[date] = None
+) -> Optional[Dict[str, Any]]:
+    """
+    Computes lot-level FIFO tax maturation status for all active holdings.
+    Tags each purchase lot as LTCG (>365d, 0% exit load) or STCG (<=365d, 1% load).
+    """
+    if not transactions_path.exists():
+        return None
+    try:
+        with open(transactions_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception:
+        return None
+    txns = data.get("transactions", [])
+    if not txns:
+        return None
+
+    if as_of_date is None:
+        as_of_date = date.today()
+
+    scheme_txns = defaultdict(list)
+    for t in txns:
+        sn = t.get("scheme", "").strip()
+        if not sn:
+            continue
+        amt = float(t.get("amount", 0))
+        unt = float(t.get("units", 0) or 0)
+        if amt == 0 and unt == 0:
+            continue
+        try:
+            d = datetime.strptime(t["date"][:10], "%Y-%m-%d").date()
+        except Exception:
+            continue
+        scheme_txns[sn].append({
+            "date": d, "amount": amt, "units": unt,
+            "nav": float(t.get("nav", 0) or 0),
+            "desc": t.get("description", "")
+        })
+
+    all_lots = []
+    for sn, stxns in sorted(scheme_txns.items()):
+        stxns = sorted(stxns, key=lambda x: x["date"])
+        lots = []
+        for t in stxns:
+            unt = t["units"]
+            amt = t["amount"]
+            desc = t["desc"].lower()
+            is_rev = any(kw in desc for kw in ("reversal", "dishonour", "reject"))
+            if unt > 0 and not is_rev:
+                lots.append({
+                    "date": t["date"],
+                    "units": unt,
+                    "nav": t["nav"] if t["nav"] > 0 else (amt / unt if unt > 0 else 0),
+                    "cost": amt
+                })
+            elif unt < 0 or is_rev:
+                units_to_burn = abs(unt)
+                while units_to_burn > 0.0001 and lots:
+                    if lots[0]["units"] <= units_to_burn + 0.0001:
+                        units_to_burn -= lots[0]["units"]
+                        lots.pop(0)
+                    else:
+                        fraction = units_to_burn / lots[0]["units"]
+                        lots[0]["cost"] -= lots[0]["cost"] * fraction
+                        lots[0]["units"] -= units_to_burn
+                        units_to_burn = 0.0
+
+        for l in lots:
+            hdays = (as_of_date - l["date"]).days
+            is_ltcg = hdays > 365
+            all_lots.append({
+                "scheme": sn,
+                "purchase_date": l["date"].strftime("%Y-%m-%d"),
+                "units": round(l["units"], 3),
+                "purchase_nav": round(l["nav"], 2),
+                "invested_cost": round(l["cost"], 2),
+                "holding_days": hdays,
+                "status": "LTCG (0% Exit Load)" if is_ltcg else f"STCG (Matures in {max(0, 365 - hdays)}d)",
+                "is_ltcg": is_ltcg,
+                "days_to_ltcg": max(0, 365 - hdays),
+                "exit_load_penalty": 0.0 if is_ltcg else round(l["cost"] * 0.01, 2)
+            })
+
+    mature = [l for l in all_lots if l["is_ltcg"]]
+    immature = [l for l in all_lots if not l["is_ltcg"]]
+    return {
+        "total_lots_count": len(all_lots),
+        "mature_lots_count": len(mature),
+        "immature_lots_count": len(immature),
+        "mature_capital_inr": sum(l["invested_cost"] for l in mature),
+        "immature_capital_inr": sum(l["invested_cost"] for l in immature),
+        "total_exit_load_risk_inr": sum(l["exit_load_penalty"] for l in immature),
+        "lots": all_lots
+    }
 
 
 def aggregate_fiduciary_facts(
@@ -915,4 +1002,308 @@ def aggregate_fiduciary_facts(
         tax_lots_summary=tax_lots_summary,
         weak_funds_flagged=weak_funds,
         holdings=holdings,
+    )
+
+
+# ============================================================
+# ARCHITECTURAL CORRECTIONS - NEW FUNCTIONS
+# ============================================================
+
+def calculate_weighted_lookthrough_overlap(
+    holdings: List[HoldingItem],
+    threshold_pct: float = 10.0
+) -> List[WeightedOverlapResult]:
+    stock_fund_weights: Dict[str, Dict[str, float]] = {}
+    fund_total_value: Dict[str, float] = {}
+    
+    for h in holdings:
+        if not h.top_holdings:
+            continue
+        fund_total_value[h.fund_id] = h.current_value_inr
+        weight_per_stock = 100.0 / len(h.top_holdings)
+        for stock in h.top_holdings:
+            if stock not in stock_fund_weights:
+                stock_fund_weights[stock] = {}
+            stock_fund_weights[stock][h.fund_id] = weight_per_stock
+    
+    fund_ids = list(fund_total_value.keys())
+    results = []
+    
+    for i in range(len(fund_ids)):
+        for j in range(i + 1, len(fund_ids)):
+            fa = fund_ids[i]
+            fb = fund_ids[j]
+            
+            shared_stocks = []
+            weighted_overlap = 0.0
+            sector_weights: Dict[str, float] = {}
+            
+            for stock, fund_weights in stock_fund_weights.items():
+                if fa in fund_weights and fb in fund_weights:
+                    weight_a = fund_weights[fa]
+                    weight_b = fund_weights[fb]
+                    combined = weight_a + weight_b
+                    
+                    shared_stocks.append({
+                        "stock": stock,
+                        "weight_a_pct": round(weight_a, 2),
+                        "weight_b_pct": round(weight_b, 2),
+                        "combined_weight_pct": round(combined, 2)
+                    })
+                    weighted_overlap += combined
+            
+            if not shared_stocks:
+                continue
+            
+            set_a = set(stock for stock in stock_fund_weights if fa in stock_fund_weights[stock])
+            set_b = set(stock for stock in stock_fund_weights if fb in stock_fund_weights[stock])
+            jaccard = len(set_a & set_b) / len(set_a | set_b) if (set_a | set_b) else 0
+            
+            if weighted_overlap >= 20.0:
+                verdict = "HIGH_CONCENTRATION"
+            elif weighted_overlap >= 10.0:
+                verdict = "MODERATE"
+            else:
+                verdict = "ACCEPTABLE"
+            
+            if weighted_overlap >= threshold_pct:
+                results.append(WeightedOverlapResult(
+                    fund_a=fa,
+                    fund_b=fb,
+                    weighted_overlap_pct=round(weighted_overlap, 2),
+                    jaccard_similarity=round(jaccard * 100, 2),
+                    shared_stocks=shared_stocks,
+                    sector_concentration=sector_weights,
+                    verdict=verdict
+                ))
+    
+    results.sort(key=lambda x: x.weighted_overlap_pct, reverse=True)
+    return results
+
+
+def calculate_risk_distribution(
+    holdings: List[HoldingItem]
+) -> RiskDistribution:
+    tier_counts: Dict[str, int] = {}
+    tier_values: Dict[str, float] = {}
+    total_value = sum(h.current_value_inr for h in holdings)
+    
+    for h in holdings:
+        tier = getattr(h, 'risk_tier', 'Unknown')
+        if tier not in tier_counts:
+            tier_counts[tier] = 0
+            tier_values[tier] = 0.0
+        tier_counts[tier] += 1
+        tier_values[tier] += h.current_value_inr
+    
+    tier_pct = {t: round((v / total_value) * 100, 2) for t, v in tier_values.items()} if total_value > 0 else {}
+    
+    return RiskDistribution(
+        risk_tier_distribution=tier_counts,
+        risk_tier_values=tier_pct,
+        portfolio_beta=None,
+        max_drawdown_pct=None,
+        downside_capture_ratio=None,
+        volatility_annualized_pct=None
+    )
+
+
+def calculate_switch_cost_analysis(
+    source_fund: str,
+    target_fund: str,
+    source_holding: HoldingItem,
+    target_fund_ter: float,
+    is_intra_amc: bool = False,
+    holding_period_days: int = 365,
+    current_nav: float = 0.0,
+    purchase_nav: float = 0.0
+) -> SwitchCostAnalysis:
+    exit_load_pct = 1.0 if holding_period_days < 365 else 0.0
+    exit_load_inr = source_holding.current_value_inr * (exit_load_pct / 100.0)
+    
+    gain_pct = ((current_nav - purchase_nav) / purchase_nav) * 100 if purchase_nav > 0 else 0
+    gain_inr = source_holding.current_value_inr * (gain_pct / 100.0)
+    
+    if holding_period_days > 365:
+        ltcg_exemption = 125000.0
+        taxable_ltcg = max(0, gain_inr - ltcg_exemption)
+        ltcg_tax = taxable_ltcg * 0.125
+        stcg_tax = 0.0
+    else:
+        stcg_tax = gain_inr * 0.20
+        ltcg_tax = 0.0
+    
+    capital_gains_tax = stcg_tax + ltcg_tax
+    net_switch_cost = exit_load_inr + capital_gains_tax
+    net_switch_cost_pct = (net_switch_cost / source_holding.current_value_inr) * 100 if source_holding.current_value_inr > 0 else 0
+    
+    return SwitchCostAnalysis(
+        source_fund=source_fund,
+        target_fund=target_fund,
+        exit_load_pct=exit_load_pct,
+        exit_load_inr=round(exit_load_inr, 2),
+        capital_gains_tax_inr=round(capital_gains_tax, 2),
+        stcg_tax_inr=round(stcg_tax, 2),
+        ltcg_tax_inr=round(ltcg_tax, 2),
+        net_switch_cost_inr=round(net_switch_cost, 2),
+        net_switch_cost_pct=round(net_switch_cost_pct, 2),
+        is_intra_amc=is_intra_amc,
+        warning="Intra-AMC switches trigger capital gains tax and exit loads per Sections 47 & 112A"
+    )
+
+
+def calculate_saa_drift_minimizer(
+    holdings: List[HoldingItem],
+    target_allocation: Dict[str, float],
+    sip_budget_inr: float
+) -> SAA_DriftMinimizer:
+    total_val = sum(h.current_value_inr for h in holdings)
+    if total_val <= 0:
+        return SAA_DriftMinimizer(
+            current_allocation={},
+            target_allocation=target_allocation,
+            sip_budget_inr=sip_budget_inr,
+            recommended_sip_allocation={},
+            drift_after_sip={},
+            total_drift_l2_norm=0.0
+        )
+    
+    current_alloc = {}
+    for h in holdings:
+        asset = h.asset_class.value if hasattr(h.asset_class, 'value') else str(h.asset_class)
+        if asset not in current_alloc:
+            current_alloc[asset] = 0.0
+        current_alloc[asset] += h.current_value_inr
+    
+    current_pct = {k: (v / total_val) * 100 for k, v in current_alloc.items()}
+    target_pct = target_allocation
+    gaps = {k: target_pct.get(k, 0) - current_pct.get(k, 0) for k in set(current_pct) | set(target_pct)}
+    
+    positive_gaps = {k: v for k, v in gaps.items() if v > 0}
+    total_positive_gap = sum(positive_gaps.values())
+    
+    sip_alloc = {}
+    if total_positive_gap > 0:
+        for asset, gap in positive_gaps.items():
+            sip_alloc[asset] = sip_budget_inr * (gap / total_positive_gap)
+    else:
+        for asset in target_pct:
+            sip_alloc[asset] = sip_budget_inr / len(target_pct)
+    
+    new_total = total_val + sip_budget_inr
+    projected_alloc = {}
+    for asset in set(current_pct) | set(target_pct):
+        current_val = current_alloc.get(asset, 0)
+        sip_val = sip_alloc.get(asset, 0)
+        projected_alloc[asset] = ((current_val + sip_val) / new_total) * 100
+    
+    drift = {k: projected_alloc.get(k, 0) - target_pct.get(k, 0) for k in target_pct}
+    l2_norm = math.sqrt(sum(d * d for d in drift.values()))
+    
+    return SAA_DriftMinimizer(
+        current_allocation=current_pct,
+        target_allocation=target_pct,
+        sip_budget_inr=sip_budget_inr,
+        recommended_sip_allocation=sip_alloc,
+        drift_after_sip=drift,
+        total_drift_l2_norm=round(l2_norm, 2)
+    )
+
+
+def check_eligibility_gates(
+    fund_data: Dict[str, Any],
+    min_aum_crore: float = 500,
+    max_concentration_top10_pct: float = 30.0,
+    max_sector_concentration_pct: float = 25.0,
+    min_manager_tenure_years: float = 3.0
+) -> EligibilityGateResult:
+    failed = []
+    
+    aum = fund_data.get('aum_crore', 0)
+    liquidity_ok = aum >= min_aum_crore
+    if not liquidity_ok:
+        failed.append(f"Liquidity: AUM {aum}Cr < {min_aum_crore}Cr minimum")
+    
+    aum_stable = fund_data.get('aum_stable', True)
+    if not aum_stable:
+        failed.append("AUM Stability: Significant outflows detected")
+    
+    top10 = fund_data.get('concentration_top10_pct', 0)
+    concentration_ok = top10 <= max_concentration_top10_pct
+    if not concentration_ok:
+        failed.append(f"Concentration: Top 10 holdings {top10}% > {max_concentration_top10_pct}%")
+    
+    sector_conc = fund_data.get('max_sector_concentration_pct', 0)
+    sector_ok = sector_conc <= max_sector_concentration_pct
+    if not sector_ok:
+        failed.append(f"Sector Concentration: {sector_conc}% > {max_sector_concentration_pct}%")
+    
+    mandate_ok = fund_data.get('mandate_suitable', True)
+    if not mandate_ok:
+        failed.append("Mandate Suitability: Strategy mismatch with investor profile")
+    
+    data_ok = fund_data.get('data_complete', True)
+    if not data_ok:
+        failed.append("Data Integrity: Incomplete or stale data")
+    
+    tenure = fund_data.get('manager_tenure_years', 0)
+    tenure_ok = tenure >= min_manager_tenure_years
+    if not tenure_ok:
+        failed.append(f"Manager Tenure: {tenure} years < {min_manager_tenure_years} minimum")
+    
+    passed = len(failed) == 0
+    
+    return EligibilityGateResult(
+        fund_id=fund_data.get('fund_id', ''),
+        fund_name=fund_data.get('fund_name', ''),
+        passed=passed,
+        failed_gates=failed,
+        liquidity_gate=liquidity_ok,
+        aum_stability_gate=aum_stable,
+        concentration_gate=concentration_ok,
+        mandate_suitability_gate=mandate_ok,
+        data_integrity_gate=data_ok,
+        manager_tenure_gate=tenure_ok,
+        details={
+            'aum_crore': aum,
+            'top10_concentration_pct': top10,
+            'sector_concentration_pct': sector_conc,
+            'manager_tenure_years': tenure
+        }
+    )
+
+
+def evaluate_no_action(
+    current_portfolio: List[HoldingItem],
+    candidate_funds: List[Dict[str, Any]],
+    min_improvement_threshold: float = 5.0
+) -> NOActionResult:
+    best_improvement = 0.0
+    best_fund = None
+    
+    for fund in candidate_funds:
+        if not fund.get('eligibility', {}).get('passed', False):
+            continue
+        improvement = fund.get('composite_score', 0)
+        if improvement > best_improvement:
+            best_improvement = improvement
+            best_fund = fund
+    
+    no_improvement = best_improvement < min_improvement_threshold
+    current_adequate = no_improvement
+    
+    if no_improvement:
+        reason = f"No candidate fund offers >{min_improvement_threshold} pts improvement over current portfolio. Best: {best_fund.get('fund_name', 'None')} at {best_improvement:.1f} pts."
+        hold_rec = "Retain all current holdings. Pause new SIP deployment. Review quarterly."
+    else:
+        reason = f"Found improvement candidate: {best_fund.get('fund_name', 'None')} (+{best_improvement:.1f} pts)"
+        hold_rec = "Proceed with candidate evaluation."
+    
+    return NOActionResult(
+        action="NO_ACTION" if no_improvement else "PROCEED",
+        reason=reason,
+        current_portfolio_adequate=current_adequate,
+        no_improvement_found=no_improvement,
+        hold_recommendation=hold_rec,
+        sip_deployment_pause=no_improvement
     )
