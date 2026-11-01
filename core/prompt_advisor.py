@@ -298,3 +298,8 @@ USER QUESTION:
 Provide a direct, practical, and mathematically grounded fiduciary response. Quote exact rupee amounts and fund names where relevant.
 """
     return _call_llm_with_retry(prompt)
+
+
+def generate_fiduciary_report(payload: FiduciaryFactsPayload) -> str:
+    """Generates the comprehensive Fiduciary Fact Sheet report."""
+    return generate_health_audit_report(payload)

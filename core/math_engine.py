@@ -211,7 +211,28 @@ from core.models import (
     EligibilityGateResult,
     NOActionResult,
     SAA_DriftMinimizer,
+    TaxLedger,
 )
+
+
+def _asset_class_to_risk_tier(asset_class: AssetClass) -> str:
+    """Map AssetClass to SEBI risk-o-meter tier."""
+    mapping = {
+        AssetClass.DEBT: "Tier 1 (Low)",
+        AssetClass.CASH: "Tier 1 (Low)",
+        AssetClass.HYBRID_BALANCED: "Tier 3 (Moderate)",
+        AssetClass.HYBRID: "Tier 3 (Moderate)",
+        AssetClass.LARGE_CAP: "Tier 5 (High)",
+        AssetClass.FLEXI_CAP: "Tier 5 (High)",
+        AssetClass.MULTI_CAP: "Tier 5 (High)",
+        AssetClass.INTERNATIONAL: "Tier 5 (High)",
+        AssetClass.MID_CAP: "Tier 6 (Very High)",
+        AssetClass.SMALL_CAP: "Tier 6 (Very High)",
+        AssetClass.INTERNATIONAL: "Tier 5 (High)",
+        AssetClass.CASH: "Tier 1 (Low)",
+        AssetClass.OTHER: "Tier 3 (Moderate)",
+    }
+    return mapping.get(asset_class, "Tier 3 (Moderate)")
 
 
 def load_holdings_from_cas_excel(
@@ -353,6 +374,7 @@ def load_holdings_from_cas_excel(
                 nav=0.0,
                 top_holdings=top_h,
                 expense_ratio_pct=er,
+                risk_tier=_asset_class_to_risk_tier(asset_class),
             )
         )
 
@@ -807,6 +829,65 @@ def calculate_saa_drift(
     )
 
 
+def parse_cas(xlsx_path: Path) -> Tuple[str, List[Dict[str, Any]]]:
+    """
+    Parses 'Portfolio Details' sheet from CAS Excel report.
+    Hard Guard: Enforces single valuation date across all folios.
+    """
+    wb = openpyxl.load_workbook(xlsx_path, data_only=True)
+    ws = wb["Portfolio Details"]
+    
+    as_of_date = ""
+    dates_found = set()
+    hdr = None
+    holdings = []
+
+    for row in ws.iter_rows(values_only=True):
+        vals = [str(c).strip() if c is not None else "" for c in row]
+        if not any(vals):
+            continue
+            
+        if vals[0] == "To Date":
+            as_of_date = vals[1]
+            dates_found.add(vals[1])
+        elif vals[0] == "Scheme Name":
+            hdr = {name: i for i, name in enumerate(vals) if name}
+        elif hdr and vals and vals[hdr.get("Scheme Name", 0)]:
+            scheme_name = vals[hdr["Scheme Name"]]
+            if not scheme_name or scheme_name.lower() in ("total", "sub total"):
+                continue
+            
+            try:
+                cur_val = float(vals[hdr["Current Value"]])
+                inv_val = float(vals[hdr.get("Invested Value", 0)] or 0.0)
+            except (ValueError, TypeError):
+                continue
+                
+            if cur_val > 0:
+                holdings.append({
+                    "scheme": scheme_name,
+                    "folio": vals[hdr.get("Folio No.", 0)],
+                    "value": cur_val,
+                    "invested": inv_val,
+                    "is_direct": "direct" in scheme_name.lower()
+                })
+
+    if len(dates_found) > 1:
+        raise ValueError(f"Integrity Error: Multiple valuation dates detected in CAS: {dates_found}")
+        
+    return as_of_date, holdings
+
+
+def compute_liquidity_waterfall(bank_balance: float, monthly_expenses: float, months_reserve: float = 6.0) -> Tuple[float, float]:
+    """
+    Guards emergency buffer before investment.
+    Deployable_Surplus = max(0, bank_balance - (monthly_expenses * months_reserve))
+    """
+    emergency_reserve = round(monthly_expenses * months_reserve, 2)
+    deployable_surplus = max(0.0, round(bank_balance - emergency_reserve, 2))
+    return emergency_reserve, deployable_surplus
+
+
 def calculate_cash_deployment(
     bank_cash_inr: float = 0.0,
     emergency_buffer_inr: float = 0.0,
@@ -975,18 +1056,42 @@ def aggregate_fiduciary_facts(
     saa_minimizer = calculate_saa_drift_minimizer(holdings, target_saa, monthly_sip)
     
     # Convert SAA Drift Minimizer to SAADriftAnalysis for backward compatibility
+    total_equity_val = sum(h.current_value_inr for h in holdings if h.asset_class in (
+        AssetClass.LARGE_CAP, AssetClass.MID_CAP, AssetClass.SMALL_CAP,
+        AssetClass.FLEXI_CAP, AssetClass.MULTI_CAP, AssetClass.LARGE_CAP,
+        AssetClass.INTERNATIONAL
+    ))
+    total_debt_val = sum(h.current_value_inr for h in holdings if h.asset_class in (
+        AssetClass.DEBT,
+    ))
+    total_cash_val = sum(h.current_value_inr for h in holdings if h.asset_class in (
+        AssetClass.CASH,
+    ))
+    total_hybrid_equity = sum(h.current_value_inr * (h.equity_pct / 100.0) for h in holdings if h.asset_class in (
+        AssetClass.HYBRID_BALANCED, AssetClass.HYBRID
+    ))
+    total_hybrid_debt = sum(h.current_value_inr * (h.debt_pct / 100.0) for h in holdings if h.asset_class in (
+        AssetClass.HYBRID_BALANCED, AssetClass.HYBRID
+    ))
+    
+    total_equity_val = total_equity_val + total_hybrid_equity
+    total_debt_val = total_debt_val + total_hybrid_debt
+    total_cash_val = total_cash_val
+    
+    total_val = sum(h.current_value_inr for h in holdings)
+    
     saa = SAADriftAnalysis(
         current_equity_pct=saa_minimizer.current_allocation.get('Equity', 0),
         current_debt_pct=saa_minimizer.current_allocation.get('Debt', 0),
         current_cash_pct=saa_minimizer.current_allocation.get('Cash', 0),
-        current_equity_inr=sum(h.current_value_inr for h in holdings if h.asset_class == 'Equity'),
-        current_debt_inr=sum(h.current_value_inr for h in holdings if h.asset_class == 'Debt'),
+        current_equity_inr=round(total_equity_val, 2),
+        current_debt_inr=round(total_debt_val, 2),
         target_equity_pct=saa_minimizer.target_allocation.get('Equity', 0),
         target_debt_pct=saa_minimizer.target_allocation.get('Debt', 0),
         tolerance_band_pct=5.0,
         rebalance_required=saa_minimizer.total_drift_l2_norm > 5.0,
-        equity_gap_inr=saa_minimizer.drift_after_sip.get('Equity', 0) * sum(h.current_value_inr for h in holdings) / 100,
-        debt_gap_inr=saa_minimizer.drift_after_sip.get('Debt', 0) * sum(h.current_value_inr for h in holdings) / 100,
+        equity_gap_inr=round(saa_minimizer.drift_after_sip.get('Equity', 0) * total_val / 100, 2),
+        debt_gap_inr=round(saa_minimizer.drift_after_sip.get('Debt', 0) * total_val / 100, 2),
     )
     
     # Module 3: Investor Suitability & Liquidity - with emergency months from config
@@ -1000,7 +1105,19 @@ def aggregate_fiduciary_facts(
     if not transactions_path.exists():
         transactions_path = cas_path.parent.parent / "transactions.json"
     portfolio_xirr = calculate_portfolio_xirr(transactions_path, holdings)
-    tax_lots_summary = compute_fifo_tax_lots(transactions_path)
+    tax_lots_raw = compute_fifo_tax_lots(transactions_path)
+    tax_lots_summary = None
+    if tax_lots_raw:
+        immature_val = tax_lots_raw.get("immature_capital_inr", 0.0)
+        mature_val = tax_lots_raw.get("mature_capital_inr", 0.0)
+        projected_ltcg = sum(l.get("exit_load_penalty", 0) for l in tax_lots_raw.get("lots", []) if l.get("is_ltcg"))
+        stagger_required = tax_lots_raw.get("immature_capital_inr", 0) > 0
+        tax_lots_summary = TaxLedger(
+            immature_locked_value_inr=round(immature_val, 2),
+            mature_switchable_value_inr=round(mature_val, 2),
+            projected_ltcg_inr=round(projected_ltcg, 2),
+            stagger_required=stagger_required
+        )
     
     # Benchmark XIRR (Nifty 50 TRI approximation)
     benchmark_xirr = None
@@ -1283,9 +1400,33 @@ def calculate_saa_drift_minimizer(
     current_alloc = {}
     for h in holdings:
         asset = h.asset_class.value if hasattr(h.asset_class, 'value') else str(h.asset_class)
-        if asset not in current_alloc:
-            current_alloc[asset] = 0.0
-        current_alloc[asset] += h.current_value_inr
+        # Map AssetClass to allocation categories
+        if h.asset_class in (AssetClass.LARGE_CAP, AssetClass.MID_CAP, AssetClass.SMALL_CAP, 
+                             AssetClass.FLEXI_CAP, AssetClass.MULTI_CAP, AssetClass.LARGE_CAP):
+            alloc_category = "Equity"
+        elif h.asset_class in (AssetClass.DEBT,):
+            alloc_category = "Debt"
+        elif h.asset_class in (AssetClass.CASH,):
+            alloc_category = "Cash"
+        elif h.asset_class in (AssetClass.HYBRID_BALANCED, AssetClass.HYBRID):
+            # Split hybrid based on equity/debt ratio
+            equity_val = h.current_value_inr * (h.equity_pct / 100.0)
+            debt_val = h.current_value_inr * (h.debt_pct / 100.0)
+            if "Equity" not in current_alloc:
+                current_alloc["Equity"] = 0.0
+            if "Debt" not in current_alloc:
+                current_alloc["Debt"] = 0.0
+            current_alloc["Equity"] += equity_val
+            current_alloc["Debt"] += debt_val
+            continue
+        elif h.asset_class in (AssetClass.INTERNATIONAL,):
+            alloc_category = "International"
+        else:
+            alloc_category = "Other"
+        
+        if alloc_category not in current_alloc:
+            current_alloc[alloc_category] = 0.0
+        current_alloc[alloc_category] += h.current_value_inr
     
     current_pct = {k: (v / total_val) * 100 for k, v in current_alloc.items()}
     target_pct = target_allocation

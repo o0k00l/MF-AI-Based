@@ -125,9 +125,36 @@ class FiduciaryFactsPayload(BaseModel):
     xirr_pct: Optional[float] = None
     benchmark_xirr_pct: Optional[float] = None
     alpha_pct: Optional[float] = None
-    tax_lots_summary: Optional[Dict[str, Any]] = None
+    tax_lots_summary: Optional[TaxLedger] = None
     weak_funds_flagged: List[Dict[str, Any]] = Field(default_factory=list)
     holdings: List[HoldingItem] = Field(default_factory=list)
+
+
+class TaxLedger(BaseModel):
+    immature_locked_value_inr: float
+    mature_switchable_value_inr: float
+    projected_ltcg_inr: float
+    stagger_required: bool
+
+
+class TaxLot(BaseModel):
+    fund_id: str
+    purchase_date: str
+    units: float
+    nav: float
+    cost_basis: float
+    holding_days: int
+    is_long_term: bool
+
+
+class TaxLotSummary(BaseModel):
+    fund_id: str
+    total_lots: int
+    long_term_lots: int
+    short_term_lots: int
+    total_unrealized_ltcg: float
+    total_unrealized_stcg: float
+    total_exit_load_risk: float
 
 
 # ============================================================
@@ -214,3 +241,24 @@ FiduciaryPayload = FiduciaryFactsPayload
 FeeBleed = FeeBleedAnalysis
 OverlapMetric = OverlapPair
 # TaxLedger = TaxLotSummary  # Not in this commit's models
+
+# Backward compatibility function aliases
+def build_fiduciary_payload(*args, **kwargs):
+    """Backward compatibility alias for aggregate_fiduciary_facts."""
+    from core.math_engine import aggregate_fiduciary_facts
+    return aggregate_fiduciary_facts(*args, **kwargs)
+
+def calculate_weighted_overlap(fund_a_holdings: Dict[str, float], fund_b_holdings: Dict[str, float]) -> float:
+    """Backward compatibility alias for calculate_weighted_lookthrough_overlap (pairwise version)."""
+    from core.math_engine import calculate_weighted_lookthrough_overlap
+    # This is a simplified pairwise version for backward compatibility
+    shared_stocks = set(fund_a_holdings.keys()) & set(fund_b_holdings.keys())
+    overlap_weight = sum(min(fund_a_holdings[s], fund_b_holdings[s]) for s in shared_stocks)
+    return round(overlap_weight, 2)
+
+def compute_liquidity_waterfall(bank_balance: float, monthly_expenses: float, months_reserve: float = 6.0) -> Tuple[float, float]:
+    """Backward compatibility alias for calculate_cash_deployment (returns tuple)."""
+    from core.math_engine import calculate_cash_deployment
+    from core.models import CashDeploymentPlan
+    result = calculate_cash_deployment(bank_cash_inr=bank_balance, emergency_buffer_inr=monthly_expenses * months_reserve)
+    return result.emergency_reserve_inr, result.deployable_surplus_inr
