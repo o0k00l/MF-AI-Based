@@ -1047,7 +1047,7 @@ def aggregate_fiduciary_facts(
     overlap = calculate_overlap_matrix(holdings)
     
     # Architectural Correction 1: Weighted Look-Through Overlap (replaces naive Jaccard)
-    weighted_overlap = calculate_weighted_lookthrough_overlap(holdings)
+    weighted_overlap = calculate_weighted_lookthrough_overlap(holdings, metrics_path)
     
     # Architectural Correction 2: Ordinal Risk Distribution (replaces cardinal 5.84/6.00)
     risk_distribution = calculate_risk_distribution(holdings)
@@ -1238,8 +1238,36 @@ def aggregate_fiduciary_facts(
 
 def calculate_weighted_lookthrough_overlap(
     holdings: List[HoldingItem],
+    metrics_path: Optional[Path] = None,
     threshold_pct: float = 10.0
 ) -> List[WeightedOverlapResult]:
+    """
+    Calculate weighted look-through overlap using actual top-10 holding weights from fund_metrics.json.
+    
+    The fund_metrics.json contains top-10 holdings and their percentage of portfolio (top10 field).
+    We assume equal weight within the top-10 holdings: each stock = top10% / 10.
+    """
+    # Load fund metrics for actual top-10 weights
+    fund_metrics: Dict[str, Dict] = {}
+    if metrics_path and metrics_path.exists():
+        try:
+            with open(metrics_path, "r", encoding="utf-8") as f:
+                m_data = json.load(f)
+                for m in m_data.get("funds", []):
+                    fund_id = m.get("id", "")
+                    if fund_id:
+                        top10_pct = m.get("top10", 0.0)
+                        top_holdings = m.get("h", [])
+                        # Weight per stock = top10% / 10 (assuming equal weight within top-10)
+                        weight_per_stock = top10_pct / 10.0 if top_holdings else 0.0
+                        fund_metrics[fund_id] = {
+                            "top10_pct": top10_pct,
+                            "top_holdings": top_holdings,
+                            "weight_per_stock": weight_per_stock
+                        }
+        except Exception:
+            pass
+    
     stock_fund_weights: Dict[str, Dict[str, float]] = {}
     fund_total_value: Dict[str, float] = {}
     
@@ -1247,8 +1275,13 @@ def calculate_weighted_lookthrough_overlap(
         if not h.top_holdings:
             continue
         fund_total_value[h.fund_id] = h.current_value_inr
-        weight_per_stock = 100.0 / len(h.top_holdings)
-        for stock in h.top_holdings:
+        
+        # Get actual weight per stock from fund_metrics
+        metrics = fund_metrics.get(h.fund_id, {})
+        weight_per_stock = metrics.get("weight_per_stock", 0.0)
+        top_holdings = metrics.get("top_holdings", h.top_holdings)
+        
+        for stock in top_holdings:
             if stock not in stock_fund_weights:
                 stock_fund_weights[stock] = {}
             stock_fund_weights[stock][h.fund_id] = weight_per_stock
