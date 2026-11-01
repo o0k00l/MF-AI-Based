@@ -1462,7 +1462,15 @@ def calculate_saa_drift_minimizer(
         current_alloc[alloc_category] += h.current_value_inr
     
     current_pct = {k: (v / total_val) * 100 for k, v in current_alloc.items()}
-    target_pct = target_allocation
+    
+    # Map config target_allocation keys (large_cap_pct, mid_small_cap_pct, debt_global_pct)
+    # to our allocation categories (Equity, Debt, Cash)
+    target_pct = {
+        "Equity": target_allocation.get("large_cap_pct", 0) + target_allocation.get("mid_small_cap_pct", 0),
+        "Debt": target_allocation.get("debt_global_pct", 0),
+        "Cash": target_allocation.get("cash_pct", 0)
+    }
+    
     gaps = {k: target_pct.get(k, 0) - current_pct.get(k, 0) for k in set(current_pct) | set(target_pct)}
     
     positive_gaps = {k: v for k, v in gaps.items() if v > 0}
