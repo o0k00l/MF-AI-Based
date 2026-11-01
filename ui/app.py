@@ -417,7 +417,7 @@ with tab_stress:
 
     # Stress Scenario Results
     st.subheader("📉 Stress Scenario Results")
-    for sc in stress_results["scenarios"]:
+    for sc in stress_results["scenarios"].values():
         with st.expander(f"📉 {sc['name']}: {sc['description']}", expanded=True):
             c1, c2, c3 = st.columns(3)
             with c1:
@@ -451,12 +451,12 @@ with tab_stress:
 
     # Rebalancing Opportunity
     st.subheader("🔄 Rebalancing Opportunities")
-    total_cushion = sum(sc["fiduciary_cushion"]["capital_saved_inr"] for sc in stress_results["scenarios"])
-    avg_reduction = sum(sc["fiduciary_cushion"]["drawdown_reduction_pct"] for sc in stress_results["scenarios"]) / len(stress_results["scenarios"])
+    total_cushion = sum(sc["fiduciary_cushion"]["capital_saved_inr"] for sc in stress_results["scenarios"].values())
+    avg_reduction = sum(sc["fiduciary_cushion"]["drawdown_reduction_pct"] for sc in stress_results["scenarios"].values()) / len(stress_results["scenarios"])
 
     c1, c2, c3 = st.columns(3)
     c1.metric("Total Capital Cushion (Avg)", f"₹{total_cushion/len(stress_results['scenarios']):,.0f}")
-    c2.metric("Avg Drawdown Reduction", f"{sum(sc['fiduciary_cushion']['drawdown_reduction_pct'] for sc in stress_results['scenarios'])/len(stress_results['scenarios']):.1f}%")
+    c2.metric("Avg Drawdown Reduction", f"{sum(sc['fiduciary_cushion']['drawdown_reduction_pct'] for sc in stress_results['scenarios'].values())/len(stress_results['scenarios']):.1f}%")
     c3.metric("Debt Floor in Target", f"₹{stress_results['target_buckets']['debt']:,.0f}")
 
     st.info(
