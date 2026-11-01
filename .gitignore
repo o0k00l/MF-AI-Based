@@ -25,9 +25,9 @@ Thumbs.db
 
 # Project-specific: Generated outputs (reports, PDFs, checklists)
 outputs/
-*.pdf
-*.md
-*.csv
+outputs/*.pdf
+outputs/*.md
+outputs/*.csv
 
 # Project-specific: AI model & narrative caches (auto-regenerated)
 cache/
