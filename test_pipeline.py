@@ -1,0 +1,21 @@
+import warnings
+warnings.filterwarnings('ignore')
+from core.math_engine import aggregate_fiduciary_facts
+from pathlib import Path
+cas = Path('data/lalit_portfolio/statements/cas_detailed_report_2026_10_09_174452.xlsx')
+metrics = Path('data/lalit_portfolio/fund_metrics.json')
+config = Path('data/lalit_portfolio/config.json')
+aliases = Path('data/lalit_portfolio/fund_aliases.json')
+facts = aggregate_fiduciary_facts(cas, metrics, config, aliases)
+print('Total AUM:', facts.total_portfolio_value_inr)
+print('Fee Bleed:', facts.fee_bleed.annual_commission_leakage_inr)
+print('Holdings:', facts.holdings_count)
+print('Weighted Overlap:', hasattr(facts, 'weighted_overlap'))
+print('Risk Distribution:', hasattr(facts, 'risk_distribution'))
+print('SAA Drift Minimizer:', hasattr(facts, 'saa_drift'))
+print('Switch Costs:', hasattr(facts, 'switch_costs'))
+print('Eligibility Results:', hasattr(facts, 'eligibility_results'))
+print('NO Action:', hasattr(facts, 'no_action'))
+print('NO Action Action:', facts.no_action.action if hasattr(facts, 'no_action') else 'N/A')
+print('Switch Costs count:', len(facts.switch_costs) if hasattr(facts, 'switch_costs') else 0)
+print('Eligibility Results count:', len(facts.eligibility_results) if hasattr(facts, 'eligibility_results') else 0)

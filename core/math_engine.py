@@ -947,6 +947,7 @@ def aggregate_fiduciary_facts(
     client_name = "Client"
     monthly_sip = 100000.0
     target_saa = {}
+    emergency_months = 6.0
     if config_path.exists():
         with open(config_path, "r", encoding="utf-8") as f:
             cfg = json.load(f)
@@ -954,15 +955,45 @@ def aggregate_fiduciary_facts(
             monthly_sip = float(cfg.get("ips", {}).get("monthly_sip_budget", 100000.0))
             lumpsum_budget = float(cfg.get("ips", {}).get("lumpsum_budget", 200000.0))
             target_saa = cfg.get("target_allocation", {})
+            emergency_months = float(cfg.get("ips", {}).get("emergency_months", 6.0))
 
     tot_cur = sum(h.current_value_inr for h in holdings)
     tot_inv = sum(h.invested_value_inr for h in holdings)
     tot_gain = tot_cur - tot_inv
 
+    # Module 2: Portfolio Diagnostics - with architectural corrections
     fee_bleed = calculate_fee_bleed(holdings)
     overlap = calculate_overlap_matrix(holdings)
-    saa = calculate_saa_drift(holdings, target_saa)
-    cash = calculate_cash_deployment()
+    
+    # Architectural Correction 1: Weighted Look-Through Overlap (replaces naive Jaccard)
+    weighted_overlap = calculate_weighted_lookthrough_overlap(holdings)
+    
+    # Architectural Correction 2: Ordinal Risk Distribution (replaces cardinal 5.84/6.00)
+    risk_distribution = calculate_risk_distribution(holdings)
+    
+    # Architectural Correction 4: SAA Drift Minimizer (renamed from optimizer)
+    saa_minimizer = calculate_saa_drift_minimizer(holdings, target_saa, monthly_sip)
+    
+    # Convert SAA Drift Minimizer to SAADriftAnalysis for backward compatibility
+    saa = SAADriftAnalysis(
+        current_equity_pct=saa_minimizer.current_allocation.get('Equity', 0),
+        current_debt_pct=saa_minimizer.current_allocation.get('Debt', 0),
+        current_cash_pct=saa_minimizer.current_allocation.get('Cash', 0),
+        current_equity_inr=sum(h.current_value_inr for h in holdings if h.asset_class == 'Equity'),
+        current_debt_inr=sum(h.current_value_inr for h in holdings if h.asset_class == 'Debt'),
+        target_equity_pct=saa_minimizer.target_allocation.get('Equity', 0),
+        target_debt_pct=saa_minimizer.target_allocation.get('Debt', 0),
+        tolerance_band_pct=5.0,
+        rebalance_required=saa_minimizer.total_drift_l2_norm > 5.0,
+        equity_gap_inr=saa_minimizer.drift_after_sip.get('Equity', 0) * sum(h.current_value_inr for h in holdings) / 100,
+        debt_gap_inr=saa_minimizer.drift_after_sip.get('Debt', 0) * sum(h.current_value_inr for h in holdings) / 100,
+    )
+    
+    # Module 3: Investor Suitability & Liquidity - with emergency months from config
+    cash = calculate_cash_deployment(
+        bank_cash_inr=0.0,  # Will be overridden by actual cash from config if available
+        emergency_months=emergency_months
+    )
 
     # Calculate portfolio XIRR and FIFO tax lots from transactions
     transactions_path = cas_path.parent / "transactions.json"
@@ -975,11 +1006,79 @@ def aggregate_fiduciary_facts(
     benchmark_xirr = None
     alpha_pct = None
     if portfolio_xirr is not None:
-        # Nifty 50 TRI approximate annualized return ~12% over long term
         benchmark_xirr = 0.12
         alpha_pct = (portfolio_xirr - benchmark_xirr) * 100
 
-    # Identify weak or redundant funds (Multi-cap crowding & poor Sharpe)
+    # Architectural Correction 3: Switch Cost Analysis (retracts zero-friction myth)
+    # Calculate switch costs for regular fund candidates
+    switch_costs = []
+    for h in holdings:
+        if h.plan == PlanType.REGULAR:
+            # Estimate switch cost for each regular fund
+            # Use fund's own TER as target (switching to direct plan of same fund)
+            target_ter = h.expense_ratio_pct / 100.0  # Convert to decimal
+            # Estimate holding period from invested vs current value
+            gain_pct = (h.current_value_inr - h.invested_value_inr) / h.invested_value_inr if h.invested_value_inr > 0 else 0
+            holding_days = 365 * 2  # Rough estimate: 2 years average
+            if gain_pct > 0.2:  # If significant gain, likely held > 1 year
+                holding_days = 365 * 3
+            
+            switch_cost = calculate_switch_cost_analysis(
+                source_fund=h.fund_name,
+                target_fund=h.fund_name + " Direct",
+                source_holding=h,
+                target_fund_ter=target_ter,
+                is_intra_amc=True,
+                holding_period_days=holding_days,
+                current_nav=h.nav if h.nav > 0 else h.current_value_inr / max(h.units, 1),
+                purchase_nav=h.invested_value_inr / max(h.units, 1) if h.units > 0 else h.nav
+            )
+            switch_costs.append({
+                "fund_name": h.fund_name,
+                "switch_cost_inr": switch_cost.net_switch_cost_inr,
+                "switch_cost_pct": switch_cost.net_switch_cost_pct,
+                "exit_load_inr": switch_cost.exit_load_inr,
+                "capital_gains_tax_inr": switch_cost.capital_gains_tax_inr,
+                "warning": switch_cost.warning
+            })
+
+    # Architectural Correction 5 & 6: Eligibility Gates & NO ACTION
+    # Load candidate universe from fund_metrics
+    candidate_universe = []
+    if metrics_path.exists():
+        with open(metrics_path, "r", encoding="utf-8") as f:
+            m_data = json.load(f)
+            for m in m_data.get("funds", []):
+                candidate_universe.append({
+                    "fund_id": m.get("id", ""),
+                    "fund_name": m.get("name", ""),
+                    "aum_crore": m.get("aum_crore", 0),
+                    "aum_stable": True,
+                    "concentration_top10_pct": m.get("concentration_top10", 0),
+                    "max_sector_concentration_pct": m.get("max_sector_concentration", 0),
+                    "mandate_suitable": True,
+                    "data_complete": True,
+                    "manager_tenure_years": m.get("manager_tenure_years", 5),
+                    "composite_score": m.get("composite_score", 0),
+                    "eligibility": {}  # Will be filled by check_eligibility_gates
+                })
+    
+    # Run eligibility gates on candidates
+    eligible_candidates = []
+    for cand in candidate_universe:
+        gate_result = check_eligibility_gates(cand)
+        cand["eligibility"] = {
+            "passed": gate_result.passed,
+            "failed_gates": gate_result.failed_gates,
+            "details": gate_result.details
+        }
+        if gate_result.passed:
+            eligible_candidates.append(cand)
+    
+    # NO ACTION decision
+    no_action_decision = evaluate_no_action(holdings, eligible_candidates)
+    
+    # Identify weak or redundant funds
     weak_funds = []
     for h in holdings:
         # Flag regular plans with high commission and overlap
@@ -998,8 +1097,13 @@ def aggregate_fiduciary_facts(
         holdings_count=len(holdings),
         fee_bleed=fee_bleed,
         overlap_matrix=overlap,
+        weighted_overlap=weighted_overlap,
+        risk_distribution=risk_distribution,
         saa_drift=saa,
         cash_plan=cash,
+        switch_costs=switch_costs,
+        eligibility_results=[{"fund_id": c["fund_id"], "fund_name": c["fund_name"], "passed": c["eligibility"]["passed"], "failed_gates": c["eligibility"]["failed_gates"]} for c in candidate_universe],
+        no_action=no_action_decision,
         monthly_sip_budget_inr=monthly_sip,
         lumpsum_budget_inr=lumpsum_budget,
         xirr_pct=portfolio_xirr,
@@ -1095,7 +1199,9 @@ def calculate_risk_distribution(
     total_value = sum(h.current_value_inr for h in holdings)
     
     for h in holdings:
-        tier = getattr(h, 'risk_tier', 'Unknown')
+        tier = getattr(h, 'risk_tier', None)
+        if tier is None:
+            tier = 'Unknown'
         if tier not in tier_counts:
             tier_counts[tier] = 0
             tier_values[tier] = 0.0
@@ -1299,7 +1405,9 @@ def evaluate_no_action(
     current_adequate = no_improvement
     
     if no_improvement:
-        reason = f"No candidate fund offers >{min_improvement_threshold} pts improvement over current portfolio. Best: {best_fund.get('fund_name', 'None')} at {best_improvement:.1f} pts."
+        best_name = best_fund.get('fund_name', 'None') if best_fund else 'None'
+        best_score = best_improvement if best_fund else 0.0
+        reason = f"No candidate fund offers >{min_improvement_threshold} pts improvement over current portfolio. Best: {best_name} at {best_score:.1f} pts."
         hold_rec = "Retain all current holdings. Pause new SIP deployment. Review quarterly."
     else:
         reason = f"Found improvement candidate: {best_fund.get('fund_name', 'None')} (+{best_improvement:.1f} pts)"

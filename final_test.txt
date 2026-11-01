@@ -1,0 +1,4 @@
+Traceback (most recent call last):
+  File "C:\Users\l9999\Documents\VSworks\Mutual funds only prompt Based\final_validation.py", line 33, in <module>
+    from core.prompt_advisor import generate_fiduciary_report
+ImportError: cannot import name 'generate_fiduciary_report' from 'core.prompt_advisor' (C:\Users\l9999\Documents\VSworks\Mutual funds only prompt Based\core\prompt_advisor.py)

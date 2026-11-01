@@ -61,7 +61,14 @@ def generate_health_audit_report(facts: FiduciaryFactsPayload) -> str:
     """Generates the comprehensive Portfolio Health & Commission Bleed Audit."""
     top_bleed_schemes = facts.fee_bleed.details[:8]
     high_overlap_pairs = facts.overlap_matrix[:6]
-
+    
+    # New architectural correction data
+    weighted_overlap = getattr(facts, 'weighted_overlap', [])
+    risk_distribution = getattr(facts, 'risk_distribution', None)
+    switch_costs = getattr(facts, 'switch_costs', [])
+    eligibility_results = getattr(facts, 'eligibility_results', [])
+    no_action = getattr(facts, 'no_action', None)
+    
     xirr_val = f"{facts.xirr_pct * 100:.2f}%" if facts.xirr_pct is not None else "15.82%"
     benchmark_val = f"{facts.benchmark_xirr_pct * 100:.2f}%" if facts.benchmark_xirr_pct is not None else "12.00%"
     alpha_val = f"{facts.alpha_pct:+.2f}%" if facts.alpha_pct is not None else "+3.82%"
@@ -83,19 +90,34 @@ INPUT FACT PAYLOAD:
 - Target Allocation: {facts.saa_drift.target_equity_pct}% Equity, {facts.saa_drift.target_debt_pct}% Debt
 - Rebalance Required: {facts.saa_drift.rebalance_required} (Equity drift: {facts.saa_drift.current_equity_pct - facts.saa_drift.target_equity_pct:+.1f}%, Debt drift: {facts.saa_drift.current_debt_pct - facts.saa_drift.target_debt_pct:+.1f}%)
 
+# NEW ARCHITECTURAL CORRECTION DATA:
+- Weighted Look-Through Overlap (replaces naive Jaccard): {len(getattr(facts, 'weighted_overlap', []))} high-overlap pairs identified
+- Weighted Overlap Details: {[{'fund_a': p.fund_a, 'fund_b': p.fund_b, 'weighted_overlap_pct': p.weighted_overlap_pct, 'verdict': p.verdict} for p in getattr(facts, 'weighted_overlap', [])[:5]]}
+- Risk Distribution (Ordinal SEBI Tiers): {getattr(facts, 'risk_distribution', None).model_dump() if getattr(facts, 'risk_distribution', None) else 'Not available'}
+- Switch Cost Analysis (retracts zero-friction myth): {len(getattr(facts, 'switch_costs', []))} regular funds analyzed with actual exit load + CGT costs
+- Switch Cost Details: {[{'fund': s['fund_name'], 'cost_inr': s['switch_cost_inr'], 'cost_pct': s['switch_cost_pct'], 'warning': s['warning']} for s in getattr(facts, 'switch_costs', [])[:5]]}
+- Eligibility Gates Results: {len(getattr(facts, 'eligibility_results', []))} candidate funds evaluated with binary gates
+- NO ACTION Decision: {getattr(facts, 'no_action', None).action if getattr(facts, 'no_action', None) else 'N/A'} - {getattr(facts, 'no_action', None).reason if getattr(facts, 'no_action', None) else 'N/A'}
+
 TOP REGULAR COMMISSION LEAKS:
 {top_bleed_schemes}
 
 TOP STOCK OVERLAPS:
-{[{'fund_a': p.fund_a, 'fund_b': p.fund_b, 'overlap_pct': p.overlap_pct, 'shared_stocks': p.shared_stocks[:4]} for p in high_overlap_pairs]}
+{str([{'fund_a': p.fund_a, 'fund_b': p.fund_b, 'overlap_pct': p.overlap_pct, 'shared_stocks': p.shared_stocks[:4]} for p in high_overlap_pairs])}
 
 STRUCTURE YOUR REPORT AS FOLLOWS:
 # Comprehensive Portfolio Health & Commission Audit
 1. Executive Scorecard: Provide a data-driven score (0-100) across Performance, Cost (commission drag), Overlap (portfolio concentration), and Risk (SAA drift).
-2. The Hidden Commission Leak: Explain the INR {facts.fee_bleed.annual_bleed_inr:,.2f}/yr loss and the INR {facts.fee_bleed.ten_year_compounded_loss_inr:,.2f} 10-year compounded loss. Include a compact Markdown table showing the top regular funds leaking money.
-3. Scheme Overlap & Duplication Analysis: Explain risks of overlapping funds using the identified top overlapping pairs from the facts payload.
-4. Asset Mix Analysis: Contrast current allocation ({facts.saa_drift.current_equity_pct}% Equity / {facts.saa_drift.current_debt_pct}% Debt) against the client's target ({facts.saa_drift.target_equity_pct}% Equity / {facts.saa_drift.target_debt_pct}% Debt).
-5. Immediate Diagnostic Summary.
+2. The Hidden Commission Leak: Explain the INR {{facts.fee_bleed.annual_bleed_inr:,.2f}}/yr loss and the INR {{facts.fee_bleed.ten_year_compounded_loss_inr:,.2f}} 10-year compounded loss. Include a compact Markdown table showing the top regular funds leaking money.
+3. Weighted Look-Through Overlap Analysis (Architectural Correction): Explain the weighted look-through overlap methodology vs naive Jaccard. Report the weighted overlap pairs with combined portfolio weight in shared stocks.
+4. Ordinal Risk Distribution (Architectural Correction): Report SEBI risk-o-meter tier distribution (not cardinal 5.84/6.00). Include tier distribution and note that cardinal average is mathematically invalid.
+4. Scheme Overlap & Duplication Analysis: Explain risks of overlapping funds using the identified top overlapping pairs from the facts payload. Include weighted look-through overlap data.
+5. Asset Mix Analysis: Contrast current allocation against the client's target. Include SAA Drift Minimizer analysis.
+6. Switch Cost Analysis (Architectural Correction): Report actual switch costs (exit load + CGT) for regular funds, debunking the "zero-friction" myth per Sections 47 & 112A.
+7. Eligibility Gates & NO ACTION (Architectural Correction): Report eligibility gate results and NO ACTION decision if applicable.
+8. Asset Mix Analysis: Contrast current allocation vs target. Include SAA Drift Minimizer analysis (not optimizer).
+9. Immediate Diagnostic Summary.
+
 """
     return _call_llm_with_retry(prompt)
 

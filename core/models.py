@@ -112,8 +112,13 @@ class FiduciaryFactsPayload(BaseModel):
     holdings_count: int
     fee_bleed: FeeBleedAnalysis
     overlap_matrix: List[OverlapPair]
+    weighted_overlap: List[WeightedOverlapResult] = Field(default_factory=list)
+    risk_distribution: Optional[RiskDistribution] = None
     saa_drift: SAADriftAnalysis
     cash_plan: CashDeploymentPlan
+    switch_costs: List[Dict[str, Any]] = Field(default_factory=list)
+    eligibility_results: List[Dict[str, Any]] = Field(default_factory=list)
+    no_action: Optional[NOActionResult] = None
     monthly_sip_budget_inr: float
     lumpsum_budget_inr: float = 200000.0
     lumpsum_plan: Optional[Dict[str, Any]] = None
