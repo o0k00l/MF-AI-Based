@@ -415,6 +415,18 @@ if portfolio_xirr is not None:
 
 from core.candidate_scoring import FiduciaryScoringEngine, compute_reverse_fed_model
 
+def _get_stress_tests():
+    from stress_test import run_stress_tests as _run_stress_tests
+    def _wrapper(custom_holdings=None, target_saa=None):
+        return _run_stress_tests(
+            custom_holdings=custom_holdings,
+            target_saa=target_saa,
+            client_cfg=cfg
+        )
+    return _wrapper
+
+run_stress_tests = _get_stress_tests()
+
 def compute_sip_blueprint(
     monthly_budget=100000.0,
     profile_name="5_high",

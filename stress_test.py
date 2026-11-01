@@ -1,19 +1,17 @@
 """
 stress_test.py — Deterministic Portfolio Stress Testing & Market Shock Simulator.
 Simulates market drawdowns across Current Portfolio vs Target Fiduciary Portfolio.
-Zero external dependencies; integrates with advisor_lean.
+Zero external dependencies; accepts holdings/config as parameters (no circular imports).
 """
 from __future__ import annotations
 import sys
 from pathlib import Path
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 
 # Ensure workspace root is importable
 ROOT = Path(__file__).resolve().parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
-
-import advisor_lean as adv
 
 # Predefined Historical & Macro Shocks
 SCENARIOS = {
@@ -76,13 +74,18 @@ def classify_holding(scheme_name: str) -> str:
         return "mid_small_cap"
     return "large_cap"
 
-def run_stress_tests(custom_holdings: Optional[List[Dict[str, Any]]] = None, target_saa: Optional[Dict[str, float]] = None) -> Dict[str, Any]:
+def run_stress_tests(
+    custom_holdings: Optional[List[Dict[str, Any]]] = None,
+    target_saa: Optional[Dict[str, float]] = None,
+    client_cfg: Optional[Dict[str, Any]] = None
+) -> Dict[str, Any]:
     """
     Evaluates Current Portfolio vs Target Fiduciary Portfolio under each stress scenario.
     Dynamically maps target asset allocation based on client's selected SEBI tolerance profile.
     """
-    holdings = custom_holdings if custom_holdings is not None else adv.holdings
-    total_val = sum(h["value"] for h in holdings)
+    # Default to empty holdings if not provided (for testing)
+    holdings = custom_holdings if custom_holdings is not None else []
+    total_val = sum(h["value"] for h in holdings) if holdings else 0.0
 
     # 1. Map Current Holdings to Asset Buckets
     bucket_values = {
@@ -104,7 +107,7 @@ def run_stress_tests(custom_holdings: Optional[List[Dict[str, Any]]] = None, tar
         tgt_msm = float(target_saa.get("mid_small", 35.0)) / 100.0
         tgt_debt = float(target_saa.get("debt", 15.0)) / 100.0
     else:
-        cfg_target = adv.cfg.get("target_allocation", {})
+        cfg_target = (client_cfg or {}).get("target_allocation", {})
         tgt_large = float(cfg_target.get("large_cap_pct", 50.0)) / 100.0
         tgt_msm = float(cfg_target.get("mid_small_cap_pct", 35.0)) / 100.0
         tgt_debt = float(cfg_target.get("debt_global_pct", 15.0)) / 100.0
@@ -181,7 +184,12 @@ class StressTestEngine:
 
 
 def print_cli_report():
-    data = run_stress_tests()
+    # Import here to avoid circular import
+    import advisor_lean as adv
+    data = run_stress_tests(
+        custom_holdings=adv.holdings,
+        client_cfg=adv.cfg
+    )
     tot = data["portfolio_total"]
     b = data["current_buckets"]
     client_name = adv.facts.get("client", "Valued Client")

@@ -486,46 +486,117 @@ class TaxLotSummary:
     stcg_exemption_used: float
 
 
+
+
+@dataclass
+class TaxLot:
+    """A single purchase lot of a fund."""
+    fund_id: str
+    scheme_name: str
+    folio: str
+    purchase_date: date
+    units: float
+    nav: float
+    cost: float
+    source: str
+    
+    def holding_days(self, as_of: date) -> int:
+        return (as_of - self.purchase_date).days
+    
+    def is_long_term(self, as_of: date, holding_months: int = 12) -> bool:
+        return (as_of - self.purchase_date).days > 365
+    
+    def is_short_term(self, as_of: date) -> bool:
+        return not self.is_long_term(as_of)
+
+@dataclass
+class TaxLotSummary:
+    fund_id: str
+    scheme_name: str
+    total_units: float
+    total_cost: float
+    current_value: float
+    unrealized_gain: float
+    ltcg_units: float
+    ltcg_gain: float
+    stcg_units: float
+    stcg_gain: float
+    ltcg_tax: float
+    stcg_tax: float
+    ltcg_exemption_used: float
+    stcg_exemption_used: float
+
+
+def _fifo_redeem(lots: List[TaxLot], units_to_remove: float) -> List[TaxLot]:
+    """Remove units from lot pool using FIFO method."""
+    remaining = units_to_remove
+    new_lots = []
+    for lot in lots:
+        if remaining <= 0:
+            new_lots.append(lot)
+            continue
+        if lot.units <= remaining:
+            remaining -= lot.units
+        else:
+            remaining_units = lot.units - remaining
+            redeemed_units = remaining
+            redeemed_lot = TaxLot(
+                fund_id=lot.fund_id,
+                scheme_name=lot.scheme_name,
+                folio=lot.folio,
+                purchase_date=lot.purchase_date,
+                units=redeemed_units,
+                nav=lot.nav,
+                cost=lot.cost * (redeemed_units / lot.units),
+                source=lot.source
+            )
+            remaining_lot = TaxLot(
+                fund_id=lot.fund_id,
+                scheme_name=lot.scheme_name,
+                folio=lot.folio,
+                purchase_date=lot.purchase_date,
+                units=remaining_units,
+                nav=lot.nav,
+                cost=lot.cost * (remaining_units / lot.units),
+                source=lot.source
+            )
+            new_lots.append(remaining_lot)
+            remaining = 0
+    return new_lots
+
+def _match_scheme_to_fund(scheme: str) -> Optional[str]:
+    """Match a scheme name to a fund_id using fuzzy matching."""
+    if not scheme:
+        return None
+    scheme_lower = scheme.lower()
+    for fund_id, metric in fund_metrics.items():
+        if metric.get('id', '').lower() in scheme_lower:
+            return fund_id
+        if metric.get('name', '').lower() in scheme_lower:
+            return fund_id
+    normalized = re.sub(r'[^a-z0-9]+', '_', scheme_lower).strip('_')
+    return normalized if normalized else None
+
 def build_fifo_tax_lots(
     transactions_path: Path,
     holdings: Any,
     as_of_date: Optional[date] = None,
     cas_current: Optional[float] = None
 ) -> Dict[str, List[TaxLot]]:
-    """
-    Build FIFO-ordered tax lots per fund from transaction history.
-    Returns dict[fund_id] -> List[TaxLot] sorted by purchase_date (FIFO).
-    
-    Handles all CAS transaction types: PURCHASE, SIP, SWITCH_IN, STP_IN, 
-    REDEMPTION, SWITCH_OUT, STP_OUT, DIVIDEND, STP_IN, STP_OUT.
-    
-    Rules:
-    - PURCHASE, SIP, SWITCH_IN, STP_IN: Add units to lot pool (FIFO)
-    - REDEMPTION, SWITCH_OUT, STP_OUT: Remove units from lot pool (FIFO)
-    - DIVIDEND: Reinvested = new lot at ex-div NAV; Payout = no unit change
-    - SWITCH_IN: Units received into target fund at switch NAV
-    - SWITCH_OUT: Units removed from source fund at switch NAV
-    """
     if not transactions_path.exists():
         return {}
-    
     if as_of_date is None:
         as_of_date = date.today()
-    
     try:
         with open(transactions_path, 'r', encoding='utf-8') as f:
             data = json.load(f)
     except Exception:
         return {}
-    
     transactions = data.get('transactions', [])
     if not transactions:
         return {}
-    
-    # Build lots per fund using FIFO
     fund_lots: Dict[str, List[TaxLot]] = {}
-    fund_holdings: Dict[str, float] = {}  # current units per fund
-    
+    fund_holdings: Dict[str, float] = {}
     for txn in data.get('transactions', []):
         try:
             txn_date = datetime.strptime(txn.get('date', '')[:10], '%Y-%m-%d').date()
@@ -534,22 +605,16 @@ def build_fifo_tax_lots(
             scheme = txn.get('scheme', '')
             units = float(txn.get('units', 0)) if txn.get('units') else 0
             nav = float(txn.get('nav', 0)) if txn.get('nav') else 0
-            
             if amount == 0 or units == 0:
                 continue
-            
-            # Match scheme to fund_id
             fund_id = _match_scheme_to_fund(scheme)
             if not fund_id:
                 continue
-            
             if fund_id not in fund_lots:
                 fund_lots[fund_id] = []
             if fund_id not in fund_holdings:
                 fund_holdings[fund_id] = 0.0
-            
             if txn_type in ('PURCHASE', 'SIP', 'SWITCH_IN', 'STP_IN', 'DIVIDEND_REINVEST'):
-                # Add units to lot pool
                 units_to_add = units if units > 0 else (abs(amount) / nav) if nav > 0 else 0
                 if units_to_add > 0:
                     cost = units_to_add * nav if nav > 0 else 0
@@ -565,126 +630,539 @@ def build_fifo_tax_lots(
                     )
                     fund_lots[fund_id].append(lot)
                     fund_holdings[fund_id] += units_to_add
-            
             elif txn_type in ('REDEMPTION', 'SWITCH_OUT', 'STP_OUT'):
-                # Remove units from lot pool (FIFO)
                 units_to_remove = units if units > 0 else (abs(amount) / nav) if nav > 0 else 0
                 if units_to_remove > 0:
                     fund_lots[fund_id] = _fifo_redeem(fund_lots[fund_id], units_to_remove)
                     fund_holdings[fund_id] -= units_to_remove
-            
             elif txn_type in ('DIVIDEND',):
-                # Dividend payout = no unit change; reinvestment handled separately
                 pass
-            
             elif txn_type in ('SWITCH_IN', 'SWITCH_OUT'):
-                # Handled above via SWITCH_IN/OUT types
                 pass
         except Exception:
             continue
-        
-        # Sort lots by purchase date (FIFO)
-        for fund_id in fund_lots:
-            fund_lots[fund_id].sort(key=lambda x: x.purchase_date)
-        
-        return fund_lots
-    """
-    Build FIFO-ordered tax lots per fund from transaction history.
-    Returns dict[fund_id] -> List[TaxLot] sorted by purchase_date (FIFO).
-    
-    Handles all CAS transaction types: PURCHASE, SIP, SWITCH_IN, STP_IN, 
-    REDEMPTION, SWITCH_OUT, STP_OUT, DIVIDEND, STP_IN, STP_OUT.
-    
-    Rules:
-    - PURCHASE, SIP, SWITCH_IN, STP_IN: Add units to lot pool (FIFO)
-    - REDEMPTION, SWITCH_OUT, STP_OUT: Remove units from lot pool (FIFO)
-    - DIVIDEND: Reinvested = new lot at ex-div NAV; Payout = no unit change
-    - SWITCH_IN: Units received into target fund at switch NAV
-    - SWITCH_OUT: Units removed from source fund at switch NAV
-    """
-    if not transactions_path.exists():
-        return {}
-    
-    if as_of_date is None:
-        as_of_date = date.today()
-    
-    try:
-        with open(transactions_path, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-    except Exception:
-        return {}
-    
-    transactions = data.get('transactions', [])
-    if not transactions:
-        return {}
-    
-    # Build lots per fund using FIFO
-    fund_lots: Dict[str, List[TaxLot]] = {}
-    fund_holdings: Dict[str, float] = {}  # current units per fund
-    
-    for txn in data.get('transactions', []):
-        try:
-            txn_date = datetime.strptime(txn.get('date', '')[:10], '%Y-%m-%d').date()
-            amount = float(txn.get('amount', 0))
-            txn_type = txn.get('type', '').upper()
-            scheme = txn.get('scheme', '')
-            units = float(txn.get('units', 0)) if txn.get('units') else 0
-            nav = float(txn.get('nav', 0)) if txn.get('nav') else 0
-            
-            if amount == 0 or units == 0:
-                continue
-            
-            # Match scheme to fund_id
-            fund_id = _match_scheme_to_fund(scheme)
-            if not fund_id:
-                continue
-            
-            if fund_id not in fund_lots:
-                fund_lots[fund_id] = []
-            if fund_id not in fund_holdings:
-                fund_holdings[fund_id] = 0.0
-            
-            if txn_type in ('PURCHASE', 'SIP', 'SWITCH_IN', 'STP_IN', 'DIVIDEND_REINVEST'):
-                # Add units to lot pool
-                units_to_add = units if units > 0 else (abs(amount) / nav) if nav > 0 else 0
-                if units_to_add > 0:
-                    cost = units_to_add * nav if nav > 0 else 0
-                    lot = TaxLot(
-                        fund_id=fund_id,
-                        scheme_name=scheme,
-                        folio=txn.get('folio', ''),
-                        purchase_date=txn_date,
-                        units=units_to_add,
-                        nav=nav,
-                        cost=cost,
-                        source='transactions'
-                    )
-                    fund_lots[fund_id].append(lot)
-                    fund_holdings[fund_id] += units_to_add
-            
-            elif txn_type in ('REDEMPTION', 'SWITCH_OUT', 'STP_OUT'):
-                # Remove units from lot pool (FIFO)
-                units_to_remove = units if units > 0 else (abs(amount) / nav) if nav > 0 else 0
-                if units_to_remove > 0:
-                    fund_lots[fund_id] = _fifo_redeem(fund_lots[fund_id], units_to_remove)
-                    fund_holdings[fund_id] -= units_to_remove
-            
-            elif txn_type in ('DIVIDEND',):
-                # Dividend payout = no unit change; reinvestment handled separately
-                pass
-            
-            elif txn_type in ('SWITCH_IN', 'SWITCH_OUT'):
-                # Handled above via SWITCH_IN/OUT types
-                pass
-        except Exception:
-            continue
-        
-        # Sort lots by purchase date (FIFO)
-        for fund_id in fund_lots:
-            fund_lots[fund_id].sort(key=lambda x: x.purchase_date)
-        
-        return fund_lots
+    for fund_id in fund_lots:
+        fund_lots[fund_id].sort(key=lambda x: x.purchase_date)
+    return fund_lots
 
+
+def compute_fifo_tax_lots(
+    transactions_path: Path,
+    holdings: Any,
+    as_of_date: Optional[date] = None
+) -> Dict[str, TaxLotSummary]:
+    if as_of_date is None:
+        as_of_date = date.today()
+    fund_lots = build_fifo_tax_lots(transactions_path, [], as_of_date)
+    summaries: Dict[str, TaxLotSummary] = {}
+    for fund_id, lots in fund_lots.items():
+        if not lots:
+            continue
+        scheme_name = lots[0].scheme_name if lots else ""
+        current_value_est = sum(l.nav * l.units for l in lots) if lots else 0
+        total_cost = sum(l.cost for l in lots)
+        ltcg_units = 0.0
+        ltcg_gain = 0.0
+        stcg_units = 0.0
+        stcg_gain = 0.0
+        total_units = 0.0
+        for lot in lots:
+            is_ltcg = lot.is_long_term(as_of_date)
+            gain = (lot.nav - lot.cost / lot.units) * lot.units if lot.units > 0 else 0
+            if is_ltcg:
+                ltcg_units += lot.units
+                ltcg_gain += gain
+            else:
+                stcg_units += lot.units
+                stcg_gain += gain
+            total_units += lot.units
+        unrealized_gain = current_value_est - total_cost
+        ltcg_taxable = max(0, ltcg_gain - 125000.0)
+        ltcg_tax = ltcg_taxable * 0.13
+        stcg_tax = stcg_gain * 0.208
+        summaries[fund_id] = TaxLotSummary(
+            fund_id=fund_id,
+            scheme_name=scheme_name,
+            total_units=total_units,
+            total_cost=total_cost,
+            current_value=current_value_est,
+            unrealized_gain=unrealized_gain,
+            ltcg_units=ltcg_units,
+            ltcg_gain=ltcg_gain,
+            stcg_units=stcg_units,
+            stcg_gain=stcg_gain,
+            ltcg_tax=ltcg_tax,
+            stcg_tax=stcg_tax,
+            ltcg_exemption_used=min(ltcg_gain, 125000.0),
+            stcg_exemption_used=0.0
+        )
+    return summaries
+
+def stage_redemptions_for_tax_optimization(
+    tax_summaries: Dict[str, TaxLotSummary],
+    annual_ltcg_exemption: float = 125000.0,
+    max_years: int = 5
+) -> List[Dict[str, Any]]:
+    ltcg_lots = []
+    for fund_id, summary in tax_summaries.items():
+        if summary.ltcg_gain > 0:
+            ltcg_lots.append({
+                'fund_id': fund_id,
+                'scheme_name': summary.scheme_name,
+                'ltcg_gain': summary.ltcg_gain,
+                'ltcg_units': summary.ltcg_units,
+                'ltcg_tax_if_sold_now': summary.ltcg_tax,
+                'tax_savings_if_staged': summary.ltcg_tax
+            })
+    ltcg_lots.sort(key=lambda x: x['ltcg_tax_if_sold_now'], reverse=True)
+    staged_plan = []
+    remaining_exemption = annual_ltcg_exemption
+    fy_start = date.today().year
+    for lot in ltcg_lots:
+        if remaining_exemption <= 0:
+            break
+        sheltered = min(lot['ltcg_gain'], remaining_exemption)
+        tax_saved = sheltered * 0.13
+        staged_plan.append({
+            'fy': f'FY{fy_start}-{fy_start+1}',
+            'fund_id': lot['fund_id'],
+            'scheme_name': lot['scheme_name'],
+            'ltcg_gain': lot['ltcg_gain'],
+            'gain_sheltered': sheltered,
+            'tax_saved': tax_saved,
+            'remaining_exemption': remaining_exemption - sheltered
+        })
+        remaining_exemption -= sheltered
+        if remaining_exemption <= 0:
+            fy_start += 1
+            remaining_exemption = annual_ltcg_exemption
+    return staged_plan
+
+def calculate_xirr(cashflows: List[Tuple[date, float]]) -> Optional[float]:
+    """
+    Calculate XIRR (Extended Internal Rate of Return) for irregular cash flows.
+    
+    Args:
+        cashflows: List of (date, amount) tuples where negative = investment, positive = return
+        
+    Returns:
+        Annualized XIRR as decimal (e.g., 0.134 for 13.4%), or None if cannot converge
+    """
+    if not cashflows or len(cashflows) < 2:
+        return None
+    
+    # Sort by date
+    cashflows = sorted(cashflows, key=lambda x: x[0])
+    
+    # Check if we have both positive and negative flows
+    has_negative = any(cf[1] < 0 for cf in cashflows)
+    has_positive = any(cf[1] > 0 for cf in cashflows)
+    if not (has_negative and has_positive):
+        return None
+    
+    # Use Newton-Raphson method to solve for IRR
+    # NPV(rate) = sum(cf / (1+rate)^(days/365)) = 0
+    
+    def npv(rate: float) -> float:
+        total = 0.0
+        base_date = cashflows[0][0]
+        for cf_date, amount in cashflows:
+            days = (cf_date - base_date).days
+            total += amount / ((1 + rate) ** (days / 365.0))
+        return total
+    
+    def npv_derivative(rate: float) -> float:
+        total = 0.0
+        base_date = cashflows[0][0]
+        for cf_date, amount in cashflows:
+            days = (cf_date - base_date).days
+            total += -amount * (days / 365.0) / ((1 + rate) ** (days / 365.0 + 1))
+        return total
+    
+    # Initial guess: simple approximation
+    total_invested = sum(abs(cf[1]) for cf in cashflows if cf[1] < 0)
+    total_returned = sum(cf[1] for cf in cashflows if cf[1] > 0)
+    if total_invested > 0:
+        guess = (total_returned - total_invested) / total_invested
+        guess = max(-0.99, min(10.0, guess))  # Clamp between -99% and 1000%
+    else:
+        guess = 0.1
+    
+    # Newton-Raphson iteration
+    rate = guess
+    for _ in range(100):
+        npv_val = npv(rate)
+        if abs(npv_val) < 1e-6:
+            return rate
+        deriv = npv_derivative(rate)
+        if abs(deriv) < 1e-10:
+            break
+        rate_new = rate - npv_val / deriv
+        if abs(rate_new - rate) < 1e-8:
+            return rate_new
+        rate = rate_new
+    
+    # Fallback: secant method
+    rate_low, rate_high = -0.99, 10.0
+    npv_low, npv_high = npv(rate_low), npv(rate_high)
+    if npv_low * npv_high > 0:
+        return None
+    for _ in range(50):
+        rate_mid = (rate_low + rate_high) / 2
+        npv_mid = npv(rate_mid)
+        if abs(npv_mid) < 1e-6:
+            return rate_mid
+        if npv_low * npv_mid <= 0:
+            rate_high, npv_high = rate_mid, npv_mid
+        else:
+            rate_low, npv_low = rate_mid, npv_mid
+    return (rate_low + rate_high) / 2
+
+
+def calculate_portfolio_xirr(
+    transactions_path: Path,
+    holdings: Any,
+    cas_invested: Optional[float] = None,
+    cas_current: Optional[float] = None,
+    as_of_date: Optional[date] = None
+) -> Optional[float]:
+    """
+    Calculate portfolio-level XIRR from transaction history.
+    
+    Supports both Pydantic HoldingItem models and raw dictionary holdings.
+    Handles all CAS transaction types: PURCHASE, SIP, REDEMPTION, SWITCH_IN, SWITCH_OUT, STP_IN, STP_OUT, DIVIDEND.
+    
+    Args:
+        transactions_path: Path to transactions.json
+        holdings: Current holdings (List of HoldingItem or List of dict)
+        cas_invested: Optional pre-aggregated invested amount from CAS
+        cas_current: Optional pre-aggregated current valuation from CAS
+        as_of_date: Valuation date (defaults to max transaction date or today)
+        
+    Returns:
+        Portfolio XIRR as decimal (e.g. 0.1582 for 15.82%), or None if insufficient data
+    """
+    if not transactions_path.exists():
+        return None
+    
+    try:
+        with open(transactions_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+    except Exception:
+        return None
+    
+    transactions = data.get('transactions', [])
+    if not transactions:
+        return None
+    
+    cashflows = []
+    txn_dates = []
+    for txn in transactions:
+        try:
+            d_str = txn.get('date', '')
+            if not d_str:
+                continue
+            txn_date = datetime.strptime(d_str[:10], '%Y-%m-%d').date()
+            amount = float(txn.get('amount', 0))
+            txn_type = txn.get('type', '').upper()
+            desc = txn.get('description', '').lower()
+            
+            # Skip zero-amount non-financial transactions (address/nominee updates)
+            if amount == 0:
+                continue
+                
+            txn_dates.append(txn_date)
+            is_reversal = any(kw in desc for kw in ('reversal', 'dishonour', 'reject'))
+            
+            # In CAS statements, amounts follow accounting conventions:
+            # - Negative amount: money leaving scheme (redemption, switch out, purchase reversal) -> positive cashflow: -amount
+            # - Positive amount: money entering scheme (purchase, SIP, switch in, redemption reversal) -> negative cashflow: -amount
+            if amount < 0:
+                cf = -amount
+            else:
+                if txn_type in ('REDEMPTION', 'SWITCH_OUT', 'STP_OUT', 'DIVIDEND', 'SWP') and not is_reversal:
+                    cf = abs(amount)
+                else:
+                    cf = -amount
+            cashflows.append((txn_date, cf))
+        except Exception:
+            continue
+            
+    if not cashflows:
+        return None
+        
+    if as_of_date is None:
+        as_of_date = max(txn_dates) if txn_dates else date.today()
+    
+    # Terminal valuation cashflow (positive = investor's net worth)
+    if cas_current is not None and cas_current > 0:
+        total_value = float(cas_current)
+    else:
+        total_value = 0.0
+        for h in (holdings or []):
+            if isinstance(h, dict):
+                v = float(h.get("value", h.get("current_value", 0.0)) or 0.0)
+            else:
+                v = float(getattr(h, "current_value_inr", 0.0) or 0.0)
+            if v > 0:
+                total_value += v
+
+    if total_value > 0:
+        cashflows.append((as_of_date, total_value))
+    
+    if len(cashflows) < 2:
+        return None
+    
+    return calculate_xirr(cashflows)
+
+
+from core.models import (
+    HoldingItem,
+    PlanType,
+    AssetClass,
+    FeeBleedAnalysis,
+    OverlapPair,
+    SAADriftAnalysis,
+    CashDeploymentPlan,
+    FiduciaryFactsPayload,
+)
+
+
+def load_holdings_from_cas_excel(
+    xlsx_path: Path,
+    fund_metrics_path: Optional[Path] = None,
+    fund_aliases_path: Optional[Path] = None,
+) -> List[HoldingItem]:
+    """
+    Parses active mutual fund holdings directly from CAS detailed report Excel sheet.
+    Reconciles with fund_metrics.json for expense ratios, market-cap splits, and top stock holdings.
+    """
+    if not xlsx_path.exists():
+        raise FileNotFoundError(f"CAS statement not found: {xlsx_path}")
+
+    wb = openpyxl.load_workbook(xlsx_path, data_only=True)
+    if "Portfolio Details" not in wb.sheetnames:
+        raise ValueError("Invalid CAS workbook: missing 'Portfolio Details' sheet.")
+
+    sheet = wb["Portfolio Details"]
+
+    # Load metrics dictionary if provided
+    metrics_map = {}
+    if fund_metrics_path and fund_metrics_path.exists():
+        with open(fund_metrics_path, "r", encoding="utf-8") as f:
+            m_data = json.load(f)
+            for m in m_data.get("funds", []):
+                fid = m.get("id", "").strip().lower()
+                metrics_map[fid] = m
+
+    # Load aliases dictionary if provided
+    aliases_map = {}
+    if fund_aliases_path and fund_aliases_path.exists():
+        with open(fund_aliases_path, "r", encoding="utf-8") as f:
+            raw_aliases = json.load(f)
+            if "aliases" in raw_aliases:
+                for can, names in raw_aliases["aliases"].items():
+                    for n in names:
+                        aliases_map[n.strip().lower()] = can.strip().lower()
+            else:
+                for k, v in raw_aliases.items():
+                    aliases_map[k.strip().lower()] = str(v).strip().lower()
+
+    holdings: List[HoldingItem] = []
+    raw_items = []
+
+    # Dynamic header lookup
+    hdr = None
+    start_row = 1
+    for row_idx, row in enumerate(sheet.iter_rows(values_only=True), start=1):
+        vals = [str(c).strip() if c else "" for c in row]
+        if vals and "Scheme Name" in vals:
+            hdr = {name: i for i, name in enumerate(vals) if name}
+            start_row = row_idx + 1
+            break
+
+    if hdr and "Scheme Name" in hdr:
+        col_scheme = hdr["Scheme Name"]
+        col_folio = hdr.get("Folio No.", 3)
+        col_inv = hdr.get("Invested Value", 4)
+        col_cur = hdr.get("Current Value", 5)
+
+        for row in sheet.iter_rows(min_row=start_row, values_only=True):
+            if not row or len(row) <= col_scheme or not row[col_scheme]:
+                continue
+            s_name = row[col_scheme]
+            f_no = row[col_folio] if len(row) > col_folio else ""
+            i_val = row[col_inv] if len(row) > col_inv else 0.0
+            c_val = row[col_cur] if len(row) > col_cur else 0.0
+            try:
+                c_float = float(c_val) if c_val else 0.0
+                i_float = float(i_val) if i_val else 0.0
+            except (ValueError, TypeError):
+                continue
+            if c_float > 0.0:
+                raw_items.append((str(s_name).strip(), str(f_no).strip() if f_no else "", i_float, c_float))
+    else:
+        for r in range(13, sheet.max_row + 1):
+            s_name = sheet.cell(row=r, column=1).value
+            f_no = sheet.cell(row=r, column=4).value
+            i_val = sheet.cell(row=r, column=5).value
+            c_val = sheet.cell(row=r, column=6).value
+            if not c_val:
+                continue
+            try:
+                c_float = float(c_val)
+                i_float = float(i_val) if i_val else 0.0
+            except (ValueError, TypeError):
+                continue
+            if c_float > 0.0:
+                raw_items.append((str(s_name).strip(), str(f_no).strip() if f_no else "", i_float, c_float))
+
+    for scheme_str, folio_str, invested, current in raw_items:
+        # Plan detection
+        scheme_lower = scheme_str.lower()
+        plan = PlanType.DIRECT if "direct" in scheme_lower else PlanType.REGULAR
+
+        # Fuzzy match to fund metrics
+        matched_metric = _find_matching_metric(scheme_str, metrics_map, aliases_map)
+
+        # Default classification
+        category = matched_metric.get("cat", "Equity") if matched_metric else "Equity"
+        er = float(matched_metric.get("er", 0.75)) if matched_metric else (0.85 if plan == PlanType.DIRECT else 1.90)
+        
+        # If Regular plan and only Direct ER is in dataset, estimate regular fee = direct ER + 1.05%
+        if plan == PlanType.REGULAR and matched_metric:
+            er = er + 1.05
+
+        top_h = matched_metric.get("h", []) if matched_metric else []
+        sharpe = matched_metric.get("sharpe") if matched_metric else None
+
+        # Market-cap split
+        eq_pct = float(matched_metric.get("eq", 100.0)) if matched_metric else 100.0
+        debt_pct = float(matched_metric.get("debt", 0.0)) if matched_metric else 0.0
+        lc_pct = float(matched_metric.get("lc", 0.0)) if matched_metric else 0.0
+        mc_pct = float(matched_metric.get("mc", 0.0)) if matched_metric else 0.0
+        sc_pct = float(matched_metric.get("sc", 0.0)) if matched_metric else 0.0
+
+        asset_class = _infer_asset_class(category, eq_pct, debt_pct, lc_pct, mc_pct, sc_pct)
+
+        fund_id = matched_metric.get("id", scheme_str[:30]) if matched_metric else scheme_str[:30]
+
+        holdings.append(
+            HoldingItem(
+                fund_id=fund_id,
+                fund_name=scheme_str,
+                folio_no=folio_str,
+                plan=plan,
+                invested_value_inr=invested,
+                current_value_inr=current,
+                expense_ratio_pct=er,
+                category=category,
+                asset_class=asset_class,
+                equity_pct=eq_pct,
+                debt_pct=debt_pct,
+                large_cap_pct=lc_pct,
+                mid_cap_pct=mc_pct,
+                small_cap_pct=sc_pct,
+                sharpe_ratio=sharpe,
+                top_holdings=top_h,
+            )
+        )
+
+    return holdings
+
+
+def _find_matching_metric(scheme: str, metrics: Dict[str, Any], aliases: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Matches a scheme name string to a metrics entry using aliases and dynamic token overlap similarity."""
+    s_clean = scheme.lower()
+    stop_words = {"fund", "the", "of", "and", "a", "an", "option", "growth", "plan", "regular", "direct", "idcw", "dividend", "reinvestment", "formerly", "erstwhile", "known", "as", "in", "on", "for", "to"}
+
+    # 1. Direct alias match
+    if scheme in aliases and aliases[scheme] in metrics:
+        return metrics[aliases[scheme]]
+    if s_clean in aliases and aliases[s_clean] in metrics:
+        return metrics[aliases[s_clean]]
+
+    # 2. Dynamic token overlap similarity across all metrics
+    s_tokens = set(re.findall(r"[a-z0-9]+", re.sub(r"\(.*?\)", " ", s_clean))) - stop_words
+    if not s_tokens:
+        return None
+
+    best_m, best_score = None, 0.0
+    for mid, m in metrics.items():
+        m_str = (mid + " " + m.get("name", "") + " " + m.get("scheme", "")).lower()
+        m_tokens = set(re.findall(r"[a-z0-9]+", re.sub(r"\(.*?\)", " ", m_str))) - stop_words
+        if not m_tokens:
+            continue
+        score = len(s_tokens & m_tokens) / max(1, min(len(s_tokens), len(m_tokens)))
+        if score > best_score:
+            best_score = score
+            best_m = m
+
+    if best_score >= 0.5:
+        return best_m
+
+    return None
+
+
+def _infer_asset_class(cat: str, eq: float, debt: float, lc: float, mc: float, sc: float) -> AssetClass:
+    cat_lower = cat.lower()
+    if "debt" in cat_lower or "liquid" in cat_lower or debt >= 75.0:
+        return AssetClass.DEBT_LIQUID
+    if "balanced" in cat_lower or "hybrid" in cat_lower or "daa" in cat_lower or debt >= 20.0:
+        return AssetClass.HYBRID_BALANCED
+    if "mid cap" in cat_lower or mc >= 50.0:
+        return AssetClass.MID_CAP
+    if "small cap" in cat_lower or sc >= 50.0:
+        return AssetClass.SMALL_CAP
+    return AssetClass.LARGE_CAP
+
+
+def calculate_fee_bleed(holdings: List[HoldingItem], default_commission_rate: float = 0.0105) -> FeeBleedAnalysis:
+    """
+    Computes exact annual commission drag for Regular plan holdings.
+    Also calculates 10-year compounded opportunity loss at 12% CAGR.
+    """
+    regular_holdings = [h for h in holdings if h.plan == PlanType.REGULAR]
+    total_regular_val = sum(h.current_value_inr for h in regular_holdings)
+
+    details = []
+    annual_bleed = 0.0
+
+    for h in regular_holdings:
+        # Typical distributor trail commission delta is ~1.05% per year
+        fund_bleed = h.current_value_inr * default_commission_rate
+        annual_bleed += fund_bleed
+        details.append({
+            "fund_name": h.fund_name,
+            "folio_no": h.folio_no,
+            "current_value_inr": round(h.current_value_inr, 2),
+            "estimated_annual_commission_inr": round(fund_bleed, 2),
+            "expense_ratio_pct": round(h.expense_ratio_pct, 2)
+        })
+
+    # Sort details by commission bleed descending
+    details.sort(key=lambda x: x["estimated_annual_commission_inr"], reverse=True)
+
+    # 10-year compounding lost wealth: annuity factor at 12% CAGR over 10 years
+    # Sum_{t=1}^{10} (1.12)^t = 1.12 * ((1.12^10 - 1) / 0.12) = 19.65
+    # Future value of annuity due = Annual * [((1+r)^n - 1)/r] * (1+r)
+    r = 0.12
+    n = 10
+    annuity_factor = (((1.0 + r) ** n - 1.0) / r) * (1.0 + r)
+    ten_year_compounded_loss = annual_bleed * annuity_factor
+
+    return FeeBleedAnalysis(
+        annual_bleed_inr=round(annual_bleed, 2),
+        ten_year_compounded_loss_inr=round(ten_year_compounded_loss, 2),
+        regular_funds_count=len(regular_holdings),
+        regular_portfolio_value_inr=round(total_regular_val, 2),
+        details=details
+    )
+
+
+# ============================================================
+# LOT-LEVEL TAX HARVESTING (FIFO with §112A Staging)
+# ============================================================
 
 def calculate_overlap_matrix(holdings: List[HoldingItem], threshold_pct: float = 25.0) -> List[OverlapPair]:
     """
@@ -819,104 +1297,6 @@ def calculate_cash_deployment(
         stp_monthly_amount_inr=round(stp_monthly, 2),
         stp_duration_months=stp_months,
     )
-
-
-def compute_fifo_tax_lots(
-    transactions_path: Path,
-    as_of_date: Optional[date] = None
-) -> Optional[Dict[str, Any]]:
-    """
-    Computes lot-level FIFO tax maturation status for all active holdings.
-    Tags each purchase lot as LTCG (>365d, 0% exit load) or STCG (<=365d, 1% load).
-    """
-    if not transactions_path.exists():
-        return None
-    try:
-        with open(transactions_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-    except Exception:
-        return None
-    txns = data.get("transactions", [])
-    if not txns:
-        return None
-
-    if as_of_date is None:
-        as_of_date = date.today()
-
-    scheme_txns = defaultdict(list)
-    for t in txns:
-        sn = t.get("scheme", "").strip()
-        if not sn:
-            continue
-        amt = float(t.get("amount", 0))
-        unt = float(t.get("units", 0) or 0)
-        if amt == 0 and unt == 0:
-            continue
-        try:
-            d = datetime.strptime(t["date"][:10], "%Y-%m-%d").date()
-        except Exception:
-            continue
-        scheme_txns[sn].append({
-            "date": d, "amount": amt, "units": unt,
-            "nav": float(t.get("nav", 0) or 0),
-            "desc": t.get("description", "")
-        })
-
-    all_lots = []
-    for sn, stxns in sorted(scheme_txns.items()):
-        stxns = sorted(stxns, key=lambda x: x["date"])
-        lots = []
-        for t in stxns:
-            unt = t["units"]
-            amt = t["amount"]
-            desc = t["desc"].lower()
-            is_rev = any(kw in desc for kw in ("reversal", "dishonour", "reject"))
-            if unt > 0 and not is_rev:
-                lots.append({
-                    "date": t["date"],
-                    "units": unt,
-                    "nav": t["nav"] if t["nav"] > 0 else (amt / unt if unt > 0 else 0),
-                    "cost": amt
-                })
-            elif unt < 0 or is_rev:
-                units_to_burn = abs(unt)
-                while units_to_burn > 0.0001 and lots:
-                    if lots[0]["units"] <= units_to_burn + 0.0001:
-                        units_to_burn -= lots[0]["units"]
-                        lots.pop(0)
-                    else:
-                        fraction = units_to_burn / lots[0]["units"]
-                        lots[0]["cost"] -= lots[0]["cost"] * fraction
-                        lots[0]["units"] -= units_to_burn
-                        units_to_burn = 0.0
-
-        for l in lots:
-            hdays = (as_of_date - l["date"]).days
-            is_ltcg = hdays > 365
-            all_lots.append({
-                "scheme": sn,
-                "purchase_date": l["date"].strftime("%Y-%m-%d"),
-                "units": round(l["units"], 3),
-                "purchase_nav": round(l["nav"], 2),
-                "invested_cost": round(l["cost"], 2),
-                "holding_days": hdays,
-                "status": "LTCG (0% Exit Load)" if is_ltcg else f"STCG (Matures in {max(0, 365 - hdays)}d)",
-                "is_ltcg": is_ltcg,
-                "days_to_ltcg": max(0, 365 - hdays),
-                "exit_load_penalty": 0.0 if is_ltcg else round(l["cost"] * 0.01, 2)
-            })
-
-    mature = [l for l in all_lots if l["is_ltcg"]]
-    immature = [l for l in all_lots if not l["is_ltcg"]]
-    return {
-        "total_lots_count": len(all_lots),
-        "mature_lots_count": len(mature),
-        "immature_lots_count": len(immature),
-        "mature_capital_inr": sum(l["invested_cost"] for l in mature),
-        "immature_capital_inr": sum(l["invested_cost"] for l in immature),
-        "total_exit_load_risk_inr": sum(l["exit_load_penalty"] for l in immature),
-        "lots": all_lots
-    }
 
 
 def aggregate_fiduciary_facts(
