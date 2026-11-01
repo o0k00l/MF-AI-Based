@@ -1,0 +1,2 @@
+"""ui.pages package initialization."""
+

@@ -1,0 +1,138 @@
+{
+  "_schema": "fiduciary.tax_rules.v1",
+  "jurisdiction": "India",
+  "version": "2026.10",
+  "as_of": "2026-10-05",
+  "status": "reviewed",
+  "authority": [
+    "Finance Act 2024 - capital gains rates revised w.e.f. 2024-07-23",
+    "Income-tax Act 2025 - in force from 2026-04-01 (replaces Income-tax Act 1961)"
+  ],
+  "principles": [
+    "The rate is decided by the DATE OF SALE, not the date the gain accrued.",
+    "The 2024-07-23 changeover is binary: no pro-rating of a single sale across the cutoff.",
+    "The LTCG exemption applies to LONG-TERM gains only; it never shelters short-term gains.",
+    "The LTCG exemption is per taxpayer per financial year and must still be declared in Schedule CG even when fully sheltered.",
+    "The long-term test is a date comparison against the 12-month anniversary. An integer month count truncates and would misclassify a holding of 12 months and N days as short term."
+  ],
+  "cess": {
+    "health_education_cess_pct": 4.0,
+    "applies_to": "all capital gains tax"
+  },
+  "classes": {
+    "equity_oriented": {
+      "description": "Equity or equity-oriented fund with at least 65% in Indian equities.",
+      "applies_to": [
+        "Large Cap",
+        "Mid Cap",
+        "Small Cap",
+        "Flexi Cap",
+        "Multi Cap",
+        "Large and Mid Cap",
+        "ELSS",
+        "Index / ETF equity"
+      ],
+      "short_term": {
+        "rate_pct": 20.0,
+        "exemption_applies": false,
+        "holding_period_months_lte": 12
+      },
+      "long_term": {
+        "rate_pct": 12.5,
+        "indexation": false,
+        "exemption_applies": true,
+        "exemption_limit_inr": 125000,
+        "exemption_scope": "aggregate LTCG of this class for the financial year",
+        "exemption_order": "highest-rate gains are sheltered first; losses are netted before the exemption",
+        "holding_period_months_gt": 12,
+        "holding_period_rule": "MORE THAN 12 months from the date of acquisition. Exactly 12 months is SHORT term. Income-tax Act s.2(42A). Test against the 12-month anniversary date, not an integer month count.",
+        "exit_load_pct": 1.0
+      }
+    },
+    "debt_purchased_on_or_after_2023_04_01": {
+      "description": "Debt mutual fund units acquired on or after 2023-04-01.",
+      "applies_to": [
+        "Debt",
+        "Short Duration",
+        "Corporate Bond",
+        "Banking and PSU Debt",
+        "Government Securities",
+        "Money Market"
+      ],
+      "treatment": "income_tax_slab",
+      "default_marginal_tax_rate_pct": 30.0,
+      "note": "No separate capital gains rate; taxed at the investor's slab rates."
+    },
+    "debt_purchased_before_2023_04_01": {
+      "description": "Debt mutual fund units acquired before 2023-04-01, held 36 months or more.",
+      "long_term": {
+        "holding_period_months_gte": 36,
+        "rate_pct": 12.5,
+        "indexation": false,
+        "exemption_applies": true,
+        "exemption_limit_inr": 125000
+      },
+      "note": "Indexation advantage removed from 2024-07-23. This is a genuine deterioration for long-held debt units; do not assume grandfathered indexation benefit."
+    },
+    "gold_etf": {
+      "description": "Gold ETFs are Specified Mutual Funds and are NOT equity oriented.",
+      "treatment": "income_tax_slab",
+      "wealth_tax_applies": false
+    },
+    "international_and_non_equity_fof": {
+      "description": "International funds and FoFs holding less than 65% equity.",
+      "long_term": {
+        "holding_period_months_gte": 24,
+        "rate_pct": 12.5,
+        "indexation": false
+      }
+    }
+  },
+  "classification_test": {
+    "equity_oriented_threshold_pct": 65.0,
+    "field": "equity_allocation_pct",
+    "note": "Never assume a class. Derive it from the dataset field and record the source."
+  },
+  "engine_requirements": [
+    "Never hard-code a rate in a report or script. Load it from this file.",
+    "Never reuse a gain figure computed under a different financial year or a different rate version.",
+    "If as_of is more than 180 days older than the reporting date, refuse to publish tax figures and flag for review."
+  ],
+  "cost_inflation_index": {
+    "_provenance": "CBDT notification-wise Cost Inflation Index, base year 2001-02 = 100.",
+    "_note": "Published annually. This is a dated statutory table, NOT a formula. An earlier linear approximation ((y-2001)/2+1) overstated the index by up to 3.49x and silently reduced the client's tax; see docs/issues.md W6. Do not interpolate or extrapolate.",
+    "_base_year": 2001,
+    "values": {
+      "2001": 100,
+      "2002": 105,
+      "2003": 109,
+      "2004": 113,
+      "2005": 117,
+      "2006": 122,
+      "2007": 129,
+      "2008": 137,
+      "2009": 148,
+      "2010": 167,
+      "2011": 184,
+      "2012": 200,
+      "2013": 220,
+      "2014": 240,
+      "2015": 254,
+      "2016": 264,
+      "2017": 272,
+      "2018": 280,
+      "2019": 289,
+      "2020": 301,
+      "2021": 317,
+      "2022": 331,
+      "2023": 348,
+      "2024": 363
+    }
+  },
+  "harvesting_and_optimization_parameters": {
+    "min_loss_pct_threshold": 5.0,
+    "high_priority_loss_pct_threshold": 15.0,
+    "underutilized_exemption_pct_threshold": 50.0,
+    "days_to_long_term_threshold": 30
+  }
+}

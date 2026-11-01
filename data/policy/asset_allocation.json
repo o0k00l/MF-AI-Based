@@ -1,0 +1,279 @@
+{
+  "math_assumptions": {
+    "default_gain_rate_pct": 25.0,
+    "compounding_years": 10,
+    "short_term_gain_rate_pct": 15.0,
+    "default_exit_load_pct": 1.0,
+    "compounding_equity_return_pct": 25.0
+  },
+  "cost_assumptions": {
+    "regular_plan_premium_pct": 1.0
+  },
+  "tax_estimates": {
+    "estimated_gain_rate_pct": 25.0,
+    "estimated_annual_savings_rate_pct": 12.0
+  },
+  "payback_policy": {
+    "max_payback_years": 5.0,
+    "warn_threshold_years": 2.0,
+    "note": "Per POL-TAX-002 & FM-PAYBACK-V1. Tiered thresholds: <=2.0Y = approve; 2.0-5.0Y = staged/IPS-dependent; >5.0Y = reject. Configurable via IPS. Used by GATE-8 (release_gates.py)."
+  },
+  "as_of": "2026-10-30",
+  "horizon_ceilings": {
+    "ultra_short": {
+      "max_equity_pct": 20,
+      "max_mid_small_pct": 0
+    },
+    "short": {
+      "max_equity_pct": 40,
+      "max_mid_small_pct": 15
+    },
+    "medium": {
+      "max_equity_pct": 60,
+      "max_mid_small_pct": 30
+    },
+    "long": {
+      "max_equity_pct": 80,
+      "max_mid_small_pct": 40
+    }
+  },
+  "behavioral_risk_profiles": {
+    "low": {
+      "max_equity_pct": 20,
+      "max_mid_small_pct": 0,
+      "min_debt_pct": 80,
+      "max_debt_pct": 100,
+      "saa_targets": {
+        "large_cap_pct": 15,
+        "mid_cap_pct": 0,
+        "small_cap_pct": 0,
+        "flexi_multi_cap_pct": 5,
+        "debt_liquid_pct": 80
+      },
+      "tolerance_band_pct": 3,
+      "new_sip_allocation": {
+        "equity_pct": 0,
+        "debt_pct": 100,
+        "note": "All new SIP capital goes to debt/liquid. Capital preservation only."
+      },
+      "description": "Tier 1 (SEBI Low): Capital preservation focus. Minimal equity exposure. Suitable for horizon < 3 years or ultra-conservative mandate."
+    },
+    "low_to_moderate": {
+      "max_equity_pct": 40,
+      "max_mid_small_pct": 10,
+      "min_debt_pct": 40,
+      "max_debt_pct": 80,
+      "saa_targets": {
+        "large_cap_pct": 25,
+        "mid_cap_pct": 5,
+        "small_cap_pct": 0,
+        "flexi_multi_cap_pct": 10,
+        "debt_liquid_pct": 60
+      },
+      "tolerance_band_pct": 4,
+      "new_sip_allocation": {
+        "equity_pct": 30,
+        "debt_pct": 70,
+        "note": "SIP primarily to debt/liquid with modest equity for inflation protection."
+      },
+      "description": "Tier 2 (SEBI Low to Moderate): Conservative income focus. Limited equity for inflation hedge. Suitable for horizon 3-5 years."
+    },
+    "moderate": {
+      "max_equity_pct": 60,
+      "max_mid_small_pct": 25,
+      "min_debt_pct": 20,
+      "max_debt_pct": 60,
+      "saa_targets": {
+        "large_cap_pct": 35,
+        "mid_cap_pct": 15,
+        "small_cap_pct": 5,
+        "flexi_multi_cap_pct": 15,
+        "debt_liquid_pct": 30
+      },
+      "tolerance_band_pct": 5,
+      "new_sip_allocation": {
+        "equity_pct": 60,
+        "debt_pct": 40,
+        "note": "Balanced SIP allocation across equity and debt sleeves."
+      },
+      "description": "Tier 3 (SEBI Moderate): Balanced growth (DEFAULT). Moderate equity with debt buffer. Suitable for horizon 5-7 years."
+    },
+    "moderately_high": {
+      "max_equity_pct": 75,
+      "max_mid_small_pct": 35,
+      "min_debt_pct": 10,
+      "max_debt_pct": 40,
+      "saa_targets": {
+        "large_cap_pct": 30,
+        "mid_cap_pct": 20,
+        "small_cap_pct": 10,
+        "flexi_multi_cap_pct": 15,
+        "debt_liquid_pct": 15
+      },
+      "tolerance_band_pct": 5,
+      "new_sip_allocation": {
+        "equity_pct": 85,
+        "debt_pct": 15,
+        "note": "SIP primarily equity with small debt reserve for rebalancing."
+      },
+      "description": "Tier 4 (SEBI Moderately High): Growth-oriented. Higher mid/small allocation. Suitable for horizon 7-10 years."
+    },
+    "high": {
+      "max_equity_pct": 90,
+      "max_mid_small_pct": 45,
+      "min_debt_pct": 0,
+      "max_debt_pct": 15,
+      "saa_targets": {
+        "large_cap_pct": 25,
+        "mid_cap_pct": 25,
+        "small_cap_pct": 20,
+        "flexi_multi_cap_pct": 20,
+        "debt_liquid_pct": 10
+      },
+      "tolerance_band_pct": 5,
+      "new_sip_allocation": {
+        "equity_pct": 95,
+        "debt_pct": 5,
+        "note": "SIP overwhelmingly equity. Minimal debt for emergency reserve only."
+      },
+      "description": "Tier 5 (SEBI High): High-conviction alpha. Aggressive mid/small exposure. Suitable for horizon 10+ years."
+    },
+    "very_high": {
+      "max_equity_pct": 95,
+      "max_mid_small_pct": 50,
+      "min_debt_pct": 0,
+      "max_debt_pct": 5,
+      "saa_targets": {
+        "large_cap_pct": 20,
+        "mid_cap_pct": 25,
+        "small_cap_pct": 25,
+        "flexi_multi_cap_pct": 25,
+        "debt_liquid_pct": 5
+      },
+      "tolerance_band_pct": 5,
+      "new_sip_allocation": {
+        "equity_pct": 100,
+        "debt_pct": 0,
+        "note": "All new SIP capital goes to equity. Existing debt holdings maintained for rebalancing ammunition but receive no new SIP inflows. Requires explicit IPS authorization."
+      },
+      "description": "Tier 6 (SEBI Very High): Maximum-risk mandate. 95% equity ceiling. Highest volatility tolerance. Suitable only for horizon >= 10 years with explicit IPS authorization."
+    }
+  },
+  "age_capacity_rules": {
+    "under_30": {
+      "max_equity_pct": 90,
+      "description": "High capacity for growth"
+    },
+    "30_to_50": {
+      "max_equity_pct": 70,
+      "description": "Balanced growth phase"
+    },
+    "50_to_65": {
+      "max_equity_pct": 50,
+      "description": "Transition to preservation"
+    },
+    "over_65": {
+      "max_equity_pct": 30,
+      "description": "Capital preservation focus"
+    }
+  },
+  "sip_allocation_policy": {
+    "build_portfolio_gap_threshold_pct": 10.0,
+    "max_fund_allocation_pct": 20.0,
+    "max_new_funds_per_12_months": 2,
+    "max_core_fund_count": 6,
+    "min_sip_per_fund_inr": 1000,
+    "sip_increment_inr": 500,
+    "plan_migration_is_new_fund": false,
+    "plan_migration_note": "Switching Regular to Direct within the same scheme (same ISIN family) is a plan migration, NOT a new fund introduction. It does not count against max_new_funds_per_12_months.",
+    "very_high_sip_routing": {
+      "equity_only": true,
+      "debt_sip_pct": 0,
+      "priority_order": [
+        "large_cap_deficit",
+        "multi_cap_alpha",
+        "mid_cap_growth",
+        "small_cap_growth"
+      ],
+      "note": "For VERY_HIGH (Tier 6), route 100% of SIP to equity when explicitly authorized via IPS. Requires explicit investor policy authorization per REQ-ARCH-006. When disabled, follow standard dual-track budgeting per REQ-ARCH-006."
+    }
+  },
+  "fund_universe_requirements": {
+    "min_candidate_universe_size": 30,
+    "recommended_universe_size": 100,
+    "note": "A meaningful 5-pillar screen requires at least 30 candidate funds across categories. Below 30, flag UNIVERSE_INSUFFICIENT and expand search via AMFI scheme code catalogue before issuing recommendations.",
+    "expansion_sources": [
+      "AMFI_NAV_feed",
+      "mfapi.in_scheme_catalogue",
+      "Morningstar_category_universe"
+    ]
+  },
+  "withdrawal_policy": {
+    "trigger_remaining_horizon_years": 3,
+    "max_annual_withdrawal_rate_pct": 4.0,
+    "liquidity_reserve_months": 6,
+    "drawdown_sequence": [
+      "lowest_realized_gain_first",
+      "exit_load_zero_first",
+      "shortest_holding_period_first"
+    ],
+    "note": "4% withdrawal rule with 6-month liquidity reserve. Tax-optimized lot selection (lowest realized gain first) to minimize capital gains impact. Per POL-SWP-001."
+  },
+  "glide_path_policy": {
+    "enabled": false,
+    "trigger_remaining_horizon_years": null,
+    "annual_shift_pct": null,
+    "max_equity_at_maturity_pct": null,
+    "requires_signoff_per_step": true,
+    "note": "Default DISABLED until investor opts in. Per POL-GLIDE-001. Each de-risking step requires investor + adviser sign-off. No taxable event without tax review. If declined -> GLIDE_PATH_DECLINED documented."
+  },
+  "international_gold_policy": {
+    "international_enabled": true,
+    "gold_enabled": true,
+    "intl_max_pct_by_profile": {
+      "moderately_high": 15,
+      "high": 10,
+      "very_high": 10
+    },
+    "gold_max_pct": 5,
+    "fx_disclosure_required": true,
+    "note": "For MOST_AGGRESSIVE: international 10% (US feeder), gold 5% (SGB/ETF) per market-standard tolerance. FX disclosure mandatory. Per POL-GEO-001."
+  },
+  "review_policy": {
+    "quarterly_drift_threshold_pct": 5,
+    "semi_annual_fund_health_check": true,
+    "annual_full_rescreen": true,
+    "event_triggers": {
+      "market_correction_pct": 20,
+      "manager_change": true,
+      "sebi_rule_change": true,
+      "life_event": true
+    },
+    "data_freshness": {
+      "cas_max_age_days": 90,
+      "nav_max_age_days": 30
+    },
+    "overdue_grace_days": 45,
+    "note": "Per POL-REVIEW-001. Overdue -> REVIEW_OVERDUE flag, SIP to liquid until acknowledged. Stale data -> REVIEW_BLOCKED_STALE_DATA."
+  },
+  "goal_achievement_policy": {
+    "achievement_threshold_pct": 110,
+    "de_risk_start_months_before": 12,
+    "equity_retention_at_maturity_pct": 20,
+    "shortfall_threshold_pct": 90,
+    "surplus_threshold_pct": 150,
+    "note": "Per POL-GOAL-001. At target: stop SIP, shift 80% to debt/liquid, retain 20% equity. Freed SIP -> next priority goal. Shortfall/surplus flags at 12 months out."
+  },
+  "lumpsum_policy": {
+    "parking_pct": 0.4,
+    "stp_pct": 0.6,
+    "stp_months_min": 6,
+    "stp_months_max": 12,
+    "single_fund_cap_pct": 20,
+    "very_high_override": {
+      "parking_pct": 0.2,
+      "stp_pct": 0.8,
+      "note": "For VERY_HIGH (Tier 6) with horizon >= 7 years, reduce parking to 20% and increase STP equity deployment to 80%. Full lumpsum equity deployment permitted only with explicit client acknowledgment of sequence-of-returns risk."
+    }
+  }
+}

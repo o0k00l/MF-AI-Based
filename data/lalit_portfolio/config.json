@@ -1,0 +1,53 @@
+{
+  "client_name": "Lalit Saini",
+  "target_allocation": {
+    "large_cap_pct": 50.0,
+    "mid_small_cap_pct": 35.0,
+    "debt_global_pct": 15.0,
+    "tolerance_band_pct": 5.0
+  },
+  "ips": {
+    "client_name": "Lalit Saini",
+    "client_age": 35,
+    "horizon_years": 10,
+    "risk_tolerance": "aggressive",
+    "monthly_sip_budget": 99995.0,
+    "lumpsum_budget": 200000.0,
+    "marginal_tax_rate_pct": 30.0,
+    "adviser_signoff": true,
+    "adviser_signoff_at": "2026-10-31T17:00:00Z",
+    "adviser_name": "Lalit Saini (Self-Directed Fiduciary)"
+  },
+  "goals": [
+    {
+      "name": "Long-Term Wealth Accumulation",
+      "target_amount": 50000000.0,
+      "target_corpus_inr": 50000000.0,
+      "horizon_years": 10,
+      "priority": "HIGH"
+    }
+  ],
+  "current_sips": [
+    "HDFC Flexi Cap Fund - Regular Plan - Growth",
+    "Parag Parikh Flexi Cap Fund - Regular Plan Growth (formerly Parag Parikh Long Term Value Fund)",
+    "Motilal Oswal Midcap Fund - Direct Plan Growth",
+    "NIPPON INDIA MULTI CAP FUND - GROWTH PLAN GROWTH OPTION",
+    "NIPPON INDIA LARGE CAP FUND - DIRECT GROWTH PLAN GROWTH OPTION"
+  ],
+  "sip_funds": {
+    "HDFC Flexi Cap Fund - Regular Plan - Growth": 19999.0,
+    "Parag Parikh Flexi Cap Fund - Regular Plan Growth (formerly Parag Parikh Long Term Value Fund)": 19999.0,
+    "Motilal Oswal Midcap Fund - Direct Plan Growth": 19999.0,
+    "NIPPON INDIA MULTI CAP FUND - GROWTH PLAN GROWTH OPTION": 19999.0,
+    "NIPPON INDIA LARGE CAP FUND - DIRECT GROWTH PLAN GROWTH OPTION": 19999.0
+  },
+  "cash": {
+    "bank_cash_total": 435000.0,
+    "emergency_reserve": 115000.0,
+    "deployable_surplus": 320000.0,
+    "source": "User declared bank balance as of 2026-10-30"
+  },
+  "_synthesized": false,
+  "_synthesized_at": "2026-10-30T14:04:21.044258",
+  "_notice": "Auto-synthesized by engine/client_intake.py (GAP-108). SAA derived dynamically via compute_saa() from statement transactions. \u26a0\ufe0f DEFAULTS USED: age=35, horizon=10, risk=moderate, tax=30%. Adviser MUST review and customize the IPS profile before proceeding."
+}

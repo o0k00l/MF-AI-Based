@@ -1,0 +1,886 @@
+{
+  "_schema": "fiduciary.screening_criteria.v1",
+  "market": "India",
+  "version": "2026.10",
+  "as_of": "2026-10-05",
+  "status": "reviewed",
+  "riskometer_tiers": {
+    "Low": 1,
+    "Low to Moderate": 2,
+    "Moderate": 3,
+    "Moderately High": 4,
+    "High": 5,
+    "Very High": 6
+  },
+  "riskometer_mapping": {
+    "LOW": [
+      "Low"
+    ],
+    "LOW_TO_MODERATE": [
+      "Low",
+      "Low to Moderate"
+    ],
+    "MODERATE": [
+      "Low",
+      "Low to Moderate",
+      "Moderate"
+    ],
+    "MODERATELY_HIGH": [
+      "Low",
+      "Low to Moderate",
+      "Moderate",
+      "Moderately High"
+    ],
+    "HIGH": [
+      "Low",
+      "Low to Moderate",
+      "Moderate",
+      "Moderately High",
+      "High"
+    ],
+    "VERY_HIGH": [
+      "Low",
+      "Low to Moderate",
+      "Moderate",
+      "Moderately High",
+      "High",
+      "Very High"
+    ]
+  },
+  "verdict_severities": {
+    "REJECT": 3,
+    "QUARANTINE": 2,
+    "CONSOLIDATE_CANDIDATE": 2,
+    "FLAG": 1,
+    "DISCOUNT_TRACK_RECORD": 1,
+    "PASS": 0,
+    "INCONCLUSIVE": 0
+  },
+  "category_rules": {
+    "thematic_sectoral_liquidation": {
+      "condition": "category_is_thematic_or_sectoral",
+      "action": "IMMEDIATE_EXIT",
+      "rationale": "Thematic/Sectoral funds are not core holdings. They must be liquidated without seeking category-specific replacement.",
+      "rule_classification": "INVESTOR_POLICY"
+    }
+  },
+  "comparison_basis": {
+    "rule": "benchmark_tri_only",
+    "hard_prohibition": "Never score, rank or report a fund against its CATEGORY AVERAGE or peer median.",
+    "why": "Category averages include persistently poor funds and are a low bar. A fund can rank top-quartile while destroying value against its own TRI benchmark.",
+    "benchmark_must_be": "a Total Return Index, i.e. dividend-reinvested",
+    "horizons_required": [
+      "1y",
+      "3y",
+      "5y"
+    ],
+    "reporting_rule": "Publish benchmark DELTA at every required horizon. A fund that trails on both 3y and 5y has no stated reason to be held."
+  },
+  "rolling_return_rule": {
+    "required": true,
+    "window_years": 3,
+    "why": "Trailing returns are path dependent and flattering. A fund that fell 40% and rebounded 90% looks excellent on a trailing window. Rolling windows expose the actual hit rate.",
+    "preferred_min_hit_rate_pct": 70.0,
+    "note": "Rolling windows are NOT published on a SEBI factsheet. If absent from the dataset, mark the field MISSING. Never substitute trailing returns for rolling returns."
+  },
+  "reject_rules": [
+    {
+      "id": "BENCH_LAG_BOTH",
+      "test": "benchmark_delta_3y < 0 AND benchmark_delta_5y < 0",
+      "action": "REJECT",
+      "severity": "blocking",
+      "rationale": "Underperforming its own TRI benchmark at both medium and long horizon means paying an expense ratio for negative alpha.",
+      "rule_classification": "RESEARCH_HEURISTIC"
+    },
+    {
+      "id": "NEG_ALPHA_3Y",
+      "test": "alpha_3y < 0",
+      "action": "REJECT",
+      "severity": "blocking",
+      "rationale": "Risk-adjusted underperformance: the manager is subtracting value.",
+      "rule_classification": "RESEARCH_HEURISTIC"
+    },
+    {
+      "id": "RISK_UNCOMPENSATED",
+      "test": "sharpe_3y < 0.3 AND alpha_3y < 0",
+      "action": "REJECT",
+      "severity": "blocking",
+      "rationale": "High volatility that is not rewarded. Combine with high standard deviation to form the classic exit signature: high SD + low Sharpe + negative alpha.",
+      "rule_classification": "RESEARCH_HEURISTIC"
+    },
+    {
+      "id": "QUARANTINE_MATERIAL_CHANGE",
+      "test": "portfolio_turnover_pct > 100 AND strategy_is_momentum == false",
+      "action": "QUARANTINE",
+      "severity": "high",
+      "rationale": "Excessive churn in a non-momentum strategy destroys value through costs and signals style drift.",
+      "rule_classification": "RESEARCH_HEURISTIC"
+    },
+    {
+      "id": "CAPTURE_RATIO_INVERTED",
+      "test": "upside_capture_ratio < 100 AND downside_capture_ratio > 100",
+      "action": "REJECT",
+      "severity": "blocking",
+      "rationale": "The worst combination (RULE-M6): the fund captures less upside in bull markets and more downside in bear markets compared to the benchmark. Exit immediately.",
+      "rule_classification": "RESEARCH_HEURISTIC"
+    },
+    {
+      "id": "RISKOMETER_MISMATCH",
+      "test": "riskometer_score > 6",
+      "action": "REJECT",
+      "severity": "blocking",
+      "rationale": "Fund riskometer rating exceeds SEBI statutory maximum ceiling of 6 (Very High). Client portfolio risk capacity is enforced at the strategic allocation level in engine/compliance.py::evaluate_suitability per SEBI IA Reg 16-17 (GAP-097 / TRAP-04).",
+      "authority": "SEBI Circular SEBI/HO/IMD/DF3/CIR/P/2020/197 (Product Labelling - Risk-o-meter)",
+      "rule_classification": "RESEARCH_HEURISTIC"
+    }
+  ],
+  "flag_rules": [
+    {
+      "id": "SHARPE_WEAK",
+      "test": "sharpe_3y < 0.3",
+      "action": "FLAG",
+      "thresholds": {
+        "decent": 0.5,
+        "excellent": 1.0
+      },
+      "rule_classification": "RESEARCH_HEURISTIC"
+    },
+    {
+      "id": "DOWNSIDE_CAPTURE_HIGH",
+      "test": "downside_capture_ratio > 110",
+      "action": "FLAG",
+      "rationale": "High downside capture ratio (RULE-M6). The fund falls harder than the market during crashes. Put on automatic probation.",
+      "rule_classification": "RESEARCH_HEURISTIC"
+    },
+    {
+      "id": "ROLLING_RETURN_POOR",
+      "test": "rolling_3y_beat_rate_pct < 50",
+      "action": "FLAG",
+      "rationale": "A fund with <50% benchmark beat rate on rolling 3Y basis is a closet indexer (RULE-M5).",
+      "rule_classification": "RESEARCH_HEURISTIC"
+    },
+    {
+      "id": "OVERLAP_HIGH",
+      "test": "top10_weighted_overlap_with_portfolio_pct >= 40",
+      "action": "CONSOLIDATE_CANDIDATE",
+      "rationale": "At or above 40% top-10 overlap the second fund is adding tracking noise, not diversification (Requirement.md 4.1 parameter 16 and 4.2 A2b Tier 3 - the only decision-rule tier).",
+      "authority": "Requirement.md 4.1 parameter 16 and A2b: a pair at or above 40% top-10 overlap is a structural breach.",
+      "rule_classification": "INVESTOR_POLICY"
+    },
+    {
+      "id": "SECTOR_CONCENTRATED",
+      "test": "single_sector_weight_pct > 35",
+      "action": "FLAG",
+      "category_exemptions": [
+        "Flexi Cap",
+        "Multi Cap",
+        "Large Cap",
+        "Large and Mid Cap"
+      ],
+      "rationale": "A sector above 35% must be an intentional, stated decision. Diversified equity funds (Flexi/Multi/Large Cap) are exempt as broad market exposure to Financial Services (~30% of Nifty 50) is standard.",
+      "rule_classification": "RESEARCH_HEURISTIC"
+    },
+    {
+      "id": "MANAGER_UNSEASONED",
+      "test": "fund_manager_tenure_years < 2",
+      "action": "FLAG",
+      "rationale": "Manager tenure under 2 years warrants review. Historical returns may belong to predecessor; evaluate process continuity and team depth before any action.",
+      "rule_classification": "RESEARCH_HEURISTIC"
+    },
+    {
+      "id": "AUM_OUT_OF_BAND",
+      "test": "category_specific",
+      "action": "FLAG",
+      "limits_crore": {
+        "Small Cap": 20000,
+        "Mid Cap": 40000,
+        "Flexi Cap": 90000,
+        "Large Cap": 250000,
+        "Multi Cap": 40000
+      },
+      "rationale": "Very large AUM in a mid or small cap fund mechanically dilutes capacity and degrades future alpha. FLAG only - monitor for capacity degradation; do not auto-exit. Large-cap and flexi-cap funds with proven process depth (e.g., HDFC, Motilal) often sustain alpha at scale.",
+      "authority": "Requirement section 3.1 parameter 6: Mid > 40,000 Cr and Small > 20,000 Cr are the flag levels. These thresholds are the adviser policy and override the generic industry guidance of 15,000 Cr / 60,000 Cr found in research.",
+      "rule_classification": "INVESTOR_POLICY"
+    },
+    {
+      "id": "TER_HIGH",
+      "test": "ter_direct_pct > 1.0",
+      "applies_to_categories": [
+        "Large Cap",
+        "Flexi Cap",
+        "Large and Mid Cap"
+      ],
+      "action": "FLAG",
+      "rationale": "Cheaper substitutes exist in the same category. A broad-market index fund runs at roughly 0.10-0.20%.",
+      "rule_classification": "RESEARCH_HEURISTIC"
+    },
+    {
+      "id": "CAPACITY_ILLIQUID",
+      "test": "stress_test_days_50 > 15",
+      "applies_to_categories": [
+        "Mid Cap",
+        "Small Cap"
+      ],
+      "action": "FLAG",
+      "rationale": "ILLIQUIDITY RISK (RULE-M4): The fund takes more than 15 days to liquidate 50% of its portfolio based on the AMFI Stress Test.",
+      "rule_classification": "RESEARCH_HEURISTIC"
+    },
+    {
+      "id": "CAPACITY_ILLIQUID_FALLBACK",
+      "test": "portfolio_small_cap_pct > 25 OR portfolio_microcap_pct > 5",
+      "action": "FLAG",
+      "rationale": "Micro-cap and illiquid mid-cap sleeves carry liquidity and governance risk that trailing return tables hide.",
+      "rule_classification": "RESEARCH_HEURISTIC"
+    },
+    {
+      "id": "CLOSET_INDEXER",
+      "test": "tracking_error_3y < 1.0 AND ter_direct_pct > 0.5",
+      "applies_to_categories": [
+        "Large Cap",
+        "Flexi Cap",
+        "Multi Cap",
+        "Mid Cap",
+        "Small Cap",
+        "Large and Mid Cap"
+      ],
+      "action": "FLAG",
+      "rationale": "The fund manager is charging an active fee (TER > 0.5%) but practically hugging the index (Tracking Error < 1.0%). Buy the actual index fund instead for a fraction of the cost.",
+      "rule_classification": "RESEARCH_HEURISTIC"
+    },
+    {
+      "id": "INFO_RATIO_WEAK",
+      "test": "information_ratio_3y < 0",
+      "applies_to_categories": [
+        "Large Cap",
+        "Flexi Cap",
+        "Multi Cap",
+        "Mid Cap",
+        "Small Cap",
+        "Large and Mid Cap"
+      ],
+      "action": "FLAG",
+      "rationale": "The Information Ratio is negative, meaning the fund manager is taking active risk but failing to generate active return above the benchmark. The index is superior.",
+      "rule_classification": "RESEARCH_HEURISTIC"
+    },
+    {
+      "id": "DEBT_CREDIT_RISK",
+      "test": "ytm_pct > 8.5",
+      "applies_to_categories": [
+        "Liquid",
+        "Ultra Short Duration",
+        "Low Duration",
+        "Money Market",
+        "Short Duration",
+        "Corporate Bond"
+      ],
+      "action": "FLAG",
+      "rationale": "A Yield to Maturity (YTM) significantly higher than the risk-free rate suggests the manager is buying lower-rated, high-risk paper to boost returns. This violates the core safety mandate of a debt fund.",
+      "rule_classification": "RESEARCH_HEURISTIC"
+    },
+    {
+      "id": "LIQUIDITY_STRESS_TEST_FAIL",
+      "test": "amfi_stress_test_50pct_days > 15",
+      "applies_to_categories": [
+        "Mid Cap",
+        "Small Cap"
+      ],
+      "action": "FLAG",
+      "rationale": "If a small or mid cap fund requires more than 15 days to liquidate 50% of its portfolio, it is carrying severe illiquidity risk. In a market panic, the fund may be forced to gate redemptions or fire-sale quality assets.",
+      "rule_classification": "RESEARCH_HEURISTIC"
+    },
+    {
+      "id": "MAX_DRAWDOWN_DEEP",
+      "test": "max_drawdown_pct > 35",
+      "applies_to_categories": [
+        "Large Cap",
+        "Flexi Cap",
+        "Multi Cap",
+        "Large and Mid Cap",
+        "Other"
+      ],
+      "action": "FLAG",
+      "rationale": "A peak-to-trough decline worse than 35% breaches the Large/Multi/Flexi limit. The value is a POSITIVE magnitude, so the test is an upper-bound check; a negative drawdown would satisfy 'x < 35' and silently disable this gate, which is exactly the defect that was found.",
+      "rule_classification": "RESEARCH_HEURISTIC"
+    },
+    {
+      "id": "MAX_DRAWDOWN_DEEP_MIDCAP",
+      "test": "max_drawdown_pct > 55",
+      "applies_to_categories": [
+        "Mid Cap",
+        "Small Cap"
+      ],
+      "action": "FLAG",
+      "rationale": "Mid and Small caps carry a 55% limit. Positive magnitude, upper-bound test.",
+      "rule_classification": "RESEARCH_HEURISTIC"
+    },
+    {
+      "id": "MAX_DRAWDOWN_DEEP_BALANCED",
+      "test": "max_drawdown_pct > 45",
+      "applies_to_categories": [
+        "Hybrid: DAA",
+        "Hybrid: Conservative Allocation",
+        "Hybrid: Balanced Allocation",
+        "Hybrid: Aggressive Allocation",
+        "Thematic",
+        "Thematic-Defence",
+        "Thematic-Sector"
+      ],
+      "action": "FLAG",
+      "rationale": "Balanced and thematic schemes carry a 45% limit.",
+      "rule_classification": "RESEARCH_HEURISTIC"
+    },
+    {
+      "id": "SORTINO_WEAK",
+      "test": "sortino_3y < 0.5",
+      "action": "FLAG",
+      "rationale": "Weak downside-adjusted return: the manager fails to generate adequate compensation for downside drawdowns.",
+      "rule_classification": "RESEARCH_HEURISTIC"
+    },
+    {
+      "id": "SORTINO_NEGATIVE",
+      "test": "sortino_3y < 0.0 AND alpha_3y < 0",
+      "action": "REJECT",
+      "severity": "blocking",
+      "rationale": "Negative Sortino combined with negative alpha indicates pure uncompensated downside wealth destruction.",
+      "rule_classification": "RESEARCH_HEURISTIC"
+    },
+    {
+      "id": "RECOVERY_PROLONGED",
+      "test": "recovery_days > 378",
+      "action": "FLAG",
+      "rationale": "Fund required more than 1.5 years (378 trading days) to recover from historical peak-to-trough drawdown (RULE-M4).",
+      "rule_classification": "RESEARCH_HEURISTIC"
+    },
+    {
+      "id": "RISKOMETER_MISMATCH",
+      "test": "riskometer_score > 4",
+      "action": "REJECT",
+      "severity": "blocking",
+      "rationale": "Fund riskometer rating exceeds default ceiling (Moderately High). Client-specific risk ceilings are enforced separately in the SEBI suitability evaluation (engine/compliance.py::evaluate_suitability).",
+      "authority": "SEBI Circular SEBI/HO/IMD/DF3/CIR/P/2020/197 (Product Labelling - Risk-o-meter)",
+      "rule_classification": "RESEARCH_HEURISTIC"
+    },
+    {
+      "id": "AUM_BELOW_FLOOR",
+      "test": "aum_cr < 50.0",
+      "action": "FLAG",
+      "severity": "high",
+      "rationale": "Fund AUM is below institutional threshold (\u20b950 Cr for retail diversified equity / \u20b95 Cr statutory VR cut-off). High risk of expense bleed, illiquidity, and scheme wind-up.",
+      "rule_classification": "RESEARCH_HEURISTIC"
+    },
+    {
+      "id": "FUND_AGE_INSUFFICIENT",
+      "test": "fund_age_years < 3.0",
+      "applies_to_categories": [
+        "Large Cap",
+        "Flexi Cap",
+        "Multi Cap",
+        "Mid Cap",
+        "Small Cap",
+        "Large and Mid Cap"
+      ],
+      "action": "REJECT",
+      "severity": "blocking",
+      "rationale": "Value Research eligibility gate: equity schemes must have a minimum 3-year track record across full market cycles before fiduciary recommendation.",
+      "rule_classification": "RESEARCH_HEURISTIC"
+    },
+    {
+      "id": "DECLUTTER_RESIDUAL",
+      "test": "portfolio_weight_pct < 1.0 AND is_held == true",
+      "action": "CONSOLIDATE_CANDIDATE",
+      "severity": "advisory",
+      "rationale": "Sub-scale holding (< 1.0% of portfolio): generates tax tracking friction without meaningful risk/return contribution. Recommend consolidating into core anchor.",
+      "authority": "Scripbox Quarterly Portfolio Scan & Decluttering Architecture",
+      "rule_classification": "RESEARCH_HEURISTIC"
+    },
+    {
+      "id": "QUARTILE_INSTABILITY",
+      "test": "quartile_top2_years < 3",
+      "action": "FLAG",
+      "severity": "medium",
+      "rationale": "Fund failed to maintain Top-2 quartile ranking in at least 3 of the last 4 calendar years. Multi-cycle consistency not established.",
+      "authority": "Scripbox Science of Best Mutual Fund Selection",
+      "rule_classification": "RESEARCH_HEURISTIC"
+    },
+    {
+      "id": "DEBT_CREDIT_RISK",
+      "test": "ytm_pct > 8.5",
+      "applies_to_categories": [
+        "Liquid",
+        "Ultra Short Duration",
+        "Low Duration",
+        "Short Duration",
+        "Corporate Bond"
+      ],
+      "action": "FLAG",
+      "rationale": "A Yield to Maturity (YTM) significantly higher than the risk-free rate suggests the manager is buying lower-rated, high-risk paper to boost returns. This violates the core safety mandate of a debt fund.",
+      "rule_classification": "RESEARCH_HEURISTIC"
+    },
+    {
+      "id": "LIQUIDITY_STRESS_TEST_FAIL",
+      "test": "amfi_stress_test_50pct_days > 15",
+      "applies_to_categories": [
+        "Mid Cap",
+        "Small Cap"
+      ],
+      "action": "FLAG",
+      "rationale": "If a small or mid cap fund requires more than 15 days to liquidate 50% of its portfolio, it is carrying severe illiquidity risk. In a market panic, the fund may be forced to gate redemptions or fire-sale quality assets.",
+      "rule_classification": "RESEARCH_HEURISTIC"
+    },
+    {
+      "id": "DEBT_CREDIT_QUALITY",
+      "test": "credit_quality_aaa_pct < 80",
+      "applies_to_categories": [
+        "Liquid",
+        "Ultra Short Duration",
+        "Low Duration",
+        "Short Duration",
+        "Corporate Bond",
+        "Banking & PSU",
+        "Gilt",
+        "Dynamic Bond"
+      ],
+      "action": "FLAG",
+      "rationale": "Per CRISIL CMFR and SEBI guidelines, debt funds should maintain at least 80% allocation to Sovereign/AAA rated instruments. Lower credit quality increases default risk and violates the safety mandate of debt funds.",
+      "rule_classification": "RESEARCH_HEURISTIC"
+    },
+    {
+      "id": "DEBT_DURATION_RISK",
+      "test": "modified_duration > 3 AND category NOT IN ('Gilt', 'Gilt 10Y Constant Duration')",
+      "applies_to_categories": [
+        "Short Duration",
+        "Corporate Bond",
+        "Banking & PSU",
+        "Dynamic Bond"
+      ],
+      "action": "FLAG",
+      "rationale": "Per CRISIL CMFR, modified duration above 3 years in non-gilt funds indicates excessive interest rate risk. Funds should maintain duration consistent with their stated category mandate.",
+      "rule_classification": "RESEARCH_HEURISTIC"
+    }
+  ],
+  "portfolio_level_rules": [
+    {
+      "id": "EQUITY_ALLOCATION_BAND",
+      "rule": "equity allocation must sit inside the client risk band; a breach is a discussion trigger, not an automatic trade.",
+      "requires_client_risk_profile": true
+    },
+    {
+      "id": "SINGLE_THEME_CAP",
+      "test": "single_thematic_or_sector_fund_weight_pct > 15",
+      "threshold_pct": 15.0,
+      "action": "FLAG",
+      "rationale": "Thematic and sector funds limit diversification and are cyclical. They are satellites, never core holdings."
+    },
+    {
+      "id": "CORE_SATELLITE_RATIO",
+      "test": "satellite_share_pct > 30",
+      "threshold_pct": 30.0,
+      "action": "FLAG",
+      "rationale": "Broad diversified funds should dominate the equity core."
+    }
+  ],
+  "data_sufficiency": {
+    "conditional_requirements": {
+      "mandatory_for": {
+        "Index Fund": [
+          "tracking_error_3y",
+          "information_ratio_3y"
+        ],
+        "ETF": [
+          "tracking_error_3y",
+          "information_ratio_3y"
+        ],
+        "Large Cap": [
+          "tracking_error_3y",
+          "information_ratio_3y"
+        ],
+        "Mid Cap": [
+          "stress_test_days_50"
+        ],
+        "Small Cap": [
+          "stress_test_days_50"
+        ]
+      },
+      "optional_for": {
+        "Flexi Cap": [
+          "tracking_error_3y",
+          "information_ratio_3y",
+          "stress_test_days_50",
+          "quartile_top2_years",
+          "is_held",
+          "portfolio_weight_pct",
+          "recovery_days",
+          "sortino_3y"
+        ],
+        "Multi Cap": [
+          "tracking_error_3y",
+          "information_ratio_3y",
+          "stress_test_days_50",
+          "quartile_top2_years",
+          "is_held",
+          "portfolio_weight_pct",
+          "recovery_days",
+          "sortino_3y"
+        ],
+        "Mid Cap": [
+          "tracking_error_3y",
+          "information_ratio_3y",
+          "quartile_top2_years",
+          "is_held",
+          "portfolio_weight_pct",
+          "recovery_days",
+          "sortino_3y"
+        ],
+        "Small Cap": [
+          "tracking_error_3y",
+          "information_ratio_3y",
+          "quartile_top2_years",
+          "is_held",
+          "portfolio_weight_pct",
+          "recovery_days",
+          "sortino_3y"
+        ],
+        "Large Cap": [
+          "stress_test_days_50",
+          "quartile_top2_years",
+          "is_held",
+          "portfolio_weight_pct",
+          "recovery_days",
+          "sortino_3y"
+        ]
+      }
+    },
+    "required_for_any_recommendation": [
+      "benchmark identity and TRI basis",
+      "3y and 5y benchmark deltas"
+    ],
+    "category_rules": {
+      "thematic_sectoral_liquidation": {
+        "condition": "category_is_thematic_or_sectoral",
+        "action": "IMMEDIATE_EXIT",
+        "rationale": "Thematic/Sectoral funds are not core holdings. They must be liquidated without seeking category-specific replacement."
+      }
+    },
+    "reporting_requirements": [
+      "rolling return hit rate",
+      "up and down capture ratios",
+      "portfolio turnover ratio",
+      "fund manager name and tenure",
+      "expense ratio with direct/regular basis",
+      "top 10 holdings and sector weights"
+    ],
+    "if_missing": "Mark MISSING and state what cannot be concluded. Do not substitute a proxy, do not infer, do not silently drop the test.",
+    "prohibited": [
+      "asserting a fund beats its benchmark when benchmark identity is unknown",
+      "ranking funds using only trailing returns",
+      "reporting overlap from category labels instead of actual holdings"
+    ]
+  },
+  "_added_2026_10_05": "Parameter 1 (max drawdown) was specified in the 18-parameter table but NO rule tested it, and the value was negative, so any ceiling test written as '< 35' would have passed. Rules added as upper-bound checks on a positive magnitude.",
+  "_overlap_threshold_pct": 40,
+  "_overlap_tier1_pct": 20,
+  "_overlap_tier2_pct": 25,
+  "_overlap_early_warning_pct": 20,
+  "_overlap_concentration_warning_pct": 25,
+  "_overlap_graduated_framework_note": "Requirement.md 4.2 A2b: three tiers, ONE decision rule. Tier 1 (>20% pairwise top-10 overlap) is an early-warning flag for monitoring only. Tier 2 (>25% portfolio-weighted common-stock exposure) is a concentration warning only. Tier 3 (>=40% pairwise top-10 overlap, _overlap_threshold_pct) is the ONLY tier that may drive SELL/REPLACE/exit. No fund may be exited on a 20-39% reading.",
+  "category_taxonomy": {
+    "_note": "SEBI categories and prefixes for classification. All taxonomy classification is policy-driven.",
+    "match": "prefix, case-insensitive, on the category string before any colon",
+    "satellite_prefixes": [
+      "thematic",
+      "sectoral",
+      "sector",
+      "conservative",
+      "index",
+      "factor",
+      "arbitrage"
+    ],
+    "satellite_prefixes_excluded": [],
+    "hybrid_equity_prefixes": [
+      "hybrid",
+      "balanced advantage",
+      "dynamic asset allocation",
+      "baf",
+      "multi asset"
+    ],
+    "debt_prefixes": [
+      "liquid",
+      "arbitrage",
+      "money market",
+      "debt",
+      "overnight"
+    ]
+  },
+  "derivation_assumptions": {
+    "_note": "Assumptions used when deriving risk metrics from a NAV series. They are POLICY and belong here, not in Python. Every derived figure must state the values used.",
+    "trading_days_per_year": 252,
+    "risk_free_pct": 6.5,
+    "risk_free_basis": "assumed; must be replaced with a sourced rate before any figure derived from it is quoted to a client",
+    "min_volatility_pct": 0.05,
+    "split_detection_threshold_pct": 50.0,
+    "split_ratios_recognised": [
+      2.0,
+      2.5,
+      5.0,
+      10.0,
+      20.0,
+      25.0,
+      50.0,
+      100.0,
+      1000.0
+    ]
+  },
+  "identity_resolution_policy": {
+    "min_score": 0.6,
+    "margin": 0.08,
+    "exact_match_threshold": 0.99
+  },
+  "staleness_policy": {
+    "policy_file_max_age_days": 180,
+    "confidence_penalties": [
+      {
+        "min_age_days": 180,
+        "penalty_pts": 15.0
+      },
+      {
+        "min_age_days": 365,
+        "penalty_pts": 30.0
+      }
+    ]
+  },
+  "evidence_catalogue": {
+    "fund_quality": {
+      "decision_name": "Fund Quality Assessment",
+      "blocking_fields": [
+        "scheme_identity",
+        "returns_1y_3y_5y"
+      ],
+      "requirements": {
+        "scheme_identity": {
+          "purpose": "Ensure correct fund",
+          "max_age_days": 365,
+          "blocking_level": "hard_block",
+          "consequence_if_missing": "Cannot attach metrics"
+        },
+        "returns_1y_3y_5y": {
+          "purpose": "Performance evaluation",
+          "max_age_days": 30,
+          "blocking_level": "hard_block",
+          "consequence_if_missing": "Cannot evaluate performance"
+        }
+      }
+    },
+    "overlap_analysis": {
+      "decision_name": "Portfolio Overlap Assessment",
+      "blocking_fields": [
+        "holdings_data",
+        "scheme_identity"
+      ],
+      "requirements": {
+        "holdings_data": {
+          "purpose": "Identify common holdings",
+          "max_age_days": 60,
+          "blocking_level": "hard_block",
+          "consequence_if_missing": "Cannot calculate overlap"
+        },
+        "scheme_identity": {
+          "purpose": "Ensure correct fund",
+          "max_age_days": 365,
+          "blocking_level": "hard_block",
+          "consequence_if_missing": "Cannot attribute holdings"
+        }
+      }
+    }
+  },
+  "concentration_bands": {
+    "diversified_min_effective_holdings": 10.0,
+    "moderately_concentrated_min_effective_holdings": 5.0
+  },
+  "anomaly_detection_thresholds": {
+    "performance_drop_pct": 15.0,
+    "performance_spike_pct": 20.0,
+    "allocation_change_pct": 10.0,
+    "correlation_shift": 0.3,
+    "cash_flow_change_pct": 25.0,
+    "human_review_cash_flow_change_pct": 50.0
+  },
+  "placeholder_detection": {
+    "_note": "Market-standard anomaly rule: if a screening metric has identical values across >= 5 unrelated funds (different AMCs), flag as PROVISIONAL / possible placeholder. Requires independent verification before use in gating decisions. Aligned with Morningstar data-quality and Kuvera/ET Money anomaly checks.",
+    "identical_value_threshold_funds": 5,
+    "affected_action": "PROVISIONAL",
+    "blocking_level": "soft_block",
+    "consequence": "Metric is excluded from gating. Fund receives INCONCLUSIVE for that pillar. Human verification required before the metric can be used in a BUY/SELL decision.",
+    "example": "If rolling_3y_beat_rate == 65.0 for 8+ funds from 6+ different AMCs, this is statistically implausible. Flag all as PROVISIONAL. Do NOT use 65% as a passing or failing value until independently sourced.",
+    "metrics_monitored": [
+      "rolling_3y_beat_rate",
+      "up_capture",
+      "down_capture",
+      "sharpe_3y",
+      "alpha_3y",
+      "max_drawdown_pct"
+    ]
+  },
+  "no_qualifying_candidate_fallback": {
+    "_note": "Market-standard fallback: when zero candidates pass all mandatory screens, do NOT silently relax thresholds. Aligned with SEBI IA Regulations 2013 Reg 17 (Suitability) and CFA Standard V(A) (Diligence).",
+    "action": "NO_QUALIFYING_CANDIDATE",
+    "steps": [
+      "1. Flag NO_QUALIFYING_CANDIDATE in the manifest with explicit failure reasons per fund.",
+      "2. Do NOT silently relax any RESEARCH_HEURISTIC threshold.",
+      "3. If the failing metric is RESEARCH_HEURISTIC (e.g. rolling beat rate), the engine MAY recommend the highest-scoring available fund with explicit [PROVISIONAL] badge and documented rationale.",
+      "4. If the failing metric is STATUTORY or OPERATIONAL_CONTROL, the engine MUST NOT recommend. Issue BLOCKED.",
+      "5. Log the relaxation (if any) as an ADVISER_OVERRIDE with mandatory written justification.",
+      "6. Expand the candidate universe (min 30 funds) before concluding no candidate qualifies."
+    ],
+    "prohibited": "Never fabricate or interpolate missing metrics to make a fund appear to pass."
+  },
+  "override_governance": {
+    "_note": "Market-standard override rules aligned with SEBI IA Regulations, CFA fiduciary duty, and robo-adviser best practices (Kuvera, Groww, ET Money compliance frameworks).",
+    "rules": [
+      {
+        "classification": "STATUTORY",
+        "overrideable": false,
+        "note": "Legal obligations (SEBI, CBDT, ITA) can NEVER be overridden by adviser or client."
+      },
+      {
+        "classification": "OPERATIONAL_CONTROL",
+        "overrideable": false,
+        "note": "System integrity gates (data validation, hash checks, state machine) can NEVER be overridden."
+      },
+      {
+        "classification": "INVESTOR_POLICY",
+        "overrideable": true,
+        "requires": "Joint client + adviser written sign-off with documented rationale",
+        "audit": "Must be recorded in ApprovalRecord with timestamp, reason, and expiry"
+      },
+      {
+        "classification": "RESEARCH_HEURISTIC",
+        "overrideable": true,
+        "requires": "Signed adviser authorization with documented rationale",
+        "audit": "Must be recorded in manifest evidence block with override_reason",
+        "expiry_days": 90,
+        "note": "Heuristic overrides expire after 90 days and must be re-justified at next review."
+      },
+      {
+        "classification": "DISCLOSURE",
+        "overrideable": false,
+        "note": "Mandatory disclosures cannot be suppressed."
+      }
+    ],
+    "prohibited_overrides": [
+      "Cannot override to bypass a STATUTORY block",
+      "Cannot override to mark an unverified action as AUTHORISED",
+      "Cannot override to suppress mandatory risk warnings",
+      "Cannot override DataState.MISSING to DataState.VERIFIED"
+    ]
+  },
+  "xirr_edge_cases": {
+    "_note": "Boundary conditions for FM-XIRR-V1. Per FINANCIAL_MATH_MODELS.md FM-XIRR-V1 and DEF-016.",
+    "min_cash_flows": 2,
+    "insufficient_cash_flows_state": "INSUFFICIENT_CASH_FLOWS",
+    "duplicate_dates_handling": "aggregate_by_date",
+    "cas_gap_max_days": 30,
+    "cas_gap_state": "DATA_GAP",
+    "terminal_valuation_source": "latest_nav_date",
+    "invalid_units_threshold": 0,
+    "invalid_units_state": "INVALID_LOT",
+    "insufficient_history_months": 12,
+    "insufficient_history_state": "INSUFFICIENT_HISTORY",
+    "implausible_xirr_threshold_pct": 200,
+    "implausible_state": "XIRR_IMPLAUSIBLE",
+    "fallback_to_trailing_return": true,
+    "convergence_failure_state": "XIRR_NO_CONVERGENCE"
+  },
+  "amc_concentration": {
+    "_note": "AMC-level concentration cap. Per POL-AMC-001 (DEF-015). Cap values UNCONFIGURED until investor approves.",
+    "max_portfolio_pct_per_amc": null,
+    "max_fund_count_per_amc": null,
+    "denominator": "total_portfolio_value",
+    "breach_action": "WARN",
+    "existing_holdings_action": "FLAG"
+  },
+  "factor_diversification": {
+    "_note": "Pairwise correlation and style concentration. Per POL-FACTOR-001 (DEF-012). Requires 36-month NAV series.",
+    "min_funds_for_analysis": 4,
+    "correlation_window_months": 36,
+    "pairwise_corr_threshold": 0.9,
+    "style_concentration_threshold_pct": 70,
+    "breach_action": "WARN",
+    "data_unavailable_state": "CORRELATION_DATA_MISSING"
+  },
+  "withdrawal_policy": {
+    "_note": "SWP and withdrawal rules. Per POL-SWP-001 (DEF-009). Cap values UNCONFIGURED until investor approves.",
+    "max_annual_withdrawal_rate_pct": null,
+    "liquidity_reserve_months": null,
+    "drawdown_sequence": [
+      "lowest_realized_gain_first",
+      "exit_load_zero_first",
+      "shortest_holding_period_first"
+    ],
+    "trigger_remaining_horizon_years": 3,
+    "note": "4% withdrawal rule with 6-month liquidity reserve. Tax-optimized lot selection (lowest realized gain first) to minimize capital gains impact. Per POL-SWP-001."
+  },
+  "review_policy": {
+    "_note": "Review cadence and triggers. Per POL-REVIEW-001 (DEF-010/017).",
+    "quarterly_drift_threshold_pct": 5,
+    "semi_annual_fund_health_check": true,
+    "annual_full_rescreen": true,
+    "event_triggers": {
+      "market_correction_pct": 20,
+      "manager_change": true,
+      "sebi_rule_change": true,
+      "life_event": true
+    },
+    "data_freshness": {
+      "cas_max_age_days": 90,
+      "nav_max_age_days": 30
+    },
+    "overdue_grace_days": 45,
+    "note": "Per POL-REVIEW-001. Overdue -> REVIEW_OVERDUE flag, SIP to liquid until acknowledged. Stale data -> REVIEW_BLOCKED_STALE_DATA."
+  },
+  "glide_path_policy": {
+    "_note": "De-risking glide path for approaching goals. Per POL-GLIDE-001 (DEF-011). Default DISABLED until investor opts in.",
+    "enabled": false,
+    "trigger_remaining_horizon_years": null,
+    "annual_shift_pct": null,
+    "max_equity_at_maturity_pct": null,
+    "requires_signoff_per_step": true,
+    "note": "Default DISABLED until investor opts in. Per POL-GLIDE-001. Each de-risking step requires investor + adviser sign-off. No taxable event without tax review. If declined -> GLIDE_PATH_DECLINED documented."
+  },
+  "international_gold_policy": {
+    "_note": "International equity and gold allocation. Per POL-GEO-001 (DEF-013).",
+    "international_enabled": true,
+    "gold_enabled": true,
+    "intl_max_pct_by_profile": {
+      "moderately_high": 15,
+      "high": 10,
+      "very_high": 10
+    },
+    "gold_max_pct": 5,
+    "fx_disclosure_required": true,
+    "note": "For VERY_HIGH: international 10% (US feeder), gold 5% (SGB/ETF) per market-standard tolerance. FX disclosure mandatory. Per POL-GEO-001."
+  },
+  "goal_achievement_policy": {
+    "_note": "Goal achievement and de-risking. Per POL-GOAL-001 (DEF-018).",
+    "achievement_threshold_pct": 110,
+    "de_risk_start_months_before": 12,
+    "equity_retention_at_maturity_pct": 20,
+    "shortfall_threshold_pct": 90,
+    "surplus_threshold_pct": 150,
+    "note": "Per POL-GOAL-001. At target: stop SIP, shift 80% to debt/liquid, retain 20% equity. Freed SIP -> next priority goal. Shortfall/surplus flags at 12 months out."
+  },
+  "drawdown_response_protocol": {
+    "_note": "Drawdown response protocol. Per POL-DRAWDOWN-001 (DEF-019). Default DISABLED until investor opts in.",
+    "enabled": false,
+    "tier_1_threshold_pct": -15,
+    "tier_2_threshold_pct": -20,
+    "tier_3_threshold_pct": -30,
+    "tier_4_threshold_pct": -40,
+    "tier_1_action": "LOG",
+    "tier_2_action": "OPTIONAL_REBALANCE",
+    "tier_3_action": "MANDATORY_REBALANCE",
+    "tier_4_action": "EMERGENCY_REVIEW",
+    "emergency_fund_deployment_allowed": false,
+    "requires_presigned_approval": true,
+    "note": "Per POL-DRAWDOWN-001. Tier 1: log. Tier 2: optional rebalance. Tier 3: mandatory rebalance. Tier 4: emergency review. All actions need pre-signature."
+  }
+}
