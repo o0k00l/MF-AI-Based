@@ -1,0 +1,56 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Environment & Secrets (CRITICAL - contains API keys)
+.env
+.env.local
+.env.*.local
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project-specific: Generated outputs (reports, PDFs, checklists)
+outputs/
+*.pdf
+*.md
+*.csv
+
+# Project-specific: AI model & narrative caches (auto-regenerated)
+cache/
+free_models_cache.json
+narrative_cache.json
+
+# Project-specific: Sensitive client financial statements (CAS/CGS Excel files)
+data/*/statements/
+*.xlsx
+*.xls
+
+# Project-specific: Misc generated/temp files
+novaai_interacton
+
+# Backup files
+*.backup
+*.backup*
+*.bak
+
+# Logs
+*.log
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
