@@ -1,22 +1,26 @@
 {
   "client_name": "Lalit Saini",
   "target_allocation": {
-    "large_cap_pct": 50.0,
-    "mid_small_cap_pct": 35.0,
-    "debt_global_pct": 15.0,
+    "large_cap_pct": 20.0,
+    "mid_cap_pct": 25.0,
+    "small_cap_pct": 25.0,
+    "flexi_multi_cap_pct": 25.0,
+    "debt_liquid_pct": 5.0,
     "tolerance_band_pct": 5.0
   },
   "ips": {
     "client_name": "Lalit Saini",
     "client_age": 35,
     "horizon_years": 10,
-    "risk_tolerance": "aggressive",
-    "monthly_sip_budget": 99995.0,
+    "risk_tolerance": "very_high",
+    "monthly_sip_budget": 100000.0,
     "lumpsum_budget": 200000.0,
     "marginal_tax_rate_pct": 30.0,
     "adviser_signoff": true,
     "adviser_signoff_at": "2026-10-31T17:00:00Z",
-    "adviser_name": "Lalit Saini (Self-Directed Fiduciary)"
+    "adviser_name": "Lalit Saini (Self-Directed Fiduciary)",
+    "risk_tier": 6,
+    "equity_sip_routing_override": true
   },
   "goals": [
     {
@@ -49,5 +53,6 @@
   },
   "_synthesized": false,
   "_synthesized_at": "2026-10-30T14:04:21.044258",
-  "_notice": "Auto-synthesized by engine/client_intake.py (GAP-108). SAA derived dynamically via compute_saa() from statement transactions. \u26a0\ufe0f DEFAULTS USED: age=35, horizon=10, risk=moderate, tax=30%. Adviser MUST review and customize the IPS profile before proceeding."
+  "_notice": "Auto-synthesized by engine/client_intake.py (GAP-108). SAA derived dynamically via compute_saa() from statement transactions. \u26a0\ufe0f DEFAULTS USED: age=35, horizon=10, risk=moderate, tax=30%. Adviser MUST review and customize the IPS profile before proceeding.",
+  "risk_tier": "Tier 6 (Very High)"
 }

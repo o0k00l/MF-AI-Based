@@ -1,70 +1,24 @@
-## ⚠️ **ARCHITECTURAL CORRECTIONS - 2024-11-01**
-
-### **6-MODULE ARCHITECTURE IMPLEMENTED**
-
-Replacing 12-engine sprawl with clean 6-module architecture.
-
-**The 6-Module Architecture:**
-
-1. **DATA & RECONCILIATION** - Ingestion, mapping, reconciliation
-2. **PORTFOLIO DIAGNOSTICS** - Fee bleed, XIRR, alpha, overlap
-3. **INVESTOR SUITABILITY** - Goals, horizon, risk capacity
-4. **INVESTMENT SELECTION** - Eligibility gates, scoring
-5. **EXECUTION & TAX SAFEGUARDS** - FIFO, exit loads, tax harvesting
-6. **DECISION & EXPLAINABILITY** - AI reporting layer
-
-### **MATHEMATICAL CORRECTIONS**
-
-**Overlap Calculation:**
-- ❌ OLD: Jaccard similarity only
-- ✅ NEW: Weighted look-through concentration
-
-**Risk Scoring:**
-- ❌ OLD: Cardinal 5.84/6.00
-- ✅ NEW: Ordinal distribution + metrics
-
-**SAA Drift:**
-- ❌ OLD: Called "optimizer"
-- ✅ NEW: "Drift Minimizer" (accurate description)
-
-**Switch Costs:**
-- ❌ OLD: Zero-friction claim
-- ✅ NEW: Actual tax + exit load calculation
-
-**Multi-Cap Funds:**
-- ❌ OLD: Dogmatic exit
-- ✅ NEW: Evaluate on actual merits
-
-**Eligibility:**
-- ✅ NEW: Mandatory binary gates before scoring
-
-**NO ACTION:**
-- ✅ NEW: Mandatory decision branch
-
----
-
 # Option B — High‑Level Design (HLD) & Low‑Level Design (LLD)
-## Version 2.0 (Max‑Optimized Fiduciary Specification)
+## Version 2.5 (Production-Verified Fiduciary Specification with The 5 Universal Invariants)
 
 > **Companion to OPTION_B_ROADMAP.md and logical_flow.md.**  
-> Describes the 6‑Module unified architecture, rigorous look‑through mathematical formulas, binary eligibility gates, tax execution realities, and the mandatory **NO ACTION** fiduciary branch.
+> Specifies the 6-Module unified architecture, rigorous look-through mathematical formulas, the 5 Universal Invariants, binary eligibility gates, tax execution realities, and the mandatory **NO ACTION** fiduciary branch.
 
 ---
 
 ## 1. High‑Level Design (HLD)
 
 ### 1.1 Core Fiduciary Principles
-1. **Deterministic Calculations First:** Every number (XIRR, fee bleed, look-through concentration, capital gains tax, exit load, SAA drift) is calculated by pure Python before any AI is called. Zero LLM math.
+1. **Deterministic Calculations First:** Every number (XIRR, fee bleed, look-through concentration, capital gains tax, exit load, SAA drift, SIP allocation, lumpsum staging) is calculated by pure Python before any AI is called. Zero LLM math.
 2. **Immutable Local Financial Data:** Ground truth is strictly rooted in verified statement data (`cas_detailed_report_*.xlsx`), canonical policies, and audited historical transactions.
 3. **Pydantic V2 Validated Contracts:** Structured payloads pass through strict type and range validations.
 4. **LLM Restricted to Narrative Interpretation:** The AI receives verified facts, applicable policies, and deterministic decisions; it translates them into plain English without altering figures.
 5. **The Mandatory "NO ACTION" Rule:** If no candidate scheme offers a demonstrable, statistically validated improvement over existing holdings, the engine's explicit verdict is **NO ACTION / HOLD**.
+6. **The 5 Universal Invariants:** Replaces procedural tier sprawl with 5 mathematical equations (Universal 20/80 Lumpsum, Universal 4-Slot Sizing, Universal ₹1.25L Tax Shield, Universal Personal Redemption Waterfall, Universal SAA & Stability Offset).
 
 ---
 
 ### 1.2 The 6‑Module Architecture
-
-Instead of an unmanageable sprawl of ad-hoc engines, Option B is organized into **six logically separated, single-responsibility modules**:
 
 ```
 ┌────────────────────────────────────────────────────────────────────────┐
@@ -74,145 +28,151 @@ Instead of an unmanageable sprawl of ad-hoc engines, Option B is organized into 
 │                                  │ reconciliation, data quality gates. │
 ├──────────────────────────────────┼─────────────────────────────────────┤
 │ 2. PORTFOLIO DIAGNOSTICS         │ Fee bleed, XIRR, benchmark alpha,   │
-│                                  │ look-through overlap, SAA drift.    │
+│                                  │ weighted overlap, 5-theme exposure, │
+│                                  │ look-through stability cushion.     │
 ├──────────────────────────────────┼─────────────────────────────────────┤
-│ 3. INVESTOR SUITABILITY          │ Goals, horizon, liquidity, risk     │
-│                                  │ capacity vs tolerance, emergency FD.│
+│ 3. INVESTOR SUITABILITY & SAA    │ All 6 SEBI risk tiers, stability    │
+│                                  │ offset threshold, 0% debt SIP rule. │
 ├──────────────────────────────────┼─────────────────────────────────────┤
-│ 4. INVESTMENT SELECTION          │ Mandatory eligibility gates, 6-factor│
-│                                  │ scoring, valuation, NO ACTION branch│
+│ 4. INVESTMENT SELECTION          │ Mandatory 10 eligibility gates,     │
+│                                  │ multi-horizon scoring, SPIVA, NO ACT│
 ├──────────────────────────────────┼─────────────────────────────────────┤
-│ 5. EXECUTION & TAX SAFEGUARDS    │ FIFO lot audit, exit loads, tax loss│
-│                                  │ harvesting, 6-mo liquid STP.        │
+│ 5. EXECUTION & TAX SAFEGUARDS    │ FIFO lot audit, exit loads, §112A   │
+│                                  │ ₹1.25L tax shield, 20/80 arbitrage  │
+│                                  │ STP, 4-stage personal redemption.   │
 ├──────────────────────────────────┼─────────────────────────────────────┤
-│ 6. DECISION & EXPLAINABILITY     │ Approve / Reject / Hold / Defer,    │
+│ 6. DECISION & EXPLAINABILITY     │ Deterministic SIP injection,        │
 │    (AI Reporting Layer)          │ verified facts only, zero AI math.  │
 └──────────────────────────────────┴─────────────────────────────────────┘
 ```
 
 ---
 
-### 1.3 End-to-End Pipeline
+## 2. Low-Level Design (LLD) Specifications
 
-```mermaid
-flowchart TD
-    M1["1. DATA & RECONCILIATION\n(CAS xlsx / config.json / 09-Oct-2026 Baseline)"] --> M2["2. PORTFOLIO DIAGNOSTICS\n(Fee Bleed, XIRR Alpha, Look-Through Concentration, SAA Drift)"]
-    M1 --> M3["3. INVESTOR SUITABILITY\n(Horizon, Risk Capacity, Emergency Reserve Waterfall)"]
-    
-    M2 & M3 --> M4["4. INVESTMENT SELECTION\n(Binary Eligibility Gates -> 6-Factor Scoring -> NO ACTION Check)"]
-    M4 --> M5["5. EXECUTION & TAX SAFEGUARDS\n(FIFO Lot Audit, 1% Exit Load Lock, Tax-Loss Netting, Liquid STP)"]
-    
-    M2 & M4 & M5 --> M6["6. DECISION & EXPLAINABILITY\n(Structured Action Checklist + Gemini / Nemotron Narrative Reports)"]
+### 2.1 Module 1: Ingestion & Reconciliation (`core/math_engine.py` & `core/eligibility.py`)
+* `parse_cas(xlsx_path: Path) -> Tuple[str, List[Dict[str, Any]]]`:
+  Enforces a single valuation date across all folios (throws `ValueError` on mixed statement dates).
+* `load_holdings_from_cas_excel(...) -> List[HoldingItem]`:
+  Reconciles scheme names with `fund_metrics.json` and `fund_aliases.json`. Maps underlying instrument weights: `equity_pct`, `debt_pct`, `other_pct`.
+* `load_candidate_universe(metrics_path: Path) -> List[Dict[str, Any]]`:
+  Ingests candidate mutual funds from `fund_metrics.json` ensuring complete schema compliance.
+
+---
+
+### 2.2 Module 2: Look-Through Diagnostics (`core/math_engine.py`)
+
+#### 2.2.1 Weighted Look-Through Overlap
+Unlike naive Jaccard similarity, the engine calculates the weighted overlap between funds $A$ and $B$:
+$$\text{Overlap}(A, B) = \sum_{s \in S} \min\bigl(W_{A, s},\; W_{B, s}\bigr)$$
+Where $W_{A, s}$ is the percentage weight of security $s$ inside portfolio $A$.
+
+#### 2.2.2 Look-Through Stability Buffer
+Rather than trusting category labels, the stability cushion is calculated from underlying cash and debt holdings:
+$$\text{Stability Buffer \%} = \frac{\sum_{i=1}^{N} \bigl(V_i \times (\text{DebtPct}_i + \text{CashPct}_i)\bigr)}{\sum_{i=1}^{N} V_i} \times 100$$
+In Lalit's portfolio:
+$$\text{Embedded Debt: } 4.06\% \quad+\quad \text{Embedded Cash: } 3.48\% \quad=\quad \mathbf{7.54\% \text{ Stability Cushion}}$$
+
+#### 2.2.3 5-Theme Real-Time Look-Through Diagnostics
+Computes macro sector exposures across:
+1. **Defence & Aerospace:** Evaluates dedicated defence funds + look-through holdings (5.98%).
+2. **Power & Infrastructure:** Evaluates generation, transmission, capital goods (5.11%).
+3. **PSU & CPSE:** Evaluates state-owned enterprise look-throughs (6.19%).
+4. **Commodities & Metals:** Evaluates cyclical metals and energy (2.40%).
+5. **Healthcare & Pharma:** Flags neglected secular themes (**1.55% vs 5.5% benchmark deficit**).
+
+#### 2.2.4 Regular Commission Fee Bleed & Compounded Loss
+Calculates annual distributor commission leakage:
+$$\text{Annual Bleed} = \sum_{i \in \text{Regular}} V_i \times (\text{TER}_{\text{Regular}, i} - \text{TER}_{\text{Direct}, i})$$
+For Lalit's 14 Regular schemes: **₹40,970.52/year**.  
+10-Year Compounded Loss at 12% CAGR:
+$$\text{FV} = \sum_{t=1}^{10} \text{Annual Bleed} \times (1 + 0.12)^{10 - t} = \mathbf{₹8,05,258.41}$$
+
+---
+
+### 2.3 Module 3: Universal Fiduciary Suitability & SAA (`core/math_engine.py`)
+
+Governs asset allocation across all 6 SEBI Regulatory Risk Tiers based on `data/policy/asset_allocation.json`:
+
+$$\text{Threshold}(T) = \max\bigl(0.0,\; D_{\text{target}}(T) - \text{Tolerance}(T)\bigr)$$
+
+$$\text{Final Debt SIP \%} = \begin{cases} 
+0.0\% & \text{if } S \ge \text{Threshold}(T) \quad (\text{Stability Cushion Organically Satisfied}) \\
+D_{\text{base}}(T) & \text{if } S < \text{Threshold}(T) \quad (\text{Deficit Funded via Stability Vehicle})
+\end{cases}$$
+
+| SEBI Risk Tier | SAA Debt Target | Tolerance Band | Threshold ($D_{\min}$) | Lalit's $S = 7.54\%$ | Resulting SIP Split | Stability Vehicle Assigned |
+|---|---|---|---|---|---|---|
+| **Tier 6 (Very High)** | 5.0% | $\pm 5.0\%$ | **0.0%** | $7.54\% \ge 0.0\%$ | **100% Eq / 0% Debt** | None (Satisfied) |
+| **Tier 5 (High)** | 10.0% | $\pm 5.0\%$ | **5.0%** | $7.54\% \ge 5.0\%$ | **100% Eq / 0% Debt** | **None (Organically Satisfied!)** |
+| **Tier 4 (Mod. High)** | 15.0% | $\pm 5.0\%$ | **10.0%** | $7.54\% < 10.0\%$ | **70% Eq / 30% Debt** | `Kotak Equity Arbitrage Direct` (12.5% Tax) |
+| **Tier 3 (Moderate)** | 30.0% | $\pm 5.0\%$ | **25.0%** | $7.54\% < 25.0\%$ | **50% Eq / 50% Debt** | `ICICI Pru Short Term Debt Direct` (AAA/Sov) |
+| **Tier 2 (Low to Mod.)**| 60.0% | $\pm 4.0\%$ | **56.0%** | $7.54\% < 56.0\%$ | **20% Eq / 80% Debt** | `ICICI Pru Short Term Debt Direct` (AAA/Sov) |
+| **Tier 1 (Capital Pres.)**| 80.0% | $\pm 3.0\%$ | **77.0%** | $7.54\% < 77.0\%$ | **0% Eq / 100% Debt** | `ICICI Pru Short Term Debt Direct` (AAA/Sov) |
+
+---
+
+### 2.4 Module 4: Autonomous Selection Engine (`core/math_engine.py` & `core/eligibility.py`)
+
+#### 2.4.1 The 10 Binary Fiduciary Gates
+```
+Gate 1: Single-AMC net worth exposure <= 30.0%
+Gate 2: Mid-Cap AUM <= ₹40,000 Cr | Flexi-Cap AUM <= ₹1,75,000 Cr (with >=65% Large-Cap/Cash, else ₹90k Cr)
+Gate 3: Top-10 stock concentration <= 55.0% (Debt & dedicated thematic funds exempted)
+Gate 4: 3-Year Sharpe Ratio >= 0.40 (Index & Debt funds adjusted)
+Gate 5: Downside Capture Ratio <= 100.0%
+Gate 6: Upside Capture Ratio >= 90.0%
+Gate 7: Riskometer score <= client SEBI risk tier
+Gate 8: Manager tenure >= 3 years & complete track record
+Gate 9: Thematic satellite cap <= 15% (0% for < ₹5L AUM)
+Gate 10: 100% Direct Plan mandate (Zero Regular plans)
 ```
 
----
+#### 2.4.2 Multi-Horizon Quantitative Composite Scoring Formula
+$$\begin{aligned}
+\text{Score} =\;& (R_{1\text{Y}} \times 5.0) + (R_{6\text{M}} \times 3.0) + (\text{Alpha}_{3\text{Y}} \times 8.0) \\
+&+\; (\text{Sharpe}_{3\text{Y}} \times 15.0) + (\text{Sharpe}_{1\text{Y}} \times 10.0) \\
+&+\; (\text{Intl\%} \times 2.5) + (\text{CashBuf\%} \times 1.0) \\
+&-\; (\text{TER}_{\text{Direct}} \times 25.0) - \text{Concentration Penalty}
+\end{aligned}$$
 
-## 2. Low‑Level Design (LLD) & Mathematical Specifications
+#### 2.4.3 Peer Evaluation (Healthcare / Pharma Slot 4 Ranking)
+- **ICICI Prudential Healthcare Direct:** Score: **360.1** | 1Y: **49.4%** | 3Y: **24.1%** | Sharpe: **1.02** | TER: **0.89%** $\implies$ **SELECTED #1**
+- **Mirae Asset Healthcare Direct:** Score: **308.2** | 1Y: **40.2%** | 3Y: **22.5%** | Sharpe: **0.94** | TER: **0.62%** $\implies$ Runner-Up
+- **Tata India Pharma Direct:** Score: **287.8** | 1Y: **41.5%** | 3Y: **19.8%** | Sharpe: **0.85** | TER: **0.76%** $\implies$ Rejected
+- **Nippon India Pharma Direct:** Score: **231.6** | 1Y: **35.2%** | 3Y: **18.7%** | Sharpe: **0.78** | TER: **0.99%** $\implies$ **REJECTED (Rank #4)**
 
-### Module 1: Data & Reconciliation
-* **Input Schema:** `config.json` (IPS), `fund_metrics.json`, `fund_aliases.json`, `transactions.json`, `cas_detailed_report_*.xlsx`.
-* **Date Reconciliation Gate:** All holdings, valuations, and tax lots must reconcile to a single immutable snapshot date (Default: `09-Oct-2026`). Never silently mix dates across statements.
-
----
-
-### Module 2: Portfolio Diagnostics
-
-#### 2.1 Fee Bleed & Illustrative Opportunity Loss
-* **Annual Recoverable Bleed (Exact):**
-  $$\text{Annual Bleed (₹)} = \sum_{i \in \text{Regular}} \text{Current Value}_i \times \left(\frac{\text{TER}_{\text{regular}, i} - \text{TER}_{\text{direct}, i}}{100}\right)$$
-* **10-Year Illustrative Compounded Scenario:**
-  $$\text{Compounded Scenario (₹)} = \text{Annual Bleed} \times \left[\frac{(1 + r)^{10} - 1}{r}\right] \quad (r = 12.0\% \text{ assumed})$$
-  *(Note: Must be explicitly tagged as an illustrative compounding projection, not a guaranteed wealth forecast).*
-
-#### 2.2 Look-Through Concentration vs Naive Jaccard
-Naive Jaccard ($\frac{|A \cap B|}{|A \cup B|}$) measures shared stock count without regard to position sizing. Option B implements **Look-Through Weighted Concentration**:
-* **Look-Through Stock Weight ($W_{S_k}$):** For any underlying security $S_k$ held across $M$ funds:
-  $$W_{S_k} = \sum_{i=1}^{M} \left( \frac{\text{Value of Fund } i}{\text{Total Portfolio Value}} \times \text{Weight of } S_k \text{ in Fund } i \right)$$
-* **Portfolio Concentration Metric:** Top-10 aggregate look-through stock exposure and sector exposure across all 23 folios.
-
-#### 2.3 SAA Drift Minimizer (Not an "Optimizer")
-The fresh cash allocator is formally defined as an **SAA Drift Minimizer**:
-$$\min_{\vec{S}} \sum_{j \in \{\text{Large, Mid, Debt}\}} \left[ \text{Target}_j - \frac{\text{Current}_j + S_j}{\text{Total} + \sum S_k} \right]^2$$
-$$\text{subject to } \sum S_k = \text{Budget}, \quad S_k \ge 0$$
+#### 2.4.4 Automated SPIVA Passive Fallback
+Triggered when active funds fail gates:
+- Large-Cap Anchor: Nifty 50 Index Fund Direct (0.18% TER)
+- Mid-Cap Alpha: Nifty Midcap 150 Index Fund Direct (0.25% TER)
 
 ---
 
-### Module 3: Investor Suitability & Liquidity Waterfall
+### 2.5 Module 5: Execution, Tax Safeguards & Redemptions
 
-#### 3.1 Emergency Reserve vs Deployable Cash
-* **Configurable Emergency Buffer:**
-  $$\text{Mandatory Reserve} = \text{Monthly Living Expenses} \times K \quad (K \in [3, 6] \text{ months, default } 6)$$
-* **Deployable Capital:**
-  $$\text{Deployable Surplus} = \max(0, \text{Bank Cash} - \text{Mandatory Reserve})$$
-  *Bank cash is never treated as automatically investable without passing through this liquidity gate.*
+#### 2.5.1 The Universal 20/80 Lumpsum Deployment
+$$\text{Day 1 Immediate Core Equity Anchor} = 0.20 \times L$$
+$$\text{Tax-Shielded Arbitrage Parking Pool} = 0.80 \times L$$
+$$\text{Monthly Systematic Transfer (STP)} = \frac{0.80 \times L}{M}$$
+- Bypasses Section 50AA slab rate debt taxation (up to 39.0%) by parking in **Equity Arbitrage Funds** (12.5% LTCG).
+- Multi-slot SAA preservation for $L \ge \text{₹5 Lakhs}$: 50% Flexi, 35% Mid-Cap, 15% Large-Cap.
 
-#### 3.2 Cardinal vs. Ordinal Risk Representation
-* SEBI Risk-o-meter tiers (Low to Very High) are **ordinal product labels**, not cardinal statistical scores.
-* The system reports:
-  1. Percentage distribution across SEBI risk tiers (e.g. 84.2% Tier 6, 15.8% Tier 5, 0.0% Tiers 1–4).
-  2. Statistical risk parameters: Portfolio Beta ($\beta = 1.02$), Jensen's Alpha ($\alpha = +3.82\%$), and Maximum Drawdown tolerance in hard rupees.
+#### 2.5.2 The Universal 4-Slot Sizing Engine (40/30/15/15)
+- Slot 1: Core Flexi-Cap Compounder (40%)
+- Slot 2: Mid-Cap Alpha Engine (30%)
+- Slot 3: Large-Cap Bluechip Anchor (15%)
+- Slot 4: Tactical Thematic Satellite (15%) [0% for Starter AUM < ₹5L]
 
----
-
-### Module 4: Investment Selection & The "NO ACTION" Engine
-
-#### 4.1 Mandatory Binary Eligibility Gates
-Before any fund is evaluated for candidate scoring, it must pass all 4 binary gates:
-1. **Data Integrity Gate:** Complete NAV history $\ge 3$ years and verified benchmark assignment.
-2. **Liquidity Gate:** Fund AUM $\ge ₹1,000\text{ Crores}$ (prevents micro-fund redemption runs).
-3. **Concentration Gate:** Top-10 stock concentration $\le 55\%$ (eliminates unhedged momentum bets).
-4. **Mandate Suitability Gate:** Pure unconstrained mandate (Flexi-Cap, Mid-Cap, or Short-Term Debt; single-sector thematics capped at client IPS policy limits).
-
-#### 4.2 Fiduciary Candidate Scoring (0 to 100)
-Eligible funds are scored across multi-cycle metrics:
-* Direct Plan TER (20% weight)
-* 3Y & 5Y Rolling Jensen's Alpha (25% weight)
-* Downside Capture & Beta $< 1.0$ (20% weight)
-* Asset Breadth & Portfolio Stock Count (15% weight)
-* Downside Buffer / Cash / International Exposure (10% weight)
-* AMC Track Record & Management Stability (10% weight)
-
-#### 4.3 The "NO ACTION" Branch
-$$\text{If } \max_{c \in \text{Candidates}} \text{Score}(c) \le \text{Score}(\text{Existing}) + \Delta_{\text{threshold}} \implies \mathbf{VERDICT: \text{NO ACTION / HOLD}}$$
-*Prevents portfolio churn and commission-generating switches that do not offer statistically significant structural improvement.*
+#### 2.5.3 Universal Personal Redemption Engine (4-Stage Waterfall)
+- **Stage 1 (Cash Surplus):** Bank cash exceeding emergency buffer (₹0 tax, ₹0 load).
+- **Stage 2 (Tactical Regular Bleed):** Sweeps underperforming Regular plans. First harvests Section 70 capital losses; then sweeps mature LTCG within the ₹1.25L exemption (₹0 exit load).
+- **Stage 3 (Thematic Trim):** Over-allocated, bubble-valuation thematic holdings.
+- **Stage 4 (Core Equity Siphon):** Core long-term Direct equity holdings held >365 days.
+- **Gross & Net Cash Modes:** In Net Cash mode, gross redemption is calculated to cover statutory capital gains taxes.
 
 ---
 
-### Module 5: Execution & Tax Safeguards
-
-#### 5.1 Tax Reality of Mutual Fund Switches
-* Under **Sections 47 and 112A of the Income Tax Act**, a switch is legally a **redemption followed by a purchase**.
-* Same-AMC switches are **taxable events** and subject to AMC exit loads. "Zero-friction" claims are explicitly prohibited.
-
-#### 5.2 FIFO Lot-Level Staging Rules
-* **Tranche 1 (Immediate / Month 1):** Switch only lots $> 365\text{ days}$ old that carry unrealized capital losses or net gains within the annual ₹1.25 Lakh exemption limit.
-* **Tranche 2 (Months 2–11):** Lock immature lots ($\le 365\text{ days}$) in place until day 366 to avoid 1% exit loads and 20% STCG.
-* **Tranche 3 (Next Financial Year - April 1):** Stagger remaining mature gains into the next financial year's fresh ₹1.25 Lakh tax-free exemption.
-
----
-
-### Module 6: Decision & Reporting Layer (LLM Contract)
-* **LLM Input:** Strict JSON fact payload generated by Modules 1–5.
-* **LLM Contract:**
-  1. The LLM receives pre-computed tables, scores, and verdicts.
-  2. The LLM is strictly prohibited from performing independent financial math.
-  3. All narrative explanations must reference statutory sections (Sec 112A, Sec 47) and exact rupee figures from the payload.
-
----
-
-## 3. Capability Status Matrix
-
-| Capability | Status | Implementation Reference |
-| :--- | :---: | :--- |
-| **CAS xlsx Normalization & Ingestion** | ✅ Verified | `advisor_lean.py:74-89`, `ingestion/` |
-| **Fee Bleed Calculation (Annual & 10Y)** | ✅ Verified | `advisor_lean.py:90-94`, `core/math_engine.py` |
-| **Unified XIRR & Benchmark Alpha (+3.82%)** | ✅ Verified | `core/math_engine.py:portfolio_xirr` |
-| **FIFO Tax-Loss Harvesting Offset** | ✅ Verified | `advisor_lean.py:215-251`, `outputs/MFCentral_Action_Checklist.csv` |
-| **SAA Drift Minimizer (Dynamic 6-Tier)** | ✅ Verified | `advisor_lean.py:170-196`, `advisor_lean.py:490-577` |
-| **Reverse Fed Model & Liquid STP** | ✅ Verified | `core/candidate_scoring.py`, `advisor_lean.py:580-670` |
-| **Look-Through Weighted Concentration** | 🟡 Sprint 1 Expand | To replace naive Jaccard top-10 in next iteration |
-| **Binary Eligibility Gates & NO ACTION** | 🟡 Sprint 3 Add | Formally codified in `OPTION_B_HLD_LLD.md` v2.0 |
-| **Automated CAMS/KFin PDF Parser** | 🔵 Future Phase | Scheduled for Option A Enterprise Migration |
-
----
-*End of HLD/LLD v2.0*
+### 2.6 Module 6: Decision & Explainability (`core/prompt_advisor.py`)
+- Injects verified facts payload (`FiduciaryFactsPayload`) into Jinja templates.
+- Markdown and PDF outputs generated deterministically. Zero LLM math hallucinations.

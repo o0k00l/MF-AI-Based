@@ -268,7 +268,8 @@ def _call_requesty(prompt: str, system_prompt: str = "") -> str:
                 resp = client.chat.completions.create(
                     model=model,
                     messages=messages,
-                    temperature=0.2,
+                    temperature=0.0,
+                    seed=42,
                     max_tokens=4000,
                     timeout=60
                 )
@@ -312,7 +313,8 @@ def _call_openrouter(prompt: str, system_prompt: str = "") -> str:
             resp = client.chat.completions.create(
                 model=model,
                 messages=messages,
-                temperature=0.2,
+                temperature=0.0,
+                seed=42,
                 max_tokens=4000,
                 timeout=60
             )
@@ -340,7 +342,7 @@ def _call_gemini(prompt: str, system_prompt: str = "") -> str:
     from google import genai
     client = genai.Client(api_key=key)
     
-    cfg = {"temperature": 0.2, "max_output_tokens": 4000}
+    cfg = {"temperature": 0.0, "seed": 42, "max_output_tokens": 8192}
     if system_prompt:
         cfg["system_instruction"] = system_prompt
 
@@ -395,11 +397,11 @@ def call_llm(
                 print(f"  ⚡ [Cache Hit] Returning cached narrative ({entry.get('provider', 'cached')})", flush=True)
                 return entry["text"]
 
-    # 2. Provider Cascade
+    # 2. Provider Cascade (Gemini primary for full 8k token depth, OpenRouter/Requesty fallback)
     providers = [
-        ("Requesty.ai", _call_requesty),
-        ("OpenRouter", _call_openrouter),
         ("Gemini", _call_gemini),
+        ("OpenRouter", _call_openrouter),
+        ("Requesty.ai", _call_requesty),
     ]
 
     last_error = None

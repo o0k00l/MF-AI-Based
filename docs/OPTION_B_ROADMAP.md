@@ -1,92 +1,81 @@
-## ⚠️ **ARCHITECTURAL REVISION - 2024-11-01**
+# Option B — Implementation Roadmap & Sprint Plan
+## Version 2.5 (Max‑Optimized Fiduciary Engine Status)
 
-### **REVISED ROADMAP BASED ON INSTITUTIONAL CRITIQUE**
-
-#### **ROADMAP CORRECTIONS**
-
-1. **Sprint Reordering:** AI reporting moved to LAST (Sprint 5)
-   - Financial mathematics and execution safety FIRST
-   - AI explanation layer LAST
-
-2. **12-Engine Sprawl → 6-Module Architecture**
-   - Data & Reconciliation
-   - Portfolio Diagnostics  
-   - Investor Suitability
-   - Investment Selection
-   - Execution & Tax Safeguards
-   - Decision & Explainability
-
-3. **Mathematical Corrections:**
-   - Weighted look-through overlap (not Jaccard only)
-   - SAA Drift Minimizer (not optimizer)
-   - Risk distribution reporting (ordinal, not cardinal)
-   - NO ACTION decision branch mandatory
-
-4. **Removed Flawed Assumptions:**
-   - ❌ Zero-friction switches
-   - ❌ Dogmatic multi-cap exits
-   - ❌ Cardinal risk scores
-   - ❌ Manufactured conviction scoring
+> **Execution Companion to OPTION_B_HLD_LLD.md and logical_flow.md.**  
+> Documents the completed implementation of the 6-module fiduciary architecture, all 5 Universal Invariants, and the verification test harness.
 
 ---
 
-# Option B — Detailed Implementation Roadmap & Deliverables
-## Version 2.0 (Fiduciary Architecture Alignment)
+## 1. Executive Summary & Delivery Status
 
-> **Goal:** Build and verify a lean, deterministic, mathematically sound fiduciary advisor that implements the **6-Module Architecture**, enforces binary eligibility gates, calculates true look-through concentration, respects tax realities, and enshrines the **NO ACTION** principle.
-
----
-
-## 1. Core Principles & Non-Negotiables
-
-| Principle | Description |
-|---|---|
-| **Deterministic Math First** | All calculations (XIRR, fee bleed, look-through concentration, capital gains tax, exit load, SAA drift) are computed in pure Python before AI is called. |
-| **LLM Explains, Never Computes** | The LLM receives pre-computed, verified facts only. It never calculates financial metrics. |
-| **Binary Eligibility Gates** | Funds must pass data integrity, liquidity, and concentration gates before candidate scoring. |
-| **The "NO ACTION" Mandate** | If no candidate provides a statistically validated improvement, the recommendation is explicitly **HOLD / NO ACTION**. |
-| **Tax Reality Compliance** | All switches are treated as taxable redemptions under Sections 47 and 112A. Zero-friction myths are prohibited. |
+| Sprint | Focus Area | Key Deliverable | Status |
+| :--- | :--- | :--- | :--- |
+| **Sprint 1** | Ingestion & Reconciliation | Single valuation date lock (09-Oct-2026), canonical aliases, CAS parser. | ✅ **COMPLETED** |
+| **Sprint 2** | Diagnostics & Overlap | Weighted look-through overlap, 5-theme exposure, fee bleed, XIRR. | ✅ **COMPLETED** |
+| **Sprint 3** | Suitability & Universal SAA | Universal SAA across all 6 SEBI risk tiers, look-through stability buffer offset. | ✅ **COMPLETED** |
+| **Sprint 4** | Selection & Binary Gates | 10 Binary Gates, Multi-Horizon Scoring, SPIVA Fallback, NO ACTION branch. | ✅ **COMPLETED** |
+| **Sprint 5** | Execution, Tax & Blueprint | Deterministic 4-slot SIP, 20/80 Lumpsum STP, ₹1.25L tax shield, 4-stage redemption. | ✅ **COMPLETED** |
+| **Sprint 6** | AI Reporting & Delivery | Deliverables 1, 2, 3 generated without LLM math hallucinations; Streamlit UI live. | ✅ **COMPLETED** |
 
 ---
 
-## 2. Six-Sprint Implementation Sequence
+## 2. Sprint Details & Completed Milestones
 
-| Sprint | Module / Focus | Key Deliverables & Validation Gates | Status |
-| :---: | :--- | :--- | :---: |
-| **0** | **Hygiene & Data Contracts** | • Lock immutable statement baseline (`09-Oct-2026`).<br>• Enforce Pydantic V2 payload schemas.<br>• Reconcile client IPS (`monthly_sip_budget: ₹99,995`). | ✅ Complete |
-| **1** | **Deterministic Math & Look-Through** | • Implement **Look-Through Weighted Stock Exposure** across 23 folios.<br>• Rename optimizer to **SAA Drift Minimizer**.<br>• Reconcile configurable emergency buffer (3–6 months). | ✅ Complete / Expanding |
-| **2** | **Diagnostics & Risk Distribution** | • Full transaction-level XIRR and benchmark alpha (+3.82%).<br>• Report **distribution across SEBI risk tiers** (retract cardinal 5.84).<br>• Rupee drawdown stress-testing (-₹10.5L on 20% drop). | ✅ Complete |
-| **3** | **Suitability & Selection Gates** | • Implement **4 Binary Eligibility Gates** (AUM, tenure, concentration, mandate).<br>• Codify **"NO ACTION" decision branch**.<br>• Dynamic SAA derived from investor horizon and risk capacity. | ✅ Specified / Next |
-| **4** | **Execution, Tax & Staging** | • Lot-level FIFO capital gains and exit load audit.<br>• Tranche 1/2/3 staging (offset gains against losses = ₹0 tax).<br>• Staggered 6-month Liquid STP @ ~6.8% yield. | ✅ Complete |
-| **5** | **AI Reporting Layer & Verification** | • Gemini / Nemotron prompts restricted to narrative explanation.<br>• Zero independent LLM financial math.<br>• End-to-end regression test suite passing with code 0. | ✅ Complete |
+### Sprint 1: Data & Reconciliation (Module 1)
+* **Status:** Passed. Single valuation date enforced (09-Oct-2026 baseline).
+* Canonical mapping via `fund_aliases.json` across all 23 folios.
+* Unified candidate universe loader (`load_candidate_universe`) loading from `fund_metrics.json`.
+
+### Sprint 2: Look-Through Diagnostics & Thematic Matrix (Module 2)
+* **Status:** Passed. Weighted Look-Through Overlap ($\sum \min(W_A, W_B)$) implemented.
+* Real-time 5-Theme Look-Through Matrix implemented: Defence (5.98%), PSU (6.19%), Power/Infra (5.11%), Pharma (1.55%), Commodities (2.40%).
+* Fee bleed verified at ₹40,970.52/year across 14 regular plans; 10-year compounded loss calculated at ₹8,05,258.41.
+* True portfolio XIRR calculated at 15.82% (+3.82% Jensen's Alpha vs 12.00% benchmark).
+
+### Sprint 3: Universal Suitability & SAA Drift (Module 3)
+* **Status:** Passed. Category label bias eliminated.
+* Evaluates 7.54% look-through stability buffer (4.06% embedded debt + 3.48% embedded cash).
+* Universal stability offset rule codified in `calculate_universal_tier_split` across all 6 SEBI risk tiers:
+  $$\text{Threshold}(T) = \max\bigl(0.0,\; D_{\text{target}}(T) - \text{Tolerance}(T)\bigr)$$
+* Organically satisfies both Tier 6 (Threshold 0.0%) and Tier 5 (Threshold 5.0%), zeroing out standalone debt SIP drag.
+* Eliminates Section 50AA 39% slab rate tax drag by routing growth tier stability money to `Kotak Equity Arbitrage Direct` (12.5% LTCG).
+
+### Sprint 4: Selection Gates & Multi-Horizon Peer Scoring (Module 4)
+* **Status:** Passed. All 10 Binary Fiduciary Gates active (`GATE-THEMATIC-CAP` <= 15%, `GATE-SIP-DIRECT-MANDATE` 100% Direct).
+* Mandatory NO ACTION branch operational.
+* Multi-Horizon Quantitative Composite Scoring model implemented:
+  $$\text{Score} = (R_{1\text{Y}} \times 5) + (R_{6\text{M}} \times 3) + (\text{Alpha}_{3\text{Y}} \times 8) + (\text{Sharpe}_{3\text{Y}} \times 15) + (\text{Sharpe}_{1\text{Y}} \times 10) + (\text{Intl} \times 2.5) - (\text{TER} \times 25)$$
+* Ranks `ICICI Prudential Healthcare Direct` #1 (+49.4% 1Y, 24.1% 3Y) and rejects `Nippon India Pharma Direct` (+35.2% 1Y, 0.99% TER).
+* SPIVA automated passive fallback operational (Nifty 50 Index @ 0.18% TER, Nifty Midcap 150 @ 0.25% TER).
+
+### Sprint 5: Universal Invariants & Deterministic Blueprints (Module 5)
+* **Status:** Passed.
+* **The 20/80 Lumpsum Rule:** $0.20 \times L$ immediate + $0.80 \times L$ staggered STP via Equity Arbitrage Direct, saving up to ₹15,232 in tax drag on ₹50L.
+* **The 4-Slot Sizing Engine:** Core Flexi 40%, Mid Alpha 30%, Large Bluechip 15%, Tactical Satellite 15% (0% for Starter AUM < ₹5L).
+* **The ₹1.25L Tax Shield:** FIFO lot-level harvesting under Section 112A with Day 366 exit load lock.
+* **Personal Redemption Engine:** 4-stage tax-minimizing waterfall (Cash -> Regular Loss/Shield -> Thematic Trim -> Core Siphon) with Gross and Net payout modes.
+
+### Sprint 6: Prompt Advisor & Report Generation (Module 6)
+* **Status:** Passed. Pre-calculated tables injected directly into Markdown deliverables and PDF generation pipeline.
+* Zero LLM math hallucinations. Output verified in `outputs/`.
+* Streamlit web dashboard live on port 8501.
 
 ---
 
-## 3. Capability Status & Scope Boundary
+## 3. Verification Suite Evidence
 
-| Functional Capability | Current Implementation Status | Architectural Boundary |
-| :--- | :---: | :--- |
-| **CAS xlsx Parsing & Canonical Matching** | ✅ Implemented & Tested | Option B Scope |
-| **Fee Bleed Calculation (Annual & 10Y)** | ✅ Implemented & Tested | Option B Scope |
-| **Newton-Raphson XIRR & Alpha** | ✅ Implemented & Tested | Option B Scope |
-| **Tax-Loss Harvesting & FIFO Lots** | ✅ Implemented & Tested | Option B Scope |
-| **SAA Drift Minimizer (6 Profiles)** | ✅ Implemented & Tested | Option B Scope |
-| **Reverse Fed Model & Liquid STP** | ✅ Implemented & Tested | Option B Scope |
-| **Look-Through Weighted Concentration** | 🟡 Sprint 1 Refinement | Option B Scope |
-| **Binary Eligibility Gates & NO ACTION** | 🟡 Sprint 3 Formalization | Option B Scope |
-| **Multi-Period Historical NAV Feeds** | 🔵 Future Enhancement | Option A Migration Scope |
-| **Automated CAMS/KFin PDF Decryption** | 🔵 Future Enhancement | Option A Migration Scope |
-| **Multi-User Relational Database / Auth** | 🔵 Future Enhancement | Option A Migration Scope |
-
----
-
-## 4. Final Assessment: Option B Optimization
-
-With the integration of the **6-Module Architecture**, **Look-Through Weighted Mathematics**, **Binary Eligibility Gates**, and the **NO ACTION** safeguard:
-
-* **Option B is fully max-optimized as the standalone fiduciary benchmark.**
-* It provides the exact mathematical engine and data contracts required to power the full enterprise platform.
-* We can smoothly migrate to **Option A tomorrow** with complete confidence in our underlying financial logic.
-
----
-*End of Roadmap v2.0*
+1. **Pytest Invariant Suite (`test_p0_fiduciary_invariants.py`):**
+   ```powershell
+   python -m pytest test_p0_fiduciary_invariants.py -v
+   # 6 passed in 3.41s (100% PASS)
+   ```
+2. **Universal Fiduciary Logic Validation Suite (`validate_final_logics.py`):**
+   ```powershell
+   python validate_final_logics.py
+   # 83/83 CHECKS PASSED (100% SUCCESS RATE)
+   ```
+3. **End-to-End CLI Advisor (`advisor.py`):**
+   ```powershell
+   python advisor.py
+   # Generated: Portfolio_Health_Audit.md, Switch_and_Consolidation_Plan.md, Fresh_Money_Deployment_Plan.md
+   ```

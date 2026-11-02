@@ -210,7 +210,7 @@ def load_transactions(transactions_path: Path) -> dict[str, list[Lot]]:
                 p["units"] -= burn
                 # Pro-rata cost reduction
                 if p["units"] + burn > 0:
-                    p["cost"] = p["cost"] * (p["units"] / (p["units"] + burn))
+                    p["cost"] = float(p["cost"]) * float(p["units"] / (p["units"] + burn))
                 redeem_units -= burn
 
         # Build Lot objects from surviving units
@@ -220,7 +220,7 @@ def load_transactions(transactions_path: Path) -> dict[str, list[Lot]]:
                     fund_id=fund_id,
                     folio_name=fund_id,
                     purchase_date=p["date"],
-                    units=p["units"],
+                    units=float(p["units"]),
                     nav=p["nav"],
                     cost=p["cost"],
                     source="cas"
@@ -238,16 +238,27 @@ def load_manifest(manifest_path: Path) -> list[dict]:
 
 
 def load_tax_rules(tax_rules_path: Path) -> dict:
-    """Load equity tax parameters from tax_rules_india.json."""
+    """Load equity tax parameters from tax_rules_india.json.
+    
+    Converts the new nested schema to the flat format expected by
+    plan_fy_tranches and generate_transition_plan_md.
+    """
     data = json.loads(tax_rules_path.read_text(encoding="utf-8"))
     eq = data.get("classes", {}).get("equity_oriented", {})
     lt = eq.get("long_term", {})
     st = eq.get("short_term", {})
+    
+    # Extract exit load from exit_load_schedules
+    exit_load_schedules = data.get("exit_load_schedules", {})
+    equity_exit_load = exit_load_schedules.get("equity_oriented", {})
+    exit_load_pct = equity_exit_load.get("rate_pct", 1.0)
+    
     return {
         "ltcg_rate": lt.get("rate_pct", 12.5) / 100.0,
         "stcg_rate": st.get("rate_pct", 20.0) / 100.0,
         "ltcg_exemption": lt.get("exemption_limit_inr", 125000),
         "lt_holding_months": lt.get("holding_period_months_gt", 12),
+        "exit_load_pct": exit_load_pct,
     }
 def _load_fund_aliases() -> dict[str, list[str]]:
     alias_file = Path(__file__).resolve().parent.parent / ".agents" / "knowledge" / "global_fund_aliases.json"
@@ -426,11 +437,17 @@ def plan_fy_tranches(
     fy_plans: dict[int, list[dict]] = defaultdict(list)
     current_fy_start = as_of.year if as_of.month >= 4 else as_of.year - 1
     
-    def calculate_exit_load(lot, units_sold, fy_start, current_nav, exit_load_pct):
-        """Calculate exit load based on holding period."""
+    def calculate_exit_load(lot, units_sold, fy_start, current_nav, exit_load_pct, fund_id=""):
+        """Calculate category-aware exit load based on holding period and fund category."""
         sale_date = date(fy_start, 4, 1)
         holding_days = (sale_date - lot.purchase_date).days
-        exit_load_rate = exit_load_pct if holding_days < 365 else 0.0
+        f_lower = str(fund_id).lower()
+        if any(k in f_lower for k in ("liquid", "overnight")):
+            exit_load_rate = 0.0070 if holding_days < 7 else 0.0
+        elif any(k in f_lower for k in ("short term", "debt", "money market", "banking & psu", "arbitrage")):
+            exit_load_rate = 0.25 if holding_days < 30 else 0.0
+        else:
+            exit_load_rate = exit_load_pct if holding_days < 365 else 0.0
         sale_value = units_sold * current_nav
         exit_load_amount = sale_value * exit_load_rate / 100.0
         net_amount = sale_value - exit_load_amount
@@ -439,7 +456,7 @@ def plan_fy_tranches(
     # 1. Harvest loss lots in Year 1 first for Section 70 offsetting
     for lot_info in loss_lots:
         exit_load_amount, net_amount, holding_days = calculate_exit_load(
-            lot_info["lot"], lot_info["units"], current_fy_start, lot_info["current_nav"], exit_load_pct
+            lot_info["lot"], lot_info["units"], current_fy_start, lot_info["current_nav"], exit_load_pct, lot_info.get("fund_id", "")
         )
         fy_plans[current_fy_start].append({
             "fund_id": lot_info["fund_id"],
@@ -456,78 +473,91 @@ def plan_fy_tranches(
             "net_amount": net_amount,
         })
 
-    # 2. Plan gain lots across FYs (shelter up to exemption per FY, then advance FY)
-    remaining_exemption = exemption
-    for idx, lot_info in enumerate(gain_lots):
+    # 2. Fiduciary Invariant 3: Universal Tax Exemption Shield (₹1.25L Annual Siphon)
+    # Stagger mature gain lots up to exemption (₹1.25L) per financial year.
+    # Defer immature lots (<365 days) to Day 366 (Phase 2), eliminating 1% exit load
+    # and converting 20% STCG into 0% tax LTCG under Section 112A.
+    from datetime import timedelta
+
+    # Process all gain lots (both mature and deferred immature lots)
+    # Sort mature lots first, followed by maturing lots in order of maturity date
+    scheduled_gain_lots = []
+    for l in gain_lots:
+        scheduled_gain_lots.append({
+            **l,
+            "available_date": as_of,
+            "deferred": False
+        })
+
+    # Immature lots with gains are deferred to Day 366
+    for l in st_lots:
+        maturation_date = l["lot"].purchase_date + timedelta(days=366)
+        scheduled_gain_lots.append({
+            **l,
+            "available_date": maturation_date,
+            "deferred": True,
+            "type": "LT"  # Converted to LTCG at Day 366
+        })
+
+    # Sort lots by (available_date, descending gain)
+    scheduled_gain_lots.sort(key=lambda x: (x["available_date"], -x["gain"]))
+
+    # Track exemption capacity used per FY
+    fy_sheltered_ltcg = defaultdict(float)
+
+    for lot_info in scheduled_gain_lots:
         gain = lot_info["gain"]
         lot_units = lot_info["units"]
         current_nav = lot_info["current_nav"]
         lot_gain_per_unit = gain / lot_units if lot_units > 0 else 0.0
-
-        if idx > 0 and len(fy_plans[current_fy_start]) > 0 and not any(it["gain_amount"] < 0 for it in fy_plans[current_fy_start]):
-            current_fy_start += 1
-            remaining_exemption = exemption
+        avail_date = lot_info["available_date"]
+        target_fy_start = avail_date.year if avail_date.month >= 4 else avail_date.year - 1
+        fy_ptr = max(current_fy_start, target_fy_start)
 
         while lot_units > 0.0001:
-            if remaining_exemption <= 1.0:
-                current_fy_start += 1
-                remaining_exemption = exemption
+            rem_in_fy = max(0.0, exemption - fy_sheltered_ltcg[fy_ptr])
+            if rem_in_fy <= 1.0:
+                fy_ptr += 1
+                continue
 
             units_to_sell = lot_units
             if lot_gain_per_unit > 0:
-                units_to_sell = min(lot_units, remaining_exemption / lot_gain_per_unit)
+                units_to_sell = min(lot_units, rem_in_fy / lot_gain_per_unit)
 
             if (lot_units - units_to_sell) < 0.001:
                 units_to_sell = lot_units
 
             sold_gain = units_to_sell * lot_gain_per_unit
-            exit_load_amount, net_amount, holding_days = calculate_exit_load(
-                lot_info["lot"], units_to_sell, current_fy_start, current_nav, exit_load_pct
-            )
 
-            fy_plans[current_fy_start].append({
+            # At fy_ptr (or Day 366), holding period >= 366 days -> exit load = 0.0%
+            exit_load_amount = 0.0
+            sale_value = units_to_sell * current_nav
+            net_amount = sale_value
+
+            sheltered = min(sold_gain, rem_in_fy)
+            taxable = max(0.0, sold_gain - sheltered)
+            tax_est = taxable * ltcg_rate
+
+            fy_plans[fy_ptr].append({
                 "fund_id": lot_info["fund_id"],
                 "lot": lot_info["lot"],
                 "amount_sold": units_to_sell,
                 "units_sold": units_to_sell,
-                "gain_type": lot_info["type"],
+                "gain_type": "LT",
                 "gain_amount": sold_gain,
-                "sheltered": min(sold_gain, remaining_exemption),
-                "taxable": max(0.0, sold_gain - remaining_exemption),
-                "tax_estimate": 0.0,
-                "fy_start": current_fy_start,
+                "sheltered": sheltered,
+                "taxable": taxable,
+                "tax_estimate": tax_est,
+                "fy_start": fy_ptr,
                 "exit_load": exit_load_amount,
                 "net_amount": net_amount,
+                "held_to_day_366": lot_info["deferred"]
             })
 
-            remaining_exemption -= sold_gain
+            fy_sheltered_ltcg[fy_ptr] += sheltered
             lot_units -= units_to_sell
-    
-    # Process ST lots (no exemption)
+
     first_fy = as_of.year if as_of.month >= 4 else as_of.year - 1
-    for lot_info in st_lots:
-        gain = lot_info["gain"]
-        tax = gain * stcg_rate
-        current_nav = lot_info["current_nav"]
-        
-        exit_load_amount, net_amount, holding_days = calculate_exit_load(
-            lot_info["lot"], lot_info["lot"].units, first_fy, current_nav, exit_load_pct
-        )
-        
-        fy_plans[first_fy].append({
-            "fund_id": lot_info["fund_id"],
-            "lot": lot_info["lot"],
-            "amount_sold": lot_info["lot"].units,
-            "units_sold": lot_info["lot"].units,
-            "gain_type": "ST",
-            "gain_amount": gain,
-            "sheltered": 0.0,
-            "taxable": gain,
-            "tax_estimate": tax,
-            "fy_start": first_fy,
-            "exit_load": exit_load_amount,
-            "net_amount": net_amount,
-        })
     
     # GAP-164 & GAP-215: Apply Section 70 Intra-Head Netting to first_fy tranches
     if first_fy in fy_plans:

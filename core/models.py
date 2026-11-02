@@ -1,7 +1,7 @@
 """
 core/models.py — Pydantic V2 Data Contracts for Option B.
 """
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Optional, Any, Tuple
 from pydantic import BaseModel, Field
 from datetime import date
 from enum import Enum
@@ -25,6 +25,26 @@ class AssetClass(str, Enum):
     CASH = "Cash"
     INTERNATIONAL = "International"
     OTHER = "Other"
+    DEBT_LIQUID = "Debt_Liquid"  # For liquid/debt funds (added to support transition planner)
+
+# New simplified 3+1 risk tier system
+class RiskTier(str, Enum):
+    CONSERVATIVE = "Conservative"
+    MODERATE = "Moderate"
+    AGGRESSIVE = "Aggressive"
+    CUSTOM = "Custom"
+
+class AssetAllocationTarget(BaseModel):
+    equity_pct: float
+    debt_pct: float
+    cash_pct: float
+
+# The deterministic 3+1 Policy Map
+SAA_POLICY_MAP = {
+    RiskTier.CONSERVATIVE: AssetAllocationTarget(equity_pct=20.0, debt_pct=80.0, cash_pct=0.0),
+    RiskTier.MODERATE: AssetAllocationTarget(equity_pct=60.0, debt_pct=40.0, cash_pct=0.0),
+    RiskTier.AGGRESSIVE: AssetAllocationTarget(equity_pct=95.0, debt_pct=5.0, cash_pct=0.0),
+}
 
 
 class HoldingItem(BaseModel):
@@ -90,6 +110,9 @@ class SAADriftAnalysis(BaseModel):
     rebalance_required: bool
     equity_gap_inr: float
     debt_gap_inr: float
+    look_through_debt_inr: float = 0.0
+    look_through_cash_inr: float = 0.0
+    look_through_stability_buffer_pct: float = 0.0
 
 
 class CashDeploymentPlan(BaseModel):
@@ -103,9 +126,87 @@ class CashDeploymentPlan(BaseModel):
     stp_source_fund: Optional[str] = None
     stp_target_fund: Optional[str] = None
 
+    @property
+    def bank_cash_inr(self) -> float:
+        return self.total_cash_inr
+
+    @property
+    def emergency_buffer_inr(self) -> float:
+        return self.emergency_reserve_inr
+
+
+
+class ThematicExposureItem(BaseModel):
+    theme_name: str
+    dedicated_funds_inr: float = 0.0
+    dedicated_funds_pct: float = 0.0
+    look_through_stocks_inr: float = 0.0
+    look_through_stocks_pct: float = 0.0
+    coverage_status: str  # e.g., 'FULL', 'ADEQUATE', 'NEGLECTED', 'BY_DESIGN_MINIMAL'
+    key_underlying_holdings: List[str] = Field(default_factory=list)
+
+
+class LookThroughStabilityBuffer(BaseModel):
+    embedded_debt_inr: float = 0.0
+    embedded_debt_pct: float = 0.0
+    embedded_cash_inr: float = 0.0
+    embedded_cash_pct: float = 0.0
+    bank_deployable_cash_inr: float = 0.0
+    emergency_reserve_inr: float = 0.0
+    total_stability_buffer_inr: float = 0.0
+    total_stability_buffer_pct: float = 0.0
+    meets_tier_target: bool = True
+
+
+class DeterministicSIPRecommendation(BaseModel):
+    category_role: str        # e.g., 'Core Flexi-Cap', 'Mid-Cap Alpha'
+    scheme_name: str          # Must be Direct Plan
+    isin: Optional[str] = None
+    folio_target: Optional[str] = None
+    monthly_inr: float
+    allocation_pct: float
+    rational_code: str        # 'CORE_COMPOUNDER', 'ALPHA_ENGINE', 'SATELLITE_THEME'
+    fiduciary_rationale: str
+
+
+class DeterministicSIPPlan(BaseModel):
+    total_monthly_budget_inr: float
+    equity_sip_pct: float = 100.0
+    debt_sip_pct: float = 0.0
+    items: List[DeterministicSIPRecommendation] = Field(default_factory=list)
+
+
+class LumpsumTrancheItem(BaseModel):
+    role: str
+    scheme_name: str
+    folio_target: Optional[str] = None
+    amount_inr: float
+    monthly_inr: Optional[float] = None
+    allocation_pct: float
+    timing: str
+    source_vehicle: str
+    fiduciary_rationale: str
+
+
+class DeterministicLumpsumPlan(BaseModel):
+    total_lumpsum_inr: float
+    is_big_ticket: bool
+    stp_duration_months: int
+    immediate_amount_inr: float
+    stp_total_amount_inr: float
+    monthly_stp_total_inr: float
+    parking_vehicle: str
+    tax_savings_vs_debt_fund_inr: float = 0.0
+    cash_validation_passed: bool = True
+    cash_validation_message: str = ""
+    tranches: List[LumpsumTrancheItem] = Field(default_factory=list)
+
 
 class FiduciaryFactsPayload(BaseModel):
     client_name: str
+    client_age: Optional[int] = None
+    horizon_years: Optional[int] = None
+    risk_tier_name: str = "Tier 6 (Very High)"
     total_portfolio_value_inr: float
     total_invested_value_inr: float
     total_unrealized_gain_inr: float
@@ -120,7 +221,7 @@ class FiduciaryFactsPayload(BaseModel):
     eligibility_results: List[Dict[str, Any]] = Field(default_factory=list)
     no_action: Optional[NOActionResult] = None
     monthly_sip_budget_inr: float
-    lumpsum_budget_inr: float = 200000.0
+    lumpsum_budget_inr: float = 0.0
     lumpsum_plan: Optional[Dict[str, Any]] = None
     xirr_pct: Optional[float] = None
     benchmark_xirr_pct: Optional[float] = None
@@ -128,6 +229,11 @@ class FiduciaryFactsPayload(BaseModel):
     tax_lots_summary: Optional[TaxLedger] = None
     weak_funds_flagged: List[Dict[str, Any]] = Field(default_factory=list)
     holdings: List[HoldingItem] = Field(default_factory=list)
+    stability_buffer: Optional[LookThroughStabilityBuffer] = None
+    thematic_exposures: List[ThematicExposureItem] = Field(default_factory=list)
+    deterministic_sip_plan: Optional[DeterministicSIPPlan] = None
+    deterministic_lumpsum_plan: Optional[DeterministicLumpsumPlan] = None
+    cas_reconciliation: Optional[Dict[str, Any]] = None
 
 
 class TaxLedger(BaseModel):
@@ -204,12 +310,16 @@ class EligibilityGateResult(BaseModel):
     fund_name: str
     passed: bool
     failed_gates: List[str] = Field(default_factory=list)
-    liquidity_gate: bool = False
-    aum_stability_gate: bool = False
-    concentration_gate: bool = False
-    mandate_suitability_gate: bool = False
-    data_integrity_gate: bool = False
-    manager_tenure_gate: bool = False
+    amc_concentration_gate: bool = True
+    aum_stability_gate: bool = True
+    concentration_gate: bool = True
+    sharpe_alpha_gate: bool = True
+    liquidity_gate: bool = True
+    mandate_suitability_gate: bool = True
+    data_integrity_gate: bool = True
+    manager_tenure_gate: bool = True
+    thematic_satellite_gate: bool = True
+    direct_plan_gate: bool = True
     details: Dict[str, Any] = Field(default_factory=dict)
 
 
@@ -242,23 +352,72 @@ FeeBleed = FeeBleedAnalysis
 OverlapMetric = OverlapPair
 # TaxLedger = TaxLotSummary  # Not in this commit's models
 
-# Backward compatibility function aliases
-def build_fiduciary_payload(*args, **kwargs):
-    """Backward compatibility alias for aggregate_fiduciary_facts."""
-    from core.math_engine import aggregate_fiduciary_facts
-    return aggregate_fiduciary_facts(*args, **kwargs)
-
+# Self-contained backward compatibility calculation functions (Zero circular imports)
 def calculate_weighted_overlap(fund_a_holdings: Dict[str, float], fund_b_holdings: Dict[str, float]) -> float:
-    """Backward compatibility alias for calculate_weighted_lookthrough_overlap (pairwise version)."""
-    from core.math_engine import calculate_weighted_lookthrough_overlap
-    # This is a simplified pairwise version for backward compatibility
+    """Self-contained pairwise weighted overlap calculation."""
     shared_stocks = set(fund_a_holdings.keys()) & set(fund_b_holdings.keys())
     overlap_weight = sum(min(fund_a_holdings[s], fund_b_holdings[s]) for s in shared_stocks)
     return round(overlap_weight, 2)
 
 def compute_liquidity_waterfall(bank_balance: float, monthly_expenses: float, months_reserve: float = 6.0) -> Tuple[float, float]:
-    """Backward compatibility alias for calculate_cash_deployment (returns tuple)."""
-    from core.math_engine import calculate_cash_deployment
-    from core.models import CashDeploymentPlan
-    result = calculate_cash_deployment(bank_cash_inr=bank_balance, emergency_buffer_inr=monthly_expenses * months_reserve)
-    return result.emergency_reserve_inr, result.deployable_surplus_inr
+    """Self-contained cash deployment liquidity calculation."""
+    emergency_reserve = monthly_expenses * months_reserve
+    deployable_surplus = max(0.0, bank_balance - emergency_reserve)
+    return round(emergency_reserve, 2), round(deployable_surplus, 2)
+
+
+# ============================================================
+# PERSONAL REDEMPTION ENGINE MODELS
+# ============================================================
+
+class RedemptionPriorityTier(int, Enum):
+    BUBBLE_DERISKING = 1       # Priority 1: Toxic Sector Bubbles & Extreme Concentration
+    FEE_BLEED_ELIMINATION = 2  # Priority 2: Regular Plans Commission Bleed
+    SAA_REBALANCING = 3        # Priority 3: Duplicate / Overweight Direct Holdings
+    CORE_CAPITAL_ANCHOR = 4    # Priority 4: Core Direct Compounding Anchors (Protected)
+
+
+class RedemptionTrancheItem(BaseModel):
+    """Execution line item for personal cash redemption."""
+    fund_id: str
+    scheme_name: str
+    folio: str
+    priority_tier: int         # 1, 2, 3, or 4
+    priority_label: str        # e.g., 'Priority 1: Toxic Sector Bubble Derisking'
+    fiduciary_reason: str
+    gross_amount_inr: float
+    units_to_redeem: float
+    nav: float
+    exit_load_inr: float = 0.0
+    realized_capital_gain_inr: float = 0.0
+    is_long_term: bool = True
+    projected_stcg_tax_inr: float = 0.0
+    projected_ltcg_tax_inr: float = 0.0
+    tax_sheltered_under_112a_inr: float = 0.0
+    net_tax_liability_inr: float = 0.0
+    net_cash_realized_inr: float
+    annual_commission_saved_inr: float = 0.0
+    is_full_redemption: bool = False
+    action_step: str
+
+
+class PersonalRedemptionPlan(BaseModel):
+    """Complete mathematically grounded Personal Cash Redemption Plan."""
+    requested_amount_inr: float
+    ticket_category: str       # "SMALL_TICKET" (<= 1L) | "MEDIUM_TICKET" (1L-5L) | "LARGE_TICKET" (> 5L)
+    ticket_rationale: str
+    is_net_cash_target: bool
+    total_gross_redeemed_inr: float
+    total_exit_load_inr: float
+    total_realized_gain_loss_inr: float
+    total_stcg_tax_inr: float
+    total_ltcg_tax_inr: float
+    total_tax_sheltered_under_112a_inr: float
+    total_net_tax_inr: float
+    total_net_cash_inr: float
+    total_annual_commission_saved_inr: float
+    funds_liquidated_count: int
+    full_folio_exits_count: int
+    tranches: List[RedemptionTrancheItem] = Field(default_factory=list)
+    execution_steps: List[str] = Field(default_factory=list)
+    fiduciary_safeguards: List[str] = Field(default_factory=list)

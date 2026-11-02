@@ -24,6 +24,12 @@ PDF_CSS = """
         font-size: 7pt;
         color: #718096;
     }
+    @bottom-left {
+        content: "Fiduciary Wealth Copilot v2.4 (SEBI RIA Compliant)";
+        font-family: Helvetica, Arial, sans-serif;
+        font-size: 7pt;
+        color: #718096;
+    }
     @bottom-center {
         content: "Page " counter(page) " of " counter(pages);
         font-family: Helvetica, Arial, sans-serif;
@@ -142,7 +148,9 @@ def markdown_to_pdf_bytes(md_content: str, title: str = "") -> bytes:
     """Converts markdown content string into professional A4 PDF bytes."""
     # Replace Rupee symbol and non-standard unicode arrows for PDF Helvetica compatibility
     clean_md = (
-        md_content.replace("₹", "Rs ")
+        md_content.replace("₹", "INR ")
+        .replace("Rs ", "INR ")
+        .replace("Rs. ", "INR ")
         .replace("•", "*")
         .replace("→", " -> ")
         .replace("↔", " <-> ")
