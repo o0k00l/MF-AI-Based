@@ -48,7 +48,7 @@ Pillow>=13.0.0,<14.0.0
 # --- Testing & Release Gates ---
 pytest>=9.0.3,<10.0.0                 # Authoritative test runner
 pytest-timeout==2.4.0         # Per-test timeout limit enforcement
-pytest-mock==3.12.0           # Unit test fixture mocking
+pytest-mock==3.17.0           # Unit test fixture mocking
 hypothesis==6.92.0            # Property-based invariant testing
 pytest-asyncio>=0.23.0        # Async test support
 httpx>=0.28.1                 # Async HTTP client for API testing
