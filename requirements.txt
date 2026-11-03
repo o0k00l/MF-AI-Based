@@ -38,7 +38,7 @@ uvicorn[standard]>=0.30.0     # ASGI server for FastAPI
 asyncpg>=0.29.0               # Async PostgreSQL/TimescaleDB driver
 sqlalchemy[asyncio]>=2.0.0    # Async ORM for DB access
 redis>=5.0.0                  # Redis client (NAV cache, sessions)
-confluent-kafka>=2.3.0        # Kafka producer/consumer (async events)
+confluent-kafka>=2.16.1        # Kafka producer/consumer (async events)
 pydantic>=2.5.0               # Data validation (engine models)
 # python-jose intentionally omitted: current 3.5.0 has a critical JOSE algorithm-confusion advisory; no patched release is available. Add a maintained JWT package only with actual code use and explicit algorithm/key restrictions.
 
