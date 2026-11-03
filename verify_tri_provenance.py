@@ -28,7 +28,10 @@ def main():
             json.dumps(levels, sort_keys=True, separators=(",", ":")).encode("utf-8")
         ).hexdigest()
         if not levels or computed != expected:
-            failures.append(f"{index_name}: levels checksum missing/mismatched")
+            failures.append(
+                f"{index_name}: levels checksum missing/mismatched; "
+                f"expected={expected or '<missing>'}; computed={computed}"
+            )
         else:
             print(f"{index_name}: levels checksum matches ({len(levels)} observations)")
 
