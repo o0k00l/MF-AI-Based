@@ -639,7 +639,7 @@ def calculate_cashflow_matched_benchmark_xirr(
                 benchmark=benchmark_key,
                 validation_stage="tri_date_out_of_range"
             )
-        if d in levels:
+        if str(d) in levels:
             return float(levels[str(d)])
         prior_dates = [session for session in sorted_dates if session < d]
         if not prior_dates:
