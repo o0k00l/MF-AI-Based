@@ -3661,6 +3661,17 @@ def select_autonomous_blueprint_funds(
             "rationale": "Default high-grade short-term debt fund for SAA fixed income target."
         }
 
+    # Preserve plan classification from the exact candidate record selected by
+    # the eligibility gates. Never infer Direct status from a scheme-name string.
+    candidates_by_id = {
+        str(candidate.get("fund_id")): candidate
+        for candidate in candidate_universe
+        if candidate.get("fund_id") is not None
+    }
+    for slot in blueprint.values():
+        fund_id = slot.get("fund_id")
+        source_candidate = candidates_by_id.get(str(fund_id)) if fund_id is not None else None
+        slot["is_direct"] = bool(source_candidate and source_candidate.get("is_direct") is True)
     return blueprint
 def calculate_universal_tier_split(
     tier_num: int,
@@ -3970,7 +3981,8 @@ def compute_deterministic_sip_blueprint(
                 monthly_inr=round(b * (alloc_pct / 100.0), 2),
                 allocation_pct=alloc_pct,
                 rational_code="CORE_COMPOUNDER",
-                fiduciary_rationale=flexi_default_rat
+                fiduciary_rationale=flexi_default_rat,
+                is_direct=flexi_info.get("is_direct")
             )
         )
 
@@ -3988,7 +4000,8 @@ def compute_deterministic_sip_blueprint(
                     monthly_inr=round(b * (mid_pct / 100.0), 2),
                     allocation_pct=mid_pct,
                     rational_code="ALPHA_ENGINE",
-                    fiduciary_rationale=mid_default_rat
+                    fiduciary_rationale=mid_default_rat,
+                    is_direct=mid_info.get("is_direct")
                 )
             )
         if target_debt > 0:
@@ -4072,7 +4085,8 @@ def compute_deterministic_sip_blueprint(
                     monthly_inr=round(b * (large_pct / 100.0), 2),
                     allocation_pct=large_pct,
                     rational_code="CORE_ANCHOR",
-                    fiduciary_rationale=large_default_rat
+                    fiduciary_rationale=large_default_rat,
+                    is_direct=large_info.get("is_direct")
                 )
             )
 
@@ -4085,7 +4099,8 @@ def compute_deterministic_sip_blueprint(
                     monthly_inr=round(b * (thematic_pct / 100.0), 2),
                     allocation_pct=thematic_pct,
                     rational_code="SATELLITE_THEME",
-                    fiduciary_rationale=pharma_rat
+                    fiduciary_rationale=pharma_rat,
+                    is_direct=thematic_info.get("is_direct")
                 )
             )
 
@@ -4098,7 +4113,8 @@ def compute_deterministic_sip_blueprint(
                     monthly_inr=round(b * (target_debt / 100.0), 2),
                     allocation_pct=target_debt,
                     rational_code="DEBT_CUSHION" if target_eq > 0 else "DEBT_ANCHOR",
-                    fiduciary_rationale=f"Fulfills {target_debt:.0f}% high-grade debt target under SAA mandate without credit risk."
+                    fiduciary_rationale=f"Fulfills {target_debt:.0f}% high-grade debt target under SAA mandate without credit risk.",
+                    is_direct=debt_info.get("is_direct")
                 )
             )
 
