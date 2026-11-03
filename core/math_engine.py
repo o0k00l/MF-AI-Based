@@ -4163,30 +4163,47 @@ def compute_deterministic_lumpsum_blueprint(
     with dynamic duration staggering, multi-slot SAA preservation for large amounts (>= INR 5 Lakhs),
     tax-shielded arbitrage parking, and bank cash reality verification.
     """
-    L = float(lumpsum_amount)
     import math as _math
-    if not isinstance(thematic_satellite_authorized, bool):
-        raise ValueError("thematic_satellite_authorized must be a boolean")
     try:
+        L = float(lumpsum_amount)
+        bank_cash = float(bank_cash_total)
+        reserve = float(emergency_reserve)
         satellite_pct = float(thematic_satellite_pct_of_equity)
     except (TypeError, ValueError) as exc:
-        raise ValueError("thematic_satellite_pct_of_equity must be numeric") from exc
+        raise ValueError("Lumpsum, bank cash, reserve and thematic allocation must be numeric") from exc
+    if any(not _math.isfinite(v) or v < 0.0 for v in (L, bank_cash, reserve)):
+        raise ValueError("Lumpsum, bank cash and emergency reserve must be finite and non-negative")
+    if not isinstance(thematic_satellite_authorized, bool):
+        raise ValueError("thematic_satellite_authorized must be a boolean")
     if not _math.isfinite(satellite_pct) or not 0.0 <= satellite_pct <= 15.0:
         raise ValueError("thematic satellite percentage must be finite and between 0 and 15")
     if satellite_pct > 0.0 and not thematic_satellite_authorized:
         raise ValueError("thematic satellite allocation requires explicit IPS authorization")
     if not thematic_satellite_authorized:
         satellite_pct = 0.0
-    deployable_surplus = max(0.0, bank_cash_total - emergency_reserve)
-    if bank_cash_total > 0:
-        cash_ok = deployable_surplus >= L
-        if cash_ok:
-            msg = f"Bank cash verification passed: Deployable surplus of INR {deployable_surplus:,.2f} fully covers proposed lumpsum of INR {L:,.2f}."
-        else:
-            msg = f"Bank cash verification warning: Proposed lumpsum of INR {L:,.2f} exceeds deployable surplus of INR {deployable_surplus:,.2f} (Bank balance INR {bank_cash_total:,.2f} less INR {emergency_reserve:,.2f} emergency reserve)."
+    deployable_surplus = max(0.0, bank_cash - reserve)
+    cash_ok = bank_cash > 0.0 and deployable_surplus >= L
+    if bank_cash <= 0.0:
+        msg = "NO ACTION: verified bank cash data was not supplied; no lumpsum deployment is permitted."
+    elif not cash_ok:
+        msg = f"NO ACTION: proposed lumpsum INR {L:,.2f} exceeds deployable surplus INR {deployable_surplus:,.2f}."
     else:
-        cash_ok = True
-        msg = f"No bank cash data provided. Proposed lumpsum: INR {L:,.2f}." 
+        msg = f"Bank cash verification passed: deployable surplus INR {deployable_surplus:,.2f} covers proposed lumpsum INR {L:,.2f}."
+    if not cash_ok:
+        return DeterministicLumpsumPlan(
+            total_lumpsum_inr=L,
+            unallocated_amount_inr=L,
+            is_big_ticket=False,
+            stp_duration_months=0,
+            immediate_amount_inr=0.0,
+            stp_total_amount_inr=0.0,
+            monthly_stp_total_inr=0.0,
+            parking_vehicle="N/A — cash validation failed",
+            tax_savings_vs_debt_fund_inr=0.0,
+            cash_validation_passed=False,
+            cash_validation_message=msg,
+            tranches=[],
+        )
 
     # 1. Asset Class SAA Target based on Risk Tier
     tier_num = _parse_sebi_risk_tier(risk_tier)
