@@ -6,7 +6,7 @@ artifacts, cached data, or environment-specific configuration.
 
 This test simulates a clean checkout by:
 1. Creating a temporary directory
-2. Copying only the source files (excluding outputs/, cache/, __pycache__, data/lalit_portfolio/statements/, etc.)
+2. Copying only tracked source files and checking that no client artifacts or outputs are present
 3. Running the full test suite and advisor.py in the clean environment
 """
 
@@ -41,8 +41,6 @@ def test_clean_checkout():
             "__pycache__",
             ".pytest_cache",
             ".git",
-            "data/lalit_portfolio/statements",  # CAS Excel files are user data
-            "data/lalit_portfolio/fund_metrics.json",  # Generated from CAS
             "data/cache",
             "*.pyc",
             "*.pyo",
@@ -99,14 +97,19 @@ def test_clean_checkout():
         for f in critical_files:
             assert (clean_dir / f).exists(), f"Critical file missing in clean checkout: {f}"
         
-        # A clean checkout must not contain client-specific records.
-        client_dir = clean_dir / "data" / "lalit_portfolio"
-        assert not (client_dir / "config.json").exists()
-        assert not (client_dir / "fund_metrics.json").exists()
-        assert not (client_dir / "fund_aliases.json").exists()
-        assert not (client_dir / "transactions.json").exists()
-        assert not list(client_dir.glob("*.xlsx"))
-        assert not list((client_dir / "statements").glob("*")) if (client_dir / "statements").exists() else True
+        # A clean checkout must contain no client folders, statements or generated reports.
+        data_root = clean_dir / "data"
+        client_dirs = [
+            path for path in data_root.iterdir()
+            if path.is_dir() and path.name not in {"policy", "cache", "__pycache__"}
+        ]
+        assert not client_dirs, f"Unexpected client-data directories in checkout: {client_dirs}"
+        private_artifacts = [
+            path for path in data_root.rglob("*")
+            if path.is_file() and path.suffix.lower() in {".xlsx", ".xls", ".pdf"}
+        ]
+        assert not private_artifacts, f"Unexpected private statement/report artifacts: {private_artifacts}"
+        assert not (clean_dir / "outputs").exists(), "Generated client reports must not live in the repository"
         
         # Run P0 invariant tests in clean checkout
         print("[CLEAN CHECKOUT] Running P0 invariant tests...")
