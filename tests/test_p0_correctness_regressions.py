@@ -1119,3 +1119,35 @@ def test_thematic_satellite_requires_explicit_authorization_and_is_carved_out():
     # With no verified candidate data, the engine must withhold the entire budget.
     if plan.unallocated_budget_inr > 0:
         assert all(item.monthly_inr == 0.0 for item in plan.items)
+
+
+@pytest.mark.parametrize(
+    ("tier", "profile"),
+    [
+        (1, "low"),
+        (2, "low_to_moderate"),
+        (3, "moderate"),
+        (4, "moderately_high"),
+        (5, "high"),
+        (6, "very_high"),
+    ],
+)
+def test_universal_tier_split_uses_policy_base_and_stability_threshold(tier, profile):
+    import json
+    from pathlib import Path
+    from core.math_engine import calculate_universal_tier_split
+
+    policy = json.loads(
+        (Path(__file__).resolve().parents[1] / "data/policy/asset_allocation.json").read_text()
+    )
+    p = policy["behavioral_risk_profiles"][profile]
+    targets = p["saa_targets"]
+    assert sum(targets.values()) == 100
+    expected_equity = p["new_sip_allocation"]["equity_pct"]
+    expected_debt = p["new_sip_allocation"]["debt_pct"]
+    assert calculate_universal_tier_split(tier) == (expected_equity, expected_debt)
+
+    threshold = max(0.0, targets["debt_liquid_pct"] - p["tolerance_band_pct"])
+    if threshold > 0:
+        assert calculate_universal_tier_split(tier, threshold - 0.01) == (expected_equity, expected_debt)
+    assert calculate_universal_tier_split(tier, threshold) == (100.0, 0.0)
