@@ -683,16 +683,30 @@ def validate_thematic_satellite_cap(
 
 
 def validate_direct_sip_mandate(sip_plan: Any) -> bool:
-    """
-    Enforces Gate 10: 100% Direct Plan Mandate on Fresh SIPs.
-    Any recommended SIP item containing Regular or distributor commission throws an immediate violation.
-    """
+    """Require explicit Direct-plan metadata for every positive SIP allocation."""
     if not hasattr(sip_plan, "items"):
-        return True
+        raise ValueError("SIP plan is missing recommendation items; Direct-plan status cannot be verified")
 
     for item in sip_plan.items:
-        scheme = getattr(item, "scheme_name", "").lower()
-        if "regular" in scheme:
-            raise ValueError(f"Fiduciary Gate 10 Violation: Fresh SIP recommendation '{item.scheme_name}' contains Regular plan.")
-
+        amount = getattr(item, "monthly_inr", None)
+        scheme = str(getattr(item, "scheme_name", "") or "")
+        is_direct = getattr(item, "is_direct", None)
+        if amount is None or isinstance(amount, bool):
+            raise ValueError(f"Invalid SIP amount for recommendation {scheme!r}")
+        try:
+            amount_value = float(amount)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"Invalid SIP amount for recommendation {scheme!r}") from exc
+        if not math.isfinite(amount_value) or amount_value < 0:
+            raise ValueError(f"SIP amount must be finite and non-negative for {scheme!r}")
+        if amount_value == 0 and scheme.upper().startswith("NO_ACTION"):
+            continue
+        if is_direct is not True:
+            raise ValueError(
+                f"Fiduciary Gate 10 Violation: '{scheme}' lacks verified is_direct=True metadata."
+            )
+        if "regular" in scheme.casefold():
+            raise ValueError(
+                f"Fiduciary Gate 10 Violation: Fresh SIP recommendation '{scheme}' is a Regular plan."
+            )
     return True
