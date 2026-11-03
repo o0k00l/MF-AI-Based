@@ -125,7 +125,11 @@ check("Slot 1: Core Flexi (26.3%)", roles["Core Flexi-Cap Compounder"].allocatio
 check("Slot 2: Mid-Cap Alpha (52.6%)", roles["Mid-Cap Alpha Engine"].allocation_pct == 52.6 and roles["Mid-Cap Alpha Engine"].monthly_inr == 52600.0)
 check("Slot 3: Large-Cap Anchor (21.1%)", roles["Large-Cap Bluechip Anchor"].allocation_pct == 21.1 and roles["Large-Cap Bluechip Anchor"].monthly_inr == 21100.0)
 check("Slot 4: Thematic Satellite (0%)", roles["Tactical Thematic Satellite"].allocation_pct == 0.0 and roles["Tactical Thematic Satellite"].monthly_inr == 0.0)
-check("100% Direct Plan Mandate", all("direct" in item.scheme_name.lower() for item in established_plan.items))
+check(
+    "100% Direct Plan Mandate",
+    all(item.is_direct is True for item in established_plan.items if item.monthly_inr > 0),
+    "Uses explicit selected-candidate metadata, not scheme-name substring inference"
+ )
 check("Zero Standalone Debt Drag", established_plan.debt_sip_pct == 0.0 and established_plan.equity_sip_pct == 100.0)
 
 cas_path = Path("data/lalit_portfolio/statements/cas_detailed_report_2026_10_09_174452.xlsx")
