@@ -505,15 +505,22 @@ def plan_fy_tranches(
             available. Default 0.0 (full ₹1.25L assumed available — conservative
             when called in isolation; pass actual realized gains for accuracy).
     """
-    _raw_exemption = tax_rules["ltcg_exemption"]
-    if not isinstance(prior_ltcg_this_fy, (int, float)) or isinstance(prior_ltcg_this_fy, bool) or not __import__("math").isfinite(float(prior_ltcg_this_fy)) or prior_ltcg_this_fy < 0:
-        raise ValueError("prior_ltcg_this_fy must be a finite, non-negative number")
-    exemption = max(0.0, _raw_exemption - float(prior_ltcg_this_fy))
+    import math
+    try:
+        raw_exemption = float(tax_rules["ltcg_exemption"])
+        prior_ltcg = float(prior_ltcg_this_fy)
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError("Tax exemption and prior realized LTCG must be numeric") from exc
+    if not math.isfinite(raw_exemption) or raw_exemption < 0:
+        raise ValueError("Configured LTCG exemption must be finite and non-negative")
+    if isinstance(prior_ltcg_this_fy, bool) or not math.isfinite(prior_ltcg) or prior_ltcg < 0:
+        raise ValueError("prior_ltcg_this_fy must be finite and non-negative")
+    # Validate the configured allowance once; the per-fund tax schedule supplies
+    # the operative class-specific allowance below.
     exit_load_pct = tax_rules.get("exit_load_pct", 1.0)
     # Collect lots up to plan.total_amount per fund using strict FIFO
     all_lots = []
     
-    import math
     for fund_id, plan in plans.items():
         # Validate the requested amount before looking up NAV or iterating lots.
         try:
@@ -755,7 +762,7 @@ def plan_fy_tranches(
         stcg_rate = tax_rates["stcg_rate"]
         exemption = tax_rates["ltcg_exemption"]
         if fy_ptr == current_fy_start:
-            exemption = max(0.0, exemption - float(prior_ltcg_this_fy))
+            exemption = max(0.0, exemption - prior_ltcg)
         cess_rate = tax_rates["cess_rate"]
         
         while lot_units > 0.0001:
