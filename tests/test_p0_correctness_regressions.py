@@ -1619,3 +1619,20 @@ def test_tri_release_flag_fails_closed_while_fixture_is_provisional():
     )
     assert completed.returncode != 0
     assert "TRI alpha release eligibility: BLOCKED" in completed.stdout
+
+
+def test_tax_planner_equity_classification_uses_at_least_65_percent():
+    lot = Lot(
+        fund_id="synthetic-fund", folio_name="synthetic-folio",
+        purchase_date=date(2024, 1, 1), units=1, nav=100, cost=100,
+        source="synthetic", equity_pct=65.0,
+        equity_pct_method="annual_average_monthly_opening_closing",
+        equity_pct_fy_start=2026,
+        equity_pct_source_url="https://example.test/synthetic-disclosure",
+        equity_pct_source_sha256="a" * 64,
+        equity_pct_source_reviewed=True,
+    )
+    rules = {"classification_test": {"equity_oriented_threshold_pct": 65.0}}
+    assert classify_fund_for_tax(lot, rules, sale_date=date(2026, 11, 3)) == "equity_oriented"
+    lot.equity_pct = 64.99
+    assert classify_fund_for_tax(lot, rules, sale_date=date(2026, 11, 3)) == "non_equity_oriented"
