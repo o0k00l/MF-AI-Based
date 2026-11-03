@@ -196,6 +196,7 @@ class DeterministicSIPPlan(BaseModel):
         return self
 
     total_monthly_budget_inr: float
+    unallocated_budget_inr: float = 0.0
     equity_sip_pct: float = 100.0
     debt_sip_pct: float = 0.0
     items: List[DeterministicSIPRecommendation] = Field(default_factory=list)
