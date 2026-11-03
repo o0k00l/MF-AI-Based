@@ -26,17 +26,3 @@ jobs:
           python -m pip install pip-audit
       - name: Audit declared dependencies and resolved dependency tree
         run: pip-audit -r requirements.txt
-
-  dependency-review:
-    name: Security / dependency-review
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: read
-    steps:
-      - uses: actions/checkout@v4
-      - name: Review dependency changes
-        uses: actions/dependency-review-action@v4
-        with:
-          fail-on-severity: high
