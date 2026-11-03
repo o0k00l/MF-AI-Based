@@ -35,6 +35,10 @@ The current policy uses a 60% Flexi-cap / 40% Mid-Small-cap equity split when AU
 | `verify_tri_provenance.py` | Fixture checksum and benchmark release-eligibility checks |
 | `advisor.py`, `advisor_lean.py` | Local-data report entry points; not trade-execution tools |
 
+## Dashboard status
+
+The legacy Streamlit dashboard is retired and intentionally disabled. Its former client-discovery and planning flows used an obsolete in-repository data layout and are not supported. The root `app.py` entry point displays a retirement notice only; it does not load client data or generate recommendations. Do not re-enable the old UI until a replacement has explicit external-data isolation, read-only behavior, and dedicated integration tests.
+
 ## Private client data setup
 
 Use a directory outside the repository containing the locally verified source inputs:
