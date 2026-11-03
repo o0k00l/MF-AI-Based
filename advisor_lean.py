@@ -127,7 +127,7 @@ SEBI_RISKOMETER_PROFILES = {
         "badge": "🟢 Low (Irish Green)",
         "color": "#2e7d32",
         "description": "Minimal volatility and conservative risk. Focus on capital preservation.",
-        "large": 10.0, "mid_small": 0.0, "debt": 90.0, "equity_target": 10.0
+        "large": 20.0, "mid_small": 0.0, "debt": 80.0, "equity_target": 20.0
     },
     "2_low_to_moderate": {
         "level": 2,
@@ -135,7 +135,7 @@ SEBI_RISKOMETER_PROFILES = {
         "badge": "🟡 Low to Moderate (Chartreuse)",
         "color": "#7cb342",
         "description": "Low-to-mild risk exposure. Conservative hybrid & short-duration debt.",
-        "large": 20.0, "mid_small": 5.0, "debt": 75.0, "equity_target": 25.0
+        "large": 35.0, "mid_small": 5.0, "debt": 60.0, "equity_target": 40.0
     },
     "3_moderate": {
         "level": 3,
@@ -143,7 +143,7 @@ SEBI_RISKOMETER_PROFILES = {
         "badge": "🟡 Moderate (Neon Yellow)",
         "color": "#fdd835",
         "description": "Balanced risk and return profile. Dynamic asset allocation & balanced advantage.",
-        "large": 35.0, "mid_small": 15.0, "debt": 50.0, "equity_target": 50.0
+        "large": 50.0, "mid_small": 20.0, "debt": 30.0, "equity_target": 70.0
     },
     "4_moderately_high": {
         "level": 4,
@@ -151,7 +151,7 @@ SEBI_RISKOMETER_PROFILES = {
         "badge": "🟠 Moderately High (Caramel)",
         "color": "#fb8c00",
         "description": "Significant volatility expected. Predominantly large-cap equity & hybrid equity.",
-        "large": 45.0, "mid_small": 25.0, "debt": 30.0, "equity_target": 70.0
+        "large": 45.0, "mid_small": 30.0, "debt": 15.0, "equity_target": 85.0
     },
     "5_high": {
         "level": 5,
@@ -159,7 +159,7 @@ SEBI_RISKOMETER_PROFILES = {
         "badge": "🟠 High (Dark Orange)",
         "color": "#e65100",
         "description": "Higher equity or market sensitivity. Flexi-cap, multi-cap, and mid-cap alpha.",
-        "large": 50.0, "mid_small": 35.0, "debt": 15.0, "equity_target": 85.0
+        "large": 45.0, "mid_small": 45.0, "debt": 10.0, "equity_target": 90.0
     },
     "6_very_high": {
         "level": 6,
@@ -167,7 +167,7 @@ SEBI_RISKOMETER_PROFILES = {
         "badge": "🔴 Very High (Red)",
         "color": "#d32f2f",
         "description": "Aggressive and volatile schemes (small-cap, mid-cap, sectoral/thematic funds).",
-        "large": 50.0, "mid_small": 45.0, "debt": 5.0, "equity_target": 95.0
+        "large": 45.0, "mid_small": 50.0, "debt": 5.0, "equity_target": 95.0
     }
 }
 
@@ -177,33 +177,64 @@ SAA_PROFILES = {
     "moderate": SEBI_RISKOMETER_PROFILES["4_moderately_high"],
     "aggressive": SEBI_RISKOMETER_PROFILES["5_high"],
     "very_aggressive": SEBI_RISKOMETER_PROFILES["6_very_high"],
+    "very_high": SEBI_RISKOMETER_PROFILES["6_very_high"],
     **SEBI_RISKOMETER_PROFILES
 }
 
-def compute_saa(profile_name="5_high", band=5.0, custom_large=None, custom_mid_small=None, custom_debt=None):
-    key = str(profile_name).lower()
-    if custom_large is not None and custom_debt is not None:
-        target = {"large": float(custom_large), "mid_small": float(custom_mid_small or 0.0), "debt": float(custom_debt)}
+def compute_saa(
+    profile_name="5_high",
+    band=5.0,
+    custom_large=None,
+    custom_mid_small=None,
+    custom_debt=None,
+    current_exposure=None,
+    total_value=None,
+):
+    """Pure SAA comparison; portfolio exposure is explicit, never read from globals."""
+    key = str(profile_name).strip().lower()
+    if current_exposure is None or total_value is None:
+        raise ValueError("current_exposure and total_value are required")
+    total = float(total_value)
+    if not (total > 0):
+        raise ValueError("total_value must be positive")
+    if not isinstance(current_exposure, dict):
+        raise TypeError("current_exposure must be a mapping")
+    raw_current = {
+        "large": float(current_exposure["large"]),
+        "mid_small": float(current_exposure["mid_small"]),
+        "debt": float(current_exposure["debt"]),
+    }
+    if any(not (v >= 0 and v < float("inf")) for v in raw_current.values()):
+        raise ValueError("current exposures must be finite and non-negative")
+    if abs(sum(raw_current.values()) - total) > max(1.0, total * 0.001):
+        raise ValueError("current exposures must reconcile to total_value within 0.1% or INR 1")
+    if custom_large is not None or custom_mid_small is not None or custom_debt is not None:
+        if any(v is None for v in (custom_large, custom_mid_small, custom_debt)):
+            raise ValueError("all three custom SAA weights must be supplied together")
+        target = {"large": float(custom_large), "mid_small": float(custom_mid_small), "debt": float(custom_debt)}
         p_info = {"name": "Custom", "color": "#4a5568", "badge": "Custom Asset Mix"}
     else:
-        p = SAA_PROFILES.get(key, SEBI_RISKOMETER_PROFILES["5_high"])
+        p = SAA_PROFILES.get(key)
+        if p is None:
+            raise ValueError(f"Unknown SAA profile: {profile_name!r}")
         target = {"large": p["large"], "mid_small": p["mid_small"], "debt": p["debt"]}
         p_info = p
-    
-    cur = {"large": round(100*lc/tot, 1), "mid_small": round(100*msm/tot, 1), "debt": round(100*dg/tot, 1)}
-    drift = {"large": round(cur["large"] - target["large"], 1), "mid_small": round(cur["mid_small"] - target["mid_small"], 1), "debt": round(cur["debt"] - target["debt"], 1)}
-    breaches = [k for k, v in drift.items() if abs(v) > band]
+    if any(not (v >= 0 and v <= 100) for v in target.values()) or abs(sum(target.values()) - 100.0) > 0.01:
+        raise ValueError("SAA target weights must be non-negative and sum to 100%")
+    cur = {k: round(100 * v / total, 1) for k, v in raw_current.items()}
+    drift = {k: round(cur[k] - target[k], 1) for k in target}
+    breaches = [k for k, v in drift.items() if abs(v) > float(band)]
     return {
         "profile": p_info.get("name", "Custom"),
         "profile_key": key,
         "badge": p_info.get("badge", ""),
         "color": p_info.get("color", "#4a5568"),
         "description": p_info.get("description", ""),
-        "total": tot,
+        "total": total,
         "current": cur,
         "target": target,
         "drift": drift,
-        "band": band,
+        "band": float(band),
         "breach": breaches,
         "is_breached": len(breaches) > 0
     }
@@ -408,7 +439,7 @@ for h in holdings:
         continue
     lc += w * m.get("lc",0)/100; msm += w * (m.get("mc",0)+m.get("sc",0))/100; dg += w * (100-m.get("lc",0)-m.get("mc",0)-m.get("sc",0))/100
 
-f4 = compute_saa(profile_name=cfg.get("ips", {}).get("risk_tolerance", "aggressive"))
+f4 = compute_saa(profile_name=cfg.get("ips", {}).get("risk_tolerance", "aggressive"), current_exposure={"large": lc, "mid_small": msm, "debt": dg}, total_value=tot)
 
 # ── Unified XIRR Engine from core.math_engine ──
 from core.math_engine import calculate_xirr, calculate_portfolio_xirr
