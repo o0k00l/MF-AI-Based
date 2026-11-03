@@ -494,3 +494,83 @@ def test_fifo_tax_lot_loader_carries_verified_scheme_equity_allocation(tmp_path)
         equity_allocation_by_fund={"Example Equity Direct Growth": 100.0},
     )
     assert lots["Example Equity Direct Growth"][0].equity_pct == pytest.approx(100.0)
+
+
+def test_build_fifo_tax_lots_processes_all_rows_and_reconciles_units(tmp_path):
+    import json
+    from types import SimpleNamespace
+    from core.math_engine import build_fifo_tax_lots
+
+    tx_path = tmp_path / "transactions.json"
+    tx_path.write_text(
+        json.dumps({
+            "transactions": [
+                {"scheme": "Example Fund Direct Growth", "date": "2024-01-01", "amount": 1000.0, "units": 10.0, "nav": 100.0, "type": "PURCHASE"},
+                {"scheme": "Example Fund Direct Growth", "date": "2024-02-01", "amount": 500.0, "units": 5.0, "nav": 100.0, "type": "SIP"},
+                {"scheme": "Example Fund Direct Growth", "date": "2024-03-01", "amount": -450.0, "units": -4.0, "nav": 112.5, "type": "REDEMPTION"},
+            ]
+        }),
+        encoding="utf-8",
+    )
+    holdings = [
+        SimpleNamespace(
+            fund_id="F1",
+            scheme="Example Fund Direct Growth",
+            fund_name="Example Fund Direct Growth",
+            units=11.0,
+            equity_pct=100.0,
+        )
+    ]
+    lots = build_fifo_tax_lots(tx_path, holdings)
+    assert sum(lot.units for lot in lots["F1"]) == pytest.approx(11.0)
+    assert sum(lot.cost for lot in lots["F1"]) == pytest.approx(1100.0)
+    assert len(lots["F1"]) == 2
+
+
+def test_build_fifo_tax_lots_rejects_fuzzy_scheme_match_and_unreconciled_units(tmp_path):
+    import json
+    from types import SimpleNamespace
+    from core.math_engine import build_fifo_tax_lots
+
+    tx_path = tmp_path / "transactions.json"
+    tx_path.write_text(
+        json.dumps({
+            "transactions": [
+                {"scheme": "Example Fund Direct", "date": "2024-01-01", "amount": 1000.0, "units": 10.0, "nav": 100.0, "type": "PURCHASE"}
+            ]
+        }),
+        encoding="utf-8",
+    )
+    holdings = [
+        SimpleNamespace(
+            fund_id="F1",
+            scheme="Example Fund Direct Growth",
+            fund_name="Example Fund Direct Growth",
+            units=10.0,
+            equity_pct=100.0,
+        )
+    ]
+    with pytest.raises(ValueError, match="FIFO lot reconciliation failed"):
+        build_fifo_tax_lots(tx_path, holdings)
+
+
+def test_build_fifo_tax_lots_rejects_orphan_reversal(tmp_path):
+    import json
+    from types import SimpleNamespace
+    from core.math_engine import build_fifo_tax_lots
+
+    tx_path = tmp_path / "transactions.json"
+    tx_path.write_text(
+        json.dumps({
+            "transactions": [
+                {"scheme": "Example Fund", "date": "2024-01-01", "amount": 1000.0, "units": 10.0, "nav": 100.0, "type": "PURCHASE", "description": "Purchase"},
+                {"scheme": "Example Fund", "date": "2024-01-02", "amount": 1000.0, "units": 10.0, "nav": 100.0, "type": "PURCHASE", "description": "Reversal of earlier transaction"},
+            ]
+        }),
+        encoding="utf-8",
+    )
+    holdings = [
+        SimpleNamespace(fund_id="F1", scheme="Example Fund", fund_name="Example Fund", units=10.0, equity_pct=100.0)
+    ]
+    with pytest.raises(ValueError, match="Orphan reversal"):
+        build_fifo_tax_lots(tx_path, holdings)
