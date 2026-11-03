@@ -533,40 +533,6 @@ def plan_fy_tranches(
                 "current_nav": current_nav,
                 "fund_tax_class": fund_tax_class,
             })
-    for fund_id, plan in plans.items():
-        current_nav = current_navs.get(fund_id, 0.0)
-        if current_nav <= 0:
-            continue
-        
-        target_sell_amount = float(plan.total_amount) if plan.total_amount is not None else float("inf")
-        remaining_target = target_sell_amount
-
-        # Sort lots strictly by FIFO (purchase_date)
-        sorted_lots = sorted(plan.lots, key=lambda l: (l.purchase_date, l.folio_name))
-        for lot in sorted_lots:
-            if remaining_target <= 0.01:
-                break
-            lot_val = lot.units * current_nav
-            units_to_sell = lot.units
-            if lot_val > remaining_target:
-                units_to_sell = remaining_target / current_nav
-                lot_val = remaining_target
-            remaining_target -= lot_val
-
-            is_lt = lot.is_long_term_given(as_of, tax_rules.get("lt_holding_months", 12))
-            cost_basis = (units_to_sell / lot.units) * lot.cost if lot.units > 0 else 0.0
-            lot_gain = lot_val - cost_basis
-
-            all_lots.append({
-                "fund_id": fund_id,
-                "lot": lot,
-                "type": "LT" if is_lt else "ST",
-                "gain": lot_gain,
-                "cost": cost_basis,
-                "units": units_to_sell,
-                "current_nav": current_nav,
-            })
-
     # Separate loss lots vs gain lots
     loss_lots = [l for l in all_lots if l["gain"] <= 0]
     gain_lots = [l for l in all_lots if l["type"] == "LT" and l["gain"] > 0]
