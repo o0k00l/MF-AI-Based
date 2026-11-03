@@ -69,6 +69,7 @@ class HoldingItem(BaseModel):
     fund_id: str
     scheme: str
     fund_name: str
+    amc_name: Optional[str] = None
     folio: str
     is_direct: bool
     plan: PlanType
