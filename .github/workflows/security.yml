@@ -16,8 +16,8 @@ jobs:
     name: Security / pip-audit
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.11'
       - name: Install audit tool
@@ -30,3 +30,11 @@ jobs:
         run: python -m pip check
       - name: Audit the hash-locked dependency tree
         run: pip-audit -r requirements.lock
+      - name: Generate CycloneDX dependency SBOM
+        run: pip-audit -r requirements.lock --format cyclonedx-json --output dependency-sbom.cdx.json
+      - name: Retain dependency SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-sbom-{{ github.sha }}
+          path: dependency-sbom.cdx.json
+          retention-days: 90
