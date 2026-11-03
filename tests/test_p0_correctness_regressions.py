@@ -1638,15 +1638,25 @@ def test_tax_planner_equity_classification_uses_at_least_65_percent():
     assert classify_fund_for_tax(lot, rules, sale_date=date(2026, 11, 3)) == "non_equity_oriented"
 
 
-def test_legacy_advisor_cli_import_is_rejected_before_client_data_loading():
+def test_legacy_advisor_cli_import_is_safe_without_client_data(tmp_path):
+    import os
     import subprocess
     import sys
+    from pathlib import Path
 
+    repository_root = Path(__file__).resolve().parents[1]
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(repository_root)
+    env["MF_CLIENT_DATA_DIR"] = str(tmp_path / "deliberately-missing-client-data")
     completed = subprocess.run(
-        [sys.executable, "-c", "import advisor_lean"],
+        [sys.executable, "-c", "import advisor_lean; print('import-safe')"],
+        cwd=tmp_path,
+        env=env,
         capture_output=True,
         text=True,
+        timeout=30,
         check=False,
     )
-    assert completed.returncode != 0
-    assert "legacy CLI" in completed.stderr
+    assert completed.returncode == 0, completed.stderr
+    assert "import-safe" in completed.stdout
+    assert not (tmp_path / "outputs").exists()
