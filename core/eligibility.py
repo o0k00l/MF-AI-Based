@@ -438,14 +438,16 @@ def check_eligibility_gates(
 
     # --- Gate 9: Thematic Satellite Cap Gate ---
     thematic_ok = True
-    try:
-        alloc_pct = _finite_number(fund_data.get("allocation_pct"), "allocation_pct")
-        if not 0.0 <= alloc_pct <= 100.0: raise ValueError("allocation_pct must be between 0 and 100")
-    except ValueError as exc:
-        alloc_pct = 0.0
-        thematic_ok = False
-        failed.append(f"Gate 9 [Thematic Cap]: {exc} — fail-closed")
+    alloc_pct = 0.0
     if is_thematic:
+        try:
+            alloc_pct = _finite_number(fund_data.get("allocation_pct"), "allocation_pct")
+            if not 0.0 <= alloc_pct <= 100.0:
+                raise ValueError("allocation_pct must be between 0 and 100")
+        except ValueError as exc:
+            thematic_ok = False
+            failed.append(f"Gate 9 [Thematic Cap]: {exc} — fail-closed")
+    if is_thematic and thematic_ok:
         if is_starter and alloc_pct > 0.0:
             thematic_ok = False
             failed.append("Gate 9 [Thematic Cap]: Thematic satellite must be 0% for starter portfolios")
