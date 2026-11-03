@@ -62,7 +62,7 @@ Windows PowerShell:
 $env:MF_CLIENT_DATA_DIR = "$HOME\private-data\client-portfolio"
 ```
 
-Never commit CAS statements, folio identifiers, investor identity, goals, budgets, bank balances, tax details, holdings, transaction histories, portfolio metrics or reports containing client information. Synthetic data belongs in tests only. See [data/lalit_portfolio/README.md](data/lalit_portfolio/README.md) and [SECURITY_DATA_HANDLING.md](SECURITY_DATA_HANDLING.md).
+Never commit CAS statements, folio identifiers, investor identity, goals, budgets, bank balances, tax details, holdings, transaction histories, portfolio metrics or reports containing client information. Synthetic data belongs in tests only. See [SECURITY_DATA_HANDLING.md](SECURITY_DATA_HANDLING.md) for the client-data boundary and history-purge procedure.
 
 **History warning:** Removing client files from the current tree does not delete them from earlier Git commits or clones. A history purge and access/exposure review remain separate release prerequisites.
 
