@@ -470,15 +470,10 @@ def get_tax_rates_for_sale(fund_tax_class, sale_date, tax_rules):
             "regime": "new" if is_new_regime else "old",
         }
     
-    return {
-        "stcg_rate": 0.20,
-        "ltcg_rate": 0.125,
-        "ltcg_exemption": 125000,
-        "cess_rate": 0.04,
-        "exit_load_schedule": {"threshold_days": 365, "rate_pct": 1.0},
-        "holding_months": 12,
-        "regime": "new" if is_new_regime else "old",
-    }
+    raise ValueError(
+        f"Tax schedule for {fund_tax_class!r} is not implemented. "
+        "Non-equity/debt tax treatment requires acquisition-date, instrument classification and investor-slab inputs."
+    )
 
 
 def plan_fy_tranches(
