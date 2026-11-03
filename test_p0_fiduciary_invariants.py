@@ -31,6 +31,18 @@ from tax.transition_planner import (
     load_tax_rules
 )
 
+_TEST_TAX_EVIDENCE_ROOT = Path(__file__).resolve().parent / "tests" / "fixtures"
+_TEST_TAX_EVIDENCE_SHA256 = "e3da5a5eb89824a20c0eb0b214fa5123548fada0976e7bb31c4d742d6efbe3fc"
+
+
+def _synthetic_tax_evidence_kwargs():
+    """Synthetic local bytes used only to test digest integrity, not legal classification."""
+    return {
+        "equity_pct_source_sha256": _TEST_TAX_EVIDENCE_SHA256,
+        "equity_pct_source_file": "synthetic_tax_evidence.txt",
+        "equity_pct_evidence_root": str(_TEST_TAX_EVIDENCE_ROOT),
+    }
+
 
 def _attach_reviewed_direct_test_evidence(candidate, tmp_path):
     """Attach a synthetic local source artifact to a Direct-plan gate fixture."""
@@ -166,7 +178,7 @@ def test_p0_2_tax_shield_siphon_and_day_366():
         equity_pct_method="annual_average_monthly_opening_closing",
         equity_pct_fy_start=2026,
         equity_pct_source_url="https://example.test/verified-monthly-disclosure",
-        equity_pct_source_sha256="a" * 64,
+        **_synthetic_tax_evidence_kwargs(),
         equity_pct_source_reviewed=True,
     )
     lot2 = Lot(
@@ -181,7 +193,7 @@ def test_p0_2_tax_shield_siphon_and_day_366():
         equity_pct_method="annual_average_monthly_opening_closing",
         equity_pct_fy_start=2026,
         equity_pct_source_url="https://example.test/verified-monthly-disclosure",
-        equity_pct_source_sha256="b" * 64,
+        **_synthetic_tax_evidence_kwargs(),
         equity_pct_source_reviewed=True,
     )
     # Create 1 immature lot (< 365 days old: purchased 2026-05-01, as_of is 2026-10-09)
