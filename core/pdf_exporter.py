@@ -1,210 +1,284 @@
-"""
-core/pdf_exporter.py — Professional Fiduciary Advisory PDF Exporter.
-Converts markdown advisory reports into institutional, publication-ready A4 PDF documents.
-Uses xhtml2pdf with institutional financial styling.
+"""Safe Markdown-to-PDF exporter using ReportLab.
+
+HTML-to-PDF conversion is intentionally avoided. Report content is escaped
+before it reaches ReportLab's limited paragraph-markup parser.
 """
 from __future__ import annotations
-import io
+
 import re
 from pathlib import Path
 from typing import Optional
-import markdown
-from xhtml2pdf import pisa
+from xml.sax.saxutils import escape
 
-PDF_CSS = """
-@page {
-    size: a4 portrait;
-    margin-top: 1.8cm;
-    margin-bottom: 2.0cm;
-    margin-left: 1.8cm;
-    margin-right: 1.8cm;
-    @top-right {
-        content: "Fiduciary Wealth Advisory";
-        font-family: Helvetica, Arial, sans-serif;
-        font-size: 7pt;
-        color: #718096;
+from reportlab.lib import colors
+from reportlab.lib.enums import TA_LEFT
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+from reportlab.lib.units import cm
+from reportlab.platypus import (
+    HRFlowable,
+    Paragraph,
+    Preformatted,
+    SimpleDocTemplate,
+    Spacer,
+    Table,
+    TableStyle,
+)
+
+
+PAGE_WIDTH, PAGE_HEIGHT = A4
+LEFT_MARGIN = 1.8 * cm
+RIGHT_MARGIN = 1.8 * cm
+TOP_MARGIN = 1.9 * cm
+BOTTOM_MARGIN = 2.0 * cm
+AVAILABLE_WIDTH = PAGE_WIDTH - LEFT_MARGIN - RIGHT_MARGIN
+TICK = chr(96)
+
+
+def _inline_markup(text: str) -> str:
+    """Escape untrusted text, then apply a deliberately small Markdown subset."""
+    value = escape(text, {'"': "&quot;"})
+    value = re.sub(TICK + r"([^" + TICK + r"]+)" + TICK, r'<font name="Courier">\1</font>', value)
+    value = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", value)
+    value = re.sub(r"(?<!\*)\*([^*]+)\*(?!\*)", r"<i>\1</i>", value)
+    value = re.sub(
+        r"\[([^\]]+)\]\((https?://[^\s)]+)\)",
+        r'<link href="\2" color="#2B6CB0">\1</link>',
+        value,
+    )
+    return value
+
+
+def _styles():
+    base = getSampleStyleSheet()
+    return {
+        "title": ParagraphStyle(
+            "ReportTitle", parent=base["Title"], fontName="Helvetica-Bold",
+            fontSize=16, leading=20, textColor=colors.HexColor("#1A365D"),
+            alignment=TA_LEFT, spaceAfter=12,
+        ),
+        "h1": ParagraphStyle(
+            "ReportH1", parent=base["Heading1"], fontName="Helvetica-Bold",
+            fontSize=14, leading=17, textColor=colors.HexColor("#1A365D"),
+            spaceBefore=10, spaceAfter=7, keepWithNext=True,
+        ),
+        "h2": ParagraphStyle(
+            "ReportH2", parent=base["Heading2"], fontName="Helvetica-Bold",
+            fontSize=11.5, leading=14, textColor=colors.HexColor("#2B6CB0"),
+            spaceBefore=9, spaceAfter=5, keepWithNext=True,
+        ),
+        "h3": ParagraphStyle(
+            "ReportH3", parent=base["Heading3"], fontName="Helvetica-Bold",
+            fontSize=10, leading=12, textColor=colors.HexColor("#2D3748"),
+            spaceBefore=7, spaceAfter=4, keepWithNext=True,
+        ),
+        "body": ParagraphStyle(
+            "ReportBody", parent=base["BodyText"], fontName="Helvetica",
+            fontSize=9, leading=12, textColor=colors.HexColor("#2D3748"),
+            spaceAfter=6, allowWidows=0, allowOrphans=0,
+        ),
+        "table": ParagraphStyle(
+            "ReportTable", parent=base["BodyText"], fontName="Helvetica",
+            fontSize=7.2, leading=9, textColor=colors.HexColor("#2D3748"),
+        ),
+        "table_header": ParagraphStyle(
+            "ReportTableHeader", parent=base["BodyText"], fontName="Helvetica-Bold",
+            fontSize=7.2, leading=9, textColor=colors.HexColor("#1A202C"),
+        ),
+        "quote": ParagraphStyle(
+            "ReportQuote", parent=base["BodyText"], fontName="Helvetica",
+            fontSize=8.5, leading=11, textColor=colors.HexColor("#2B6CB0"),
+            leftIndent=5, rightIndent=5, spaceAfter=4,
+        ),
+        "code": ParagraphStyle(
+            "ReportCode", parent=base["Code"], fontName="Courier",
+            fontSize=7, leading=9, backColor=colors.HexColor("#F7FAFC"),
+            borderColor=colors.HexColor("#CBD5E0"), borderWidth=0.4,
+            borderPadding=5, spaceAfter=6,
+        ),
     }
-    @bottom-left {
-        content: "Fiduciary Wealth Copilot v2.4 (SEBI RIA Compliant)";
-        font-family: Helvetica, Arial, sans-serif;
-        font-size: 7pt;
-        color: #718096;
-    }
-    @bottom-center {
-        content: "Page " counter(page) " of " counter(pages);
-        font-family: Helvetica, Arial, sans-serif;
-        font-size: 8pt;
-        color: #718096;
-    }
-    @bottom-right {
-        content: "Strictly Private & Confidential";
-        font-family: Helvetica, Arial, sans-serif;
-        font-size: 7pt;
-        color: #a0aec0;
-    }
-}
 
-body {
-    font-family: Helvetica, Arial, sans-serif;
-    font-size: 9.5pt;
-    line-height: 1.45;
-    color: #2d3748;
-}
 
-h1 {
-    color: #1a365d;
-    font-size: 16pt;
-    font-weight: bold;
-    border-bottom: 2px solid #3182ce;
-    padding-bottom: 5px;
-    margin-top: 0;
-    margin-bottom: 12pt;
-}
+def _is_table_separator(line: str) -> bool:
+    cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+    return bool(cells) and all(re.fullmatch(r":?-{3,}:?", cell) for cell in cells)
 
-h2 {
-    color: #2b6cb0;
-    font-size: 12pt;
-    font-weight: bold;
-    margin-top: 12pt;
-    margin-bottom: 6pt;
-    border-bottom: 0.5px solid #e2e8f0;
-    padding-bottom: 2px;
-}
 
-h3 {
-    color: #2d3748;
-    font-size: 10.5pt;
-    font-weight: bold;
-    margin-top: 8pt;
-    margin-bottom: 4pt;
-}
+def _parse_table(lines: list[str], styles: dict) -> Table:
+    rows = []
+    for index, line in enumerate(lines):
+        if index == 1 and _is_table_separator(line):
+            continue
+        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+        style = styles["table_header"] if not rows else styles["table"]
+        rows.append([Paragraph(_inline_markup(cell), style) for cell in cells])
+    if not rows:
+        return Table([[""]])
+    column_count = max(len(row) for row in rows)
+    normalized = [row + [Paragraph("", styles["table"])] * (column_count - len(row)) for row in rows]
+    table = Table(
+        normalized,
+        colWidths=[AVAILABLE_WIDTH / column_count] * column_count,
+        repeatRows=1,
+        hAlign="LEFT",
+        splitByRow=1,
+    )
+    table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#EDF2F7")),
+        ("GRID", (0, 0), (-1, -1), 0.35, colors.HexColor("#CBD5E0")),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 4),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F7FAFC")]),
+    ]))
+    return table
 
-p {
-    margin-top: 0;
-    margin-bottom: 6pt;
-}
 
-table {
-    width: 100%;
-    margin-top: 6pt;
-    margin-bottom: 10pt;
-    font-size: 8pt;
-}
+def _markdown_story(md_content: str):
+    styles = _styles()
+    story = []
+    paragraph_lines: list[str] = []
+    lines = md_content.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    in_code = False
+    code_lines: list[str] = []
 
-th, td {
-    border: 0.5px solid #cbd5e0;
-    padding: 4pt 6pt;
-    text-align: left;
-    vertical-align: middle;
-}
+    def flush_paragraph():
+        if paragraph_lines:
+            text = " ".join(line.strip() for line in paragraph_lines)
+            story.append(Paragraph(_inline_markup(text), styles["body"]))
+            paragraph_lines.clear()
 
-th {
-    background-color: #edf2f7;
-    color: #1a202c;
-    font-weight: bold;
-}
+    index = 0
+    while index < len(lines):
+        line = lines[index]
+        stripped = line.strip()
 
-tr:nth-child(even) {
-    background-color: #f7fafc;
-}
+        if stripped.startswith(TICK * 3):
+            flush_paragraph()
+            if in_code:
+                story.append(Preformatted("\n".join(code_lines), styles["code"]))
+                code_lines.clear()
+                in_code = False
+            else:
+                in_code = True
+            index += 1
+            continue
 
-blockquote {
-    background-color: #ebf8ff;
-    border-left: 3px solid #3182ce;
-    padding: 5pt 8pt;
-    margin: 6pt 0;
-    color: #2b6cb0;
-    font-size: 8.5pt;
-}
+        if in_code:
+            code_lines.append(line)
+            index += 1
+            continue
 
-ul, ol {
-    margin-top: 2pt;
-    margin-bottom: 6pt;
-    padding-left: 16pt;
-}
+        if not stripped:
+            flush_paragraph()
+            index += 1
+            continue
 
-li {
-    margin-bottom: 2pt;
-}
+        if stripped.startswith("|") and "|" in stripped[1:]:
+            flush_paragraph()
+            table_lines = []
+            while index < len(lines) and lines[index].strip().startswith("|"):
+                table_lines.append(lines[index].strip())
+                index += 1
+            story.append(_parse_table(table_lines, styles))
+            story.append(Spacer(1, 6))
+            continue
 
-em {
-    font-size: 8pt;
-    color: #718096;
-}
+        if re.fullmatch(r"[-*_]{3,}", stripped):
+            flush_paragraph()
+            story.append(HRFlowable(width="100%", thickness=0.5, color=colors.HexColor("#CBD5E0"), spaceBefore=4, spaceAfter=8))
+            index += 1
+            continue
 
-.statutory-box {
-    margin-top: 16pt;
-    padding: 8pt 10pt;
-    background-color: #f7fafc;
-    border: 0.5px solid #cbd5e0;
-    font-size: 7.5pt;
-    color: #718096;
-    line-height: 1.35;
-}
-"""
+        heading = re.match(r"^(#{1,3})\s+(.*)$", stripped)
+        if heading:
+            flush_paragraph()
+            level = len(heading.group(1))
+            story.append(Paragraph(_inline_markup(heading.group(2)), styles[("title", "h1", "h2", "h3")[level]]))
+            index += 1
+            continue
+
+        if stripped.startswith(">"):
+            flush_paragraph()
+            quote_lines = []
+            while index < len(lines) and lines[index].strip().startswith(">"):
+                quote_lines.append(lines[index].strip()[1:].strip())
+                index += 1
+            quote = Paragraph(_inline_markup(" ".join(quote_lines)), styles["quote"])
+            quote_box = Table([[quote]], colWidths=[AVAILABLE_WIDTH])
+            quote_box.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#EBF8FF")),
+                ("LINEBEFORE", (0, 0), (0, -1), 2, colors.HexColor("#3182CE")),
+                ("LEFTPADDING", (0, 0), (-1, -1), 7),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 7),
+                ("TOPPADDING", (0, 0), (-1, -1), 5),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+            ]))
+            story.extend([quote_box, Spacer(1, 5)])
+            continue
+
+        bullet = re.match(r"^[-*+]\s+(.*)$", stripped)
+        numbered = re.match(r"^(\d+)[.)]\s+(.*)$", stripped)
+        if bullet or numbered:
+            flush_paragraph()
+            item_text = bullet.group(1) if bullet else numbered.group(2)
+            bullet_text = "•" if bullet else numbered.group(1) + "."
+            story.append(Paragraph(_inline_markup(item_text), styles["body"], bulletText=bullet_text))
+            index += 1
+            continue
+
+        paragraph_lines.append(stripped)
+        index += 1
+
+    flush_paragraph()
+    if in_code and code_lines:
+        story.append(Preformatted("\n".join(code_lines), styles["code"]))
+    return story
+
+
+def _draw_page(canvas, doc):
+    canvas.saveState()
+    canvas.setFont("Helvetica", 7)
+    canvas.setFillColor(colors.HexColor("#718096"))
+    canvas.drawRightString(PAGE_WIDTH - RIGHT_MARGIN, PAGE_HEIGHT - 0.9 * cm, "Decision-support report")
+    canvas.drawString(LEFT_MARGIN, 0.75 * cm, "Non-executable analysis · Subject to independent human review")
+    canvas.drawRightString(PAGE_WIDTH - RIGHT_MARGIN, 0.75 * cm, f"Page {doc.page}")
+    canvas.restoreState()
 
 
 def markdown_to_pdf_bytes(md_content: str, title: str = "") -> bytes:
-    """Converts markdown content string into professional A4 PDF bytes."""
-    # Replace Rupee symbol and non-standard unicode arrows for PDF Helvetica compatibility
-    clean_md = (
-        md_content.replace("₹", "INR ")
-        .replace("Rs ", "INR ")
-        .replace("Rs. ", "INR ")
-        .replace("•", "*")
-        .replace("→", " -> ")
-        .replace("↔", " <-> ")
-        .replace("←", " <- ")
-        .replace("⇒", " => ")
+    """Convert Markdown to A4 PDF bytes with escaped content."""
+    from io import BytesIO
+
+    output = BytesIO()
+    document = SimpleDocTemplate(
+        output,
+        pagesize=A4,
+        rightMargin=RIGHT_MARGIN,
+        leftMargin=LEFT_MARGIN,
+        topMargin=TOP_MARGIN,
+        bottomMargin=BOTTOM_MARGIN,
+        title=title or "Investment Decision-Support Report",
+        author="Investment Decision-Support Engine",
     )
-    
-    # Strip any backtick code block wraps around whole markdown
-    clean_md = re.sub(r"^```markdown\s*", "", clean_md)
-    clean_md = re.sub(r"```$", "", clean_md.strip())
-
-    html_body = markdown.markdown(
-        clean_md,
-        extensions=["tables", "fenced_code", "sane_lists"]
-    )
-
-    full_html = f"""<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8">
-<title>{title or 'Fiduciary Wealth Report'}</title>
-<style>
-{PDF_CSS}
-</style>
-</head>
-<body>
-{html_body}
-</body>
-</html>
-"""
-    pdf_buffer = io.BytesIO()
-    pisa_status = pisa.CreatePDF(
-        io.BytesIO(full_html.encode("utf-8")),
-        dest=pdf_buffer
-    )
-
-    if pisa_status.err:
-        raise RuntimeError(f"xhtml2pdf rendering error: {pisa_status.err}")
-
-    return pdf_buffer.getvalue()
+    story = _markdown_story(md_content) or [Paragraph(" ", _styles()["body"])]
+    document.build(story, onFirstPage=_draw_page, onLaterPages=_draw_page)
+    return output.getvalue()
 
 
 def convert_markdown_file_to_pdf(md_path: Path, output_pdf_path: Optional[Path] = None) -> Path:
-    """Reads a markdown file, converts to PDF, and saves to output_pdf_path."""
+    """Read a Markdown file, convert it to PDF and save the result."""
     md_path = Path(md_path)
-    if not md_path.exists():
+    if not md_path.is_file():
         raise FileNotFoundError(f"Markdown file not found: {md_path}")
-
     if output_pdf_path is None:
         output_pdf_path = md_path.with_suffix(".pdf")
     else:
         output_pdf_path = Path(output_pdf_path)
-
-    md_content = md_path.read_text(encoding="utf-8")
-    pdf_bytes = markdown_to_pdf_bytes(md_content, title=md_path.stem.replace("_", " "))
-    output_pdf_path.write_bytes(pdf_bytes)
+    output_pdf_path.parent.mkdir(parents=True, exist_ok=True)
+    output_pdf_path.write_bytes(
+        markdown_to_pdf_bytes(md_path.read_text(encoding="utf-8"), title=md_path.stem.replace("_", " "))
+    )
     return output_pdf_path
