@@ -9,3 +9,5 @@ CI trigger refresh after main validation updates.
 CI verification refresh after mandatory prior-LTCG tax input changes.
 
 Risk tier parser fix on main; refresh CI run.
+
+Checksum diagnostic added to TRI verifier on main.
