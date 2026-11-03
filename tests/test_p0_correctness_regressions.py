@@ -928,6 +928,17 @@ def _daily_snapshots_for_fy(fy_start, fy_end, debt_pct, money_market_pct, equity
     return snapshots
 
 
+def _monthly_coverage_evidence(fy_start, snapshots):
+    from core.math_engine import MonthlySnapshotCoverageEvidence
+
+    return MonthlySnapshotCoverageEvidence(
+        expected_months=tuple(snapshot.month for snapshot in snapshots),
+        source_url="https://example.test/verified-monthly-calendar",
+        source_document_sha256="c" * 64,
+        independently_verified=True,
+    )
+
+
 def _monthly_snapshots_for_fy(fy_start, equity_pct=10.0, fof_units_pct=0.0, underlying_equity_pct=0.0):
     from core.math_engine import MonthlyPortfolioSnapshot
 
@@ -980,6 +991,7 @@ def test_section_50aa_original_equity_test_applies_through_fy_2025_26():
         transfer_date=date(2026, 3, 31),
         snapshots=daily,
         monthly_snapshots=monthly,
+        monthly_coverage_evidence=_monthly_coverage_evidence(fy_start, monthly),
         fy_start=fy_start,
         fy_end=fy_end,
         snapshot_coverage_evidence=_daily_coverage_evidence(daily),
@@ -1029,6 +1041,7 @@ def test_section_76_requires_acquisition_date_and_daily_series_coverage():
             debt_and_money_market_pct=90.0,
             transfer_date=date(2026, 11, 3),
             monthly_snapshots=_monthly_snapshots_for_fy(date(2026, 4, 1), equity_pct=10.0),
+            monthly_coverage_evidence=_monthly_coverage_evidence(date(2026, 4, 1), _monthly_snapshots_for_fy(date(2026, 4, 1), equity_pct=10.0)),
             fy_start=date(2026, 4, 1),
             fy_end=date(2027, 3, 31),
         )
@@ -1071,6 +1084,7 @@ def test_section_76_strict_debt_plus_money_market_boundary(debt_pct, money_marke
         transfer_date=date(2026, 11, 3),
         snapshots=snapshots,
         monthly_snapshots=_monthly_snapshots_for_fy(fy_start, equity_pct=10.0),
+        monthly_coverage_evidence=_monthly_coverage_evidence(fy_start, _monthly_snapshots_for_fy(fy_start, equity_pct=10.0)),
         fy_start=fy_start,
         fy_end=fy_end,
         snapshot_coverage_evidence=_daily_coverage_evidence(snapshots),
@@ -1104,6 +1118,7 @@ def test_section_76_fund_of_funds_threshold_is_inclusive(fof_pct, expected):
         transfer_date=date(2026, 11, 3),
         snapshots=snapshots,
         monthly_snapshots=_monthly_snapshots_for_fy(fy_start, equity_pct=10.0, fof_units_pct=0.0, underlying_equity_pct=0.0),
+        monthly_coverage_evidence=_monthly_coverage_evidence(fy_start, _monthly_snapshots_for_fy(fy_start, equity_pct=10.0, fof_units_pct=0.0, underlying_equity_pct=0.0)),
         fy_start=fy_start,
         fy_end=fy_end,
         snapshot_coverage_evidence=_daily_coverage_evidence(snapshots),
@@ -1279,6 +1294,7 @@ def test_section_76_rejects_missing_dates_even_with_calendar_provenance():
             transfer_date=date(2026, 11, 3),
             snapshots=incomplete,
             monthly_snapshots=_monthly_snapshots_for_fy(fy_start, equity_pct=10.0),
+            monthly_coverage_evidence=_monthly_coverage_evidence(fy_start, _monthly_snapshots_for_fy(fy_start, equity_pct=10.0)),
             fy_start=fy_start,
             fy_end=fy_end,
             snapshot_coverage_evidence=evidence,
@@ -1304,6 +1320,7 @@ def test_section_198_fund_of_funds_requires_both_monthly_90_percent_limb_conditi
     result = qualifies_as_equity_oriented_under_section_198(
         equity_pct=0.0,
         monthly_snapshots=monthly,
+        monthly_coverage_evidence=_monthly_coverage_evidence(fy_start, monthly),
         fy_start=fy_start,
         fy_end=fy_end,
         is_fund_of_funds=True,
