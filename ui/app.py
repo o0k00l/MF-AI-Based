@@ -192,64 +192,75 @@ tab_switch, tab_fresh, tab_redeem, tab_copilot, tab_upload, tab_profile = st.tab
 # TAB 1: SWITCH TO DIRECT (SAVE ₹41K/YR)
 # ═══════════════════════════════════════════════════════════════════════
 with tab_switch:
-    st.info(
-        f"💡 Switching your {f1.regular_funds_count} Regular plans to Direct saves **₹{f1.annual_bleed_inr:,.0f} every year** in distributor commissions. "
-        f"Over 10 years at 12% CAGR, this preserves **₹{f1.ten_year_compounded_loss_inr:,.0f}** in wealth. "
-        "Tax treatment, holding period, and exit load must be verified separately for every lot before any switch. No exemption or zero-exit-load outcome is assumed."
-    )
-
-    csv_file = Path("outputs/MFCentral_Action_Checklist.csv")
-    if not csv_file.exists():
-        import generate_checklist
-        generate_checklist.generate_mfcentral_checklist(
-            regular_funds=getattr(f1, 'regular_funds', None),
-            annual_bleed_inr=getattr(f1, 'annual_bleed_inr', 0.0)
+    if not facts.is_execution_authorized:
+        st.error(
+            "Mandate HOLD is active. Switching is not authorized. "
+            "No switch checklist, target scheme, download, or execution instruction is generated."
         )
-
-    if csv_file.exists():
-        df = pd.read_csv(csv_file)
-        col_name = "Current Scheme Name" if "Current Scheme Name" in df.columns else df.columns[1]
-        col_val = "Current Value (INR)" if "Current Value (INR)" in df.columns else df.columns[3]
-        col_saved = "Annual Commission Saved (INR)" if "Annual Commission Saved (INR)" in df.columns else df.columns[4]
-        col_action = "Recommended Action" if "Recommended Action" in df.columns else df.columns[2]
-        col_target = "Target Direct Scheme" if "Target Direct Scheme" in df.columns else df.columns[-1]
-
-        view_choice = st.radio(
-            "Show Holdings:",
-            [f"{f1.regular_funds_count} Regular Funds to Switch", f"All {len(df)} Holdings"],
-            horizontal=True,
-            label_visibility="collapsed"
+        st.caption(
+            f"Informational only: {f1.regular_funds_count} Regular plans identified; "
+            f"estimated annual expense drag ₹{f1.annual_bleed_inr:,.0f}. "
+            "Any switch requires separate lot-level tax, exit-load, and adviser approval."
         )
-
-        if "Regular" in view_choice:
-            display_df = df[~df[col_action].astype(str).str.contains("RETAIN", case=False, na=False)].copy()
-        else:
-            display_df = df.copy()
-
-        st.dataframe(
-            display_df[[col_name, col_val, col_saved, col_action, col_target]],
-            width="stretch",
-            hide_index=True,
-            column_config={
-                col_name: st.column_config.TextColumn("Scheme Name", width="large"),
-                col_val: st.column_config.TextColumn("Current Value (₹)", width="medium"),
-                col_saved: st.column_config.TextColumn("Saved (₹/yr)", width="medium"),
-                col_action: st.column_config.TextColumn("Fiduciary Action", width="medium"),
-                col_target: st.column_config.TextColumn("Switch Target (Direct Plan)", width="large"),
-            }
-        )
-
-        dcol1, dcol2 = st.columns([1, 2])
-        with dcol1:
-            st.download_button(
-                label="📥 Download Switch Checklist (CSV)",
-                data=csv_file.read_bytes(),
-                file_name=f"MFCentral_Switch_Checklist_{client_name.lower().replace(' ', '_')}.csv",
-                mime="text/csv",
-                width="stretch"
+    else:
+            st.info(
+                f"💡 Switching your {f1.regular_funds_count} Regular plans to Direct saves **₹{f1.annual_bleed_inr:,.0f} every year** in distributor commissions. "
+                f"Over 10 years at 12% CAGR, this preserves **₹{f1.ten_year_compounded_loss_inr:,.0f}** in wealth. "
+                "Tax treatment, holding period, and exit load must be verified separately for every lot before any switch. No exemption or zero-exit-load outcome is assumed."
             )
-        with dcol2:
-            st.caption("Execute on **MFCentral** (Official Zero-Fee AMFI Platform): Service Requests → Switch Funds.")
+
+            csv_file = Path("outputs/MFCentral_Action_Checklist.csv")
+            if not csv_file.exists():
+                import generate_checklist
+                generate_checklist.generate_mfcentral_checklist(
+                    regular_funds=getattr(f1, 'regular_funds', None),
+                    annual_bleed_inr=getattr(f1, 'annual_bleed_inr', 0.0)
+                )
+
+            if csv_file.exists():
+                df = pd.read_csv(csv_file)
+                col_name = "Current Scheme Name" if "Current Scheme Name" in df.columns else df.columns[1]
+                col_val = "Current Value (INR)" if "Current Value (INR)" in df.columns else df.columns[3]
+                col_saved = "Annual Commission Saved (INR)" if "Annual Commission Saved (INR)" in df.columns else df.columns[4]
+                col_action = "Recommended Action" if "Recommended Action" in df.columns else df.columns[2]
+                col_target = "Target Direct Scheme" if "Target Direct Scheme" in df.columns else df.columns[-1]
+
+                view_choice = st.radio(
+                    "Show Holdings:",
+                    [f"{f1.regular_funds_count} Regular Funds to Switch", f"All {len(df)} Holdings"],
+                    horizontal=True,
+                    label_visibility="collapsed"
+                )
+
+                if "Regular" in view_choice:
+                    display_df = df[~df[col_action].astype(str).str.contains("RETAIN", case=False, na=False)].copy()
+                else:
+                    display_df = df.copy()
+
+                st.dataframe(
+                    display_df[[col_name, col_val, col_saved, col_action, col_target]],
+                    width="stretch",
+                    hide_index=True,
+                    column_config={
+                        col_name: st.column_config.TextColumn("Scheme Name", width="large"),
+                        col_val: st.column_config.TextColumn("Current Value (₹)", width="medium"),
+                        col_saved: st.column_config.TextColumn("Saved (₹/yr)", width="medium"),
+                        col_action: st.column_config.TextColumn("Fiduciary Action", width="medium"),
+                        col_target: st.column_config.TextColumn("Switch Target (Direct Plan)", width="large"),
+                    }
+                )
+
+                dcol1, dcol2 = st.columns([1, 2])
+                with dcol1:
+                    st.download_button(
+                        label="📥 Download Switch Checklist (CSV)",
+                        data=csv_file.read_bytes(),
+                        file_name=f"MFCentral_Switch_Checklist_{client_name.lower().replace(' ', '_')}.csv",
+                        mime="text/csv",
+                        width="stretch"
+                    )
+                with dcol2:
+                    st.caption("Execute on **MFCentral** (Official Zero-Fee AMFI Platform): Service Requests → Switch Funds.")
 
 
 # ═══════════════════════════════════════════════════════════════════════
