@@ -35,6 +35,6 @@ jobs:
       - name: Retain dependency SBOM
         uses: actions/upload-artifact@v4
         with:
-          name: dependency-sbom-{{ github.sha }}
+          name: dependency-sbom-${{ github.sha }}
           path: dependency-sbom.cdx.json
           retention-days: 90
