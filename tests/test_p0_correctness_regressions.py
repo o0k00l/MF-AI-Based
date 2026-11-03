@@ -875,3 +875,156 @@ def test_tax_planner_requires_verified_prior_ltcg_headroom(tmp_path):
             as_of=date(2026, 11, 3),
             current_navs={"fund-x": 100.0},
         )
+
+
+# Statutory regression coverage: Section 50AA / Section 76 effective dates and evidence gates.
+def _daily_snapshots_for_fy(fy_start, fy_end, debt_pct, money_market_pct, equity_pct=10.0):
+    from datetime import timedelta
+    from core.math_engine import DailyPortfolioSnapshot
+
+    snapshots = []
+    current = fy_start
+    while current <= fy_end:
+        snapshots.append(
+            DailyPortfolioSnapshot(
+                date=current,
+                equity_pct=equity_pct,
+                debt_pct=debt_pct,
+                money_market_pct=money_market_pct,
+            )
+        )
+        current += timedelta(days=1)
+    return snapshots
+
+
+def test_section_50aa_original_equity_test_applies_through_fy_2025_26():
+    from core.math_engine import classify_specified_mutual_fund
+
+    result = classify_specified_mutual_fund(
+        "Debt",
+        equity_pct=35.0,
+        debt_and_money_market_pct=60.0,
+        acquisition_date=date(2023, 4, 1),
+        transfer_date=date(2026, 3, 31),
+    )
+    assert result["specified_50AA"]["qualifies"] is True
+    assert result["specified_50AA"]["threshold"] == 35.0
+    assert result["tax_treatment"] == "SECTION_50AA_DEEMED_STCG"
+
+    not_qualifying = classify_specified_mutual_fund(
+        "Hybrid",
+        equity_pct=35.01,
+        debt_and_money_market_pct=64.99,
+        acquisition_date=date(2023, 4, 1),
+        transfer_date=date(2026, 3, 31),
+    )
+    assert not_qualifying["specified_50AA"]["qualifies"] is False
+
+
+def test_section_50aa_mld_is_independent_of_unit_acquisition_date():
+    from core.math_engine import classify_specified_mutual_fund
+
+    result = classify_specified_mutual_fund(
+        "MLD",
+        equity_pct=0.0,
+        debt_and_money_market_pct=0.0,
+        acquisition_date=date(2020, 1, 1),
+        transfer_date=date(2026, 3, 31),
+        is_mld=True,
+    )
+    assert result["specified_50AA"]["qualifies"] is True
+    assert "Market-Linked Debenture" in result["specified_50AA"]["provision"]
+
+
+def test_section_76_requires_acquisition_date_and_daily_series_coverage():
+    from core.math_engine import classify_specified_mutual_fund
+    from core.models import InsufficientDataError
+
+    with pytest.raises(InsufficientDataError, match="acquisition date"):
+        classify_specified_mutual_fund(
+            "Debt",
+            equity_pct=10.0,
+            debt_and_money_market_pct=90.0,
+            transfer_date=date(2026, 11, 3),
+        )
+
+    snapshots = _daily_snapshots_for_fy(
+        date(2026, 4, 1), date(2027, 3, 31), debt_pct=70.0, money_market_pct=10.0
+    )
+    with pytest.raises(InsufficientDataError, match="coverage has not been independently verified"):
+        classify_specified_mutual_fund(
+            "Debt",
+            equity_pct=10.0,
+            debt_and_money_market_pct=90.0,
+            acquisition_date=date(2023, 4, 1),
+            transfer_date=date(2026, 11, 3),
+            snapshots=snapshots,
+            fy_start=date(2026, 4, 1),
+            fy_end=date(2027, 3, 31),
+            daily_snapshot_coverage_verified=False,
+        )
+
+
+@pytest.mark.parametrize(
+    ("debt_pct", "money_market_pct", "expected"),
+    [
+        (64.5, 0.5, False),   # exactly 65% does not meet the strict >65% limb
+        (64.51, 0.5, True),  # 65.01% qualifies
+    ],
+)
+def test_section_76_strict_debt_plus_money_market_boundary(debt_pct, money_market_pct, expected):
+    from core.math_engine import classify_specified_mutual_fund
+
+    fy_start, fy_end = date(2026, 4, 1), date(2027, 3, 31)
+    snapshots = _daily_snapshots_for_fy(fy_start, fy_end, debt_pct, money_market_pct)
+    result = classify_specified_mutual_fund(
+        "Debt",
+        equity_pct=10.0,
+        debt_and_money_market_pct=90.0,  # deliberately different; not used as a point-in-time proxy
+        acquisition_date=date(2023, 4, 1),
+        transfer_date=date(2026, 11, 3),
+        snapshots=snapshots,
+        fy_start=fy_start,
+        fy_end=fy_end,
+        daily_snapshot_coverage_verified=True,
+    )
+    assert result["specified_76"]["effective_debt_pct"] == pytest.approx(debt_pct + money_market_pct)
+    assert result["specified_76"]["qualifies"] is expected
+    assert result["tax_treatment"] == (
+        "SECTION_76_DEEMED_STCG" if expected else "HYBRID_UNLISTED_OR_NORMAL"
+    )
+
+
+@pytest.mark.parametrize(
+    ("fof_pct", "expected"),
+    [(64.99, False), (65.0, True)],
+)
+def test_section_76_fund_of_funds_threshold_is_inclusive(fof_pct, expected):
+    from core.math_engine import classify_specified_mutual_fund
+
+    result = classify_specified_mutual_fund(
+        "Fund of Funds",
+        equity_pct=10.0,
+        debt_and_money_market_pct=0.0,
+        is_fund_of_funds=True,
+        fof_debt_investing_pct=fof_pct,
+        acquisition_date=date(2023, 4, 1),
+        transfer_date=date(2026, 11, 3),
+    )
+    assert result["specified_76"]["qualifies"] is expected
+
+
+def test_daily_average_rejects_duplicate_and_non_finite_composition_observations():
+    from core.math_engine import DailyPortfolioSnapshot, compute_annual_average_daily_closing
+
+    fy_start, fy_end = date(2026, 4, 1), date(2027, 3, 31)
+    duplicate = [
+        DailyPortfolioSnapshot(fy_start, 10.0, 80.0, 10.0),
+        DailyPortfolioSnapshot(fy_start, 10.0, 80.0, 10.0),
+    ]
+    with pytest.raises(ValueError, match="Duplicate daily portfolio snapshot"):
+        compute_annual_average_daily_closing(duplicate, fy_start, fy_end, "debt_pct")
+
+    invalid = [DailyPortfolioSnapshot(fy_start, 10.0, float("nan"), 10.0)]
+    with pytest.raises(ValueError, match="finite and between 0 and 100"):
+        compute_annual_average_daily_closing(invalid, fy_start, fy_end, "debt_pct")
