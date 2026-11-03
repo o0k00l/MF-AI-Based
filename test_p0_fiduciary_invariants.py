@@ -32,6 +32,31 @@ from tax.transition_planner import (
 )
 
 
+def _attach_reviewed_direct_test_evidence(candidate, tmp_path):
+    """Attach a synthetic local source artifact to a Direct-plan gate fixture."""
+    import hashlib
+
+    scheme_name = candidate["fund_name"]
+    source_bytes = (
+        f"SYNTHETIC TEST FIXTURE ONLY\\nScheme: {scheme_name}\\nPlan: Direct\\n"
+    ).encode("utf-8")
+    source_path = tmp_path / f"{candidate['fund_id']}-direct-plan-source.txt"
+    source_path.write_bytes(source_bytes)
+    candidate["plan"] = "Direct"
+    candidate["direct_plan_evidence"] = {
+        "source_file": source_path.name,
+        "source_document_sha256": hashlib.sha256(source_bytes).hexdigest(),
+        "source_url": "https://example.test/synthetic-direct-plan-source",
+        "source_type": "AMFI_SCHEME_MASTER",
+        "reviewer_attested": True,
+        "reviewed_at": date.today().isoformat(),
+        "scheme_name": scheme_name,
+        "plan": "Direct",
+    }
+    candidate["_evidence_root"] = str(tmp_path.resolve())
+    return candidate
+
+
 # Fixture to check if CAS data is available (required for some integration tests)
 @pytest.fixture(scope="module")
 def cas_data_available():
@@ -214,7 +239,7 @@ def test_p0_2_tax_shield_siphon_and_day_366():
     print("[PASS] P0.2 Tax Shield Siphon & Day 366 Holding Boundary Verified")
 
 
-def test_p0_3_all_10_binary_eligibility_gates():
+def test_p0_3_all_10_binary_eligibility_gates(tmp_path):
     """Tests each of the 10 Binary Fiduciary Gates individually for strict pass/fail enforcement."""
     base_good_fund = {
         "fund_id": "TEST_FUND",
@@ -242,6 +267,8 @@ def test_p0_3_all_10_binary_eligibility_gates():
         "isin": "TEST001",
         "_provenance": {"confidence_score": 0.95}
     }
+
+    base_good_fund = _attach_reviewed_direct_test_evidence(base_good_fund, tmp_path)
 
     # Clean pass
     base_holdings = [
@@ -693,7 +720,7 @@ def test_p0_9_thematic_taper_exact_algebra_and_boundary():
     assert 0.0 < m_high < 1.0
     print("[PASS] P0.9 Synthetic Thematic Taper Algebra & Boundary Verified")
 
-def test_p0_10_gate4_fail_closed_and_missing_metrics():
+def test_p0_10_gate4_fail_closed_and_missing_metrics(tmp_path):
     """
     Verifies that Gate 4 strictly fails closed against:
     - Missing Sharpe (None)
@@ -737,6 +764,8 @@ def test_p0_10_gate4_fail_closed_and_missing_metrics():
         "isin": "TEST003",
         "_provenance": {"confidence_score": 0.95}
     }
+
+    base_active = _attach_reviewed_direct_test_evidence(base_active, tmp_path)
 
     # 1. Clean pass baseline
     base_holdings = [
