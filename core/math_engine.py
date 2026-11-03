@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import List, Dict, Tuple, Optional, Any
 from collections import defaultdict
 import openpyxl
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from dataclasses import dataclass
 import math
 
@@ -486,15 +486,62 @@ def calculate_cashflow_matched_benchmark_xirr(
     coverage = tri_data.get("coverage", {})
     coverage_key = "nifty_500_tri" if "500" in benchmark_key else "nifty_50_tri"
     coverage_info = coverage.get(coverage_key, {})
-    coverage_pct = coverage_info.get("coverage_pct", 0)
+    
+    # Compute actual coverage from observed data points and expected trading days
+    # Use metadata's expected_trading_days as the ground truth for expected coverage
+    sorted_dates = sorted([datetime.strptime(d, "%Y-%m-%d").date() for d in levels])
+    if not sorted_dates:
+        raise TriProvenanceError(
+            f"No TRI data available for {benchmark_key}",
+            benchmark=benchmark_key,
+            validation_stage="no_data"
+        )
+    
+    # Use metadata's expected trading days as the ground truth
+    metadata_expected_days = coverage_info.get("expected_trading_days")
+    metadata_provided_points = coverage_info.get("provided_data_points")
+    metadata_coverage_pct = coverage_info.get("coverage_pct", 0)
+    
+    # Calculate actual coverage from observed data
+    provided_data_points = len(levels)
+    observed_start = sorted_dates[0]
+    observed_end = sorted_dates[-1]
+    observed_span_days = (observed_end - observed_start).days + 1
+    observed_trading_days = sum(
+        1 for i in range(observed_span_days)
+        if (observed_start + timedelta(days=i)).weekday() < 5
+    )
+    
+    # Use metadata's expected trading days as the denominator for coverage calculation
+    # This prevents sparse data from appearing to have 100% coverage
+    expected_trading_days = metadata_expected_days if metadata_expected_days else observed_trading_days
+    actual_coverage_pct = (provided_data_points / expected_trading_days * 100) if expected_trading_days > 0 else 0
     min_coverage_pct = 95.0  # Per provenance missing_date_policy
     
+    # Also check against metadata coverage_pct if provided (for consistency)
+    metadata_coverage_pct = coverage_info.get("coverage_pct", 0)
+    
     # ENFORCE coverage threshold — fail closed if below minimum
-    if coverage_pct < min_coverage_pct:
+    # Use the MORE CONSERVATIVE of actual and metadata coverage
+    effective_coverage_pct = min(actual_coverage_pct, metadata_coverage_pct) if metadata_coverage_pct > 0 else actual_coverage_pct
+    
+    # Also validate that the observed date range is reasonable
+    # If observed span is much smaller than expected, flag it
+    if metadata_expected_days and observed_trading_days < metadata_expected_days * 0.5:
         raise TriProvenanceError(
-            f"TRI coverage {coverage_pct:.2f}% below minimum {min_coverage_pct:.1f}% "
-            f"for {benchmark_key}. Expected {coverage_info.get('expected_trading_days', '?')} trading days, "
-            f"got {coverage_info.get('provided_data_points', '?')} data points. "
+            f"TRI data span ({observed_trading_days} trading days) is significantly smaller than "
+            f"expected ({metadata_expected_days} trading days) for {benchmark_key}. "
+            f"Data may be incomplete or truncated.",
+            benchmark=benchmark_key,
+            validation_stage="date_range_insufficient"
+        )
+    
+    if effective_coverage_pct < min_coverage_pct:
+        raise TriProvenanceError(
+            f"TRI coverage {effective_coverage_pct:.2f}% below minimum {min_coverage_pct:.1f}% "
+            f"for {benchmark_key}. Expected {expected_trading_days} trading days, "
+            f"got {provided_data_points} data points. "
+            f"Actual coverage: {actual_coverage_pct:.2f}%, Metadata coverage: {metadata_coverage_pct:.2f}%. "
             f"Note: {coverage_info.get('note', 'No note provided.')}",
             benchmark=benchmark_key,
             validation_stage="coverage_insufficient"
@@ -633,7 +680,7 @@ def calculate_cashflow_matched_benchmark_xirr(
         "provenance_audit": {
             "checksum_verified": True,
             "computed_checksum": computed_checksum,
-            "coverage_pct": coverage_pct,
+            "coverage_pct": effective_coverage_pct,
             "date_gaps_detected": len(date_gaps),
             "gap_details": date_gaps[:5] if date_gaps else [],
             "missing_date_policy": provenance.get("missing_date_policy", ""),

@@ -19,13 +19,13 @@
   },
   "coverage": {
     "nifty_500_tri": {
-      "expected_trading_days": 945,
+      "expected_trading_days": 985,
       "provided_data_points": 985,
       "coverage_pct": 100.0,
       "note": "Daily data points; 985 business day observations out of 985 expected"
     },
     "nifty_50_tri": {
-      "expected_trading_days": 945,
+      "expected_trading_days": 985,
       "provided_data_points": 985,
       "coverage_pct": 100.0,
       "note": "Daily data points; 985 business day observations out of 985 expected"

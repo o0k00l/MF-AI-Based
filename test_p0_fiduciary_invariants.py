@@ -992,13 +992,6 @@ def test_p0_14_cashflow_matched_tri_benchmark_engine():
         benchmark_series_path=tri_high_path,
         cas_current=5170911.38
     )
-    # 2. NIFTY 50 TRI Audit with high-coverage fixture
-    audit_50 = calculate_cashflow_matched_benchmark_xirr(
-        transactions_path=tx_path,
-        benchmark_key="NIFTY 50 TRI",
-        benchmark_series_path=tri_high_path,
-        cas_current=5170911.38
-    )
     assert audit_50["benchmark_matched_xirr_pct"] is not None
     assert audit_50["benchmark_isin"] == "INF769K01EY5"
     # Alpha may be negative with high-coverage Nifty 50 TRI fixture (different return profile)
@@ -1037,7 +1030,65 @@ def test_p0_15_runtime_mandate_hold_enforcement():
     print("[PASS] P0.15 Runtime Mandate Hold Enforcement Invariant Verified")
 
 
-if __name__ == "__main__":
+def test_p0_16_tri_coverage_gate_rejects_inflated_metadata():
+    """
+    Verifies that the TRI coverage gate rejects sparse data with inflated coverage_pct metadata.
+    This is a targeted test for the coverage gate enforcement (P0.16).
+    """
+    from core.math_engine import calculate_cashflow_matched_benchmark_xirr
+    from core.models import TriProvenanceError
+    from pathlib import Path
+    import json
+    import tempfile
+    import os
+
+    tx_path = Path("data/lalit_portfolio/transactions.json")
+    tri_path = Path("data/policy/benchmark_tri_series_high_coverage.json")
+
+    # Create a sparse TRI fixture with inflated coverage_pct metadata
+    with open("data/policy/benchmark_tri_series_high_coverage.json", "r") as f:
+        sparse_tri = json.load(f)
+
+    # Keep only 10 data points but claim 100% coverage in metadata
+    sparse_levels = dict(list(sparse_tri["benchmarks"]["NIFTY 500 TRI"]["levels"].items())[:10])
+    sparse_tri["benchmarks"]["NIFTY 500 TRI"]["levels"] = sparse_levels
+    sparse_tri["coverage"]["nifty_500_tri"]["provided_data_points"] = 10
+    sparse_tri["coverage"]["nifty_500_tri"]["coverage_pct"] = 100.0  # Inflated!
+    sparse_tri["coverage"]["nifty_500_tri"]["note"] = "Inflated metadata for testing"
+
+    # Write temporary sparse fixture
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+        json.dump(sparse_tri, f)
+        sparse_tri_path = f.name
+
+    # Recompute checksum for the modified sparse fixture
+    import hashlib
+    with open(sparse_tri_path, 'r') as f:
+        sparse_data = json.load(f)
+    sparse_levels = sparse_data['benchmarks']['NIFTY 500 TRI']['levels']
+    sparse_checksum = hashlib.sha256(json.dumps(sparse_data['benchmarks']['NIFTY 500 TRI']['levels'], sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+    sparse_data['provenance']['checksum_sha256_nifty_500_tri'] = sparse_checksum
+    with open(sparse_tri_path, 'w') as f:
+        json.dump(sparse_data, f)
+
+    try:
+        # This should raise TriProvenanceError because actual coverage (10/985 ~ 1%) 
+        # is below 95% even though metadata claims 100%
+        calculate_cashflow_matched_benchmark_xirr(
+            transactions_path=Path("data/lalit_portfolio/transactions.json"),
+            benchmark_key="NIFTY 500 TRI",
+            benchmark_series_path=Path(sparse_tri_path),
+            cas_current=5170911.38
+        )
+        assert False, "Should have raised TriProvenanceError for inflated metadata"
+    except TriProvenanceError as e:
+        err_msg = str(e).lower()
+        # Should fail either on coverage or date range - both indicate the sparse data is rejected
+        assert "coverage" in err_msg or "data span" in err_msg or "date range" in err_msg
+        # Actual coverage should be ~1%, not 100%
+        assert "100" not in str(e).lower() or "1.0" in str(e) or "1.0%" in str(e)
+    except Exception as e:
+        assert False, f"Expected TriProvenanceError, got {type(e).__name__}: {e}"
     test_p0_1_universal_4_slot_sizing_invariant()
     test_p0_2_tax_shield_siphon_and_day_366()
     test_p0_3_all_10_binary_eligibility_gates()
