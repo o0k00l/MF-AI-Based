@@ -203,3 +203,68 @@ def test_tri_internal_switch_pair_is_netted_across_different_schemes(tmp_path):
     )
     assert result["cashflows_count"] == 0
     assert result["methodology"] == "Zero cashflows"
+
+
+def test_tax_planner_respects_prior_ltcg_realized_in_current_fy():
+    lot = Lot(
+        fund_id="fund-x",
+        folio_name="folio-1",
+        purchase_date=date(2024, 1, 1),
+        units=10,
+        nav=50,
+        cost=500,
+        source="cas",
+        equity_pct=100.0,
+    )
+    plan = FundSellPlan(fund_id="fund-x", total_amount=1000.0, lots=[lot])
+    tax_rules = {
+        "ltcg_exemption": 125000.0,
+        "lt_holding_months": 12,
+        "exit_load_pct": 1.0,
+        "classification_test": {"equity_oriented_threshold_pct": 65.0},
+        "classes": {
+            "equity_oriented": {
+                "long_term": {"rate_pct": 12.5, "exemption_limit_inr": 125000.0, "holding_period_months_gt": 12},
+                "short_term": {"rate_pct": 20.0},
+            }
+        },
+        "cess": {"health_education_cess_pct": 4.0},
+        "exit_load_schedules": {},
+    }
+    result = plan_fy_tranches(
+        plans={"fund-x": plan},
+        tax_rules=tax_rules,
+        as_of=date(2026, 11, 3),
+        current_navs={"fund-x": 100.0},
+        prior_ltcg_this_fy=124900.0,
+    )
+    first_fy = 2026
+    first_fy_rows = result[first_fy]
+    assert sum(row["sheltered"] for row in first_fy_rows) == pytest.approx(100.0)
+    assert sum(row["taxable"] for row in first_fy_rows) == pytest.approx(0.0)
+
+
+def test_tax_planner_refuses_non_equity_tax_class_in_equity_exemption_path():
+    lot = Lot(
+        fund_id="fund-x",
+        folio_name="folio-1",
+        purchase_date=date(2024, 1, 1),
+        units=10,
+        nav=50,
+        cost=500,
+        source="cas",
+        equity_pct=20.0,
+    )
+    plan = FundSellPlan(fund_id="fund-x", total_amount=1000.0, lots=[lot])
+    with pytest.raises(ValueError, match="not supported by this equity-only exemption planner"):
+        plan_fy_tranches(
+            plans={"fund-x": plan},
+            tax_rules={
+                "ltcg_exemption": 125000.0,
+                "lt_holding_months": 12,
+                "exit_load_pct": 1.0,
+                "classification_test": {"equity_oriented_threshold_pct": 65.0},
+            },
+            as_of=date(2026, 11, 3),
+            current_navs={"fund-x": 100.0},
+        )
