@@ -777,11 +777,15 @@ def calculate_cashflow_matched_benchmark_xirr(
             validation_stage="frequency_insufficient"
         )
     # A live-market page is not historical TRI source provenance.
-    historical_source = provenance.get("historical_source_url")
-    source_document_sha256 = provenance.get("source_document_sha256")
-    if not historical_source or not source_document_sha256:
+    historical_source = str(provenance.get("historical_source_url", "") or "")
+    source_document_sha256 = str(provenance.get("source_document_sha256", "") or "")
+    if (
+        not historical_source.startswith("https://")
+        or len(source_document_sha256) != 64
+        or any(c not in "0123456789abcdefABCDEF" for c in source_document_sha256)
+    ):
         raise TriProvenanceError(
-            "Historical source URL and source-document SHA256 are required; a levels checksum alone does not authenticate provenance.",
+            "Historical TRI source must include an HTTPS URL and a 64-character source-document SHA256; a levels checksum alone does not authenticate provenance.",
             benchmark=benchmark_key,
             validation_stage="source_provenance_missing"
         )
