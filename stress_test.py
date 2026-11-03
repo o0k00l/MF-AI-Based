@@ -1,5 +1,5 @@
 """
-stress_test.py — Deterministic Portfolio Stress Testing & Market Shock Simulator.
+Legacy illustrative stress simulator — not a validated risk model.
 Fixed analyst-selected shocks and scheme-name buckets are not historical replay, calibrated scenarios, forecasts, or verified look-through exposure.
 Outputs are illustrative only; they are not proof of safety, capital saved, or investment recommendations.
 """
@@ -195,8 +195,9 @@ def print_cli_report():
     client_name = adv.facts.get("client", "Valued Client")
 
     print("=" * 80)
-    print("  PORTFOLIO STRESS TEST & DRAWDOWN SIMULATOR")
+    print("  ILLUSTRATIVE STRESS SCENARIOS — NOT A FORECAST")
     print(f"  Client: {client_name} | Portfolio Base: INR {tot:,.2f}")
+    print("  WARNING: Scheme-name buckets and analyst-selected shocks; not verified risk or historical replay.")
     print("=" * 80)
     print("Current Risk Distribution:")
     print(f"  • Large Cap Equity:    INR {b['large_cap']:>11,.0f} ({b['large_cap']/tot*100:4.1f}%)")
@@ -206,14 +207,14 @@ def print_cli_report():
     print(f"  • Debt / Fixed Income: INR {b['debt']:>11,.0f} ({b['debt']/tot*100:4.1f}%)")
     print("-" * 80)
 
-    print(f"{'Shock Scenario':<36} | {'Current Loss':<18} | {'Target Loss':<18} | {'Capital Saved':<12}")
+    print(f"{'Shock Scenario':<36} | {'Current Loss':<18} | {'Target Loss':<18} | {'Modelled Difference':<18}")
     print("-" * 80)
 
     for sc_key, sc in data["scenarios"].items():
         name = sc["name"][:35]
         curr = f"INR {sc['current_portfolio']['drawdown_inr']:>10,.0f} ({sc['current_portfolio']['drawdown_pct']:+.1f}%)"
         tgt = f"INR {sc['target_portfolio']['drawdown_inr']:>10,.0f} ({sc['target_portfolio']['drawdown_pct']:+.1f}%)"
-        saved = f"+INR {sc['fiduciary_cushion']['capital_saved_inr']:>7,.0f}"
+        saved = f"INR {sc['fiduciary_cushion']['capital_saved_inr']:>10,.0f}"
         print(f"{name:<36} | {curr:<18} | {tgt:<18} | {saved:<12}")
 
     covid_cushion = data["scenarios"].get("covid_2020_crash", {}).get("fiduciary_cushion", {}).get("capital_saved_inr", 0.0)
@@ -221,7 +222,7 @@ def print_cli_report():
     target_debt = data["target_buckets"].get("debt", 0.0)
 
     print("=" * 80)
-    print("KEY TAKEAWAYS:")
+    print("ILLUSTRATIVE COMPARISON ONLY — NO PREDICTIVE OR FIDUCIARY CLAIM:")
     print(f"1. Under the selected COVID-like shock, the assumed target allocation has a modelled difference of INR {covid_cushion:,.0f}.")
     print(f"2. Under the assumed thematic shock, the modelled difference is INR {thematic_cushion:,.0f}; this is not a protection estimate.")
     print(f"3. The assumed target debt allocation is INR {target_debt:,.0f}; no rebalancing outcome is modelled.")
