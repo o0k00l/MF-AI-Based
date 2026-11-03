@@ -31,6 +31,7 @@ class Lot:
     nav: float  # purchase NAV
     cost: float  # units * nav
     source: str  # "cas" or "manual"
+    equity_pct: float | None = None  # verified scheme-level equity allocation, if supplied
     
     def holding_days(self, as_of: date) -> int:
         return (as_of - self.purchase_date).days
@@ -413,14 +414,23 @@ def estimate_current_value(plan: FundSellPlan, current_nav: float) -> float:
 
 def classify_fund_for_tax(source_holding, tax_rules):
     """
-    Classify fund into tax category using tax_rules.json classification_test.
-    Returns the tax category key for the fund.
+    Classify a holding using verified equity allocation from the scheme master.
+    Missing classification data is an error; it is never assumed to be non-equity.
     """
-    equity_pct = getattr(source_holding, 'equity_pct', 0)
-    equity_threshold = tax_rules.get("classification_test", {}).get("equity_oriented_threshold_pct", 65.0)
-    if equity_pct >= equity_threshold:  # INCLUSIVE >= per CBDT clarification
-        return "equity_oriented"
-    return "non_equity_oriented"  # Fixed: was incorrectly returning "equity_oriented" for both branches
+    import math
+    equity_pct = getattr(source_holding, "equity_pct", None)
+    if equity_pct is None or isinstance(equity_pct, bool):
+        raise ValueError("Verified equity_allocation_pct is required for tax classification")
+    try:
+        equity_pct = float(equity_pct)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("equity_allocation_pct must be numeric") from exc
+    if not math.isfinite(equity_pct) or not 0.0 <= equity_pct <= 100.0:
+        raise ValueError("equity_allocation_pct must be finite and between 0 and 100")
+    equity_threshold = float(tax_rules.get("classification_test", {}).get("equity_oriented_threshold_pct", 65.0))
+    if not math.isfinite(equity_threshold) or not 0.0 <= equity_threshold <= 100.0:
+        raise ValueError("Tax classification threshold is invalid")
+    return "equity_oriented" if equity_pct >= equity_threshold else "non_equity_oriented"
 
 
 def get_tax_rates_for_sale(fund_tax_class, sale_date, tax_rules):
