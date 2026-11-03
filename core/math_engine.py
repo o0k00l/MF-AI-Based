@@ -828,6 +828,7 @@ def calculate_cashflow_matched_benchmark_xirr(
             "computed_checksum": computed_checksum,
             "calendar_sessions_checksum_verified": True,
             "calendar_source_url": source_url,
+            "calendar_source_authenticity_verified": False,
             "expected_trading_sessions": expected_trading_days,
             "coverage_pct": effective_coverage_pct,
             "date_gaps_detected": len(date_gaps),
