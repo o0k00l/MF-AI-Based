@@ -360,10 +360,13 @@ def test_p0_5_fiduciary_personal_redemption_engine():
     from core.redemption_engine import compute_personal_redemption_plan
     from core.models import RedemptionPriorityTier
 
-    # Skip if CAS data not available (integration test requiring real statements)
-    if not (Path(__file__).parent / "data" / "lalit_portfolio").exists():
-        pytest.skip("CAS Excel statements not available - integration test skipped")
-
+    # Client CAS and mandate files are private local inputs and are not committed.
+    # Run this integration invariant only when a real local statement is present.
+    client_dir = Path(__file__).resolve().parent / "data" / "lalit_portfolio"
+    statements_dir = client_dir / "statements"
+    local_cas = list(statements_dir.glob("cas_detailed_report_*.xlsx")) if statements_dir.exists() else []
+    if not local_cas:
+        pytest.skip("Private client CAS statement not present in this checkout")
     cas, metrics, config, aliases, _ = _get_portfolio_paths_or_skip()
     facts = aggregate_fiduciary_facts(cas, metrics, config, aliases)
     tx_path = cas.parent.parent / "transactions.json"
