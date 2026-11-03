@@ -74,7 +74,7 @@ Governs asset allocation across all 6 SEBI Regulatory Risk Tiers based on audite
 $$\text{Look-Through Stability Buffer } (S) = \frac{\sum_{i=1}^{N} V_i \times (\text{DebtPct}_i + \text{CashPct}_i)}{\sum_{i=1}^{N} V_i} \times 100$$
 $$\text{Threshold}(T) = \max\bigl(0.0,\; D_{\text{target}}(T) - \text{Tolerance}(T)\bigr)$$
 
-$$\text{Final Debt SIP \%} = \begin{cases} 
+The SAA target, tolerance band and resulting new-SIP routing are distinct. The engine reads the base new-SIP split and the SAA debt target/tolerance from `data/policy/asset_allocation.json`; it must not duplicate these values in code. $\text{Final Debt SIP \%} = \begin{cases} 
 0.0\% & \text{if } S \ge \text{Threshold}(T) \quad (\text{Stability Cushion Organically Satisfied}) \\
 D_{\text{base}}(T) & \text{if } S < \text{Threshold}(T) \quad (\text{Deficit Funded via Stability Vehicle})
 \end{cases}$$
@@ -83,9 +83,9 @@ D_{\text{base}}(T) & \text{if } S < \text{Threshold}(T) \quad (\text{Deficit Fun
 |---|:---:|:---:|:---:|:---:|:---:|:---:|:---|
 | **Tier 6 (Very High)** | 5.0% | 95.0% | $\pm 5.0\%$ | **0.0%** | $7.54\% \ge 0.0\%$ | **100% Eq / 0% Debt** | None (Satisfied organically) |
 | **Tier 5 (High)** | 10.0% | 90.0% | $\pm 5.0\%$ | **5.0%** | $7.54\% \ge 5.0\%$ | **100% Eq / 0% Debt** | **None (Satisfied organically)** |
-| **Tier 4 (Mod. High)** | 15.0% | 85.0% | $\pm 5.0\%$ | **10.0%** | $7.54\% < 10.0\%$ | **70% Eq / 30% Debt** | Dynamic Arbitrage Direct (12.5% Tax) |
-| **Tier 3 (Moderate)** | 30.0% | 70.0% | $\pm 5.0\%$ | **25.0%** | $7.54\% < 25.0\%$ | **50% Eq / 50% Debt** | Dynamic Short-Term Debt Direct (AAA/Sov) |
-| **Tier 2 (Low to Mod.)**| 60.0% | 40.0% | $\pm 4.0\%$ | **56.0%** | $7.54\% < 56.0\%$ | **20% Eq / 80% Debt** | Dynamic Short-Term Debt Direct (AAA/Sov) |
+| **Tier 4 (Mod. High)** | 25.0% | 75.0% | $\pm 5.0\%$ | **20.0%** | $7.54\% < 20.0\%$ | **85% Eq / 15% Debt** | Policy-defined new-SIP split; candidate evidence required |
+| **Tier 3 (Moderate)** | 30.0% | 70.0% | $\pm 5.0\%$ | **25.0%** | $7.54\% < 25.0\%$ | **60% Eq / 40% Debt** | Policy-defined new-SIP split; candidate evidence required |
+| **Tier 2 (Low to Mod.)**| 60.0% | 40.0% | $\pm 4.0\%$ | **56.0%** | $7.54\% < 56.0\%$ | **30% Eq / 70% Debt** | Policy-defined new-SIP split; candidate evidence required |
 | **Tier 1 (Capital Pres.)**| 80.0% | 20.0% | $\pm 3.0\%$ | **77.0%** | $7.54\% < 77.0\%$ | **0% Eq / 100% Debt** | Dynamic Short-Term Debt Direct (AAA/Sov) |
 
 ---
