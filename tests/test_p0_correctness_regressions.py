@@ -574,3 +574,24 @@ def test_build_fifo_tax_lots_rejects_orphan_reversal(tmp_path):
     ]
     with pytest.raises(ValueError, match="Orphan reversal"):
         build_fifo_tax_lots(tx_path, holdings)
+
+
+def test_runtime_execution_requires_explicit_client_approved_state():
+    from types import SimpleNamespace
+    from core.math_engine import assert_mandate_execution_authorized
+    from core.models import MandateExecutionState, MandateHoldViolationError
+
+    with pytest.raises(MandateHoldViolationError):
+        assert_mandate_execution_authorized(SimpleNamespace(
+            mandate_state=MandateExecutionState.ADVISORY_PROPOSAL,
+            is_execution_authorized=True,
+        ))
+    with pytest.raises(MandateHoldViolationError):
+        assert_mandate_execution_authorized(SimpleNamespace(
+            mandate_state=MandateExecutionState.HOLD_PENDING_TRI_VALIDATION,
+            is_execution_authorized=True,
+        ))
+    assert_mandate_execution_authorized(SimpleNamespace(
+        mandate_state=MandateExecutionState.CLIENT_APPROVED,
+        is_execution_authorized=True,
+    ))
