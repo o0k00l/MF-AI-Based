@@ -4041,7 +4041,7 @@ def compute_deterministic_sip_blueprint(
         raise ValueError("Thematic satellite percentage of equity must be finite and between 0 and 15")
     if satellite_pct > 0.0 and thematic_satellite_authorized is not True:
         raise ValueError("A positive thematic satellite allocation requires explicit IPS authorization")
-    if thematic_satellite_authorized not in (True, False):
+    if not isinstance(thematic_satellite_authorized, bool):
         raise ValueError("thematic_satellite_authorized must be a boolean")
     is_starter = (client_aum > 0 and client_aum < 500000.0) or (b < 15000.0)
 
