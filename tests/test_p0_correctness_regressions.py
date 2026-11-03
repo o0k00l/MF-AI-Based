@@ -1394,3 +1394,37 @@ def test_tier6_one_hundred_percent_equity_sip_requires_explicit_ips_override():
         stability_buffer_pct=0.0,
         equity_sip_routing_override=True,
     ) == (100.0, 0.0)
+
+
+def test_starter_routing_thresholds_and_weights_are_policy_driven():
+    import json
+    from pathlib import Path
+    from core.math_engine import compute_deterministic_sip_blueprint
+
+    policy = json.loads(
+        (Path(__file__).resolve().parents[1] / "data/policy/asset_allocation.json").read_text()
+    )["starter_portfolio_routing"]
+    weights = policy["equity_sleeves_pct_of_equity_budget"]
+    assert policy["classification"] == "RESEARCH_HEURISTIC"
+    assert sum(weights.values()) == 100
+    assert policy["thematic_satellite_default_pct_of_equity"] == 0
+
+    starter = compute_deterministic_sip_blueprint(
+        monthly_budget=20000.0,
+        risk_tier="Tier 6 (Very High)",
+        client_aum=policy["aum_threshold_inr"] - 1,
+        equity_sip_routing_override=True,
+    )
+    roles = {item.category_role: item for item in starter.items}
+    assert roles["Core Flexi-Cap Compounder"].allocation_pct == weights["flexi_cap"]
+    assert roles["Mid-Cap Alpha Engine"].allocation_pct == weights["mid_small_cap"]
+    assert "Large-Cap Bluechip Anchor" not in roles
+
+    at_threshold = compute_deterministic_sip_blueprint(
+        monthly_budget=policy["monthly_budget_threshold_inr"],
+        risk_tier="Tier 6 (Very High)",
+        client_aum=policy["aum_threshold_inr"],
+        equity_sip_routing_override=True,
+    )
+    threshold_roles = {item.category_role: item for item in at_threshold.items}
+    assert "Large-Cap Bluechip Anchor" in threshold_roles
