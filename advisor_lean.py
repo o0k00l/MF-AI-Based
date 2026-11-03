@@ -413,7 +413,12 @@ if portfolio_xirr is not None:
     benchmark_xirr = 0.12
     alpha_pct = (portfolio_xirr - 0.12) * 100
 
-from core.candidate_scoring import FiduciaryScoringEngine, compute_reverse_fed_model
+# Optional imports - may be unavailable in test environments
+try:
+    from core.candidate_scoring import FiduciaryScoringEngine, compute_reverse_fed_model
+    _HAS_SCORING_ENGINE = True
+except ImportError:
+    _HAS_SCORING_ENGINE = False
 
 def _get_stress_tests():
     from stress_test import run_stress_tests as _run_stress_tests
@@ -611,7 +616,9 @@ def compute_lumpsum_blueprint(
     3. Valuation Awareness via Reverse Fed Model.
     """
     amt = float(lumpsum_amount)
-    fed_res = compute_reverse_fed_model()
+    fed_res = None
+    if _HAS_SCORING_ENGINE:
+        fed_res = compute_reverse_fed_model()
 
     if amt <= 0:
         return {
@@ -620,7 +627,7 @@ def compute_lumpsum_blueprint(
             "allocations": [],
             "stp_monthly": 0.0,
             "reverse_fed": fed_res,
-            "valuation_regime": fed_res.valuation_regime,
+            "valuation_regime": getattr(fed_res, 'valuation_regime', 'N/A') if fed_res else "N/A",
             "summary": "No lumpsum capital specified."
         }
 
@@ -676,7 +683,7 @@ def compute_lumpsum_blueprint(
                     "rationale": f"Park in Liquid Direct earning ~6.8% daily yield; transfer Rs {round(item_amt/stp_months, 0):,.0f}/mo over {stp_months} months to eliminate market peak entry risk while rupee-cost averaging."
                 })
 
-        summary = f"Staggered STP: Park equity capital (Rs {equity_total:,.0f}) in ICICI Prudential Liquid Fund - Direct Plan and transfer over {stp_months} months (Rs {stp_monthly:,.0f}/mo) while capturing ~6.8% yield on idle balance. ({fed_res.rationale})"
+        summary = f"Staggered STP: Park equity capital (Rs {equity_total:,.0f}) in ICICI Prudential Liquid Fund - Direct Plan and transfer over {stp_months} months (Rs {stp_monthly:,.0f}/mo) while capturing ~6.8% yield on idle balance. ({getattr(fed_res, 'rationale', 'Valuation-aware deployment') if fed_res else 'Strategic allocation'})"
 
     diff = amt - sum(a["lumpsum_amount"] for a in allocations)
     if diff != 0 and allocations:
@@ -691,7 +698,7 @@ def compute_lumpsum_blueprint(
         "liquid_parking_fund": "ICICI Prudential Liquid Fund - Direct Plan - Growth",
         "estimated_parking_yield_pct": 6.8,
         "reverse_fed": fed_res,
-        "valuation_regime": fed_res.valuation_regime,
+        "valuation_regime": getattr(fed_res, 'valuation_regime', 'N/A') if fed_res else "N/A",
         "allocations": allocations,
         "summary": summary
     }

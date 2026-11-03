@@ -194,6 +194,7 @@ def test_p0_3_all_10_binary_eligibility_gates():
         "mandate_suitable": True,
         "aum_stable": True,
         "is_direct": True,
+        "isin": "TEST001",
         "_provenance": {"confidence_score": 0.95}
     }
 
@@ -683,6 +684,7 @@ def test_p0_10_gate4_fail_closed_and_missing_metrics():
         "mandate_suitable": True,
         "aum_stable": True,
         "is_direct": True,
+        "isin": "TEST003",
         "_provenance": {"confidence_score": 0.95}
     }
 
@@ -784,6 +786,7 @@ def test_p0_10_gate4_fail_closed_and_missing_metrics():
         base_active,
         fund_name="Nifty 50 Index Fund - Direct Plan - Growth",
         category="Index Funds",
+        isin="TEST004",
         is_passive=True,
         sharpe_3y=None,
         alpha_3y=None

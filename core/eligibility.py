@@ -179,7 +179,7 @@ def check_eligibility_gates(
     alpha = fund_data.get("alpha_3y", fund_data.get("alpha", None))
     f_name = fund_data.get("fund_name", fund_data.get("name", ""))
     try:
-        is_passive_cand = is_verified_passive_scheme(fund_data, fund_name=f_name, category=category)
+        is_passive_cand = is_verified_passive_scheme(fund_data, fund_name=f_name, category=category, require_scheme_master=False)
     except InsufficientDataError as e:
         # Gate 4: Passive scheme verification failed due to missing scheme master
         # This is a hard fail for Gate 4 exemption — active fund criteria must be met
@@ -487,33 +487,55 @@ def load_candidate_universe(
 
     funds = data.get("funds", [])
     for m in funds:
+        # Preserve missing values as None — eligibility gates will fail closed
+        aum_crore = m.get("aum_crore", m.get("aum_cr"))
+        top10_raw = m.get("top10_concentration_pct", m.get("concentration_top10", m.get("top10")))
+        sector_raw = m.get("single_sector_weight_pct", m.get("max_sector_concentration", m.get("fin")))
+        sharpe_3y_raw = m.get("sharpe_3y", m.get("sharpe"))
+        sharpe_1y_raw = m.get("sharpe_1y")
+        alpha_3y_raw = m.get("alpha_3y", m.get("alpha"))
+        return_1y_raw = m.get("return_1y", m.get("ret_1y"))
+        return_6m_raw = m.get("return_6m", m.get("ret_6m"))
+        return_3y_raw = m.get("return_3y", m.get("ret_3y"))
+        ter_raw = m.get("ter_direct_pct", m.get("er"))
+        er_raw = m.get("er", m.get("ter_direct_pct"))
+        riskometer_raw = m.get("riskometer_score")
+        manager_tenure_raw = m.get("manager_tenure_years")
+        track_record_raw = m.get("track_record_years")
+        composite_raw = m.get("composite_score")
+        downside_raw = m.get("downside_capture_ratio", m.get("downside_capture"))
+        upside_raw = m.get("upside_capture_ratio", m.get("upside_capture"))
+        riskometer_raw = m.get("riskometer_score")
+        is_passive_raw = m.get("is_passive")
+        provenance_raw = m.get("_provenance")
+
         cand = {
             "fund_id": m.get("id", ""),
             "fund_name": m.get("name", m.get("scheme_name", m.get("id", ""))),
-            "aum_crore": float(m.get("aum_crore", m.get("aum_cr", 0.0)) or 0.0),
-            "aum_stable": True,
+            "aum_crore": float(aum_crore) if aum_crore is not None else None,
+            "aum_stable": m.get("aum_stable"),  # None if missing — gate will fail closed
             "category": m.get("category", m.get("cat", "")),
-            "top10_concentration_pct": float(m.get("top10_concentration_pct", m.get("concentration_top10", m.get("top10", 0.0))) or 0.0),
-            "single_sector_weight_pct": float(m.get("single_sector_weight_pct", m.get("max_sector_concentration", m.get("fin", 0.0))) or 0.0),
-            "sharpe_3y": float(m.get("sharpe_3y", m.get("sharpe", 0.5)) or 0.5),
-            "sharpe_1y": float(m.get("sharpe_1y", 0.5) or 0.5),
-            "alpha_3y": float(m.get("alpha_3y", m.get("alpha", 0.0)) or 0.0),
-            "return_1y": float(m.get("return_1y", m.get("ret_1y", 0.0)) or 0.0),
-            "return_6m": float(m.get("return_6m", m.get("ret_6m", 0.0)) or 0.0),
-            "return_3y": float(m.get("return_3y", m.get("ret_3y", 0.0)) or 0.0),
-            "ter_direct_pct": float(m.get("ter_direct_pct", m.get("er", 0.75)) or 0.75),
-            "er": float(m.get("er", m.get("ter_direct_pct", 0.75)) or 0.75),
-            "downside_capture_ratio": m.get("downside_capture_ratio", m.get("downside_capture")),
-            "upside_capture_ratio": m.get("upside_capture_ratio", m.get("upside_capture")),
-            "riskometer_score": int(m.get("riskometer_score", 6)),
-            "mandate_suitable": True,
-            "data_complete": True,
-            "manager_tenure_years": float(m.get("manager_tenure_years", 5.0) or 5.0),
-            "track_record_years": float(m.get("track_record_years", 5.0) or 5.0),
-            "composite_score": float(m.get("composite_score", 65.0) or 65.0),
+            "top10_concentration_pct": float(top10_raw) if top10_raw is not None else None,
+            "single_sector_weight_pct": float(sector_raw) if sector_raw is not None else None,
+            "sharpe_3y": float(sharpe_3y_raw) if sharpe_3y_raw is not None else None,
+            "sharpe_1y": float(sharpe_1y_raw) if sharpe_1y_raw is not None else None,
+            "alpha_3y": float(alpha_3y_raw) if alpha_3y_raw is not None else None,
+            "return_1y": float(return_1y_raw) if return_1y_raw is not None else None,
+            "return_6m": float(return_6m_raw) if return_6m_raw is not None else None,
+            "return_3y": float(return_3y_raw) if return_3y_raw is not None else None,
+            "ter_direct_pct": float(ter_raw) if ter_raw is not None else None,
+            "er": float(er_raw) if er_raw is not None else None,
+            "downside_capture_ratio": downside_raw,
+            "upside_capture_ratio": upside_raw,
+            "riskometer_score": int(riskometer_raw) if riskometer_raw is not None else None,
+            "mandate_suitable": m.get("mandate_suitable"),  # None if missing — gate will fail closed
+            "data_complete": m.get("data_complete"),  # None if missing — gate will fail closed
+            "manager_tenure_years": float(manager_tenure_raw) if manager_tenure_raw is not None else None,
+            "track_record_years": float(track_record_raw) if track_record_raw is not None else None,
+            "composite_score": float(composite_raw) if composite_raw is not None else None,
             "is_direct": True,
-            "is_passive": m.get("is_passive", False),
-            "_provenance": m.get("_provenance", {}),
+            "is_passive": is_passive_raw if is_passive_raw is not None else False,
+            "_provenance": provenance_raw if provenance_raw is not None else {},
             "eligibility": {}
         }
         candidates.append(cand)

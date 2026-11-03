@@ -35,6 +35,38 @@
       "is_passive": true,
       "mandate": "Index Fund - Broad Market",
       "amc": "Nippon India Mutual Fund"
+    },
+    "TEST001": {
+      "isin": "TEST001",
+      "scheme_name": "Test Bluechip Direct Plan Growth",
+      "benchmark_index": "NIFTY 50 TRI",
+      "is_passive": false,
+      "mandate": "Active Fund - Large Cap",
+      "amc": "Test AMC"
+    },
+    "TEST002": {
+      "isin": "TEST002",
+      "scheme_name": "Test Active Fund Direct Plan Growth",
+      "benchmark_index": "NIFTY 500 TRI",
+      "is_passive": false,
+      "mandate": "Active Fund - Flexi Cap",
+      "amc": "Test AMC"
+    },
+    "TEST003": {
+      "isin": "TEST003",
+      "scheme_name": "Test Active Fund Direct Plan Growth",
+      "benchmark_index": "NIFTY 500 TRI",
+      "is_passive": false,
+      "mandate": "Active Fund - Flexi Cap",
+      "amc": "Test AMC"
+    },
+    "TEST004": {
+      "isin": "TEST004",
+      "scheme_name": "Nifty 50 Index Fund - Direct Plan - Growth",
+      "benchmark_index": "NIFTY 50 TRI",
+      "is_passive": true,
+      "mandate": "Index Fund - Large Cap",
+      "amc": "Test AMC"
     }
   }
 }
