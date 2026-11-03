@@ -33,3 +33,8 @@ Non-equity/debt tax treatment is intentionally unsupported by the equity exempti
 ## Current repository data limitation
 
 The existing investor fund-metrics file does not contain complete AMC metadata and the CAS transaction ledger does not contain scheme equity-allocation percentages. Consequently, some candidate eligibility and tax outputs will be unavailable until those fields are sourced and reconciled. This is an intentional fail-closed result, not a data value of zero.
+
+
+## SIP deployment when any required slot fails
+
+The policy target percentages are retained for diagnosis. If any slot with a positive target amount lacks an explicitly verified Direct-plan candidate, the entire monthly budget is withheld; all item-level monthly amounts are set to zero and the sum is reported in `unallocated_budget_inr`. The engine does not redistribute the amount to remaining slots. The user interface must show requested budget, actual allocation and unallocated balance separately.
