@@ -438,3 +438,34 @@ def test_tax_planner_rejects_negative_sale_even_when_no_lots_exist():
             as_of=date(2026, 11, 3),
             current_navs={},
         )
+
+
+def test_non_thematic_eligibility_does_not_require_thematic_allocation_field():
+    fund = {
+        "fund_id": "fund-x",
+        "fund_name": "Example Large Cap Direct Plan",
+        "amc_name": "EXAMPLE AMC",
+        "aum_crore": 5000.0,
+        "category": "Large Cap",
+        "top10_concentration_pct": 30.0,
+        "single_sector_weight_pct": 20.0,
+        "sharpe_3y": 0.8,
+        "alpha_3y": 2.0,
+        "downside_capture_ratio": 80.0,
+        "upside_capture_ratio": 110.0,
+        "riskometer_score": 5,
+        "confidence_score": 0.95,
+        "data_complete": True,
+        "manager_tenure_years": 4.0,
+        "track_record_years": 5.0,
+        "mandate_suitable": True,
+        "aum_stable": True,
+        "is_direct": True,
+        "isin": "TEST-ISIN",
+    }
+    holdings = [
+        {"amc_name": "EXAMPLE AMC", "current_value_inr": 200000.0},
+        {"amc_name": "OTHER AMC", "current_value_inr": 800000.0},
+    ]
+    result = check_eligibility_gates(fund, portfolio_holdings=holdings)
+    assert result.thematic_satellite_gate is True
