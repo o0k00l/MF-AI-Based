@@ -515,7 +515,11 @@ def plan_fy_tranches(
             target_sell_amount = float(plan.total_amount) if plan.total_amount is not None else float("inf")
         except (TypeError, ValueError) as exc:
             raise ValueError(f"Invalid sale amount for {fund_id}: {plan.total_amount!r}") from exc
-        if math.isnan(target_sell_amount) or target_sell_amount < 0:
+        if (
+            math.isnan(target_sell_amount)
+            or target_sell_amount < 0
+            or (plan.total_amount is not None and not math.isfinite(target_sell_amount))
+        ):
             raise ValueError(f"Invalid sale amount for {fund_id}: {plan.total_amount!r}")
         if target_sell_amount == 0 or (target_sell_amount == float("inf") and not plan.lots):
             continue
