@@ -33,3 +33,5 @@ bank balances, goals, or mandate into the repository.
 Before using any generated recommendation, independently verify source dates,
 coverage, scheme identity, tax lots, and the current mandate. The engine is
 decision-support only and does not authorize execution.
+
+**Git history warning:** removing client files from the current `main` tree does not erase their earlier Git commits. Keep this repository private until its history has been rewritten and a fresh clone has been checked for former client data.
