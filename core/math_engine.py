@@ -843,11 +843,12 @@ def assert_mandate_execution_authorized(facts: Any):
     """
     from core.models import MandateExecutionState, MandateHoldViolationError
     m_state = getattr(facts, "mandate_state", None)
+    state_value = m_state.value if isinstance(m_state, MandateExecutionState) else str(m_state or "")
     is_auth = getattr(facts, "is_execution_authorized", False)
-    if m_state == MandateExecutionState.HOLD_PENDING_TRI_VALIDATION or not is_auth:
+    if state_value != MandateExecutionState.CLIENT_APPROVED.value or is_auth is not True:
         raise MandateHoldViolationError(
-            f"MANDATE ENFORCEMENT VIOLATION: Execution is blocked under active mandate state '{m_state}'. "
-            f"Live trade execution is unauthorized (is_execution_authorized=False)."
+            f"MANDATE ENFORCEMENT VIOLATION: execution requires explicit CLIENT_APPROVED_EXECUTION_READY state "
+            f"and is_execution_authorized is exactly True; received state={state_value!r}, authorized={is_auth!r}."
         )
 
 
