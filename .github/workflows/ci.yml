@@ -31,7 +31,7 @@ jobs:
           cache: pip
           cache-dependency-path: requirements.txt
       - name: Install dependencies
-        run: python -m pip install -r requirements.txt
+        run: python -m pip install --require-hashes -r requirements.lock
       - name: Run P0 invariant suite
         run: python -m pytest test_p0_fiduciary_invariants.py -v --tb=short
 
@@ -47,7 +47,7 @@ jobs:
           cache: pip
           cache-dependency-path: requirements.txt
       - name: Install dependencies
-        run: python -m pip install -r requirements.txt
+        run: python -m pip install --require-hashes -r requirements.lock
       - name: Run correctness regression suite
         run: python -m pytest tests/test_p0_correctness_regressions.py -v --tb=short
 
@@ -63,7 +63,7 @@ jobs:
           cache: pip
           cache-dependency-path: requirements.txt
       - name: Install dependencies
-        run: python -m pip install -r requirements.txt
+        run: python -m pip install --require-hashes -r requirements.lock
       - name: Validate dependency consistency
         run: python -m pip check
       - name: Compile all Python modules
@@ -83,7 +83,7 @@ jobs:
           cache: pip
           cache-dependency-path: requirements.txt
       - name: Install dependencies
-        run: python -m pip install -r requirements.txt
+        run: python -m pip install --require-hashes -r requirements.lock
       - name: Validate policy logic
         run: python validate_final_logics.py
 
@@ -99,7 +99,7 @@ jobs:
           cache: pip
           cache-dependency-path: requirements.txt
       - name: Install dependencies
-        run: python -m pip install -r requirements.txt
+        run: python -m pip install --require-hashes -r requirements.lock
       - name: Verify fixture checksums and explicit blocked release state
         run: python verify_tri_provenance.py
 
@@ -115,7 +115,7 @@ jobs:
           cache: pip
           cache-dependency-path: requirements.txt
       - name: Install dependencies
-        run: python -m pip install -r requirements.txt
+        run: python -m pip install --require-hashes -r requirements.lock
       - name: Verify coverage from observed sessions
         run: python -m pytest test_p0_fiduciary_invariants.py::test_p0_16_tri_coverage_gate_uses_observed_sessions_not_metadata -v --tb=short
 
@@ -149,7 +149,8 @@ jobs:
       - name: Install pinned resolver
         run: python -m pip install pip==25.3 pip-tools==7.5.2
       - name: Resolve all direct and transitive dependencies with hashes
-        run: pip-compile --resolver=backtracking --generate-hashes --output-file=requirements.lock requirements.txt
+        run: pip-compile --index-url=https://pypi.org/simple --resolver=backtracking --generate-hashes --output-file=requirements.lock requirements.txt
+          if grep -q -- '--no-index' requirements.lock; then echo 'Invalid no-index directive in lockfile'; exit 1; fi
       - name: Upload reproducible lockfile for review
         uses: actions/upload-artifact@v4
         with:
