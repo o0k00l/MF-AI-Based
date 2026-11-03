@@ -203,7 +203,7 @@ def check_eligibility_gates(
             top10 = None
             top10_ok = False
             failed.append(f"Gate 3 [Top-10 Concentration]: {exc} — fail-closed")
-        if not top10_ok:
+        if not top10_ok and top10 is not None:
             failed.append(f"Gate 3 [Top-10 Concentration]: Top 10 holdings {top10:.1f}% > {max_top10_concentration_pct:.1f}%")
     details["top10_concentration_pct"] = top10
 
@@ -323,7 +323,7 @@ def check_eligibility_gates(
             downside_ok = False
             downside_capture = upside_capture = None
         # Capture Ratio Asymmetry Gate: Fund fails if downside capture > 100% AND upside < downside
-        if downside_capture > 100.0 and upside_capture < downside_capture:
+        if downside_capture is not None and upside_capture is not None and downside_capture > 100.0 and upside_capture < downside_capture:
             downside_ok = False
             failed.append(f"Gate 5 [Inverted Capture Asymmetry]: Downside capture {downside_capture:.1f}% > 100% AND Upside {upside_capture:.1f}% < Downside {downside_capture:.1f}%")
     
