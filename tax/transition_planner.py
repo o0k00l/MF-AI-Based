@@ -114,8 +114,14 @@ def load_transactions(
     for row_index, tx in enumerate(data.get("transactions", [])):
         if not isinstance(tx, dict):
             raise ValueError(f"Transaction row {row_index} is not an object")
-        units = tx.get("units", 0)
-        amount = tx.get("amount", 0)
+        import math
+        try:
+            units = Decimal(str(tx.get("units", 0)))
+            amount = float(tx.get("amount", 0))
+        except (TypeError, ValueError, ArithmeticError) as exc:
+            raise ValueError(f"Malformed amount/units in transaction row {row_index}: {exc}") from exc
+        if not units.is_finite() or not math.isfinite(amount):
+            raise ValueError(f"Non-finite amount/units in transaction row {row_index}")
         scheme = str(tx.get("scheme", "") or "").strip()
         if not scheme:
             if units == 0 and amount == 0:
