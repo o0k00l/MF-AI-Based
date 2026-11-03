@@ -3,7 +3,7 @@
   "jurisdiction": "India",
   "version": "2026.10",
   "as_of": "2026-10-05",
-  "status": "reviewed",
+  "status": "provisional_statutory_review_required",
   "authority": [
     "Finance Act 2024 - capital gains rates revised w.e.f. 2024-07-23",
     "Income-tax Act 2025 - in force from 2026-04-01 (replaces Income-tax Act 1961)"
@@ -16,12 +16,12 @@
     "The long-term test is a date comparison against the 12-month anniversary. An integer month count truncates and would misclassify a holding of 12 months and N days as short term."
   ],
   "cess": {
-    "health_education_cess_pct": 4.0,
+    "health_education_cess_pct": 4,
     "applies_to": "all capital gains tax"
   },
   "classes": {
     "equity_oriented": {
-      "description": "Equity or equity-oriented fund with at least 65% in Indian equities.",
+      "description": "Equity-oriented classification must be established from the statutory domestic-equity test and verified portfolio-composition evidence for the relevant period; a scheme-category label alone is insufficient.",
       "applies_to": [
         "Large Cap",
         "Mid Cap",
@@ -33,7 +33,7 @@
         "Index / ETF equity"
       ],
       "short_term": {
-        "rate_pct": 20.0,
+        "rate_pct": 20,
         "exemption_applies": false,
         "holding_period_months_lte": 12
       },
@@ -46,22 +46,22 @@
         "exemption_order": "highest-rate gains are sheltered first; losses are netted before the exemption",
         "holding_period_months_gt": 12,
         "holding_period_rule": "MORE THAN 12 months from the date of acquisition. Exactly 12 months is SHORT term. Income-tax Act s.2(42A). Test against the 12-month anniversary date, not an integer month count.",
-        "exit_load_pct": 1.0
+        "exit_load_pct": 1
       }
     },
     "debt_purchased_on_or_after_2023_04_01": {
-      "description": "Debt mutual fund units acquired on or after 2023-04-01.",
+      "description": "Mutual-fund units acquired on or after 2023-04-01. Tax treatment depends on whether the units qualify as a specified mutual fund under the provision in force on the transfer date; do not infer solely from a debt/hybrid scheme label.",
       "applies_to": [
         "Debt",
         "Short Duration",
         "Corporate Bond",
         "Banking and PSU Debt",
         "Government Securities",
-        "Money Market"
+        "Money Market",
+        "non-equity funds of funds where statutory conditions are met"
       ],
-      "treatment": "income_tax_slab",
-      "default_marginal_tax_rate_pct": 30.0,
-      "note": "No separate capital gains rate; taxed at the investor's slab rates."
+      "treatment": "section_50aa_or_section_76_deemed_stcg_if_specified",
+      "note": "If the statutory specified-mutual-fund test is met, gains are deemed short-term regardless of actual holding period and taxed at the applicable rate. If not met, apply the otherwise applicable asset-class and holding-period rules. Require verified acquisition date and composition evidence."
     },
     "debt_purchased_before_2023_04_01": {
       "description": "Debt mutual fund units acquired before 2023-04-01, held 36 months or more.",
@@ -75,8 +75,8 @@
       "note": "Indexation advantage removed from 2024-07-23. This is a genuine deterioration for long-held debt units; do not assume grandfathered indexation benefit."
     },
     "gold_etf": {
-      "description": "Gold ETFs are Specified Mutual Funds and are NOT equity oriented.",
-      "treatment": "income_tax_slab",
+      "description": "Gold ETFs are generally non-equity products, but specified-mutual-fund status must be established under the applicable date-specific statutory test and verified portfolio composition; do not hard-code classification from the product label.",
+      "treatment": "date_and_composition_dependent",
       "wealth_tax_applies": false
     },
     "international_and_non_equity_fof": {
@@ -89,9 +89,9 @@
     }
   },
   "classification_test": {
-    "equity_oriented_threshold_pct": 65.0,
+    "equity_oriented_threshold_pct": 65,
     "field": "equity_allocation_pct",
-    "note": "Never assume a class. Derive it from the dataset field and record the source."
+    "note": "Never assume a tax class from a category label. Derive statutory classifications independently (equity-oriented, specified mutual fund, MLD and other asset classes) using the correct provision, sale date, acquisition date and source evidence."
   },
   "engine_requirements": [
     "Never hard-code a rate in a report or script. Load it from this file.",
@@ -130,15 +130,15 @@
     }
   },
   "harvesting_and_optimization_parameters": {
-    "min_loss_pct_threshold": 5.0,
-    "high_priority_loss_pct_threshold": 15.0,
-    "underutilized_exemption_pct_threshold": 50.0,
+    "min_loss_pct_threshold": 5,
+    "high_priority_loss_pct_threshold": 15,
+    "underutilized_exemption_pct_threshold": 50,
     "days_to_long_term_threshold": 30
   },
   "exit_load_schedules": {
     "equity_oriented": {
       "threshold_days": 365,
-      "rate_pct": 1.0
+      "rate_pct": 1
     },
     "debt_short_term": {
       "threshold_days": 30,
@@ -155,9 +155,36 @@
   },
   "section_194k_tds": {
     "description": "TDS on income in respect of units of a Mutual Fund under Section 194K of Income Tax Act",
-    "rate_pct": 10.0,
-    "threshold_inr": 5000.0,
+    "rate_pct": 10,
+    "threshold_inr": 5000,
     "applies_to": "IDCW_dividend_payouts_and_reinvestments",
     "exemption": "Dividends up to INR 5,000 per financial year per AMC are exempt from TDS (though taxable in slab)"
-  }
+  },
+  "specified_mutual_fund_regimes": {
+    "section_50AA_1961": {
+      "transfer_effective_from": "2024-04-01",
+      "transfer_effective_to_exclusive": "2026-04-01",
+      "unit_acquisition_on_or_after": "2023-04-01",
+      "mutual_fund_test": "not_more_than_35_percent_of_total_proceeds_in_equity_shares_of_domestic_companies",
+      "mld_inclusion": "market_linked_debentures_are_separately_included_without_the_mutual_fund_unit_acquisition_date_condition",
+      "note": "Use original Section 50AA definition for transfers through 2026-03-31. Do not apply the successor debt/money-market test to FY 2025-26."
+    },
+    "section_76_2025": {
+      "transfer_effective_from": "2026-04-01",
+      "unit_acquisition_on_or_after": "2023-04-01",
+      "mutual_fund_test": "more_than_65_percent_of_total_proceeds_in_debt_and_money_market_instruments",
+      "fund_of_funds_test": "at_least_65_percent_in_units_of_such_specified_mutual_funds",
+      "calculation_method": "annual_average_of_daily_closing_figures_for_the_relevant_financial_year",
+      "mld_inclusion": "market_linked_debentures_are_separately_included_without_the_mutual_fund_unit_acquisition_date_condition",
+      "evidence_required": [
+        "verified_acquisition_date",
+        "verified_daily_portfolio_composition",
+        "financial_year_trading_calendar",
+        "complete_daily_observation_coverage",
+        "source_provenance"
+      ],
+      "note": "Do not use a point-in-time allocation, an inferred equity complement, or an unverified caller-supplied coverage flag as a substitute for the statutory annual-average calculation."
+    }
+  },
+  "exit_load_schedules_note": "These are generic indicative defaults only. Actual scheme/plan/lot-specific exit-load schedules from current official scheme documents control; missing exit-load evidence must not be represented as zero."
 }
