@@ -1,6 +1,6 @@
 # Fiduciary Wealth Engine — Verification and Release Status
 
-**Report date:** 2026-11-03  
+**Report date:** 2026-11-04  
 **Branch:** `main`  
 **Release decision:** **NOT APPROVED FOR PRODUCTION**  
 **Permitted operating mode:** Read-only research and synthetic-test development only  
@@ -14,17 +14,25 @@ No production approval is granted by this report. A green unit-test run alone is
 
 | Gate | Required evidence | Current assessment |
 |---|---|---|
-| P0 invariant tests | Complete test run, no unexplained skips | Not established for the current release candidate |
-| Correctness regressions | Complete test run and passing property/boundary tests | Not established for the current release candidate |
-| Universal policy validation | All checks run against the authoritative policy, no contradictory hardcoded values | Not established |
+| P0 invariant tests | Complete test run, no unexplained skips | Passed on current `main` SHA `14a8030645966fd1603401d0b4a005168e72524e` (CI run `41706833308`) |
+| Correctness regressions | Complete test run and passing property/boundary tests | Regression suite passed on current SHA (CI run `41706833308`); broader property/boundary coverage remains incomplete |
+| Universal policy validation | All checks run against the authoritative policy, no contradictory hardcoded values | Passed on current SHA (CI run `41706833308`) |
 | Tax classification | Versioned statutory rules, verified source documents, scheme structure, acquisition/transfer dates and complete observation evidence | Provisional; not tax-advice ready |
 | Benchmark alpha | Authenticated daily TRI observations and independently sourced NSE session calendar | **Blocked** |
 | Portfolio look-through | Dated scheme constituents, identifiers, cash/derivative treatment and independently reconciled weights | Not established |
 | Client-data protection | Private data excluded from the working tree and historical Git objects purged | Working-tree cleanup performed; history purge not established |
-| Reproducible build | Locked dependencies, clean checkout, deterministic release artifact | Not established |
+| Reproducible build | Locked dependencies, clean checkout, deterministic release artifact | Hash-locked install, `pip check`, `pip-audit` and clean-checkout tests passed on current SHA; deterministic release artifact not established |
 | Release controls | Protected `main`, mandatory status checks and controlled release approval | Not established; branch protection was not enabled at last inspection |
 
-## 2. Non-negotiable safety controls
+## 2. Verification evidence for current `main`
+
+Current `main` at report preparation: `14a8030645966fd1603401d0b4a005168e72524e`.
+
+- CI run `41706833308` completed successfully: P0 fiduciary invariants, correctness regressions, full repository test suite, policy/static validation (including compileall, PDF export and clean-checkout privacy tests), and TRI fixture integrity / expected fail-closed release gate.
+- Security run `41706833696` completed successfully: hash-locked dependency installation, `pip check`, `pip-audit`, CycloneDX SBOM generation and artifact retention.
+- These runs establish that the listed automated jobs passed on that SHA. They do not establish legal correctness, production data readiness, complete property-test coverage, independent security review, or production approval.
+
+## 3. Non-negotiable safety controls
 
 1. Missing, stale, conflicting or incomplete financial inputs must produce a structured unavailable / NO ACTION state. They must never be replaced with fabricated values, scheme names, exposure estimates or inferred tax classifications.
 2. An allocation target is not a fund recommendation. A selected fund requires a current, complete, source-backed candidate record and every applicable eligibility gate.
@@ -32,7 +40,7 @@ No production approval is granted by this report. A green unit-test run alone is
 4. The investor's mandate is an independent release gate. A HOLD mandate makes every recommendation non-actionable.
 5. Tax and benchmark calculations are only as reliable as the underlying source evidence. A checksum proves file integrity, not source authenticity or data correctness.
 
-## 3. Statutory tax evidence
+## 4. Statutory tax evidence
 
 The code distinguishes equity-oriented classification from specified-mutual-fund classification and uses different effective-date regimes. This does not, by itself, establish legal correctness.
 
@@ -46,7 +54,7 @@ A release requires legal review of the applicable Act, Rules and CBDT materials,
 
 Synthetic fixtures test arithmetic and edge conditions only. They are not statutory source evidence.
 
-## 4. Benchmark and performance evidence
+## 5. Benchmark and performance evidence
 
 The benchmark subsystem is **not release-eligible** until it has:
 
@@ -58,13 +66,13 @@ The benchmark subsystem is **not release-eligible** until it has:
 
 Monthly observations interpolated to daily dates are not daily TRI data. They must never be used to claim matched benchmark alpha or rank funds.
 
-## 5. Client-data handling
+## 6. Client-data handling
 
 Client-specific configuration, CAS statements, transaction ledgers, folio identifiers, tax information and portfolio metrics belong outside version control. Use a local directory supplied through `MF_CLIENT_DATA_DIR`. Commit only schemas, empty examples and synthetic test fixtures.
 
 Removing files from the current branch does **not** remove their contents from earlier Git commits, clones, caches or downloaded artifacts. Historical Git objects still require a controlled history rewrite and a post-rewrite exposure review. Treat previously committed information as exposed to every party who had repository access during that period.
 
-## 6. Production release checklist
+## 7. Production release checklist
 
 The release owner must attach evidence for all of the following before approval:
 
