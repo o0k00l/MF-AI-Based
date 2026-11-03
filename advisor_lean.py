@@ -79,8 +79,10 @@ def match_scheme(scheme):
     n = norm(str(scheme or ""))
     fund_id = aliases.get(n)
     if fund_id is None:
-        return None
-    return metrics.get(fund_id)
+        raise ValueError(f"No exact fund alias for CAS scheme {scheme!r}; refusing to omit or fuzzy-map the holding.")
+    if fund_id not in metrics:
+        raise ValueError(f"Exact alias for CAS scheme {scheme!r} points to missing metrics id {fund_id!r}.")
+    return metrics[fund_id]
 
 import openpyxl
 xlsx = sorted((CLIENT/"statements").glob("cas_detailed_report_*.xlsx"))[-1]
