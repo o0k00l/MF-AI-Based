@@ -1784,3 +1784,19 @@ def test_legacy_advisor_cli_import_is_safe_without_client_data(tmp_path):
     assert completed.returncode == 0, completed.stderr
     assert "import-safe" in completed.stdout
     assert not (tmp_path / "outputs").exists()
+
+
+def test_tri_fixture_verifier_rejects_incorrect_declared_observation_count(tmp_path):
+    import json
+    from pathlib import Path
+    from verify_tri_provenance import verify_fixture
+
+    root = Path(__file__).resolve().parents[1]
+    fixture = json.loads((root / "data/policy/benchmark_tri_series.json").read_text(encoding="utf-8"))
+    fixture["coverage"]["nifty_500_tri"]["provided_data_points"] += 1
+    corrupted = tmp_path / "incorrect-count.json"
+    corrupted.write_text(json.dumps(fixture), encoding="utf-8")
+
+    failures = verify_fixture(corrupted)
+    assert any("does not match observed count" in failure for failure in failures)
+
