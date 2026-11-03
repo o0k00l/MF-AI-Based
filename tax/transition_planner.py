@@ -291,6 +291,12 @@ def load_transactions(
                 "nav": p["nav"],
                 "cost": p["amount"],
                 "equity_pct": p.get("equity_pct"),
+                "equity_pct_method": p.get("equity_pct_method"),
+                "equity_pct_fy_start": p.get("equity_pct_fy_start"),
+                "equity_pct_source_url": p.get("equity_pct_source_url"),
+                "equity_pct_source_sha256": p.get("equity_pct_source_sha256"),
+                "equity_pct_source_reviewed": p.get("equity_pct_source_reviewed", False),
+                "equity_pct_source_file": p.get("equity_pct_source_file"),
             })
 
         for red in redemptions:
