@@ -588,7 +588,7 @@ def calculate_cashflow_matched_benchmark_xirr(
     # Track SWITCH/STP for netting at portfolio level
     switch_stp_by_key = {}  # key: (date, abs_amount, folio) -> {in: cf, out: cf}
     
-    for txn in tx_data.get("transactions", []):
+    for txn_index, txn in enumerate(tx_data.get("transactions", [])):
         d_str = txn.get("date", "")
         if not d_str:
             continue
@@ -631,8 +631,12 @@ def calculate_cashflow_matched_benchmark_xirr(
                 else:
                     cf = -amount
             cashflows.append((txn_date, cf))
-        except Exception:
-            continue
+        except Exception as exc:
+            raise TriProvenanceError(
+                f"Transaction row {txn_index} is malformed and cannot be silently omitted: {exc}",
+                benchmark=benchmark_key,
+                validation_stage="transaction_row_invalid"
+            )
     
     if txn_dates:
         out_of_range = [d for d in txn_dates if d < sorted_dates[0] or d > sorted_dates[-1]]
@@ -657,8 +661,11 @@ def calculate_cashflow_matched_benchmark_xirr(
         # cashflows.append((txn_date, net))  # Excluded: data quality issue - missing matching leg
     
     if unmatched_switch_stp:
-        # Log for debugging - in production would use proper logger
-        pass  # logger.warning(f"Excluded {unmatched_switch_stp} unmatched SWITCH/STP transactions from portfolio XIRR")
+        raise TriProvenanceError(
+            f"{unmatched_switch_stp} unmatched SWITCH/STP transfer group(s) cannot be reconciled; portfolio XIRR is unavailable.",
+            benchmark=benchmark_key,
+            validation_stage="unmatched_internal_transfer"
+        )
 
     if not cashflows:
         return {
@@ -698,6 +705,12 @@ def calculate_cashflow_matched_benchmark_xirr(
             "As-of date precedes the latest transaction; terminal valuation is temporally invalid.",
             benchmark=benchmark_key,
             validation_stage="terminal_valuation_date"
+        )
+    if as_of_date < sorted_dates[0] or as_of_date > sorted_dates[-1]:
+        raise TriProvenanceError(
+            "As-of date falls outside the observed TRI series; extrapolation/forward-fill is prohibited.",
+            benchmark=benchmark_key,
+            validation_stage="terminal_date_out_of_range"
         )
     # Monthly points cannot support exact daily cash-flow matching through interpolation.
     if str(provenance.get("frequency", "")).strip().lower().startswith(("monthly", "quarterly")):
