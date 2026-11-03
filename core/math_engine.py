@@ -3512,6 +3512,7 @@ def classify_specified_mutual_fund(
     as_of: Optional[date] = None,
     snapshots: Optional[List[DailyPortfolioSnapshot]] = None,
     monthly_snapshots: Optional[List[MonthlyPortfolioSnapshot]] = None,
+    monthly_coverage_evidence: Optional[MonthlySnapshotCoverageEvidence] = None,
     fof_underlying_traded_on_recognised_exchange: Optional[bool] = None,
     fy_start: Optional[date] = None,
     fy_end: Optional[date] = None,
