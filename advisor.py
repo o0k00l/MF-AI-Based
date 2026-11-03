@@ -5,6 +5,7 @@ Provides get_default_paths() for test_p0_fiduciary_invariants.py
 """
 
 from pathlib import Path
+import os
 
 
 def discover_client_portfolios(base_dir: Path | None = None) -> dict[str, Path]:
@@ -25,7 +26,10 @@ def get_default_paths(client_target: str | Path | None = None):
     base = Path(__file__).resolve().parent
     ports = discover_client_portfolios(base)
 
-    if client_target:
+    env_client_dir = os.environ.get("MF_CLIENT_DATA_DIR")
+    if client_target is None and env_client_dir:
+        client_path = Path(env_client_dir).expanduser().resolve()
+    elif client_target:
         client_path = Path(client_target)
         if not client_path.is_dir() and client_target in ports:
             client_path = ports[client_target]
