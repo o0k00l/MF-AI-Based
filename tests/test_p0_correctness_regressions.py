@@ -645,3 +645,77 @@ def test_current_fy_exit_load_uses_actual_planning_date(purchase_date, expected_
     )
     current_fy_rows = result[2026]
     assert sum(row["exit_load"] for row in current_fy_rows) == pytest.approx(expected_exit_load)
+
+
+def test_direct_sip_validator_requires_explicit_flag_and_ignores_zero_orders():
+    from types import SimpleNamespace
+    from core.eligibility import validate_direct_sip_mandate
+
+    valid = SimpleNamespace(items=[
+        SimpleNamespace(scheme_name="Example Fund", monthly_inr=1000.0, is_direct=True)
+    ])
+    assert validate_direct_sip_mandate(valid) is True
+
+    invalid = SimpleNamespace(items=[
+        SimpleNamespace(scheme_name="Example Fund", monthly_inr=1000.0, is_direct=None)
+    ])
+    with pytest.raises(ValueError, match="lacks verified is_direct=True"):
+        validate_direct_sip_mandate(invalid)
+
+    no_order = SimpleNamespace(items=[
+        SimpleNamespace(scheme_name="NO_ACTION: no candidate", monthly_inr=0.0, is_direct=None)
+    ])
+    assert validate_direct_sip_mandate(no_order) is True
+
+
+def test_sip_builder_withholds_entire_budget_when_any_required_slot_is_unverified(monkeypatch):
+    import core.math_engine as engine
+
+    def fake_slots(**kwargs):
+        return {
+            "Slot 1: Core Flexi-Cap Compounder": {
+                "scheme": "NO_ACTION: no eligible flexi",
+                "fund_name": "NO_ACTION: no eligible flexi",
+                "allocation_pct": 40.0,
+                "rationale": "No eligible flexi candidate",
+            },
+            "Slot 2: Mid-Cap Alpha Engine": {
+                "scheme": "Example Mid Fund",
+                "fund_name": "Example Mid Fund",
+                "fund_id": "test-mid",
+                "allocation_pct": 30.0,
+                "rationale": "Test",
+            },
+            "Slot 3: Large-Cap Bluechip Anchor": {
+                "scheme": "Example Large Fund",
+                "fund_name": "Example Large Fund",
+                "fund_id": "test-large",
+                "allocation_pct": 15.0,
+                "rationale": "Test",
+            },
+            "Slot 4: Tactical Thematic Satellite": {
+                "scheme": "NO_ACTION: no thematic allocation",
+                "fund_name": "NO_ACTION: no thematic allocation",
+                "allocation_pct": 0.0,
+                "rationale": "No thematic selection",
+            },
+            "High-Grade Debt Anchor": {
+                "scheme": "NO_ACTION: no debt candidate",
+                "fund_name": "NO_ACTION: no debt candidate",
+                "allocation_pct": 0.0,
+                "rationale": "No debt selection",
+            },
+        }
+
+    monkeypatch.setattr(engine, "select_autonomous_blueprint_funds", fake_slots)
+    plan = engine.compute_deterministic_sip_blueprint(
+        monthly_budget=100000.0,
+        risk_tier="Tier 6 (Very High)",
+        stability_buffer_pct=7.54,
+        client_aum=5000000.0,
+    )
+    assert plan.total_monthly_budget_inr == pytest.approx(100000.0)
+    assert plan.unallocated_budget_inr == pytest.approx(100000.0)
+    assert sum(item.monthly_inr for item in plan.items) == pytest.approx(0.0)
+    assert all(item.monthly_inr == 0.0 for item in plan.items)
+    assert all("NO ACTION" in item.fiduciary_rationale for item in plan.items)
