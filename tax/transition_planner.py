@@ -216,6 +216,7 @@ def load_transactions(
                 "units": units,
                 "nav": p["nav"],
                 "cost": p["amount"],
+                "equity_pct": p.get("equity_pct"),
             })
 
         for red in redemptions:
