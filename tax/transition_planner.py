@@ -510,7 +510,7 @@ def plan_fy_tranches(
     tax_rules: dict,
     as_of: date,
     current_navs: dict[str, float],
-    prior_ltcg_this_fy: float = 0.0,
+    prior_ltcg_this_fy: float | None = None,
 ) -> dict[int, list[dict]]:
     """
     Plan SELL tranches across financial years to maximize LTCG exemption.
@@ -525,12 +525,15 @@ def plan_fy_tranches(
     Returns: fy_start_year -> list of {fund_id, lot, amount, gain_type, gain_amount, tax}
 
     Args:
-        prior_ltcg_this_fy: LTCG already realized in the current FY from OTHER sources
-            (other sell plans, direct equity, other MFs). Reduces the exemption headroom
-            available. Default 0.0 (full ₹1.25L assumed available — conservative
-            when called in isolation; pass actual realized gains for accuracy).
+        prior_ltcg_this_fy: Verified net LTCG already realized in the current FY
+            from other sources. This value is mandatory; pass 0.0 only when
+            independently verified that no prior eligible LTCG has been realized.
     """
     import math
+    if prior_ltcg_this_fy is None:
+        raise ValueError(
+            "Verified prior_ltcg_this_fy is required. Do not assume the full annual exemption remains available."
+        )
     try:
         raw_exemption = float(tax_rules["ltcg_exemption"])
         prior_ltcg = float(prior_ltcg_this_fy)
