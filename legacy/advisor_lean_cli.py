@@ -17,37 +17,28 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 
-def discover_client_portfolios(root_dir: Path | None = None) -> dict[str, Path]:
-    if root_dir is None:
-        root_dir = ROOT
-    data_dir = root_dir / "data"
-    portfolios = {}
-    if not data_dir.exists():
-        return portfolios
-    for p in sorted(data_dir.iterdir()):
-        if p.is_dir() and p.name not in ("policy", "cache", "__pycache__"):
-            if (p / "config.json").exists() or (p / "statements").exists() or list(p.glob("*.xlsx")):
-                portfolios[p.name] = p
-    return portfolios
-
 def get_default_client_dir() -> Path:
     import os
+
     env_client_dir = os.environ.get("MF_CLIENT_DATA_DIR")
-    if env_client_dir:
-        client_dir = Path(env_client_dir).expanduser().resolve()
-        if not client_dir.is_dir():
-            raise FileNotFoundError(f"MF_CLIENT_DATA_DIR does not exist: {client_dir}")
-        return client_dir
-    ports = discover_client_portfolios()
-    if "lalit_portfolio" in ports:
-        return ports["lalit_portfolio"]
-    if ports:
-        return next(iter(ports.values()))
-    return ROOT / "data" / "lalit_portfolio"
+    if not env_client_dir:
+        raise FileNotFoundError(
+            "MF_CLIENT_DATA_DIR is required. Set it to a private directory outside the repository."
+        )
+    client_dir = Path(env_client_dir).expanduser().resolve()
+    if not client_dir.is_dir():
+        raise FileNotFoundError(f"MF_CLIENT_DATA_DIR does not exist: {client_dir}")
+    try:
+        client_dir.relative_to(ROOT)
+    except ValueError:
+        pass
+    else:
+        raise ValueError("Client data directory must be outside the Git repository")
+    return client_dir
 
 CLIENT = get_default_client_dir()
 POLICY = ROOT / "data" / "policy"
-OUT = ROOT / "outputs"
+OUT = CLIENT / "outputs"
 OUT.mkdir(exist_ok=True)
 
 def jload(p): return json.loads(p.read_text(encoding="utf-8"))
