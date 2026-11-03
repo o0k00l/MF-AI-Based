@@ -83,20 +83,20 @@ A release is assessed against one exact commit SHA. Evidence from older commits,
 
 ## Gate 6 — Software quality and reproducibility
 
-- [x] Complete P0 invariant suite passes on current `main` SHA `ce80a1c597fbe815598468a533208a10c8f415ee` (CI run `41709460857`).
+- [x] Complete P0 invariant suite passes on current `main` SHA `9d9b14b1856c52731555ba2a215a9c272dfdd71e` (CI run `41710708849`).
 - [x] Complete correctness regression suite passes on the same SHA and CI run.
 - [ ] Property-based and boundary tests cover money, dates, XIRR, tax lots, coverage, duplicates and invalid inputs.
-- [x] Universal policy checks pass against central policy files on current `main` SHA `ce80a1c597fbe815598468a533208a10c8f415ee` (CI run `41709460857`).
+- [x] Universal policy checks pass against central policy files on current `main` SHA `9d9b14b1856c52731555ba2a215a9c272dfdd71e` (CI run `41710708849`).
 - [x] The two current test skips are the documented private-CAS integration checks; they are isolated and skipped when client files are absent.
-- [x] Clean-checkout privacy and engine initialization tests pass on current `main` SHA (CI run `41709460857`).
-- [x] Runtime and development dependencies are hash-locked, and CI verifies `pip install --require-hashes`, `pip check` and `pip-audit` on current `main` SHA (Security run `41709460739`).
+- [x] Clean-checkout privacy and engine initialization tests pass on current `main` SHA (CI run `41710708849`).
+- [x] Runtime and development dependencies are hash-locked, and CI verifies `pip install --require-hashes`, `pip check` and `pip-audit` on current `main` SHA (Security run `41710709237`).
 - [ ] Supported Python version and runtime platform are pinned and verified.
-- [x] Dependency vulnerability review: `pip-audit` reports no known vulnerabilities in the hash-locked dependency tree on current `main` SHA (Security run `41709460739`).
+- [x] Dependency vulnerability review: `pip-audit` reports no known vulnerabilities in the hash-locked dependency tree on current `main` SHA (Security run `41710709237`).
 - [ ] Static analysis, formatting, type checking and secret scanning pass.
 - [x] CycloneDX dependency SBOM is generated and retained as a GitHub Actions artifact (digest recorded above).
 - [ ] Production release artifact digest and independent reviewer sign-off are retained.
 
-**Current status (2026-11-04):** All six CI jobs passed on current `main` SHA `ce80a1c597fbe815598468a533208a10c8f415ee` (run `41709460857`): dependency-lock consistency, P0 fiduciary invariants, correctness regressions, full test suite, policy/static validation and TRI fixture integrity. The Security workflow also passed on that exact SHA (run `41709460739`), including hash-locked installation, `pip check`, `pip-audit` and CycloneDX SBOM generation. The retained SBOM artifact digest for this SHA is `sha256:a394b04139c982c039fab277c9dc1a0bbcfcac66d86cb20017a43ca1aea37268`. These are software verification results only; they do not satisfy the remaining property/boundary coverage, static analysis, formatting, type-checking, secret-scanning or independent SBOM review requirements.
+**Current status (2026-11-04):** All six CI jobs passed on current `main` SHA `9d9b14b1856c52731555ba2a215a9c272dfdd71e` (run `41710708849`): dependency-lock consistency, P0 fiduciary invariants, correctness regressions, full test suite, policy/static validation and TRI fixture integrity. The Security workflow also passed on that exact SHA (run `41710709237`), including hash-locked installation, `pip check`, `pip-audit` and CycloneDX SBOM generation. The retained SBOM artifact digest for this SHA is `sha256:90046db4e58d882f5cca9f0ecc6012b1567563cef153559ef0c713ef09d89003`. These are software verification results only; they do not satisfy the remaining property/boundary coverage, static analysis, formatting, type-checking, secret-scanning or independent SBOM review requirements.
 
 ## Gate 7 — GitHub release controls
 
