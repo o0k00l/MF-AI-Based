@@ -330,7 +330,6 @@ def test_eligibility_returns_fail_closed_for_non_finite_concentration_and_captur
         "mandate_suitable": True,
         "aum_stable": True,
         "is_direct": True,
-        "isin": "TEST-ISIN",
     }
     base.update(metrics)
     holdings = [
@@ -461,7 +460,6 @@ def test_non_thematic_eligibility_does_not_require_thematic_allocation_field():
         "mandate_suitable": True,
         "aum_stable": True,
         "is_direct": True,
-        "isin": "TEST-ISIN",
     }
     holdings = [
         {"amc_name": "EXAMPLE AMC", "current_value_inr": 200000.0},
