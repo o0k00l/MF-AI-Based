@@ -17,6 +17,10 @@ This repository contains no intended client portfolio records. Client data must 
 - **Benchmark discipline:** Matched TRI alpha is unavailable unless daily authenticated TRI observations and an independently sourced exchange-session calendar cover the full investor cash-flow window.
 - **No execution authority:** The engine produces analysis and conditional scenarios only. It does not place trades or authorize mandates.
 
+## Provisional starter-portfolio heuristic
+
+The current policy uses a 60% Flexi-cap / 40% Mid-Small-cap equity split when AUM is below ₹5 lakh or the monthly SIP is below ₹15,000. These thresholds and weights live in `data/policy/asset_allocation.json` and are classified as a provisional research heuristic—not a statutory rule or universal recommendation. The default thematic allocation remains zero.
+
 ## Main components
 
 | Component | Responsibility |
