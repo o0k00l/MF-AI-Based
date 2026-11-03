@@ -33,3 +33,14 @@ def test_verified_numeric_benchmark_fields_are_formatted():
         "benchmark_xirr": "12.11%",
         "alpha": "+3.31%",
     }
+
+
+def test_legacy_advisor_does_not_invent_a_benchmark_return():
+    from pathlib import Path
+    import ast
+
+    source = Path("legacy/advisor_lean_cli.py").read_text(encoding="utf-8")
+    ast.parse(source)
+    assert "benchmark_xirr = 0.12" not in source
+    assert "(portfolio_xirr - 0.12)" not in source
+    assert "format_performance_metrics" in source
