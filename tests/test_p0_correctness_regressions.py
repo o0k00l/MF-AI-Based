@@ -1260,14 +1260,25 @@ def test_universal_tier_split_uses_policy_base_and_stability_threshold(tier, pro
     p = policy["behavioral_risk_profiles"][profile]
     targets = p["saa_targets"]
     assert sum(targets.values()) == 100
+    requires_ips = p["new_sip_allocation"].get("requires_explicit_ips_authorization", False)
     expected_equity = p["new_sip_allocation"]["equity_pct"]
     expected_debt = p["new_sip_allocation"]["debt_pct"]
-    assert calculate_universal_tier_split(tier) == (expected_equity, expected_debt)
-
-    threshold = max(0.0, targets["debt_liquid_pct"] - p["tolerance_band_pct"])
-    if threshold > 0:
-        assert calculate_universal_tier_split(tier, threshold - 0.01) == (expected_equity, expected_debt)
-    assert calculate_universal_tier_split(tier, threshold) == (100.0, 0.0)
+    if requires_ips:
+        # Without explicit IPS authorization, Tier 6 remains at its strategic allocation.
+        expected_without_override = (
+            100.0 - targets["debt_liquid_pct"],
+            targets["debt_liquid_pct"],
+        )
+        assert calculate_universal_tier_split(tier) == expected_without_override
+        assert calculate_universal_tier_split(
+            tier, equity_sip_routing_override=True
+        ) == (expected_equity, expected_debt)
+    else:
+        assert calculate_universal_tier_split(tier) == (expected_equity, expected_debt)
+        threshold = max(0.0, targets["debt_liquid_pct"] - p["tolerance_band_pct"])
+        if threshold > 0:
+            assert calculate_universal_tier_split(tier, threshold - 0.01) == (expected_equity, expected_debt)
+            assert calculate_universal_tier_split(tier, threshold) == (100.0, 0.0)
 
 
 def test_section_76_rejects_missing_dates_even_with_calendar_provenance():
@@ -1368,3 +1379,17 @@ def test_tax_planner_rejects_point_in_time_or_stale_equity_allocation_evidence()
     lot.equity_pct_source_verified = True
     with pytest.raises(ValueError, match="requires FY starting 2026"):
         classify_fund_for_tax(lot, rules, sale_date=date(2026, 11, 3))
+
+
+def test_tier6_one_hundred_percent_equity_sip_requires_explicit_ips_override():
+    from core.math_engine import calculate_universal_tier_split
+
+    # Zero stability buffer used to pass the old zero-threshold comparison and
+    # silently route all new cash to equity. It must not bypass investor consent.
+    assert calculate_universal_tier_split(6, stability_buffer_pct=0.0) == (95.0, 5.0)
+    assert calculate_universal_tier_split(6, stability_buffer_pct=7.54) == (95.0, 5.0)
+    assert calculate_universal_tier_split(
+        6,
+        stability_buffer_pct=0.0,
+        equity_sip_routing_override=True,
+    ) == (100.0, 0.0)
