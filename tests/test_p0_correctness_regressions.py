@@ -114,6 +114,7 @@ def test_tax_planner_allocates_each_lot_only_once():
         tax_rules=tax_rules,
         as_of=date(2026, 11, 3),
         current_navs={"fund-x": 100.0},
+        prior_ltcg_this_fy=0.0,
     )
     tranches = [row for rows in result.values() for row in rows]
     assert sum(row["units_sold"] for row in tranches) == pytest.approx(10.0)
@@ -419,6 +420,7 @@ def test_tax_planner_rejects_missing_nav_and_insufficient_verified_lots():
             tax_rules=tax_rules,
             as_of=date(2026, 11, 3),
             current_navs={},
+            prior_ltcg_this_fy=0.0,
         )
     with pytest.raises(ValueError, match="Insufficient verified lot value"):
         plan_fy_tranches(
@@ -436,6 +438,7 @@ def test_tax_planner_rejects_negative_sale_even_when_no_lots_exist():
             tax_rules={"ltcg_exemption": 125000.0},
             as_of=date(2026, 11, 3),
             current_navs={},
+            prior_ltcg_this_fy=0.0,
         )
 
 
@@ -642,6 +645,7 @@ def test_current_fy_exit_load_uses_actual_planning_date(purchase_date, expected_
         },
         as_of=date(2026, 11, 3),
         current_navs={"fund-x": 90.0},
+        prior_ltcg_this_fy=0.0,
     )
     current_fy_rows = result[2026]
     assert sum(row["exit_load"] for row in current_fy_rows) == pytest.approx(expected_exit_load)
