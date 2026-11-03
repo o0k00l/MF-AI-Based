@@ -1,8 +1,20 @@
-import hashlib
 """Regression tests for fiduciary P0 correctness defects."""
 from datetime import date
+from pathlib import Path
 
 import pytest
+
+_TEST_TAX_EVIDENCE_ROOT = Path(__file__).resolve().parent / "fixtures"
+_TEST_TAX_EVIDENCE_SHA256 = "e3da5a5eb89824a20c0eb0b214fa5123548fada0976e7bb31c4d742d6efbe3fc"
+
+
+def _synthetic_tax_evidence_kwargs():
+    """Synthetic local file evidence: integrity only, never legal/source authenticity."""
+    return {
+        "equity_pct_source_sha256": _TEST_TAX_EVIDENCE_SHA256,
+        "equity_pct_source_file": "synthetic_tax_evidence.txt",
+        "equity_pct_evidence_root": str(_TEST_TAX_EVIDENCE_ROOT),
+    }
 
 from core.eligibility import _finite_number, _risk_tier_to_int, check_eligibility_gates
 from tax.transition_planner import Lot, FundSellPlan, plan_fy_tranches, classify_fund_for_tax
@@ -80,6 +92,41 @@ def test_tax_classification_requires_verified_equity_allocation():
         classify_fund_for_tax(lot, {"classification_test": {"equity_oriented_threshold_pct": 65.0}})
 
 
+def test_tax_classification_recomputes_source_document_digest_and_blocks_path_escape():
+    lot = Lot(
+        fund_id="fund-x",
+        folio_name="folio-1",
+        purchase_date=date(2024, 1, 1),
+        units=10,
+        nav=50,
+        cost=500,
+        source="cas",
+        equity_pct=100.0,
+        equity_pct_method="annual_average_monthly_opening_closing",
+        equity_pct_fy_start=2026,
+        equity_pct_source_url="https://example.test/synthetic-monthly-disclosure",
+        equity_pct_source_reviewed=True,
+        **_synthetic_tax_evidence_kwargs(),
+    )
+    rules = {"classification_test": {"equity_oriented_threshold_pct": 65.0}}
+    assert classify_fund_for_tax(lot, rules, sale_date=date(2026, 11, 3)) == "equity_oriented"
+
+    original_root = lot.equity_pct_evidence_root
+    lot.equity_pct_evidence_root = None
+    with pytest.raises(ValueError, match="source evidence root is required"):
+        classify_fund_for_tax(lot, rules, sale_date=date(2026, 11, 3))
+    lot.equity_pct_evidence_root = original_root
+
+    lot.equity_pct_source_sha256 = "0" * 64
+    with pytest.raises(ValueError, match="does not match local source bytes"):
+        classify_fund_for_tax(lot, rules, sale_date=date(2026, 11, 3))
+
+    lot.equity_pct_source_sha256 = _TEST_TAX_EVIDENCE_SHA256
+    lot.equity_pct_source_file = "../synthetic_tax_evidence.txt"
+    with pytest.raises(ValueError, match="cannot be safely verified"):
+        classify_fund_for_tax(lot, rules, sale_date=date(2026, 11, 3))
+
+
 def test_tax_planner_allocates_each_lot_only_once():
     lot = Lot(
         fund_id="fund-x",
@@ -93,7 +140,7 @@ def test_tax_planner_allocates_each_lot_only_once():
         equity_pct_method="annual_average_monthly_opening_closing",
         equity_pct_fy_start=2026,
         equity_pct_source_url="https://example.test/monthly-portfolio-disclosure",
-        equity_pct_source_sha256="e" * 64,
+        **_synthetic_tax_evidence_kwargs(),
         equity_pct_source_reviewed=True,
     )
     plan = FundSellPlan(fund_id="fund-x", total_amount=1000.0, lots=[lot])
@@ -254,7 +301,7 @@ def test_tax_planner_respects_prior_ltcg_realized_in_current_fy():
         equity_pct_method="annual_average_monthly_opening_closing",
         equity_pct_fy_start=2026,
         equity_pct_source_url="https://example.test/verified-monthly-disclosure",
-        equity_pct_source_sha256="a" * 64,
+        **_synthetic_tax_evidence_kwargs(),
         equity_pct_source_reviewed=True,
     )
     plan = FundSellPlan(fund_id="fund-x", total_amount=1000.0, lots=[lot])
@@ -298,7 +345,7 @@ def test_tax_planner_refuses_non_equity_tax_class_in_equity_exemption_path():
         equity_pct_method="annual_average_monthly_opening_closing",
         equity_pct_fy_start=2026,
         equity_pct_source_url="https://example.test/verified-monthly-disclosure",
-        equity_pct_source_sha256="b" * 64,
+        **_synthetic_tax_evidence_kwargs(),
         equity_pct_source_reviewed=True,
     )
     plan = FundSellPlan(fund_id="fund-x", total_amount=1000.0, lots=[lot])
@@ -421,7 +468,7 @@ def test_tax_planner_rejects_missing_nav_and_insufficient_verified_lots():
         equity_pct_method="annual_average_monthly_opening_closing",
         equity_pct_fy_start=2026,
         equity_pct_source_url="https://example.test/verified-monthly-disclosure",
-        equity_pct_source_sha256="a" * 64,
+        **_synthetic_tax_evidence_kwargs(),
         equity_pct_source_reviewed=True,
     )
     tax_rules = {
@@ -513,11 +560,24 @@ def test_fifo_tax_lot_loader_carries_verified_scheme_equity_allocation(tmp_path)
         }),
         encoding="utf-8",
     )
+    allocation = {
+        "equity_pct": 100.0,
+        "method": "annual_average_monthly_opening_closing",
+        "financial_year_start": 2026,
+        "source_url": "https://example.test/synthetic-monthly-disclosure",
+        "source_document_sha256": _TEST_TAX_EVIDENCE_SHA256,
+        "independently_verified": True,
+        "source_file": "synthetic_tax_evidence.txt",
+    }
     lots = load_transactions(
         tx_path,
-        equity_allocation_by_fund={"Example Equity Direct Growth": 100.0},
+        equity_allocation_by_fund={"Example Equity Direct Growth": allocation},
+        evidence_root=_TEST_TAX_EVIDENCE_ROOT,
     )
-    assert lots["Example Equity Direct Growth"][0].equity_pct == pytest.approx(100.0)
+    lot = lots["Example Equity Direct Growth"][0]
+    assert lot.equity_pct == pytest.approx(100.0)
+    assert lot.equity_pct_source_file == "synthetic_tax_evidence.txt"
+    assert lot.equity_pct_evidence_root == str(_TEST_TAX_EVIDENCE_ROOT.resolve())
 
 
 def test_build_fifo_tax_lots_processes_all_rows_and_reconciles_units(tmp_path):
@@ -658,7 +718,7 @@ def test_current_fy_exit_load_uses_actual_planning_date(purchase_date, expected_
         equity_pct_method="annual_average_monthly_opening_closing",
         equity_pct_fy_start=2026,
         equity_pct_source_url="https://example.test/verified-monthly-disclosure",
-        equity_pct_source_sha256="a" * 64,
+        **_synthetic_tax_evidence_kwargs(),
         equity_pct_source_reviewed=True,
     )
     plan = FundSellPlan(fund_id="fund-x", total_amount=900.0, lots=[lot])
@@ -755,6 +815,7 @@ def test_sip_builder_withholds_entire_budget_when_any_required_slot_is_unverifie
 
 @pytest.mark.parametrize("confidence", [-0.1, 1.01, float("nan"), float("inf")])
 def test_eligibility_rejects_out_of_range_confidence_score(confidence, tmp_path):
+    import hashlib
     fund = {
         "fund_id": "fund-x",
         "fund_name": "Example Large Cap Direct Plan",
@@ -915,7 +976,7 @@ def test_tax_planner_requires_verified_prior_ltcg_headroom(tmp_path):
         equity_pct_method="annual_average_monthly_opening_closing",
         equity_pct_fy_start=2026,
         equity_pct_source_url="https://example.test/verified-monthly-disclosure",
-        equity_pct_source_sha256="a" * 64,
+        **_synthetic_tax_evidence_kwargs(),
         equity_pct_source_reviewed=True,
     )
     with pytest.raises(ValueError, match="Verified prior_ltcg_this_fy is required"):
@@ -1213,6 +1274,8 @@ def test_standalone_advisor_saa_profiles_reconcile_to_central_policy():
     from pathlib import Path
 
     root = Path(__file__).resolve().parents[1]
+    # The public compatibility module must remain import-safe; policy
+    # reconciliation belongs to the isolated legacy implementation.
     source = ast.parse((root / "legacy" / "advisor_lean_cli.py").read_text())
     profile_node = next(
         node.value for node in source.body
@@ -1411,7 +1474,9 @@ def test_tax_planner_rejects_point_in_time_or_stale_equity_allocation_evidence()
     lot.equity_pct_method = "annual_average_monthly_opening_closing"
     lot.equity_pct_fy_start = 2025
     lot.equity_pct_source_url = "https://example.test/disclosure"
-    lot.equity_pct_source_sha256 = "f" * 64
+    lot.equity_pct_source_sha256 = _TEST_TAX_EVIDENCE_SHA256
+    lot.equity_pct_source_file = "synthetic_tax_evidence.txt"
+    lot.equity_pct_evidence_root = str(_TEST_TAX_EVIDENCE_ROOT)
     lot.equity_pct_source_reviewed = True
     with pytest.raises(ValueError, match="requires FY starting 2026"):
         classify_fund_for_tax(lot, rules, sale_date=date(2026, 11, 3))
@@ -1538,6 +1603,65 @@ def test_candidate_ingestion_never_hardcodes_direct_plan_status(tmp_path):
 
 
 
+def test_selector_slot_targets_are_policy_weighted_and_not_hardcoded(monkeypatch):
+    import json
+    from pathlib import Path
+    from types import SimpleNamespace
+    import core.eligibility as eligibility
+    import core.fund_classifier as classifier
+    import core.math_engine as math_engine
+
+    policy = json.loads(
+        (Path(__file__).resolve().parents[1] / "data/policy/asset_allocation.json").read_text()
+    )
+    profile = policy["behavioral_risk_profiles"]["very_high"]
+    saa = profile["saa_targets"]
+    equity_parts = {
+        "flexi": float(saa["flexi_multi_cap_pct"]),
+        "mid_small": float(saa["mid_cap_pct"]) + float(saa["small_cap_pct"]),
+        "large": float(saa["large_cap_pct"]),
+    }
+    equity_total = sum(equity_parts.values())
+    expected = {
+        "Slot 1: Core Flexi-Cap Compounder": round(100.0 * equity_parts["flexi"] / equity_total, 1),
+        "Slot 2: Mid-Cap Alpha Engine": round(100.0 * equity_parts["mid_small"] / equity_total, 1),
+    }
+    expected["Slot 3: Large-Cap Bluechip Anchor"] = round(
+        100.0 - expected["Slot 1: Core Flexi-Cap Compounder"] - expected["Slot 2: Mid-Cap Alpha Engine"],
+        1,
+    )
+
+    monkeypatch.setattr(
+        eligibility, "_reviewed_direct_plan_evidence_status",
+        lambda candidate: "REVIEWER_ATTESTED_HASH_MATCH",
+    )
+    monkeypatch.setattr(
+        eligibility, "check_eligibility_gates",
+        lambda *args, **kwargs: SimpleNamespace(passed=True),
+    )
+    monkeypatch.setattr(classifier, "classify_fund_category", lambda name, category, candidate=None: category)
+    monkeypatch.setattr(classifier, "detect_fund_theme", lambda name, category: "Healthcare")
+    monkeypatch.setattr(math_engine, "compute_multi_horizon_fiduciary_score", lambda candidate: candidate["score"])
+
+    candidates = [
+        {"fund_id": "flexi", "fund_name": "Synthetic Flexi", "category": "Flexi Cap Equity", "is_direct": True, "score": 3.0},
+        {"fund_id": "mid", "fund_name": "Synthetic Mid", "category": "Mid Cap Equity", "is_direct": True, "score": 2.0},
+        {"fund_id": "large", "fund_name": "Synthetic Large", "category": "Large Cap Equity", "is_direct": True, "score": 1.0},
+        {"fund_id": "debt", "fund_name": "Synthetic Debt", "category": "Debt", "is_direct": True, "score": 1.0},
+    ]
+    result = math_engine.select_autonomous_blueprint_funds(
+        holdings=[],
+        candidate_universe=candidates,
+        client_risk_tier=6,
+    )
+    for slot_name, target in expected.items():
+        assert result[slot_name]["allocation_pct"] == target
+        assert result[slot_name]["gate_passed"] is True
+        assert result[slot_name]["allocation_basis"] == "percent_of_equity_budget"
+    assert result["High-Grade Debt Anchor"]["allocation_pct"] == pytest.approx(float(saa["debt_liquid_pct"]))
+    assert result["High-Grade Debt Anchor"]["allocation_basis"] == "percent_of_total_portfolio"
+
+
 def test_selector_does_not_select_candidate_using_direct_name_suffix_only():
     from core.math_engine import select_autonomous_blueprint_funds
 
@@ -1629,7 +1753,7 @@ def test_tax_planner_equity_classification_uses_at_least_65_percent():
         equity_pct_method="annual_average_monthly_opening_closing",
         equity_pct_fy_start=2026,
         equity_pct_source_url="https://example.test/synthetic-disclosure",
-        equity_pct_source_sha256="a" * 64,
+        **_synthetic_tax_evidence_kwargs(),
         equity_pct_source_reviewed=True,
     )
     rules = {"classification_test": {"equity_oriented_threshold_pct": 65.0}}
