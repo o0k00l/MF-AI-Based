@@ -1066,6 +1066,7 @@ def test_p0_16_tri_coverage_gate_rejects_inflated_metadata():
     # Create a sparse TRI fixture with inflated coverage_pct metadata
     with open("data/policy/benchmark_tri_series_high_coverage.json", "r") as f:
         sparse_tri = json.load(f)
+    full_calendar_sessions = sorted(sparse_tri["benchmarks"]["NIFTY 500 TRI"]["levels"].keys())
 
     # Keep only 10 data points but claim 100% coverage in metadata
     sparse_levels = dict(list(sparse_tri["benchmarks"]["NIFTY 500 TRI"]["levels"].items())[:10])
@@ -1091,7 +1092,7 @@ def test_p0_16_tri_coverage_gate_rejects_inflated_metadata():
 
     # Build a separate calendar fixture from the complete test dataset, not the
     # edited sparse benchmark levels or their editable coverage metadata.
-    calendar_sessions = sorted(tri_data["benchmarks"]["NIFTY 500 TRI"]["levels"].keys())
+    calendar_sessions = full_calendar_sessions
     sessions_sha256 = hashlib.sha256(json.dumps(calendar_sessions, separators=(",", ":")).encode()).hexdigest()
     calendar_data = {
         "exchange": "NSE",
