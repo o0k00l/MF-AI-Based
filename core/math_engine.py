@@ -3764,37 +3764,62 @@ def calculate_universal_tier_split(
     stability_buffer_pct: Optional[float] = None
 ) -> Tuple[float, float]:
     """
-    UNIVERSAL FIDUCIARY ASSET ALLOCATION & STABILITY OFFSET ENGINE:
-    Calculates deterministic Equity and Debt allocation percentages across all 6 SEBI risk tiers,
-    grounded in data/policy/asset_allocation.json and offsetting the audited look-through stability buffer.
+    Return the policy-defined new-SIP equity/debt split for a risk tier.
 
-    Returns: (target_eq_pct, target_debt_pct)
+    The SAA debt target and tolerance determine the stability-buffer threshold.
+    If the verified portfolio stability buffer meets that threshold, new SIPs
+    may be routed 100% to equity; otherwise use the policy's explicit
+    new_sip_allocation. Missing or malformed policy is a hard failure.
     """
-    # Tier-to-allocation mapping with stability buffer offset logic (6-tier SEBI system)
-    # Format: {tier_num: (base_equity, base_debt, stability_threshold)}
-    tier_allocations = {
-        1: (0.0, 100.0, 80.0),     # Tier 1 Capital Preservation: 0% Equity, 100% Debt, threshold 80%
-        2: (20.0, 80.0, 60.0),     # Tier 2 Low: 20% Equity, 80% Debt, threshold 60%
-        3: (50.0, 50.0, 40.0),     # Tier 3 Moderate: 50% Equity, 50% Debt, threshold 40%
-        4: (70.0, 30.0, 20.0),     # Tier 4 Moderately High: 70% Equity, 30% Debt, threshold 20%
-        5: (85.0, 15.0, 5.0),      # Tier 5 High: 85% Equity, 15% Debt, threshold 5%
-        6: (100.0, 0.0, 0.0),      # Tier 6 Very High: 100% Equity, 0% Debt, threshold 0%
-    }
-    
-    # Get base allocation for the specified tier
-    base_equity, base_debt, stability_threshold = tier_allocations.get(tier_num, tier_allocations[6])
-    
-    # Apply stability offset logic
+    import json
+    import math
+    from pathlib import Path
+
+    if isinstance(tier_num, bool) or tier_num not in range(1, 7):
+        raise ValueError("tier_num must be an integer from 1 through 6")
     if stability_buffer_pct is not None:
-        # If stability buffer meets or exceeds tier requirements, can maximize equity
-        if stability_buffer_pct >= stability_threshold:
-            return 100.0, 0.0
-        else:
-            # Stability buffer insufficient to eliminate debt allocation - return base allocation
-            return base_equity, base_debt
-    
-    # No stability buffer provided, return base allocation
-    return base_equity, base_debt
+        try:
+            stability = float(stability_buffer_pct)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("stability_buffer_pct must be numeric") from exc
+        if not math.isfinite(stability) or not 0.0 <= stability <= 100.0:
+            raise ValueError("stability_buffer_pct must be finite and between 0 and 100")
+    else:
+        stability = None
+
+    profile_keys = {
+        1: "low", 2: "low_to_moderate", 3: "moderate",
+        4: "moderately_high", 5: "high", 6: "very_high",
+    }
+    policy_path = Path(__file__).resolve().parents[1] / "data" / "policy" / "asset_allocation.json"
+    if not policy_path.is_file():
+        raise ValueError(f"Required allocation policy file is missing: {policy_path}")
+    try:
+        policy = json.loads(policy_path.read_text(encoding="utf-8"))
+        profile = policy["behavioral_risk_profiles"][profile_keys[tier_num]]
+        saa = profile["saa_targets"]
+        sip = profile["new_sip_allocation"]
+        debt_target = float(saa["debt_liquid_pct"])
+        tolerance = float(profile["tolerance_band_pct"])
+        equity_sip = float(sip["equity_pct"])
+        debt_sip = float(sip["debt_pct"])
+    except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
+        raise ValueError(f"Invalid allocation policy for SEBI risk tier {tier_num}") from exc
+
+    values = (debt_target, tolerance, equity_sip, debt_sip)
+    if any(not math.isfinite(v) for v in values):
+        raise ValueError("Allocation policy values must be finite")
+    if not (0.0 <= debt_target <= 100.0 and 0.0 <= tolerance <= 100.0):
+        raise ValueError("SAA debt target and tolerance must be between 0 and 100")
+    if any(not 0.0 <= v <= 100.0 for v in (equity_sip, debt_sip)):
+        raise ValueError("New-SIP equity and debt percentages must be between 0 and 100")
+    if abs(equity_sip + debt_sip - 100.0) > 0.01:
+        raise ValueError("Policy new-SIP equity and debt percentages must sum to 100%")
+
+    stability_threshold = max(0.0, debt_target - tolerance)
+    if stability is not None and stability >= stability_threshold:
+        return 100.0, 0.0
+    return equity_sip, debt_sip
 
 
 def compute_deterministic_lumpsum_blueprint(
