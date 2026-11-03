@@ -64,7 +64,7 @@ At the time of this document, `main` was not protected and had no required statu
    - `Policy / static validation`
    - `Benchmark / fixture integrity (not alpha approval)`
    - `Security / pip-audit`
-   - `Security / dependency-review`
+   GitHub Dependency Review is not currently supported for this repository because the required dependency-graph / Advanced Security capability is not enabled. Enable the required GitHub security settings or use an independent SBOM/dependency review process; do not mark an unsupported check as passed.
    The benchmark integrity check is not evidence that alpha is approved; the release tag workflow separately enforces the strict gate.
 6. Require conversation resolution.
 7. Block force pushes and branch deletion.
@@ -73,7 +73,7 @@ At the time of this document, `main` was not protected and had no required statu
 
 A PR-based workflow is intended for future maintenance; it does not change the historical fact that earlier repairs were committed directly to `main`.
 
-The updated pull-request CI runs the two P0 suites independently, then runs policy/static validation and a TRI fixture integrity check. The security workflow audits dependencies on PR/push and weekly. Dependabot opens weekly dependency and GitHub Actions update PRs. The tag-triggered release-readiness workflow deliberately fails until a reviewed, hash-locked `requirements.lock` and authenticated daily TRI/calendar source evidence are supplied. These workflows do not configure branch protection by themselves.
+The updated pull-request CI runs the two P0 suites independently, then runs policy/static validation and a TRI fixture integrity check. The security workflow runs `pip-audit` on PR/push and weekly. GitHub Dependency Review is not active because the repository's security-feature prerequisites are not enabled; this must be resolved by the repository administrator or replaced by an approved SBOM/dependency review process. Dependabot opens weekly dependency and GitHub Actions update PRs. The tag-triggered release-readiness workflow deliberately fails until a reviewed, hash-locked `requirements.lock` and authenticated daily TRI/calendar source evidence are supplied. These workflows do not configure branch protection by themselves.
 
 ## 4. Current code and data-handling rules
 
