@@ -218,12 +218,17 @@ def classify_fund_category(fund_name: str, fund_category: str = "", fund_data: O
         if kw in combined:
             return "Mid Cap Equity"
 
-    # 6. Flexi / Multi Cap Check
+    # 6. Flexi Cap Check
     for kw in FUND_CATEGORY_TAXONOMY["Flexi Cap Equity"]:
         if kw in combined:
             return "Flexi Cap Equity"
 
-    # 7. Index Funds Check
+    # 7. Multi Cap Check
+    for kw in FUND_CATEGORY_TAXONOMY["Multi Cap Equity"]:
+        if kw in combined:
+            return "Multi Cap Equity"
+
+    # 8. Index Funds Check
     for kw in FUND_CATEGORY_TAXONOMY["Index Funds"]:
         if kw in combined:
             return "Index Funds"
