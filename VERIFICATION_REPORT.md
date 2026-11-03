@@ -42,7 +42,7 @@ A release requires legal review of the applicable Act, Rules and CBDT materials,
 - Original Section 50AA uses its applicable domestic-equity definition and the relevant acquisition/transfer dates.
 - Section 76 applies from its commencement date and requires the applicable debt/money-market or fund-of-funds test, using the prescribed annual-average daily closing evidence.
 - Market-linked debentures must be identified as instruments; they must not be represented as mutual-fund units.
-- The tax planner must not accept point-in-time percentages, caller-asserted verification flags or evidence from the wrong financial year.
+- The tax planner rejects point-in-time percentages and wrong-financial-year evidence. Its current reviewer-attestation fields are provisional workflow controls only; they do not authenticate source documents. Tax-advice release remains blocked until a trusted source-authentication pipeline and independent adviser approval exist.
 
 Synthetic fixtures test arithmetic and edge conditions only. They are not statutory source evidence.
 
