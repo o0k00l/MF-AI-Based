@@ -61,7 +61,7 @@
       "description": "Tier 2 (SEBI Low to Moderate): Conservative income focus. Limited equity for inflation hedge. Suitable for horizon 3-5 years."
     },
     "moderate": {
-      "max_equity_pct": 60,
+      "max_equity_pct": 70,
       "max_mid_small_pct": 25,
       "min_debt_pct": 20,
       "max_debt_pct": 60,
