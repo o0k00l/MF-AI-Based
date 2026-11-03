@@ -1,7 +1,7 @@
 {
-  "_notice": "Official Total Return Index (TRI) benchmark series for cash-flow matched fiduciary performance audit.",
-  "source": "NSE Indices / AMFI Official Daily/Monthly TRI Series",
-  "status": "PROVISIONAL — checksum integrity only; not eligible for cash-flow-matched alpha",
+  "_notice": "PROVISIONAL TEST FIXTURE ONLY — not authenticated historical daily TRI data; do not use for benchmark XIRR or alpha.",
+  "source": "Unverified provisional benchmark fixture; historical source document not authenticated.",
+  "status": "PROVISIONAL — INTEGRITY TESTS ONLY; CASH-FLOW-MATCHED ALPHA BLOCKED",
   "provenance": {
     "download_url_nifty_500_tri": "https://www.nseindia.com/market-data/live-equity-market?symbol=NIFTY500",
     "download_url_nifty_50_tri": "https://www.nseindia.com/market-data/live-equity-market?symbol=NIFTY50",
@@ -15,20 +15,28 @@
     "frequency": "Monthly (month-end values with daily interpolation in engine)",
     "date_range": "2023-01-02 to 2026-10-09",
     "missing_date_policy": "Daily observations required; no interpolation or extrapolation. Coverage denominator must come from the separate verified NSE trading-session calendar.",
-    "tri_confirmation": "Total Returns Index (dividends reinvested), NOT price index"
+    "tri_confirmation": "Total Returns Index (dividends reinvested), NOT price index",
+    "source_authenticity": "UNVERIFIED",
+    "interpolation_used": true,
+    "release_eligibility": "BLOCKED",
+    "release_blockers": [
+      "Authenticated official historical daily TRI source file is not present",
+      "A complete independently verified NSE trading-session calendar is not present",
+      "Any daily values produced by interpolation are not historical daily TRI observations"
+    ]
   },
   "coverage": {
     "nifty_500_tri": {
-      "expected_trading_days": 945,
+      "expected_trading_days": null,
       "provided_data_points": 75,
-      "coverage_pct": 7.94,
-      "note": "Monthly data points; daily interpolation used in engine. For daily NAV source, see Section 50AA amended regime requirements."
+      "coverage_pct": null,
+      "note": "Observation count is not a market-session coverage measure. Source authenticity and daily completeness are unverified."
     },
     "nifty_50_tri": {
-      "expected_trading_days": 945,
+      "expected_trading_days": null,
       "provided_data_points": 22,
-      "coverage_pct": 2.33,
-      "note": "Quarterly/monthly data points; daily interpolation used in engine."
+      "coverage_pct": null,
+      "note": "Observation count is not a market-session coverage measure. Source authenticity and daily completeness are unverified."
     }
   },
   "methodology": "Cash-flow-matched unit acquisition model. Portfolio inflows purchase hypothetical benchmark units at prevailing TRI NAV; outflows redeem units. Internal SWITCH/STP transactions netted to zero at portfolio level.",
