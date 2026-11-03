@@ -119,7 +119,8 @@ def check_eligibility_gates(
     details = {}
 
     fund_id = fund_data.get("fund_id", fund_data.get("id", ""))
-    fund_name = fund_data.get("fund_name", fund_data.get("name", fund_id))
+    fund_name = str(fund_data.get("fund_name", fund_data.get("name", fund_id)) or "")
+    category = str(fund_data.get("category", fund_data.get("cat", "")) or "")
 
     # --- Gate 1: AMC Concentration Gate ---
     # Never infer an AMC from the first token of a scheme name: many AMCs have
@@ -171,7 +172,6 @@ def check_eligibility_gates(
     if not aum_min_ok:
         failed.append(f"Gate 2 [Liquidity/AUM]: AUM ₹{aum:,.0f} Cr < ₹{min_aum_crore:,.0f} Cr minimum")
 
-    category = fund_data.get("category", fund_data.get("cat", ""))
     cat_cap = CATEGORY_AUM_CAPS.get(category)
     aum_cap_ok = True
     if cat_cap and aum > cat_cap:
