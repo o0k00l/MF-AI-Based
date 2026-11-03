@@ -7,6 +7,29 @@ from core.eligibility import _finite_number, _risk_tier_to_int, check_eligibilit
 from tax.transition_planner import Lot, FundSellPlan, plan_fy_tranches, classify_fund_for_tax
 
 
+def _write_test_nse_calendar(tmp_path, sessions):
+    import hashlib
+    import json
+
+    sessions = sorted(sessions)
+    sessions_sha256 = hashlib.sha256(
+        json.dumps(sessions, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    ).hexdigest()
+    calendar = {
+        "exchange": "NSE",
+        "status": "VERIFIED",
+        "sessions": sessions,
+        "provenance": {
+            "source_url": "https://www.nseindia.com/reports",
+            "source_document_sha256": "b" * 64,
+            "sessions_sha256": sessions_sha256,
+        },
+    }
+    path = tmp_path / "nse_calendar.json"
+    path.write_text(json.dumps(calendar), encoding="utf-8")
+    return path
+
+
 @pytest.mark.parametrize(
     ("label", "expected"),
     [
@@ -143,6 +166,7 @@ def test_tri_calculation_rejects_missing_terminal_cas_value(tmp_path):
     tx_path = tmp_path / "transactions.json"
     tri_path.write_text(json.dumps(tri), encoding="utf-8")
     tx_path.write_text(json.dumps(transactions), encoding="utf-8")
+    calendar_path = _write_test_nse_calendar(tmp_path, list(levels.keys()))
 
     with pytest.raises(TriProvenanceError, match="Current CAS valuation is missing"):
         calculate_cashflow_matched_benchmark_xirr(
@@ -151,6 +175,7 @@ def test_tri_calculation_rejects_missing_terminal_cas_value(tmp_path):
             benchmark_key="NIFTY 500 TRI",
             benchmark_series_path=tri_path,
             cas_current=None,
+            trading_calendar_path=calendar_path,
         )
 
 
@@ -195,6 +220,7 @@ def test_tri_internal_switch_pair_is_netted_across_different_schemes(tmp_path):
     tx_path = tmp_path / "transactions.json"
     tri_path.write_text(json.dumps(tri), encoding="utf-8")
     tx_path.write_text(json.dumps(transactions), encoding="utf-8")
+    calendar_path = _write_test_nse_calendar(tmp_path, list(levels.keys()))
 
     result = calculate_cashflow_matched_benchmark_xirr(
         transactions_path=tx_path,
@@ -202,6 +228,7 @@ def test_tri_internal_switch_pair_is_netted_across_different_schemes(tmp_path):
         benchmark_key="NIFTY 500 TRI",
         benchmark_series_path=tri_path,
         cas_current=1000.0,
+        trading_calendar_path=calendar_path,
     )
     assert result["cashflows_count"] == 0
     assert result["methodology"] == "Zero cashflows"
