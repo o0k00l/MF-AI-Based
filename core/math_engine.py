@@ -3011,40 +3011,64 @@ def compute_annual_average_daily_closing(
 
 def qualifies_as_equity_oriented_under_section_198(
     equity_pct: float,
-    calculation_method: str = "annual_average_monthly",
-    snapshots: Optional[List[DailyPortfolioSnapshot]] = None,
+    calculation_method: str = "annual_average_monthly_opening_closing",
+    monthly_snapshots: Optional[List[MonthlyPortfolioSnapshot]] = None,
     fy_start: Optional[date] = None,
-    fy_end: Optional[date] = None
+    fy_end: Optional[date] = None,
+    is_fund_of_funds: bool = False,
 ) -> ClassificationResult:
     """
-    Section 198: Equity-oriented fund qualification.
-    
-    Criteria: >= 65% domestic equity (annual average of monthly opening/closing).
-    Threshold is INCLUSIVE per CBDT clarification.
+    Section 198(8): equity-oriented fund qualification.
+
+    Direct fund: at least 65% in domestic listed equity.
+    Qualifying fund-of-funds: at least 90% in units of another qualifying
+    exchange-traded fund, whose own allocation is at least 90% domestic equity.
+    Both tests use the annual average of monthly averages of opening and closing
+    figures. A point-in-time percentage is not a statutory substitute.
     """
-    if snapshots and fy_start and fy_end:
-        avg_equity = compute_annual_average_daily_closing(
-            snapshots, fy_start, fy_end, "equity_pct"
+    from core.models import InsufficientDataError
+
+    if not monthly_snapshots or fy_start is None or fy_end is None:
+        raise InsufficientDataError(
+            "Section 198 classification requires 12 monthly opening/closing observations for the relevant financial year.",
+            missing_data="monthly opening and closing portfolio-composition snapshots",
+            required_source="Verified monthly portfolio disclosures for all 12 financial-year months",
         )
-        effective_pct = avg_equity if avg_equity is not None else equity_pct
-        method = "annual_average_daily"
+
+    if is_fund_of_funds:
+        fund_units_pct = compute_annual_average_monthly_opening_closing(
+            monthly_snapshots, fy_start, fy_end, "fof_units_pct"
+        )
+        underlying_equity_pct = compute_annual_average_monthly_opening_closing(
+            monthly_snapshots, fy_start, fy_end, "underlying_equity_pct"
+        )
+        qualifies = fund_units_pct >= 90.0 and underlying_equity_pct >= 90.0
+        effective_pct = underlying_equity_pct
+        threshold = 90.0
+        method = "annual_average_monthly_opening_closing_fof_90_90"
+        reason = (
+            f"FoF allocation to qualifying exchange-traded fund units is {fund_units_pct:.2f}% "
+            f"and underlying domestic equity is {underlying_equity_pct:.2f}%; both must be >= 90%"
+        )
     else:
-        effective_pct = equity_pct
-        method = calculation_method
-    
-    qualifies = float(effective_pct) >= 65.0
-    
+        effective_pct = compute_annual_average_monthly_opening_closing(
+            monthly_snapshots, fy_start, fy_end, "equity_pct"
+        )
+        qualifies = effective_pct >= 65.0
+        threshold = 65.0
+        method = "annual_average_monthly_opening_closing"
+        reason = f"Annual-average monthly opening/closing domestic equity is {effective_pct:.2f}% {'meets' if qualifies else 'below'} 65%"
+
     return ClassificationResult(
         qualifies=qualifies,
-        provision="Section 198",
-        effective_date=fy_end if fy_end else date.today(),
-        threshold=65.0,
+        provision="Section 198(8)",
+        effective_date=fy_end,
+        threshold=threshold,
         calculation_method=method,
-        source_data_status="complete" if snapshots else "partial",
-        reason=f"Equity {effective_pct:.2f}% {'meets' if qualifies else 'below'} 65% threshold",
-        equity_pct=effective_pct
+        source_data_status="complete_12_monthly_observations",
+        reason=reason,
+        equity_pct=effective_pct,
     )
-
 
 
 
