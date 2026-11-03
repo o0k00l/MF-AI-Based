@@ -1557,3 +1557,72 @@ def test_selector_does_not_select_candidate_using_direct_name_suffix_only():
     assert str(slot["scheme"]).startswith("NO_ACTION")
     assert slot["allocation_pct"] == 0.0
     assert slot["unallocated_pct"] > 0.0
+
+
+
+def test_section_198_direct_fund_threshold_is_strictly_more_than_65_percent():
+    from core.math_engine import qualifies_as_equity_oriented_under_section_198
+
+    fy_start, fy_end = date(2026, 4, 1), date(2027, 3, 31)
+    monthly_at_threshold = _monthly_snapshots_for_fy(fy_start, equity_pct=65.0)
+    result_at_threshold = qualifies_as_equity_oriented_under_section_198(
+        equity_pct=65.0,
+        monthly_snapshots=monthly_at_threshold,
+        monthly_coverage_evidence=_monthly_coverage_evidence(fy_start, monthly_at_threshold),
+        fy_start=fy_start,
+        fy_end=fy_end,
+    )
+    assert result_at_threshold.qualifies is False
+
+    monthly_above_threshold = _monthly_snapshots_for_fy(fy_start, equity_pct=65.01)
+    result_above_threshold = qualifies_as_equity_oriented_under_section_198(
+        equity_pct=65.01,
+        monthly_snapshots=monthly_above_threshold,
+        monthly_coverage_evidence=_monthly_coverage_evidence(fy_start, monthly_above_threshold),
+        fy_start=fy_start,
+        fy_end=fy_end,
+    )
+    assert result_above_threshold.qualifies is True
+
+
+def test_tax_planner_equity_classification_uses_strict_more_than_65_percent():
+    lot = Lot(
+        fund_id="synthetic-fund", folio_name="synthetic-folio",
+        purchase_date=date(2024, 1, 1), units=1, nav=100, cost=100,
+        source="synthetic", equity_pct=65.0,
+        equity_pct_method="annual_average_monthly_opening_closing",
+        equity_pct_fy_start=2026,
+        equity_pct_source_url="https://example.test/synthetic-disclosure",
+        equity_pct_source_sha256="a" * 64,
+        equity_pct_source_reviewed=True,
+    )
+    rules = {"classification_test": {"equity_oriented_threshold_pct": 65.0}}
+    assert classify_fund_for_tax(lot, rules, sale_date=date(2026, 11, 3)) == "non_equity_oriented"
+    lot.equity_pct = 65.01
+    assert classify_fund_for_tax(lot, rules, sale_date=date(2026, 11, 3)) == "equity_oriented"
+
+
+def test_legacy_tax_classifier_never_defaults_unknown_or_non_equity_to_equity():
+    from types import SimpleNamespace
+    from core.math_engine import _classify_fund_for_tax
+
+    rules = {"classification_test": {"equity_oriented_threshold_pct": 65.0}}
+    with pytest.raises(ValueError, match="Verified annual-average equity allocation"):
+        _classify_fund_for_tax(SimpleNamespace(equity_pct=None), rules)
+    with pytest.raises(NotImplementedError, match="Non-equity tax classification is not implemented"):
+        _classify_fund_for_tax(SimpleNamespace(equity_pct=65.0), rules)
+    assert _classify_fund_for_tax(SimpleNamespace(equity_pct=65.01), rules) == "equity_oriented"
+
+
+def test_tri_release_flag_fails_closed_while_fixture_is_provisional():
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    completed = subprocess.run(
+        [sys.executable, str(root / "verify_tri_provenance.py"), "--require-alpha-release"],
+        cwd=root, capture_output=True, text=True, check=False,
+    )
+    assert completed.returncode != 0
+    assert "TRI alpha release eligibility: BLOCKED" in completed.stdout
