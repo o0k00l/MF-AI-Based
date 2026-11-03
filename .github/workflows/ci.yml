@@ -35,4 +35,4 @@ jobs:
         run: python verify_tri_provenance.py
 
       - name: Run TRI Coverage Gate Test
-        run: python -m pytest test_p0_fiduciary_invariants.py::test_p0_16_tri_coverage_gate_rejects_inflated_metadata -v
+        run: python -m pytest tests/test_p0_correctness_regressions.py::test_section_76_rejects_missing_dates_even_with_calendar_provenance -v
