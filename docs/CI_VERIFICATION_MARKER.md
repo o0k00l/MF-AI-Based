@@ -7,3 +7,5 @@ CI validation branch updated to force a fresh pull_request synchronize event.
 CI trigger refresh after main validation updates.
 
 CI verification refresh after mandatory prior-LTCG tax input changes.
+
+Risk tier parser fix on main; refresh CI run.
