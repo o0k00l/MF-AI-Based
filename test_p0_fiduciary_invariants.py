@@ -705,6 +705,8 @@ def test_p0_10_gate4_fail_closed_and_missing_metrics():
     base_active = {
         "fund_id": "TEST_FAIL_CLOSED",
         "fund_name": "Test Active Fund Direct Plan Growth",
+        "amc_name": "TEST AMC",
+        "allocation_pct": 0.0,
         "aum_crore": 5000.0,
         "category": "Flexi Cap",
         "top10_concentration_pct": 35.0,
