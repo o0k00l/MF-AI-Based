@@ -3475,7 +3475,18 @@ def classify_specified_mutual_fund(
         transfer_date = as_of if as_of is not None else date.today()
     if as_of is None:
         as_of = date.today()
-    
+
+    if not is_mld:
+        expected_fy_start = date(transfer_date.year if transfer_date.month >= 4 else transfer_date.year - 1, 4, 1)
+        expected_fy_end = date(expected_fy_start.year + 1, 3, 31)
+        if fy_start != expected_fy_start or fy_end != expected_fy_end:
+            from core.models import InsufficientDataError
+            raise InsufficientDataError(
+                "Tax classification observations must cover the financial year of the transfer.",
+                missing_data=f"expected financial year {expected_fy_start} through {expected_fy_end}",
+                required_source="Verified monthly and daily portfolio-composition series for the transfer financial year",
+            )
+
     if is_mld:
         equity_result = ClassificationResult(
             qualifies=False,
