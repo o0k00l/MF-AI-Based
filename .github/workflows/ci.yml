@@ -15,6 +15,7 @@ concurrency:
 
 jobs:
   dependency-lock-consistency:
+    timeout-minutes: 10
     name: Dependencies / lock matches declared constraints
     runs-on: ubuntu-latest
     steps:
@@ -30,6 +31,7 @@ jobs:
           git diff --exit-code -- requirements.lock
 
   p0-tests:
+    timeout-minutes: 20
     name: P0 / ${{ matrix.suite }}
     runs-on: ubuntu-latest
     strategy:
@@ -53,6 +55,7 @@ jobs:
         run: ${{ matrix.command }}
 
   full-test-suite:
+    timeout-minutes: 25
     name: Tests / full repository suite
     runs-on: ubuntu-latest
     steps:
@@ -68,6 +71,7 @@ jobs:
         run: python -m pytest -q --tb=short
 
   policy-validation:
+    timeout-minutes: 15
     name: Policy / static validation
     runs-on: ubuntu-latest
     steps:
@@ -89,6 +93,7 @@ jobs:
         run: python -m pytest test_clean_checkout.py -v --tb=short
 
   tri-fixture-integrity:
+    timeout-minutes: 5
     name: Benchmark / fixture integrity (not alpha approval)
     runs-on: ubuntu-latest
     steps:
