@@ -20,7 +20,7 @@ def _write_test_nse_calendar(tmp_path, sessions):
         "status": "VERIFIED",
         "sessions": sessions,
         "provenance": {
-            "source_url": "https://www.nseindia.com/reports",
+            "source_url": "https://example.test/nse-calendar-fixture",
             "source_document_sha256": "b" * 64,
             "sessions_sha256": sessions_sha256,
         },
