@@ -92,6 +92,35 @@ def test_tax_classification_requires_verified_equity_allocation():
         classify_fund_for_tax(lot, {"classification_test": {"equity_oriented_threshold_pct": 65.0}})
 
 
+def test_tax_classification_recomputes_source_document_digest_and_blocks_path_escape():
+    lot = Lot(
+        fund_id="fund-x",
+        folio_name="folio-1",
+        purchase_date=date(2024, 1, 1),
+        units=10,
+        nav=50,
+        cost=500,
+        source="cas",
+        equity_pct=100.0,
+        equity_pct_method="annual_average_monthly_opening_closing",
+        equity_pct_fy_start=2026,
+        equity_pct_source_url="https://example.test/synthetic-monthly-disclosure",
+        equity_pct_source_reviewed=True,
+        **_synthetic_tax_evidence_kwargs(),
+    )
+    rules = {"classification_test": {"equity_oriented_threshold_pct": 65.0}}
+    assert classify_fund_for_tax(lot, rules, sale_date=date(2026, 11, 3)) == "equity_oriented"
+
+    lot.equity_pct_source_sha256 = "0" * 64
+    with pytest.raises(ValueError, match="does not match local source bytes"):
+        classify_fund_for_tax(lot, rules, sale_date=date(2026, 11, 3))
+
+    lot.equity_pct_source_sha256 = _TEST_TAX_EVIDENCE_SHA256
+    lot.equity_pct_source_file = "../synthetic_tax_evidence.txt"
+    with pytest.raises(ValueError, match="cannot be safely verified"):
+        classify_fund_for_tax(lot, rules, sale_date=date(2026, 11, 3))
+
+
 def test_tax_planner_allocates_each_lot_only_once():
     lot = Lot(
         fund_id="fund-x",
