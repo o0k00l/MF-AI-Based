@@ -73,13 +73,17 @@ def _attach_reviewed_direct_test_evidence(candidate, tmp_path):
 # Fixture to check if CAS data is available (required for some integration tests)
 @pytest.fixture(scope="module")
 def cas_data_available():
-    """Check if CAS Excel statements are available in data/lalit_portfolio."""
-    cas_dir = Path(__file__).parent / "data" / "lalit_portfolio"
-    if not cas_dir.exists():
+    """Check only the explicitly configured external client-data directory."""
+    import os
+
+    configured_dir = os.environ.get("MF_CLIENT_DATA_DIR")
+    if not configured_dir:
         return False
-    # Check for any xlsx files
+    cas_dir = Path(configured_dir).expanduser().resolve()
+    if not cas_dir.is_dir():
+        return False
     cas_files = list(cas_dir.glob("*.xlsx")) + list((cas_dir / "statements").glob("*.xlsx"))
-    return len(cas_files) > 0
+    return bool(cas_files)
 
 
 def _get_portfolio_paths_or_skip():
@@ -416,13 +420,16 @@ def test_p0_5_fiduciary_personal_redemption_engine():
     from core.redemption_engine import compute_personal_redemption_plan
     from core.models import RedemptionPriorityTier
 
-    # Client CAS and mandate files are private local inputs and are not committed.
-    # Run this integration invariant only when a real local statement is present.
-    client_dir = Path(__file__).resolve().parent / "data" / "lalit_portfolio"
+    # Client CAS and mandate files must be supplied through an external directory.
+    import os
+    configured_dir = os.environ.get("MF_CLIENT_DATA_DIR")
+    if not configured_dir:
+        pytest.skip("MF_CLIENT_DATA_DIR is not configured for private CAS integration testing")
+    client_dir = Path(configured_dir).expanduser().resolve()
     statements_dir = client_dir / "statements"
     local_cas = list(statements_dir.glob("cas_detailed_report_*.xlsx")) if statements_dir.exists() else []
     if not local_cas:
-        pytest.skip("Private client CAS statement not present in this checkout")
+        pytest.skip("Private client CAS statement not present in MF_CLIENT_DATA_DIR")
     cas, metrics, config, aliases, _ = _get_portfolio_paths_or_skip()
     facts = aggregate_fiduciary_facts(cas, metrics, config, aliases)
     tx_path = cas.parent.parent / "transactions.json"
@@ -901,9 +908,13 @@ def test_p0_11_candidate_specific_lookthrough_overlap():
     from core.math_engine import aggregate_fiduciary_facts, compute_candidate_portfolio_overlap
     import json
 
-    # Skip if CAS data not available (integration test requiring real statements)
-    if not (Path(__file__).parent / "data" / "lalit_portfolio").exists():
-        pytest.skip("CAS Excel statements not available - integration test skipped")
+    # Skip unless the caller explicitly supplies private client data outside the repository.
+    import os
+    configured_dir = os.environ.get("MF_CLIENT_DATA_DIR")
+    if not configured_dir:
+        pytest.skip("MF_CLIENT_DATA_DIR is not configured for private CAS integration testing")
+    if not Path(configured_dir).expanduser().resolve().is_dir():
+        pytest.skip("Configured MF_CLIENT_DATA_DIR is not available")
 
     cas, metrics_p, config, aliases, _ = _get_portfolio_paths_or_skip()
     facts = aggregate_fiduciary_facts(cas, metrics_p, config, aliases)
