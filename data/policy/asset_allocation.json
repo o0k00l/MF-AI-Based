@@ -19,24 +19,6 @@
     "note": "Per POL-TAX-002 & FM-PAYBACK-V1. Tiered thresholds: <=2.0Y = approve; 2.0-5.0Y = staged/IPS-dependent; >5.0Y = reject. Configurable via IPS. Used by GATE-8 (release_gates.py)."
   },
   "as_of": "2026-10-30",
-  "horizon_ceilings": {
-    "ultra_short": {
-      "max_equity_pct": 20,
-      "max_mid_small_pct": 0
-    },
-    "short": {
-      "max_equity_pct": 40,
-      "max_mid_small_pct": 15
-    },
-    "medium": {
-      "max_equity_pct": 60,
-      "max_mid_small_pct": 30
-    },
-    "long": {
-      "max_equity_pct": 80,
-      "max_mid_small_pct": 40
-    }
-  },
   "behavioral_risk_profiles": {
     "low": {
       "max_equity_pct": 20,
@@ -159,24 +141,6 @@
       "description": "Tier 6 (SEBI Very High): Maximum-risk mandate. 95% equity ceiling. Highest volatility tolerance. Suitable only for horizon >= 10 years with explicit IPS authorization."
     }
   },
-  "age_capacity_rules": {
-    "under_30": {
-      "max_equity_pct": 90,
-      "description": "High capacity for growth"
-    },
-    "30_to_50": {
-      "max_equity_pct": 70,
-      "description": "Balanced growth phase"
-    },
-    "50_to_65": {
-      "max_equity_pct": 50,
-      "description": "Transition to preservation"
-    },
-    "over_65": {
-      "max_equity_pct": 30,
-      "description": "Capital preservation focus"
-    }
-  },
   "sip_allocation_policy": {
     "build_portfolio_gap_threshold_pct": 10,
     "max_fund_allocation_pct": 20,
@@ -275,5 +239,59 @@
       "stp_pct": 0.8,
       "note": "For VERY_HIGH (Tier 6) with horizon >= 7 years, reduce parking to 20% and increase STP equity deployment to 80%. Full lumpsum equity deployment permitted only with explicit client acknowledgment of sequence-of-returns risk."
     }
+  },
+  "horizon_review_guidance": {
+    "ultra_short": {
+      "review_trigger_equity_pct": 20,
+      "review_trigger_mid_small_pct": 0,
+      "binding": false
+    },
+    "short": {
+      "review_trigger_equity_pct": 40,
+      "review_trigger_mid_small_pct": 15,
+      "binding": false
+    },
+    "medium": {
+      "review_trigger_equity_pct": 60,
+      "review_trigger_mid_small_pct": 30,
+      "binding": false
+    },
+    "long": {
+      "review_trigger_equity_pct": 80,
+      "review_trigger_mid_small_pct": 40,
+      "binding": false
+    }
+  },
+  "age_capacity_review_guidance": {
+    "under_30": {
+      "review_trigger_equity_pct": 90,
+      "binding": false
+    },
+    "30_to_50": {
+      "review_trigger_equity_pct": 70,
+      "binding": false
+    },
+    "50_to_65": {
+      "review_trigger_equity_pct": 50,
+      "binding": false
+    },
+    "over_65": {
+      "review_trigger_equity_pct": 30,
+      "binding": false
+    }
+  },
+  "policy_interpretation": {
+    "saa_targets": "Strategic asset allocation targets for the total portfolio; not the same as new-SIP cash-flow routing.",
+    "new_sip_allocation": "Base allocation of new monthly SIP cash flows when the stability-buffer override is not met.",
+    "stability_buffer": "May alter new-SIP routing only under the documented formula and verified exposure data; it does not rewrite the investor's SAA target.",
+    "age_and_horizon_guidance": "Age and horizon bands are non-binding review prompts, not automatic equity caps. Determine risk capacity from goals, liabilities, income stability, liquidity needs, loss capacity and investor-specific facts."
+  },
+  "thematic_satellite_policy": {
+    "enabled_by_default": false,
+    "default_pct_of_equity": 0,
+    "max_pct_of_equity": 15,
+    "requires_explicit_ips_authorization": true,
+    "funding_rule": "Carve the satellite percentage out of the equity SIP budget before allocating the remainder across core sleeves. Never add it on top of core weights.",
+    "no_candidate_rule": "If no separately verified thematic candidate passes, keep satellite at zero; do not automatically redirect its budget."
   }
 }
