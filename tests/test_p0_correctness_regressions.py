@@ -1,3 +1,4 @@
+import hashlib
 """Regression tests for fiduciary P0 correctness defects."""
 from datetime import date
 
