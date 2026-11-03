@@ -5,3 +5,5 @@ This file exists only to trigger a pull-request CI run against the current `main
 CI validation branch updated to force a fresh pull_request synchronize event.
 
 CI trigger refresh after main validation updates.
+
+CI verification refresh after mandatory prior-LTCG tax input changes.
