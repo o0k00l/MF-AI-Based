@@ -281,7 +281,7 @@ print("\n" + "="*70)
 print("\n>> [TEST 7] All 6 SEBI Regulatory Risk Tiers (Dynamic SIP & Lumpsum Scaling):")
 
 tier_targets = [
-    ("Tier 6 (Very High)", 100.0, 0.0),
+    ("Tier 6 (Very High)", 95.0, 5.0),
     ("Tier 5 (High)", 95.0, 5.0),
     ("Tier 4 (Moderate High)", 85.0, 15.0),
     ("Tier 3 (Moderate)", 60.0, 40.0),
@@ -341,6 +341,18 @@ for t_name, exp_eq, exp_debt in tier_targets:
         abs(debt_tranche_amt - exp_debt_amt) < 0.01,
         f"Debt: INR {debt_tranche_amt:,.0f} (Expected: INR {exp_debt_amt:,.0f})"
     )
+
+tier6_override = compute_deterministic_sip_blueprint(
+    monthly_budget=50000.0,
+    risk_tier="Tier 6 (Very High)",
+    stability_buffer_pct=0.0,
+    equity_sip_routing_override=True,
+)
+check(
+    "Tier 6 100% equity routing requires explicit IPS override",
+    tier6_override.equity_sip_pct == 100.0 and tier6_override.debt_sip_pct == 0.0,
+    f"-> Eq: {tier6_override.equity_sip_pct}% | Debt: {tier6_override.debt_sip_pct}%",
+)
 
 print(f"  PUBLIC LOGIC SCORECARD: {passed_checks}/{total_checks} CHECKS PASSED")
 print("  INVESTOR RELEASE STATUS: SUBJECT TO PRIVATE CAS RECONCILIATION, VERIFIED SCHEME METADATA, HISTORICAL TRI SOURCE AUTHENTICATION AND INDEPENDENT NSE CALENDAR REVIEW")
