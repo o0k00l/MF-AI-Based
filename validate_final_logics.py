@@ -55,50 +55,32 @@ print("="*70)
 # =====================================================================
 # TEST 1: Universal 20/80 Lumpsum Equation & Big-Ticket Scaling
 # =====================================================================
-print("\n>> [TEST 1] Universal 20/80 Lumpsum Deployment & Big-Ticket Scaling:")
+print("\n>> [TEST 1] Lumpsum fail-closed evidence and budget reconciliation:")
 test_lumpsums = [100000.0, 500000.0, 1000000.0, 2500000.0, 5000000.0]
 for L in test_lumpsums:
     lp = compute_deterministic_lumpsum_blueprint(
         lumpsum_amount=L,
         bank_cash_total=435000.0,
-        emergency_reserve=115000.0
+        emergency_reserve=115000.0,
+        bank_cash_verified=False,
+        candidate_universe=[],
     )
-    # Check 1: 20/80 split holds perfectly
     check(
-        f"Lumpsum INR {L:,.0f} Math (20/80 Split)",
-        lp.immediate_amount_inr == round(L * 0.20, 2) and lp.stp_total_amount_inr == round(L * 0.80, 2),
-        f"-> Day 1: INR {lp.immediate_amount_inr:,.0f} | STP ({lp.stp_duration_months}M): INR {lp.monthly_stp_total_inr:,.0f}/mo"
+        f"Lumpsum INR {L:,.0f} remains NO ACTION without bank verification",
+        not lp.cash_validation_passed and lp.immediate_amount_inr == 0 and lp.stp_total_amount_inr == 0,
+        lp.cash_validation_message,
     )
-    # Check 2: Sum of all tranches equals exactly L
     tranche_sum = sum(t.amount_inr for t in lp.tranches)
     check(
-        f"Lumpsum INR {L:,.0f} Tranche Integrity",
-        abs(tranche_sum - L) < 0.01,
-        f"Tranches sum to INR {tranche_sum:,.0f}"
+        f"Lumpsum INR {L:,.0f} reconciles deployed plus unallocated",
+        abs(tranche_sum + lp.unallocated_amount_inr - L) < 0.01,
+        f"Tranches INR {tranche_sum:,.2f}; unallocated INR {lp.unallocated_amount_inr:,.2f}",
     )
-    # Check 3: Big ticket handling for L >= 5L
-    if L >= 500000.0:
-        check(
-            f"Lumpsum INR {L:,.0f} Big-Ticket Arbitrage Mandate",
-            lp.is_big_ticket and "Arbitrage" in lp.parking_vehicle,
-            f"Vehicle: {lp.parking_vehicle}"
-        )
-        check(
-            f"Lumpsum INR {L:,.0f} Multi-Slot SAA Preservation",
-            len(lp.tranches) >= 4,
-            f"Tranches: {len(lp.tranches)} legs across Flexi, Mid & Large"
-        )
-        check(
-            f"Lumpsum INR {L:,.0f} Tax Savings vs Debt Liquid",
-            lp.tax_savings_vs_debt_fund_inr > 0,
-            f"Saved: INR {lp.tax_savings_vs_debt_fund_inr:,.2f}"
-        )
-    else:
-        check(
-            f"Lumpsum INR {L:,.0f} Agile Single-Destination STP",
-            len(lp.tranches) == 2 and lp.stp_duration_months == 6,
-            f"Tranches: {len(lp.tranches)} legs"
-        )
+    check(
+        f"Lumpsum INR {L:,.0f} does not fabricate a parking vehicle or tax saving",
+        lp.parking_vehicle == "NO_ACTION" and lp.tax_savings_vs_debt_fund_inr == 0.0,
+        f"Vehicle: {lp.parking_vehicle}; estimated saving: {lp.tax_savings_vs_debt_fund_inr:.2f}",
+    )
 
 # =====================================================================
 # TEST 2: Universal 4-Slot Sizing Engine & Tiered Scaling
@@ -348,12 +330,12 @@ for t_name, exp_eq, exp_debt in tier_targets:
     )
     lump_tot = sum(tr.amount_inr for tr in lump_tier.tranches)
     check(
-        f"{t_name} Big Lumpsum Tranches Sum Exactly to Budget",
-        abs(lump_tot - 1000000.0) < 0.01,
-        f"Sum: INR {lump_tot:,.2f}"
+        f"{t_name} Lumpsum remains unallocated without verified candidates and staging policy",
+        lump_tier.unallocated_amount_inr == 1000000.0 and lump_tot == 0.0,
+        f"Deployed: INR {lump_tot:,.2f}; unallocated: INR {lump_tier.unallocated_amount_inr:,.2f}"
     )
     debt_tranche_amt = sum(tr.amount_inr for tr in lump_tier.tranches if "Debt" in tr.role or "Preservation" in tr.role)
-    exp_debt_amt = round(1000000.0 * (exp_debt / 100.0), 2)
+    exp_debt_amt = 0.0
     check(
         f"{t_name} Big Lumpsum Debt Allocation Matches SAA",
         abs(debt_tranche_amt - exp_debt_amt) < 0.01,
