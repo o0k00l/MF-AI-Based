@@ -71,7 +71,7 @@ def test_clean_checkout():
             cwd=project_root,
             capture_output=True,
             check=True,
-        ).stdout.decode("utf-8").split("\\0")
+        ).stdout.decode("utf-8").split("\0")
         for relative_name in filter(None, tracked):
             rel = Path(relative_name)
             src = project_root / rel
@@ -131,7 +131,7 @@ def test_clean_checkout():
         )
         assert result.returncode == 0, f"Universal logic validation failed in clean checkout:\n{result.stdout}\n{result.stderr}"
         assert "84/84 CHECKS PASSED" in result.stdout or result.returncode == 0, "Expected validation checks to pass"
-        print("[CLEAN CHECKOUT] Universal logic validation PASSED (84/84)")
+        print("[CLEAN CHECKOUT] Universal logic validation PASSED")
         
         # Run advisor.py end-to-end (this will fail without CAS statements, which is expected)
         # We test that the engine initializes correctly
@@ -148,8 +148,8 @@ def test_clean_checkout():
         
         print("\n✅ CLEAN CHECKOUT VIABILITY TEST PASSED")
         print("   All critical source files present")
-        print("   P0 invariant tests pass (15/15)")
-        print("   Universal logic validation passes (84/84)")
+        print("   P0 invariant tests pass in the isolated checkout")
+        print("   Universal logic validation passes")
         print("   Engine imports successfully")
         print("   No hardcoded paths or environment dependencies detected")
 
