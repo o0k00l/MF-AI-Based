@@ -49,7 +49,7 @@ def _risk_tier_to_int(tier: Any) -> int:
         return mapping[tier]
     tier_str = str(tier).strip().lower()
     import re
-    match = re.search(r"\\btier\\s*([1-6])\\b", tier_str)
+    match = re.search(r"\btier\s*([1-6])\b", tier_str)
     if match:
         return int(match.group(1))
     # Match the most specific labels first.
@@ -208,17 +208,22 @@ def check_eligibility_gates(
     details["top10_concentration_pct"] = top10
 
     # Sector concentration check
-    sector_raw = fund_data.get("single_sector_weight_pct", fund_data.get("max_sector_concentration_pct", fund_data.get("fin")))
-    try:
-        sector_conc = _finite_number(sector_raw, "single-sector concentration")
-        if not 0.0 <= sector_conc <= 100.0:
-            raise ValueError("single-sector concentration must be between 0 and 100")
-    except ValueError as exc:
-        sector_conc = None
-        failed.append(f"Gate 3 [Sector Concentration]: {exc} — fail-closed")
-    # Broad diversified equity funds must not exceed single-sector concentration cap (35%).
-    # Dedicated thematic/sectoral funds are governed by Gate 9 (15% portfolio allocation cap) rather than an internal sector cap.
+    # Dedicated thematic/sectoral funds are governed by Gate 9 portfolio allocation limits.
     is_thematic = any(kw in category.lower() or kw in fund_name.lower() for kw in ("thematic", "sectoral", "defence", "energy", "pharma", "health", "tech"))
+    sector_raw = fund_data.get("single_sector_weight_pct", fund_data.get("max_sector_concentration_pct", fund_data.get("fin")))
+    sector_conc = None
+    if not is_thematic:
+        try:
+            sector_conc = _finite_number(sector_raw, "single-sector concentration")
+            if not 0.0 <= sector_conc <= 100.0:
+                raise ValueError("single-sector concentration must be between 0 and 100")
+        except ValueError as exc:
+            failed.append(f"Gate 3 [Sector Concentration]: {exc} — fail-closed")
+    elif sector_raw is not None:
+        try:
+            sector_conc = _finite_number(sector_raw, "single-sector concentration")
+        except ValueError:
+            sector_conc = None
     if not is_thematic and sector_conc is not None and sector_conc > max_sector_concentration_pct:
         failed.append(f"Gate 3 [Sector Concentration]: Sector weight {sector_conc:.1f}% > {max_sector_concentration_pct:.1f}%")
     details["sector_concentration_pct"] = sector_conc
