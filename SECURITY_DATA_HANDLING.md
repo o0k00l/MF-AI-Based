@@ -58,7 +58,7 @@ At the time of this document, `main` was not protected and had no required statu
 2. Create a branch ruleset targeting the exact branch name `main`.
 3. Require a pull request before merging, with at least one approval from a reviewer who did not author the change.
 4. Dismiss stale approvals when new commits are pushed.
-5. Require the GitHub Actions status check for the CI workflow's `test` job. Confirm the exact displayed check name in the latest successful workflow run before selecting it.
+5. Require the current CI checks shown by GitHub for the exact `main` commit. The latest verified CI run exposes six jobs: `Dependencies / lock matches declared constraints`, `P0 / fiduciary-invariants`, `P0 / correctness-regressions`, `Tests / full repository suite`, `Policy / static validation`, and `Benchmark / fixture integrity (not alpha approval)`. Select the exact check names displayed by GitHub; do not configure a stale `test` job name. Also require `Security / pip-audit` if the repository's ruleset supports checks from the Security workflow.
 6. Require conversation resolution.
 7. Block force pushes and branch deletion.
 8. Do not allow bypass for ordinary maintainers or the implementation author. Document any emergency administrator bypass and require an audit record.
