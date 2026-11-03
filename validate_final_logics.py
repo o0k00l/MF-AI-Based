@@ -128,51 +128,59 @@ check("Slot 4: Thematic Satellite (0%)", roles["Tactical Thematic Satellite"].al
 check("100% Direct Plan Mandate", all("direct" in item.scheme_name.lower() for item in established_plan.items))
 check("Zero Standalone Debt Drag", established_plan.debt_sip_pct == 0.0 and established_plan.equity_sip_pct == 100.0)
 
-# =====================================================================
-# TEST 3: Look-Through Stability Buffer Engine
-# =====================================================================
-print("\n>> [TEST 3] Look-Through Stability Buffer vs Category Labels:")
-
 cas_path = Path("data/lalit_portfolio/statements/cas_detailed_report_2026_10_09_174452.xlsx")
 metrics_path = Path("data/lalit_portfolio/fund_metrics.json")
 aliases_path = Path("data/lalit_portfolio/fund_aliases.json")
-
-holdings = load_holdings_from_cas_excel(cas_path, metrics_path, aliases_path)
-check("Holdings Ingestion", len(holdings) == 23)
-
-stability_buf = calculate_lookthrough_stability_buffer(
-    holdings=holdings,
-    bank_cash_inr=435000.0,
-    emergency_reserve_inr=115000.0,
-    target_debt_pct=5.0
-)
-
-check("Embedded Debt Detected", stability_buf.embedded_debt_inr > 200000.0, f"INR {stability_buf.embedded_debt_inr:,.2f} ({stability_buf.embedded_debt_pct}%)")
-check("Embedded Cash Detected", stability_buf.embedded_cash_inr > 150000.0, f"INR {stability_buf.embedded_cash_inr:,.2f} ({stability_buf.embedded_cash_pct}%)")
-check("Total Stability Cushion >= 7.0%", stability_buf.total_stability_buffer_pct >= 7.0, f"{stability_buf.total_stability_buffer_pct:.2f}%")
-check("Tier 6 (5% Debt Ceiling) Organically Satisfied", stability_buf.meets_tier_target is True)
+config_path = Path("data/lalit_portfolio/config.json")
 
 # =====================================================================
-# TEST 4: 5-Theme Real-Time Look-Through Diagnostics
-# =====================================================================
-print("\n>> [TEST 4] 5-Theme Real-Time Look-Through Diagnostics:")
+# PRIVATE PORTFOLIO VALIDATION (requires local investor CAS inputs)
+if cas_path.is_file() and metrics_path.is_file() and aliases_path.is_file():
+    # =====================================================================
+    # TEST 3: Look-Through Stability Buffer Engine
+    # =====================================================================
+    print("\n>> [TEST 3] Look-Through Stability Buffer vs Category Labels:")
 
-thematic_exposures = calculate_thematic_exposures(holdings, metrics_path, aliases_path)
-check("All 5 Macro Themes Evaluated", len(thematic_exposures) == 5)
+    holdings = load_holdings_from_cas_excel(cas_path, metrics_path, aliases_path)
+    check("Holdings Ingestion", len(holdings) == 23)
 
-tmap = {t.theme_name: t for t in thematic_exposures}
+    stability_buf = calculate_lookthrough_stability_buffer(
+        holdings=holdings,
+        bank_cash_inr=435000.0,
+        emergency_reserve_inr=115000.0,
+        target_debt_pct=5.0
+    )
 
-# Defence: Should have ~6% dedicated (HDFC Defence + Motilal)
-check("Defence Dedicated Fund Exposure", tmap["Defence Thematic"].dedicated_funds_pct >= 5.5, f"{tmap['Defence Thematic'].dedicated_funds_pct}%")
+    check("Embedded Debt Detected", stability_buf.embedded_debt_inr > 200000.0, f"INR {stability_buf.embedded_debt_inr:,.2f} ({stability_buf.embedded_debt_pct}%)")
+    check("Embedded Cash Detected", stability_buf.embedded_cash_inr > 150000.0, f"INR {stability_buf.embedded_cash_inr:,.2f} ({stability_buf.embedded_cash_pct}%)")
+    check("Total Stability Cushion >= 7.0%", stability_buf.total_stability_buffer_pct >= 7.0, f"{stability_buf.total_stability_buffer_pct:.2f}%")
+    check("Tier 6 (5% Debt Ceiling) Organically Satisfied", stability_buf.meets_tier_target is True)
 
-# Pharma: Should be flagged as NEGLECTED (lookthrough < 2%, dedicated == 0%)
-check("Pharma & Healthcare Flagged Neglected", tmap["Pharma & Healthcare"].coverage_status == "NEGLECTED", f"Lookthrough: {tmap['Pharma & Healthcare'].look_through_stocks_pct}%")
+    # =====================================================================
+    # TEST 4: 5-Theme Real-Time Look-Through Diagnostics
+    # =====================================================================
+    print("\n>> [TEST 4] 5-Theme Real-Time Look-Through Diagnostics:")
 
-# PSU / CPSE: Should have substantial look-through via bluechips
-check("PSU & CPSE Look-Through Detected", tmap["PSU & CPSE Themes"].look_through_stocks_pct >= 5.0, f"{tmap['PSU & CPSE Themes'].look_through_stocks_pct}%")
+    thematic_exposures = calculate_thematic_exposures(holdings, metrics_path, aliases_path)
+    check("All 5 Macro Themes Evaluated", len(thematic_exposures) == 5)
 
-# Power & Infra: Should have dedicated + lookthrough
-check("Power & Infrastructure Detected", tmap["Power & Infrastructure"].look_through_stocks_pct >= 4.0, f"{tmap['Power & Infrastructure'].look_through_stocks_pct}%")
+    tmap = {t.theme_name: t for t in thematic_exposures}
+
+    # Defence: Should have ~6% dedicated (HDFC Defence + Motilal)
+    check("Defence Dedicated Fund Exposure", tmap["Defence Thematic"].dedicated_funds_pct >= 5.5, f"{tmap['Defence Thematic'].dedicated_funds_pct}%")
+
+    # Pharma: Should be flagged as NEGLECTED (lookthrough < 2%, dedicated == 0%)
+    check("Pharma & Healthcare Flagged Neglected", tmap["Pharma & Healthcare"].coverage_status == "NEGLECTED", f"Lookthrough: {tmap['Pharma & Healthcare'].look_through_stocks_pct}%")
+
+    # PSU / CPSE: Should have substantial look-through via bluechips
+    check("PSU & CPSE Look-Through Detected", tmap["PSU & CPSE Themes"].look_through_stocks_pct >= 5.0, f"{tmap['PSU & CPSE Themes'].look_through_stocks_pct}%")
+
+    # Power & Infra: Should have dedicated + lookthrough
+    check("Power & Infrastructure Detected", tmap["Power & Infrastructure"].look_through_stocks_pct >= 4.0, f"{tmap['Power & Infrastructure'].look_through_stocks_pct}%")
+
+
+else:
+    print("  [SKIP] Portfolio-specific validation requires the private Lalit CAS workbook and supporting metrics/config/aliases; no investor data is committed to CI.")
 
 # =====================================================================
 # TEST 5: Fiduciary Selection & Policy Gates
@@ -232,13 +240,18 @@ check("Gate 10 Rejects Any Regular Plan in SIP Recommendations", regular_gate_bl
 print("\n>> [TEST 6] End-to-End Client Payload & Deliverable Integrity:")
 
 config_path = Path("data/lalit_portfolio/config.json")
-facts = aggregate_fiduciary_facts(cas_path, metrics_path, config_path, aliases_path)
+if cas_path.is_file() and metrics_path.is_file() and config_path.is_file() and aliases_path.is_file():
+    facts = aggregate_fiduciary_facts(cas_path, metrics_path, config_path, aliases_path)
 
-check("Payload Generated", facts is not None)
-check("Client Name Reconciled", facts.client_name == "Lalit Saini")
-check("Total Value Reconciled", abs(facts.total_portfolio_value_inr - 5170911.38) < 1.0)
-check("Target SAA Aligned with Tier 6 Policy", facts.saa_drift.target_equity_pct == 95.0 and facts.saa_drift.target_debt_pct == 5.0)
-check("Rebalance Required is False (Stability Satisfied)", facts.saa_drift.rebalance_required is False)
+    check("Payload Generated", facts is not None)
+    check("Client Name Reconciled", facts.client_name == "Lalit Saini")
+    check("Total Value Reconciled", abs(facts.total_portfolio_value_inr - 5170911.38) < 1.0)
+    check("Target SAA Aligned with Tier 6 Policy", facts.saa_drift.target_equity_pct == 95.0 and facts.saa_drift.target_debt_pct == 5.0)
+    check("Rebalance Required is False (Stability Satisfied)", facts.saa_drift.rebalance_required is False)
+
+
+else:
+    print("  [SKIP] Client payload reconciliation requires private CAS and client configuration inputs.")
 
 # Verify generated deliverable files (only if outputs directory exists - skipped in clean checkout)
 outputs_dir = Path("outputs")
