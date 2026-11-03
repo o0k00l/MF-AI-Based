@@ -294,7 +294,8 @@ for t_name, exp_eq, exp_debt in tier_targets:
     sip_tier = compute_deterministic_sip_blueprint(
         monthly_budget=50000.0,
         risk_tier=t_name,
-        stability_buffer_pct=None
+        stability_buffer_pct=None,
+        client_aum=5000000.0,
     )
     check(
         f"{t_name} SIP Base Allocation Precision",
