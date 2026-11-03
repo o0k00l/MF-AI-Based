@@ -1,6 +1,6 @@
 """
-test_p0_fiduciary_invariants.py - Exhaustive verification suite for the 4 P0 Fiduciary Compliance Gaps:
-- P0.1: Universal 40/30/15/15 SAA Invariant across all SEBI risk tiers and starter vs established portfolios.
+test_p0_fiduciary_invariants.py - Regression suite for policy-driven fiduciary invariants:
+- P0.1: Risk-tier policy SAA and SIP routing across starter vs established portfolios.
 - P0.2: ₹1.25L Annual LTCG Tax Shield Siphon & Day 366 Immature Lot Holding Rule.
 - P0.3: All 10 Binary Fiduciary Eligibility Gates (Gate 1 through Gate 10).
 - P0.4: Candidate Universe Loading & NO ACTION Fiduciary Branch.
