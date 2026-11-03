@@ -340,3 +340,52 @@ def test_eligibility_returns_fail_closed_for_non_finite_concentration_and_captur
     result = check_eligibility_gates(base, portfolio_holdings=holdings)
     assert result.passed is False
     assert any("Gate 3" in failure or "Gate 5" in failure for failure in result.failed_gates)
+
+
+def test_daily_tri_calculation_uses_exact_observations_and_reports_unverified_source(tmp_path):
+    import hashlib
+    import json
+    from core.math_engine import calculate_cashflow_matched_benchmark_xirr
+
+    levels = {
+        "2026-11-02": 100.0,
+        "2026-11-03": 101.0,
+        "2026-11-04": 102.0,
+        "2026-11-05": 103.0,
+        "2026-11-06": 104.0,
+    }
+    checksum = hashlib.sha256(
+        json.dumps(levels, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    tri = {
+        "provenance": {
+            "checksum_sha256_nifty_500_tri": checksum,
+            "frequency": "Daily",
+            "historical_source_url": "https://example.invalid/test-source.csv",
+            "source_document_sha256": "d" * 64,
+        },
+        "benchmarks": {"NIFTY 500 TRI": {"name": "Test TRI", "levels": levels}},
+    }
+    transactions = {
+        "transactions": [
+            {"date": "2026-11-02", "amount": 1000.0, "type": "PURCHASE"}
+        ]
+    }
+    tri_path = tmp_path / "tri.json"
+    tx_path = tmp_path / "transactions.json"
+    tri_path.write_text(json.dumps(tri), encoding="utf-8")
+    tx_path.write_text(json.dumps(transactions), encoding="utf-8")
+    calendar_path = _write_test_nse_calendar(tmp_path, list(levels.keys()))
+
+    result = calculate_cashflow_matched_benchmark_xirr(
+        transactions_path=tx_path,
+        as_of_date=date(2026, 11, 6),
+        benchmark_key="NIFTY 500 TRI",
+        benchmark_series_path=tri_path,
+        cas_current=1100.0,
+        trading_calendar_path=calendar_path,
+    )
+    assert result["cashflows_count"] == 1
+    assert result["benchmark_terminal_valuation_inr"] == pytest.approx(1040.0)
+    assert result["portfolio_xirr_pct"] > result["benchmark_matched_xirr_pct"]
+    assert result["provenance_audit"]["source_authenticity_verified"] is False
