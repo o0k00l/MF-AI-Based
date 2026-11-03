@@ -1091,3 +1091,31 @@ def test_standalone_advisor_saa_profiles_reconcile_to_central_policy():
     )
     params = {arg.arg for arg in compute_saa.args.args}
     assert {"current_exposure", "total_value"} <= params
+
+
+def test_thematic_satellite_requires_explicit_authorization_and_is_carved_out():
+    from core.math_engine import compute_deterministic_sip_blueprint
+
+    with pytest.raises(ValueError, match="explicit IPS authorization"):
+        compute_deterministic_sip_blueprint(
+            monthly_budget=100000.0,
+            risk_tier="Tier 6 (Very High)",
+            stability_buffer_pct=7.54,
+            client_aum=5000000.0,
+            thematic_satellite_pct_of_equity=5.0,
+        )
+
+    plan = compute_deterministic_sip_blueprint(
+        monthly_budget=100000.0,
+        risk_tier="Tier 6 (Very High)",
+        stability_buffer_pct=7.54,
+        client_aum=5000000.0,
+        thematic_satellite_pct_of_equity=5.0,
+        thematic_satellite_authorized=True,
+    )
+    roles = {item.category_role: item for item in plan.items}
+    assert roles["Tactical Thematic Satellite"].allocation_pct == 5.0
+    assert sum(item.allocation_pct for item in plan.items) == pytest.approx(100.0)
+    # With no verified candidate data, the engine must withhold the entire budget.
+    if plan.unallocated_budget_inr > 0:
+        assert all(item.monthly_inr == 0.0 for item in plan.items)
