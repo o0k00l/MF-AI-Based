@@ -384,8 +384,12 @@ def check_eligibility_gates(
             confidence_score = None
             failed.append(f"Gate 7 [Data Integrity]: {exc} — fail-closed")
     
+    if confidence_score is not None and not 0.0 <= confidence_score <= 1.0:
+        failed.append("Gate 7 [Data Integrity]: confidence_score must be between 0 and 1 — fail-closed")
+        confidence_score = None
+
     if confidence_score is None:
-        failed.append("Gate 7 [Data Integrity]: confidence_score missing from fund_data and _provenance - cannot verify (fail-closed)")
+        failed.append("Gate 7 [Data Integrity]: confidence_score missing, malformed or out of range — cannot verify (fail-closed)")
         data_ok = False
     else:
         data_ok = confidence_score >= min_confidence_score
@@ -459,11 +463,12 @@ def check_eligibility_gates(
     # --- Gate 10: 100% Direct Plan Mandate Gate ---
     plan_value = str(fund_data.get("plan", "") or "").strip().casefold()
     direct_flag = fund_data.get("is_direct")
-    if direct_flag is True and plan_value in {"", "direct", "direct plan"}:
+    direct_label = plan_value.startswith("direct")
+    if direct_flag is True and (not plan_value or direct_label):
         is_direct = True
     elif direct_flag is False or "regular" in plan_value or "distributor" in plan_value or "regular" in fund_name.lower():
         is_direct = False
-    elif plan_value in {"direct", "direct plan"}:
+    elif direct_label:
         is_direct = True
     else:
         is_direct = False
