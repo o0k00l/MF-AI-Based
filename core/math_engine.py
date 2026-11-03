@@ -3734,18 +3734,133 @@ def select_autonomous_blueprint_funds(
     thematic_satellite_pct_of_equity: float = 0.0,
 ) -> Dict[str, Dict[str, Any]]:
     """
-    Autonomous 5-Step Selection Engine:
-    1. 10 Binary Gates evaluation
-    2. SPIVA Fail-safe passive index fallback when active funds fail gates
-    3. Multi-horizon quantitative composite scoring (1Y, 6M, 3Y, Sharpe, TER)
-    4. Theme Deficit Matcher for Slot 4
-    5. Zero-proliferation generic folio routing
+    Select candidates only from the supplied, source-backed universe.
+
+    Every selected candidate must:
+      - have a stable fund identifier and name;
+      - be explicitly marked as a Direct plan;
+      - pass every eligibility gate;
+      - be scored only after it passes those gates.
+
+    No AUM/riskometer exception, passive shortcut, inferred folio or hardcoded
+    scheme fallback is permitted. A missing qualifying candidate returns an
+    explicit NO_ACTION slot with its full target shown as unallocated.
     """
     from core.eligibility import check_eligibility_gates, load_candidate_universe
-    from core.fund_classifier import classify_fund_category, get_fund_passive_alternatives, detect_fund_theme
+    from core.fund_classifier import classify_fund_category, detect_fund_theme
 
-    # Theme alias mapping - detect_fund_theme returns canonical names
-    THEME_ALIASES = {
+    import json
+    import math
+    import os
+    from pathlib import Path
+
+    if isinstance(client_risk_tier, bool):
+        raise ValueError("client_risk_tier must be an integer from 1 through 6")
+    if hasattr(client_risk_tier, "value"):
+        tier_map = {"Conservative": 2, "Moderate": 4, "Aggressive": 6, "Custom": 6}
+        tier_int = tier_map.get(str(client_risk_tier.value))
+        if tier_int is None:
+            raise ValueError(f"Unsupported risk tier: {client_risk_tier.value!r}")
+    else:
+        try:
+            tier_int = int(client_risk_tier)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("client_risk_tier must be an integer from 1 through 6") from exc
+    if tier_int not in range(1, 7):
+        raise ValueError("client_risk_tier must be an integer from 1 through 6")
+
+    if not isinstance(thematic_satellite_authorized, bool):
+        raise ValueError("thematic_satellite_authorized must be a boolean")
+    try:
+        satellite_pct = float(thematic_satellite_pct_of_equity)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("thematic_satellite_pct_of_equity must be numeric") from exc
+    if not math.isfinite(satellite_pct) or not 0.0 <= satellite_pct <= 15.0:
+        raise ValueError("thematic satellite percentage must be finite and between 0 and 15")
+    if satellite_pct > 0.0 and not thematic_satellite_authorized:
+        raise ValueError("A positive thematic satellite allocation requires explicit IPS authorization")
+    if not thematic_satellite_authorized:
+        satellite_pct = 0.0
+
+    if candidate_universe is None:
+        client_data_dir = os.environ.get("MF_CLIENT_DATA_DIR")
+        if client_data_dir:
+            metrics_path = Path(client_data_dir).expanduser().resolve() / "fund_metrics.json"
+            if not metrics_path.is_file():
+                raise FileNotFoundError(f"MF_CLIENT_DATA_DIR is set but fund_metrics.json is missing: {metrics_path}")
+            candidate_universe = load_candidate_universe(metrics_path)
+        else:
+            candidate_universe = []
+    if not isinstance(candidate_universe, list):
+        raise TypeError("candidate_universe must be a list of candidate records")
+
+    policy_path = Path(__file__).resolve().parents[1] / "data" / "policy" / "asset_allocation.json"
+    if not policy_path.is_file():
+        raise FileNotFoundError(f"Required allocation policy is missing: {policy_path}")
+    try:
+        allocation_policy = json.loads(policy_path.read_text(encoding="utf-8"))
+        profile_keys = {
+            1: "low", 2: "low_to_moderate", 3: "moderate",
+            4: "moderately_high", 5: "high", 6: "very_high",
+        }
+        profile = allocation_policy["behavioral_risk_profiles"][profile_keys[tier_int]]
+        saa = profile["saa_targets"]
+        equity_parts = {
+            "flexi": float(saa["flexi_multi_cap_pct"]),
+            "mid_small": float(saa["mid_cap_pct"]) + float(saa["small_cap_pct"]),
+            "large": float(saa["large_cap_pct"]),
+        }
+        equity_total = sum(equity_parts.values())
+        debt_target_pct = float(saa["debt_liquid_pct"])
+        satellite_policy = allocation_policy["thematic_satellite_policy"]
+        satellite_cap = float(satellite_policy["max_pct_of_equity"])
+    except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
+        raise ValueError(f"Invalid allocation policy for risk tier {tier_int}") from exc
+    if any(not math.isfinite(v) or v < 0.0 for v in equity_parts.values()):
+        raise ValueError("SAA equity sleeve weights must be finite and non-negative")
+    if not math.isfinite(debt_target_pct) or debt_target_pct < 0.0:
+        raise ValueError("SAA debt target must be finite and non-negative")
+    if abs(equity_total + debt_target_pct - 100.0) > 0.01:
+        raise ValueError("SAA equity and debt targets must sum to 100%")
+    if satellite_pct > satellite_cap:
+        raise ValueError(f"Thematic satellite percentage exceeds the central policy cap of {satellite_cap:g}%")
+    if satellite_policy.get("enabled_by_default") is not False and not isinstance(satellite_policy.get("enabled_by_default"), bool):
+        raise ValueError("Thematic satellite enabled_by_default policy must be boolean")
+    if satellite_pct > 0.0 and satellite_policy.get("requires_explicit_ips_authorization") is not True:
+        raise ValueError("Central policy does not authorize a thematic satellite override")
+
+    core_budget_pct = 100.0 - satellite_pct
+    slot_targets = {
+        "Slot 1: Core Flexi-Cap Compounder": round(core_budget_pct * equity_parts["flexi"] / equity_total, 1) if equity_total else 0.0,
+        "Slot 2: Mid-Cap Alpha Engine": round(core_budget_pct * equity_parts["mid_small"] / equity_total, 1) if equity_total else 0.0,
+        "Slot 3: Large-Cap Bluechip Anchor": 0.0,
+    }
+    slot_targets["Slot 3: Large-Cap Bluechip Anchor"] = round(
+        core_budget_pct
+        - slot_targets["Slot 1: Core Flexi-Cap Compounder"]
+        - slot_targets["Slot 2: Mid-Cap Alpha Engine"],
+        1,
+    )
+
+    # Validate candidate identity before evaluating. Ambiguous IDs must not
+    # silently overwrite one another in the selected-candidate audit trail.
+    normalized_candidates = []
+    seen_ids = set()
+    for row_index, candidate in enumerate(candidate_universe):
+        if not isinstance(candidate, dict):
+            raise ValueError(f"Candidate row {row_index} must be an object")
+        fund_id = candidate.get("fund_id") or candidate.get("id")
+        fund_name = candidate.get("fund_name") or candidate.get("name")
+        if not isinstance(fund_id, str) or not fund_id.strip():
+            raise ValueError(f"Candidate row {row_index} is missing a stable fund_id")
+        if fund_id in seen_ids:
+            raise ValueError(f"Duplicate candidate fund_id: {fund_id!r}")
+        if not isinstance(fund_name, str) or not fund_name.strip():
+            raise ValueError(f"Candidate {fund_id!r} is missing a scheme name")
+        seen_ids.add(fund_id)
+        normalized_candidates.append(candidate)
+
+    theme_aliases = {
         "Pharma": "Healthcare",
         "Pharmaceutical": "Healthcare",
         "Health": "Healthcare",
@@ -3755,397 +3870,128 @@ def select_autonomous_blueprint_funds(
         "Energy": "Power/Energy",
         "Power": "Power/Energy",
     }
-    canonical_theme = THEME_ALIASES.get(thematic_deficit_theme, thematic_deficit_theme)
+    canonical_theme = theme_aliases.get(thematic_deficit_theme, thematic_deficit_theme)
 
-    import math as _math
-    import json as _json
-    from pathlib import Path as _Path
-    if not isinstance(thematic_satellite_authorized, bool):
-        raise ValueError("thematic_satellite_authorized must be a boolean")
-    try:
-        satellite_pct = float(thematic_satellite_pct_of_equity)
-    except (TypeError, ValueError) as exc:
-        raise ValueError("thematic_satellite_pct_of_equity must be numeric") from exc
-    if not _math.isfinite(satellite_pct) or not 0.0 <= satellite_pct <= 15.0:
-        raise ValueError("thematic satellite percentage must be finite and between 0 and 15")
-    if satellite_pct > 0 and not thematic_satellite_authorized:
-        raise ValueError("thematic satellite allocation requires explicit IPS authorization")
-    if not thematic_satellite_authorized:
-        satellite_pct = 0.0
-
-    tier_int = client_risk_tier
-    if hasattr(client_risk_tier, 'value'):
-        enum_to_int = {
-            'Conservative': 2,
-            'Moderate': 4,
-            'Aggressive': 6,
-            'Custom': 6,
+    def no_action(slot_name: str, target_pct: float, reason: str, basis: str) -> Dict[str, Any]:
+        return {
+            "fund_name": f"NO_ACTION: {reason}",
+            "scheme": f"NO_ACTION: {reason}",
+            "fund_id": None,
+            "category": None,
+            "score": None,
+            "gate_passed": False,
+            "is_direct": None,
+            "folio": None,
+            "allocation_pct": 0.0,
+            "unallocated_pct": target_pct,
+            "allocation_basis": basis,
+            "rationale": f"NO_ACTION: {reason}",
         }
-        tier_int = enum_to_int.get(client_risk_tier.value, 6)
 
-    if candidate_universe is None:
-        import os as _os
-        client_data_dir = _os.environ.get("MF_CLIENT_DATA_DIR")
-        if client_data_dir:
-            metrics_path = _Path(client_data_dir).expanduser().resolve() / "fund_metrics.json"
-            if not metrics_path.is_file():
-                raise FileNotFoundError(
-                    f"MF_CLIENT_DATA_DIR is set but fund_metrics.json is missing: {metrics_path}"
-                )
-            candidate_universe = load_candidate_universe(metrics_path)
-        else:
-            # No client-specific candidate universe is committed to the repository.
-            candidate_universe = []
-
-    policy_path = _Path(__file__).resolve().parents[1] / "data" / "policy" / "asset_allocation.json"
-    if not policy_path.is_file():
-        raise ValueError(f"Required allocation policy is missing: {policy_path}")
-    try:
-        allocation_policy = _json.loads(policy_path.read_text(encoding="utf-8"))
-        profile_keys = {1:"low",2:"low_to_moderate",3:"moderate",4:"moderately_high",5:"high",6:"very_high"}
-        saa = allocation_policy["behavioral_risk_profiles"][profile_keys[int(tier_int)]]["saa_targets"]
-        equity_parts = {
-            "flexi": float(saa["flexi_multi_cap_pct"]),
-            "mid_small": float(saa["mid_cap_pct"]) + float(saa["small_cap_pct"]),
-            "large": float(saa["large_cap_pct"]),
+    def choose_candidate(
+        slot_name: str,
+        target_pct: float,
+        category_predicate,
+        reason: str,
+        basis: str,
+    ) -> Dict[str, Any]:
+        if target_pct <= 0.0:
+            return no_action(slot_name, 0.0, "no allocation is authorized for this slot", basis)
+        evaluated = []
+        for candidate in normalized_candidates:
+            name = candidate.get("fund_name") or candidate.get("name") or ""
+            category = candidate.get("category", "")
+            if not category_predicate(candidate, name, category):
+                continue
+            # Explicit direct-plan identity is mandatory; do not infer it from
+            # a scheme name containing the word Direct.
+            if candidate.get("is_direct") is not True:
+                continue
+            gate_result = check_eligibility_gates(
+                candidate,
+                holdings or [],
+                client_risk_tier_num=tier_int,
+            )
+            if getattr(gate_result, "passed", False) is not True:
+                continue
+            score = compute_multi_horizon_fiduciary_score(candidate)
+            if isinstance(score, bool) or not isinstance(score, (int, float)) or not math.isfinite(float(score)):
+                raise ValueError(f"Candidate {candidate.get('fund_id')!r} returned an invalid composite score")
+            evaluated.append((float(score), candidate))
+        evaluated.sort(key=lambda item: (item[0], str(item[1].get("fund_id") or item[1].get("id"))), reverse=True)
+        if not evaluated:
+            return no_action(slot_name, target_pct, reason, basis)
+        score, selected = evaluated[0]
+        return {
+            "fund_name": selected.get("fund_name") or selected.get("name"),
+            "scheme": selected.get("fund_name") or selected.get("name"),
+            "fund_id": selected.get("fund_id") or selected.get("id"),
+            "category": selected.get("category"),
+            "score": score,
+            "gate_passed": True,
+            "is_direct": True,
+            # A fund identifier is not a folio number. Only reuse an explicit
+            # verified existing folio; the custodian may create a new one later.
+            "folio": selected.get("folio") or selected.get("direct_folio"),
+            "allocation_pct": target_pct,
+            "unallocated_pct": 0.0,
+            "allocation_basis": basis,
+            "rationale": selected.get(
+                "rationale",
+                "Selected from the source-backed candidate universe after all eligibility gates passed.",
+            ),
         }
-        equity_total = sum(equity_parts.values())
-        debt_target_pct = float(saa["debt_liquid_pct"])
-    except (KeyError, TypeError, ValueError, _json.JSONDecodeError) as exc:
-        raise ValueError(f"Invalid allocation policy for risk tier {tier_int!r}") from exc
-    if equity_total <= 0 or abs(equity_total + debt_target_pct - 100.0) > 0.01:
-        raise ValueError("SAA equity and debt targets must be non-negative and sum to 100%")
-    core_budget_pct = 100.0 - satellite_pct
-    slot_targets = {
-        "Slot 1: Core Flexi-Cap Compounder": round(core_budget_pct * equity_parts["flexi"] / equity_total, 1),
-        "Slot 2: Mid-Cap Alpha Engine": round(core_budget_pct * equity_parts["mid_small"] / equity_total, 1),
-        "Slot 3: Large-Cap Bluechip Anchor": 0.0,
-    }
-    slot_targets["Slot 3: Large-Cap Bluechip Anchor"] = round(
-        core_budget_pct - slot_targets["Slot 1: Core Flexi-Cap Compounder"] - slot_targets["Slot 2: Mid-Cap Alpha Engine"], 1
-    )
-
-    # No source-backed candidates means no actionable fund choice. Do not invent
-    # passive fund names or debt products when the candidate universe is absent.
-    if not candidate_universe:
-        empty = {}
-        for slot_name, target_pct in slot_targets.items():
-            empty[slot_name] = {
-                "fund_name": None, "scheme": None, "fund_id": None, "category": None,
-                "allocation_pct": 0.0, "unallocated_pct": target_pct, "gate_passed": False,
-                "rationale": "NO_ACTION: no verified candidate universe was supplied.",
-            }
-        empty["Slot 4: Tactical Thematic Satellite"] = {
-            "fund_name": None, "scheme": None, "fund_id": None,
-            "allocation_pct": 0.0, "unallocated_pct": satellite_pct,
-            "rationale": "NO_ACTION: no verified thematic candidate universe was supplied.",
-        }
-        empty["High-Grade Debt Anchor"] = {
-            "fund_name": None, "scheme": None, "fund_id": None,
-            "allocation_pct": 0.0, "unallocated_pct": debt_target_pct,
-            "allocation_basis": "percent_of_total_portfolio",
-            "rationale": "NO_ACTION: no verified debt candidate was supplied.",
-        }
-        return empty
 
     blueprint = {}
-
-    # 1. SLOT 1: CORE FLEXI-CAP COMPOUNDER (40%)
-    flexi_cands = [c for c in candidate_universe if classify_fund_category(c.get("fund_name", ""), c.get("category", ""), c) == "Flexi Cap Equity"]
-    evaluated_flexi = []
-    for c in flexi_cands:
-        gate = check_eligibility_gates(c, holdings, client_risk_tier_num=tier_int)
-        score = compute_multi_horizon_fiduciary_score(c)
-        evaluated_flexi.append((c, gate, score))
-
-    evaluated_flexi.sort(key=lambda x: x[2], reverse=True)
-    passed_flexi = [item for item in evaluated_flexi if item[1].passed]
-
-    if passed_flexi:
-        best_flexi = passed_flexi[0][0]
-        blueprint["Slot 1: Core Flexi-Cap Compounder"] = {
-            "fund_name": best_flexi.get("fund_name"),
-            "scheme": best_flexi.get("fund_name"),
-            "fund_id": best_flexi.get("fund_id"),
-            "category": best_flexi.get("category"),
-            "score": passed_flexi[0][2],
-            "gate_passed": True,
-            "allocation_pct": 40.0,
-            "folio": best_flexi.get("folio") or best_flexi.get("direct_folio") or best_flexi.get("fund_id"),
-            "rationale": best_flexi.get("rationale", "Top-ranked Flexi-Cap fund by composite score after all 10 eligibility gates.")
-        }
-    else:
-        passive_flexi = [c for c in candidate_universe if classify_fund_category(c.get("fund_name", ""), c.get("category", ""), c) == "Flexi Cap Equity" and c.get("is_passive", False)]
-        if passive_flexi:
-            blueprint["Slot 1: Core Flexi-Cap Compounder"] = {
-                "fund_name": passive_flexi[0].get("fund_name"),
-                "scheme": passive_flexi[0].get("fund_name"),
-                "fund_id": passive_flexi[0].get("fund_id"),
-                "category": "Flexi Cap Equity",
-                "score": compute_multi_horizon_fiduciary_score(passive_flexi[0]),
-                "gate_passed": False,
-                "allocation_pct": 40.0,
-                "folio": passive_flexi[0].get("folio") or passive_flexi[0].get("direct_folio") or passive_flexi[0].get("fund_id"),
-                "rationale": "SPIVA fail-safe: passive index fallback used as no active Flexi Cap fund passed eligibility gates.",
-                "note": "SPIVA fail-safe: passive fallback used"
-            }
-        else:
-            # Fiduciary fallback: use best fund that only failed Gate 2 (AUM) and/or Gate 6 (riskometer)
-            # Flexi-cap funds commonly exceed AUM caps; investor needs core equity exposure
-            aum_riskometer_only_fail = [item for item in evaluated_flexi
-                                        if not item[1].passed and
-                                        all("Gate 2" in g or "Gate 6" in g for g in item[1].failed_gates)]
-            if aum_riskometer_only_fail:
-                aum_riskometer_only_fail.sort(key=lambda x: x[2], reverse=True)
-                best_flexi = aum_riskometer_only_fail[0][0]
-                blueprint["Slot 1: Core Flexi-Cap Compounder"] = {
-                    "fund_name": best_flexi.get("fund_name"),
-                    "scheme": best_flexi.get("fund_name"),
-                    "fund_id": best_flexi.get("fund_id"),
-                    "category": "Flexi Cap Equity",
-                    "score": aum_riskometer_only_fail[0][2],
-                    "gate_passed": False,
-                    "allocation_pct": 40.0,
-                    "folio": best_flexi.get("folio") or best_flexi.get("direct_folio") or best_flexi.get("fund_id"),
-                    "rationale": f"Fiduciary override: {best_flexi.get('fund_name')} selected for core flexi-cap mandate despite AUM/riskometer breach (Gates 2/6 only). All other gates passed. No passive flexi-cap index available."
-                }
-            else:
-                blueprint["Slot 1: Core Flexi-Cap Compounder"] = {
-                    "allocation_pct": 40.0,
-                    "scheme": "NO_ACTION: No eligible Flexi Cap fund found",
-                    "fund_name": "NO_ACTION: No eligible Flexi Cap fund found",
-                    "folio": None,
-                    "rationale": "NO_ACTION: No eligible Flexi Cap fund passed all 10 eligibility gates.",
-                    "note": "No eligible Flexi Cap fund found"
-                }
-
-    # 2. SLOT 2: MID-CAP ALPHA ENGINE (30%)
-    mid_cands = [c for c in candidate_universe if classify_fund_category(c.get("fund_name", ""), c.get("category", ""), c) == "Mid Cap Equity"]
-    evaluated_mid = []
-    for c in mid_cands:
-        gate = check_eligibility_gates(c, holdings, client_risk_tier_num=tier_int)
-        score = compute_multi_horizon_fiduciary_score(c)
-        evaluated_mid.append((c, gate, score))
-
-    evaluated_mid.sort(key=lambda x: x[2], reverse=True)
-    passed_mid = [item for item in evaluated_mid if item[1].passed]
-
-    if passed_mid:
-        best_mid = passed_mid[0][0]
-        blueprint["Slot 2: Mid-Cap Alpha Engine"] = {
-            "fund_name": best_mid.get("fund_name"),
-            "scheme": best_mid.get("fund_name"),
-            "fund_id": best_mid.get("fund_id"),
-            "category": best_mid.get("category"),
-            "score": passed_mid[0][2],
-            "gate_passed": True,
-            "allocation_pct": 30.0,
-            "folio": best_mid.get("folio") or best_mid.get("direct_folio") or best_mid.get("fund_id"),
-            "rationale": best_mid.get("rationale", "Top-ranked Mid-Cap fund by composite score after all 10 eligibility gates.")
-        }
-    else:
-        # Passive fallback for Mid Cap
-        passive_mid = [c for c in candidate_universe if classify_fund_category(c.get("fund_name", ""), c.get("category", ""), c) == "Mid Cap Equity" and c.get("is_passive", False)]
-        if passive_mid:
-            blueprint["Slot 2: Mid-Cap Alpha Engine"] = {
-                "fund_name": passive_mid[0].get("fund_name"),
-                "scheme": passive_mid[0].get("fund_name"),
-                "fund_id": passive_mid[0].get("fund_id"),
-                "category": passive_mid[0].get("category"),
-                "score": compute_multi_horizon_fiduciary_score(passive_mid[0]),
-                "gate_passed": False,
-                "allocation_pct": 30.0,
-                "folio": passive_mid[0].get("folio") or passive_mid[0].get("direct_folio") or passive_mid[0].get("fund_id"),
-                "rationale": "SPIVA fail-safe: passive Nifty Midcap 150 index fallback used as no active Mid Cap fund passed eligibility gates."
-            }
-        else:
-            blueprint["Slot 2: Mid-Cap Alpha Engine"] = {
-                "allocation_pct": 30.0,
-                "scheme": "NO_ACTION: No eligible Mid Cap fund found",
-                "fund_name": "NO_ACTION: No eligible Mid Cap fund found",
-                "folio": None,
-                "rationale": "NO_ACTION: No eligible Mid Cap fund passed all 10 eligibility gates.",
-                "note": "No eligible Mid Cap fund found"
-            }
-
-    # 3. SLOT 3: LARGE-CAP BLUECHIP ANCHOR (15%)
-    large_cands = [c for c in candidate_universe if classify_fund_category(c.get("fund_name", ""), c.get("category", ""), c) == "Large Cap Equity"]
-    evaluated_large = []
-    for c in large_cands:
-        gate = check_eligibility_gates(c, holdings, client_risk_tier_num=tier_int)
-        score = compute_multi_horizon_fiduciary_score(c)
-        evaluated_large.append((c, gate, score))
-
-    evaluated_large.sort(key=lambda x: x[2], reverse=True)
-    passed_large = [item for item in evaluated_large if item[1].passed]
-
-    if passed_large:
-        best_large = passed_large[0][0]
-        blueprint["Slot 3: Large-Cap Bluechip Anchor"] = {
-            "fund_name": best_large.get("fund_name"),
-            "scheme": best_large.get("fund_name"),
-            "fund_id": best_large.get("fund_id"),
-            "category": best_large.get("category"),
-            "score": passed_large[0][2],
-            "gate_passed": True,
-            "allocation_pct": 15.0,
-            "folio": best_large.get("folio") or best_large.get("direct_folio") or best_large.get("fund_id"),
-            "rationale": best_large.get("rationale", "Top-ranked Large-Cap fund by composite score after all 10 eligibility gates.")
-        }
-    else:
-        # Passive fallback for Large Cap
-        passive_large = [c for c in candidate_universe if classify_fund_category(c.get("fund_name", ""), c.get("category", ""), c) == "Large Cap Equity" and c.get("is_passive", False)]
-        if passive_large:
-            blueprint["Slot 3: Large-Cap Bluechip Anchor"] = {
-                "fund_name": passive_large[0].get("fund_name"),
-                "scheme": passive_large[0].get("fund_name"),
-                "fund_id": passive_large[0].get("fund_id"),
-                "category": "Large Cap",
-                "score": compute_multi_horizon_fiduciary_score(passive_large[0]),
-                "gate_passed": False,
-                "allocation_pct": 15.0,
-                "folio": passive_large[0].get("folio") or passive_large[0].get("direct_folio") or passive_large[0].get("fund_id"),
-                "rationale": "SPIVA fail-safe: passive Nifty 50 index fallback used as no active Large Cap fund passed eligibility gates."
-            }
-        else:
-            blueprint["Slot 3: Large-Cap Bluechip Anchor"] = {
-                "allocation_pct": 15.0,
-                "scheme": None,
-                "folio": None,
-                "rationale": "NO_ACTION: No eligible Large Cap fund passed all 10 eligibility gates.",
-                "note": "No eligible Large Cap fund found"
-            }
-
-    # 4. SLOT 4: OPTIONAL THEMATIC SATELLITE. Disabled unless explicitly authorized.
-    thematic_cands = (
-        [c for c in candidate_universe if detect_fund_theme(c.get("fund_name", ""), c.get("category", "")) == canonical_theme]
-        if thematic_satellite_authorized and satellite_pct > 0.0 else []
+    blueprint["Slot 1: Core Flexi-Cap Compounder"] = choose_candidate(
+        "Slot 1: Core Flexi-Cap Compounder",
+        slot_targets["Slot 1: Core Flexi-Cap Compounder"],
+        lambda candidate, name, category: classify_fund_category(name, category, candidate) == "Flexi Cap Equity",
+        "no Direct Flexi Cap candidate passed all eligibility gates",
+        "percent_of_equity_budget",
     )
-    evaluated_thematic = []
-    for c in thematic_cands:
-        gate = check_eligibility_gates(c, holdings, client_risk_tier_num=tier_int)
-        score = compute_multi_horizon_fiduciary_score(c)
-        evaluated_thematic.append((c, gate, score))
+    blueprint["Slot 2: Mid-Cap Alpha Engine"] = choose_candidate(
+        "Slot 2: Mid-Cap Alpha Engine",
+        slot_targets["Slot 2: Mid-Cap Alpha Engine"],
+        lambda candidate, name, category: classify_fund_category(name, category, candidate) == "Mid Cap Equity",
+        "no Direct Mid Cap candidate passed all eligibility gates",
+        "percent_of_equity_budget",
+    )
+    blueprint["Slot 3: Large-Cap Bluechip Anchor"] = choose_candidate(
+        "Slot 3: Large-Cap Bluechip Anchor",
+        slot_targets["Slot 3: Large-Cap Bluechip Anchor"],
+        lambda candidate, name, category: classify_fund_category(name, category, candidate) == "Large Cap Equity",
+        "no Direct Large Cap candidate passed all eligibility gates",
+        "percent_of_equity_budget",
+    )
 
-    evaluated_thematic.sort(key=lambda x: x[2], reverse=True)
-    passed_thematic = [item for item in evaluated_thematic if item[1].passed]
-
-    if passed_thematic:
-        best_thematic = passed_thematic[0][0]
-        blueprint["Slot 4: Tactical Thematic Satellite"] = {
-            "fund_name": best_thematic.get("fund_name"),
-            "scheme": best_thematic.get("fund_name"),
-            "fund_id": best_thematic.get("fund_id"),
-            "theme": thematic_deficit_theme,
-            "score": passed_thematic[0][2],
-            "gate_passed": True,
-            "allocation_pct": 15.0,
-            "folio": best_thematic.get("folio") or best_thematic.get("direct_folio") or best_thematic.get("fund_id"),
-            "rationale": best_thematic.get("rationale", f"Top-ranked {thematic_deficit_theme} thematic fund by composite score after all 10 eligibility gates.")
-        }
+    thematic_target = satellite_pct
+    if not thematic_satellite_authorized or thematic_target <= 0.0:
+        blueprint["Slot 4: Tactical Thematic Satellite"] = no_action(
+            "Slot 4: Tactical Thematic Satellite",
+            0.0,
+            "thematic satellite is disabled or not explicitly authorized by the IPS",
+            "percent_of_equity_budget",
+        )
     else:
-        # Fiduciary fallback: use best fund that only failed Gate 6 (riskometer) for thematic mandate
-        # Thematic funds are inherently higher risk; investor explicitly requested this theme
-        riskometer_only_fail = [item for item in evaluated_thematic 
-                                if not item[1].passed and 
-                                len([g for g in item[1].failed_gates if "Gate 6" in g]) == 1 and
-                                all("Gate 6" in g for g in item[1].failed_gates)]
-        if riskometer_only_fail:
-            riskometer_only_fail.sort(key=lambda x: x[2], reverse=True)
-            best_thematic = riskometer_only_fail[0][0]
-            blueprint["Slot 4: Tactical Thematic Satellite"] = {
-                "fund_name": best_thematic.get("fund_name"),
-                "scheme": best_thematic.get("fund_name"),
-                "fund_id": best_thematic.get("fund_id"),
-                "theme": thematic_deficit_theme,
-                "score": riskometer_only_fail[0][2],
-                "gate_passed": False,
-                "allocation_pct": 15.0,
-                "folio": best_thematic.get("folio") or best_thematic.get("direct_folio") or best_thematic.get("fund_id"),
-                "rationale": f"Fiduciary override: {best_thematic.get('fund_name')} selected for {thematic_deficit_theme} mandate despite riskometer breach (Gate 6 only). All other 9 gates passed. Investor explicitly requested this theme."
-            }
-        else:
-            blueprint["Slot 4: Tactical Thematic Satellite"] = {
-                "allocation_pct": 0.0,
-                "scheme": f"NO_ACTION: No eligible {thematic_deficit_theme} fund found",
-                "fund_name": f"NO_ACTION: No eligible {thematic_deficit_theme} fund found",
-                "folio": None,
-                "rationale": f"NO_ACTION: No eligible {thematic_deficit_theme} fund passed all 10 eligibility gates.",
-                "note": f"No eligible {thematic_deficit_theme} fund found"
-            }
-
-    # 5. HIGH-GRADE DEBT ANCHOR (20%) - Separate from 4 equity slots
-    debt_cands = [c for c in candidate_universe if classify_fund_category(c.get("fund_name", ""), c.get("category", ""), c) in ("Debt", "Liquid", "Money Market", "Debt: Short Duration")]
-    evaluated_debt = []
-    for c in debt_cands:
-        gate = check_eligibility_gates(c, holdings, client_risk_tier_num=tier_int)
-        score = compute_multi_horizon_fiduciary_score(c)
-        evaluated_debt.append((c, gate, score))
-
-    evaluated_debt.sort(key=lambda x: x[2], reverse=True)
-    passed_debt = [item for item in evaluated_debt if item[1].passed]
-
-    if passed_debt:
-        best_debt = passed_debt[0][0]
-        blueprint["High-Grade Debt Anchor"] = {
-            "fund_name": best_debt.get("fund_name"),
-            "scheme": best_debt.get("fund_name"),
-            "fund_id": best_debt.get("fund_id"),
-            "category": best_debt.get("category"),
-            "score": passed_debt[0][2],
-            "gate_passed": True,
-            "allocation_pct": 20.0,
-            "folio": best_debt.get("folio") or best_debt.get("direct_folio") or best_debt.get("fund_id"),
-            "rationale": best_debt.get("rationale", "Top-ranked high-grade debt fund by composite score after all 10 eligibility gates.")
-        }
-    else:
-        blueprint["High-Grade Debt Anchor"] = {
-            "allocation_pct": 0.0,
-            "unallocated_pct": debt_target_pct,
-            "allocation_basis": "percent_of_total_portfolio",
-            "scheme": None,
-            "fund_name": None,
-            "folio": None,
-            "rationale": "NO_ACTION: no verified high-grade debt candidate passed the eligibility gates."
-        }
-
-    # Apply central-policy weights and explicit authorization after candidate selection.
-    for slot_name, target_pct in slot_targets.items():
-        slot = blueprint.get(slot_name)
-        if slot is not None:
-            selected = bool(slot.get("scheme")) and not str(slot.get("scheme")).startswith("NO_ACTION")
-            slot["allocation_pct"] = target_pct if selected else 0.0
-            slot["unallocated_pct"] = 0.0 if selected else target_pct
-            slot["allocation_basis"] = "percent_of_equity_budget"
-    thematic_slot = blueprint.get("Slot 4: Tactical Thematic Satellite")
-    if thematic_slot is not None:
-        thematic_selected = bool(thematic_slot.get("scheme")) and not str(thematic_slot.get("scheme")).startswith("NO_ACTION")
-        thematic_slot["allocation_pct"] = satellite_pct if (thematic_satellite_authorized and thematic_selected) else 0.0
-        thematic_slot["unallocated_pct"] = 0.0 if thematic_slot["allocation_pct"] > 0 else satellite_pct
-        thematic_slot["allocation_basis"] = "percent_of_equity_budget"
-        if not thematic_satellite_authorized or satellite_pct <= 0:
-            thematic_slot["scheme"] = None
-            thematic_slot["fund_name"] = None
-            thematic_slot["rationale"] = "NO_ACTION: thematic satellite is not authorized by the IPS."
-    debt_slot = blueprint.get("High-Grade Debt Anchor")
-    if debt_slot is not None:
-        debt_selected = bool(debt_slot.get("scheme")) and not str(debt_slot.get("scheme")).startswith("NO_ACTION")
-        debt_slot["allocation_pct"] = debt_target_pct if debt_selected else 0.0
-        debt_slot["unallocated_pct"] = 0.0 if debt_selected else debt_target_pct
-        debt_slot["allocation_basis"] = "percent_of_total_portfolio"
-
-    # Preserve plan classification from the exact candidate record selected by
-    # the eligibility gates. Never infer Direct status from a scheme-name string.
-    candidates_by_id = {
-        str(candidate.get("fund_id")): candidate
-        for candidate in candidate_universe
-        if candidate.get("fund_id") is not None
-    }
-    for slot in blueprint.values():
-        fund_id = slot.get("fund_id")
-        source_candidate = candidates_by_id.get(str(fund_id)) if fund_id is not None else None
-        slot["is_direct"] = bool(source_candidate and source_candidate.get("is_direct") is True)
+        blueprint["Slot 4: Tactical Thematic Satellite"] = choose_candidate(
+            "Slot 4: Tactical Thematic Satellite",
+            thematic_target,
+            lambda candidate, name, category: detect_fund_theme(name, category) == canonical_theme,
+            f"no Direct {thematic_deficit_theme} candidate passed all eligibility gates",
+            "percent_of_equity_budget",
+        )
+    blueprint["High-Grade Debt Anchor"] = choose_candidate(
+        "High-Grade Debt Anchor",
+        debt_target_pct,
+        lambda candidate, name, category: classify_fund_category(name, category, candidate) in (
+            "Debt", "Liquid", "Money Market", "Debt: Short Duration"
+        ),
+        "no verified Direct debt candidate passed all eligibility gates",
+        "percent_of_total_portfolio",
+    )
     return blueprint
+
 def calculate_universal_tier_split(
     tier_num: int,
     stability_buffer_pct: Optional[float] = None,
