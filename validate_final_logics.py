@@ -16,7 +16,6 @@ import warnings
 # Suppress openpyxl UserWarning about default styles
 warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
 
-import sys
 from pathlib import Path
 import json
 
