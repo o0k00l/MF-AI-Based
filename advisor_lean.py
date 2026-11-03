@@ -1,13 +1,6 @@
 #!/usr/bin/env python3
 """
 
-if __name__ != "__main__":
-    raise RuntimeError(
-        "advisor_lean.py is a legacy CLI with import-time private-data loading; "
-        "run it as a script or use the side-effect-free core modules."
-    )
-
-
 advisor_lean.py — legacy report CLI.
 Reads local private client data and uses shared core calculation modules.
 This is an executable report script, not a side-effect-free importable library.
@@ -17,6 +10,15 @@ Usage:
     python advisor_lean.py --query "..." # one-off grounded answer
     python advisor_lean.py --chat       # interactive REPL
 """
+
+if __name__ != "__main__":
+    raise RuntimeError(
+        "advisor_lean.py is a legacy CLI with import-time private-data loading; "
+        "run it as a script or use the side-effect-free core modules."
+    )
+
+
+
 from __future__ import annotations
 import json, re, sys, argparse
 from datetime import date, datetime
