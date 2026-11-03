@@ -585,8 +585,8 @@ def calculate_cashflow_matched_benchmark_xirr(
 
     cashflows = []
     txn_dates = []
-    # Track SWITCH/STP for netting at portfolio level
-    switch_stp_by_key = {}  # key: (date, abs_amount, folio) -> {in: cf, out: cf}
+    # Internal transfers are never investor-level cash flows. CAS may encode
+    # the out-leg as REDEMPTION with "Switch Out" in its description.
     
     for txn_index, txn in enumerate(tx_data.get("transactions", [])):
         d_str = txn.get("date", "")
@@ -614,17 +614,16 @@ def calculate_cashflow_matched_benchmark_xirr(
             txn_dates.append(txn_date)
             is_reversal = any(kw in desc for kw in ("reversal", "dishonour", "reject"))
             
-            # SWITCH/STP: internal portfolio transfers — net to zero
-            if txn_type in ("SWITCH_IN", "SWITCH_OUT", "STP_IN", "STP_OUT"):
-                # Pair both legs across source/target schemes; scheme names differ by design.
-                key = (txn_date, abs(amount), folio)
-                if key not in switch_stp_by_key:
-                    switch_stp_by_key[key] = {"in": 0.0, "out": 0.0}
-                if txn_type in ("SWITCH_IN", "STP_IN"):
-                    switch_stp_by_key[key]["in"] += amount  # typically negative (purchase)
-                else:
-                    switch_stp_by_key[key]["out"] += amount  # typically positive (redemption)
-                continue  # Skip adding to cashflows now; will net below
+            # Exclude internal transfers regardless of whether CAS labels the
+            # out-leg SWITCH_OUT or REDEMPTION. Pair matching by amount/date is
+            # unreliable because switch legs can settle on different dates and
+            # include STT/rounding differences.
+            transfer_description = any(
+                marker in desc
+                for marker in ("switch in", "switch-in", "switch out", "switch-out", "stp in", "stp-in", "stp out", "stp-out")
+            )
+            if txn_type in ("SWITCH_IN", "SWITCH_OUT", "STP_IN", "STP_OUT", "DIVIDEND_REINVEST") or transfer_description:
+                continue
             
             if amount < 0:
                 cf = -amount
@@ -657,26 +656,6 @@ def calculate_cashflow_matched_benchmark_xirr(
                 benchmark=benchmark_key,
                 validation_stage="cashflow_date_out_of_range"
             )
-
-    # Net SWITCH/STP pairs at portfolio level
-    unmatched_switch_stp = 0
-    for key, vals in switch_stp_by_key.items():
-        net = vals["in"] + vals["out"]  # in is negative, out is positive
-        # If perfectly matched (net ~ 0), skip both
-        if abs(net) < 1.0:  # ₹1 tolerance for rounding
-            continue
-        # If unmatched, log warning and EXCLUDE from portfolio-level cashflows
-        # (internal transfers should not affect portfolio XIRR)
-        unmatched_switch_stp += 1
-        # txn_date, abs_amt, folio, scheme = key
-        # cashflows.append((txn_date, net))  # Excluded: data quality issue - missing matching leg
-    
-    if unmatched_switch_stp:
-        raise TriProvenanceError(
-            f"{unmatched_switch_stp} unmatched SWITCH/STP transfer group(s) cannot be reconciled; portfolio XIRR is unavailable.",
-            benchmark=benchmark_key,
-            validation_stage="unmatched_internal_transfer"
-        )
 
     if not cashflows:
         return {
