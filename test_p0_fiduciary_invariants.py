@@ -921,67 +921,102 @@ def test_p0_12_all_four_slots_passive_fallback_and_no_action():
 
 def test_p0_13_statutory_tax_specified_fund_and_mandate_state():
     """
-    Verifies statutory tax classification under Section 50AA (1961 Act) and Section 76 (2025 Act),
-    including strict > 65% equity threshold, acquisition date cutoffs, and mandate authorization checks.
+    Verifies the original Section 50AA period, Section 76 commencement,
+    the independent MLD limb, and fail-closed Section 76 daily-data handling.
     """
     from core.math_engine import classify_specified_mutual_fund, get_statutory_tax_citation
-    from core.models import MandateExecutionState, FiduciaryFactsPayload, FeeBleedAnalysis, SAADriftAnalysis, CashDeploymentPlan
+    from core.models import (
+        MandateExecutionState, FiduciaryFactsPayload, FeeBleedAnalysis,
+        SAADriftAnalysis, CashDeploymentPlan, InsufficientDataError,
+    )
     from datetime import date
+    import pytest
 
-    # 1. Strict Equity-Oriented Threshold (>= 65.0% inclusive per CBDT clarification)
-    res_eq_exact_65 = classify_specified_mutual_fund("Equity", equity_pct=65.0)
-    assert res_eq_exact_65["is_equity_oriented"] is True, "Exactly 65.0% qualifies; statutory definition requires >= 65.0% inclusive"
+    # 1. Inclusive equity-oriented threshold (separate from specified-fund tests).
+    res_eq_exact_65 = classify_specified_mutual_fund(
+        "Equity", equity_pct=65.0, debt_and_money_market_pct=35.0,
+        acquisition_date=date(2024, 4, 1), transfer_date=date(2025, 1, 15)
+    )
+    assert res_eq_exact_65["is_equity_oriented"] is True
 
-    res_eq_above_65 = classify_specified_mutual_fund("Equity", equity_pct=65.01)
-    assert res_eq_above_65["is_equity_oriented"] is True, "65.01% strictly qualifies as equity-oriented"
+    res_eq_above_65 = classify_specified_mutual_fund(
+        "Equity", equity_pct=65.01, debt_and_money_market_pct=34.99,
+        acquisition_date=date(2024, 4, 1), transfer_date=date(2025, 1, 15)
+    )
+    assert res_eq_above_65["is_equity_oriented"] is True
 
-    # 2. Arbitrage Fund Qualification
-    res_arb_qualifying = classify_specified_mutual_fund("Arbitrage", equity_pct=68.0)
+    # 2. Arbitrage fund classification uses the equity-oriented threshold only.
+    res_arb_qualifying = classify_specified_mutual_fund(
+        "Arbitrage", equity_pct=68.0, debt_and_money_market_pct=32.0,
+        acquisition_date=date(2024, 4, 1), transfer_date=date(2025, 1, 15)
+    )
     assert res_arb_qualifying["is_equity_oriented"] is True
     assert res_arb_qualifying["tax_treatment"] == "EQUITY_ORIENTED_CONCESSIONAL"
 
-    res_arb_under = classify_specified_mutual_fund("Arbitrage", equity_pct=64.0)
-    assert res_arb_under["is_equity_oriented"] is False, "Arbitrage fund with <= 65% equity does NOT qualify as equity-oriented"
+    res_arb_under = classify_specified_mutual_fund(
+        "Arbitrage", equity_pct=64.0, debt_and_money_market_pct=36.0,
+        acquisition_date=date(2024, 4, 1), transfer_date=date(2025, 1, 15)
+    )
+    assert res_arb_under["is_equity_oriented"] is False
 
-    # 3. Debt Fund Grandfathering (Pre-1 April 2023 Acquisition)
-    res_debt_old = classify_specified_mutual_fund("Debt", equity_pct=10.0, debt_and_money_market_pct=90.0, is_fund_of_funds=False, fof_debt_investing_pct=None, acquisition_date=date(2022, 11, 20), transfer_date=date(2026, 1, 15))
+    # 3. Units acquired before 1 April 2023 remain outside the specified-MF unit limb.
+    res_debt_old = classify_specified_mutual_fund(
+        "Debt", equity_pct=10.0, debt_and_money_market_pct=90.0,
+        is_fund_of_funds=False, fof_debt_investing_pct=None,
+        acquisition_date=date(2022, 11, 20), transfer_date=date(2026, 1, 15)
+    )
     assert res_debt_old["is_specified_mutual_fund"] is False
     assert res_debt_old["specified_50AA"]["provision"] == "Section 48 (Grandfathered)"
     assert "Section 48" in res_debt_old["governing_statute"]
 
-    # 4. Specified Mutual Fund (Post-1 April 2023 Acquisition) under Section 50AA (1961 Act)
-    # FY 2025-26 amended regime requires daily NAV snapshots - provide mock snapshots
-    from core.math_engine import DailyPortfolioSnapshot
-    mock_snapshots = [
-        DailyPortfolioSnapshot(date=date(2025, 4, 1), equity_pct=15.0, debt_pct=70.0, money_market_pct=15.0),
-        DailyPortfolioSnapshot(date=date(2025, 7, 1), equity_pct=15.0, debt_pct=70.0, money_market_pct=15.0),
-        DailyPortfolioSnapshot(date=date(2025, 10, 1), equity_pct=15.0, debt_pct=70.0, money_market_pct=15.0),
-        DailyPortfolioSnapshot(date=date(2026, 1, 1), equity_pct=15.0, debt_pct=70.0, money_market_pct=15.0),
-    ]
+    # 4. FY 2025-26 remains under the original <=35% domestic-equity test.
+    # The debt/MM replacement test does NOT apply until 1 April 2026.
     res_debt_50aa = classify_specified_mutual_fund(
-        "Debt", equity_pct=15.0, debt_and_money_market_pct=85.0, 
-        is_fund_of_funds=False, fof_debt_investing_pct=None, 
-        acquisition_date=date(2023, 6, 15), transfer_date=date(2026, 1, 15),
-        snapshots=mock_snapshots, fy_start=date(2025, 4, 1), fy_end=date(2026, 3, 31)
+        "Debt", equity_pct=35.0, debt_and_money_market_pct=60.0,
+        is_fund_of_funds=False, fof_debt_investing_pct=None,
+        acquisition_date=date(2023, 6, 15), transfer_date=date(2026, 3, 31)
     )
     assert res_debt_50aa["is_specified_mutual_fund"] is True
     assert res_debt_50aa["specified_50AA"]["qualifies"] is True
+    assert res_debt_50aa["tax_treatment"] == "SECTION_50AA_DEEMED_STCG"
     assert "Section 50AA" in res_debt_50aa["governing_statute"]
 
-    # 5. Specified Mutual Fund post-1 April 2026 under Section 76 (2025 Act)
-    res_debt_sec76 = classify_specified_mutual_fund("Debt", equity_pct=10.0, debt_and_money_market_pct=90.0, is_fund_of_funds=False, fof_debt_investing_pct=None, acquisition_date=date(2023, 6, 15), transfer_date=date(2026, 5, 1))
-    assert res_debt_sec76["is_specified_mutual_fund"] is True
-    assert "Section 76" in res_debt_sec76["governing_statute"]
+    # 5. Section 76 starts 1 April 2026 and cannot silently fall back to point-in-time data.
+    with pytest.raises(InsufficientDataError, match="annual-average daily closing"):
+        classify_specified_mutual_fund(
+            "Debt", equity_pct=10.0, debt_and_money_market_pct=90.0,
+            is_fund_of_funds=False, fof_debt_investing_pct=None,
+            acquisition_date=date(2023, 6, 15), transfer_date=date(2026, 5, 1)
+        )
 
-    # 6. Section 198 vs Section 197 distinction in 2025 Act
+    # 6. MLD inclusion is independent of the mutual-fund unit acquisition-date gate.
+    res_mld_50aa = classify_specified_mutual_fund(
+        "MLD", equity_pct=0.0, debt_and_money_market_pct=0.0,
+        acquisition_date=date(2022, 11, 20), transfer_date=date(2026, 3, 31),
+        is_mld=True
+    )
+    assert res_mld_50aa["is_specified_mutual_fund"] is True
+    assert res_mld_50aa["tax_treatment"] == "SECTION_50AA_DEEMED_STCG"
+
+    res_mld_76 = classify_specified_mutual_fund(
+        "MLD", equity_pct=0.0, debt_and_money_market_pct=0.0,
+        acquisition_date=date(2022, 11, 20), transfer_date=date(2026, 5, 1),
+        is_mld=True
+    )
+    assert res_mld_76["is_specified_mutual_fund"] is True
+    assert res_mld_76["tax_treatment"] == "SECTION_76_DEEMED_STCG"
+
+    # 7. Section 198 and successor-act section references remain distinct.
     tax_cit_2026 = get_statutory_tax_citation(as_of=date(2026, 5, 1))
     assert "Section 198" in tax_cit_2026.ltcg_statute
     assert "Section 197" in tax_cit_2026.ltcg_statute
     assert "Section 196" in tax_cit_2026.stcg_statute
+    assert "Section 76" in tax_cit_2026.debt_fund_statute
+    assert ">65%" in tax_cit_2026.debt_fund_statute
     assert "Section 108" in tax_cit_2026.loss_netting_statute
     assert "Section 111" in tax_cit_2026.loss_carryforward_statute
 
-    print("[PASS] P0.13 Statutory Tax Specified Fund & 2025 Act Invariant Verified")
+    print("[PASS] P0.13 Date-Aware Specified-Fund / MLD Tax Classification Verified")
 
 
 def test_p0_14_cashflow_matched_tri_benchmark_engine():
