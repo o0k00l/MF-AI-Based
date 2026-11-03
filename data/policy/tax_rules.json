@@ -167,14 +167,22 @@
       "unit_acquisition_on_or_after": "2023-04-01",
       "mutual_fund_test": "not_more_than_35_percent_of_total_proceeds_in_equity_shares_of_domestic_companies",
       "mld_inclusion": "market_linked_debentures_are_separately_included_without_the_mutual_fund_unit_acquisition_date_condition",
-      "note": "Use original Section 50AA definition for transfers through 2026-03-31. Do not apply the successor debt/money-market test to FY 2025-26."
+      "note": "Use original Section 50AA definition for transfers through 2026-03-31. Do not apply the successor debt/money-market test to FY 2025-26.",
+      "calculation_method": "annual_average_of_daily_closing_domestic_equity_figures",
+      "evidence_required": [
+        "verified_acquisition_date",
+        "complete_daily_domestic_equity_composition_series",
+        "financial_year_boundaries",
+        "expected_daily_observation_calendar",
+        "source_provenance"
+      ]
     },
     "section_76_2025": {
       "transfer_effective_from": "2026-04-01",
       "unit_acquisition_on_or_after": "2023-04-01",
       "mutual_fund_test": "more_than_65_percent_of_total_proceeds_in_debt_and_money_market_instruments",
       "fund_of_funds_test": "at_least_65_percent_in_units_of_such_specified_mutual_funds",
-      "calculation_method": "annual_average_of_daily_closing_figures_for_the_relevant_financial_year",
+      "calculation_method": "annual_average_of_daily_closing_figures",
       "mld_inclusion": "market_linked_debentures_are_separately_included_without_the_mutual_fund_unit_acquisition_date_condition",
       "evidence_required": [
         "verified_acquisition_date",
@@ -186,5 +194,20 @@
       "note": "Do not use a point-in-time allocation, an inferred equity complement, or an unverified caller-supplied coverage flag as a substitute for the statutory annual-average calculation."
     }
   },
-  "exit_load_schedules_note": "These are generic indicative defaults only. Actual scheme/plan/lot-specific exit-load schedules from current official scheme documents control; missing exit-load evidence must not be represented as zero."
+  "exit_load_schedules_note": "These are generic indicative defaults only. Actual scheme/plan/lot-specific exit-load schedules from current official scheme documents control; missing exit-load evidence must not be represented as zero.",
+  "equity_oriented_classification": {
+    "provision": "Section 198(8) of the Income-tax Act, 2025",
+    "direct_fund_threshold_pct": 65,
+    "calculation_method": "annual_average_of_monthly_averages_of_opening_and_closing_figures",
+    "fund_of_funds_threshold_pct": 90,
+    "fund_of_funds_conditions": [
+      "minimum 90% of total proceeds in units of another fund traded on a recognised stock exchange",
+      "underlying fund invests minimum 90% of its total proceeds in domestic listed equity shares"
+    ],
+    "evidence_required": [
+      "all 12 monthly opening and closing portfolio-composition observations",
+      "verified scheme structure and underlying-fund eligibility"
+    ],
+    "note": "Do not substitute point-in-time equity allocation or an annual average of daily closing values for the statutory monthly-average method."
+  }
 }
