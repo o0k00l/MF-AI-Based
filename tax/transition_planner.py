@@ -117,6 +117,20 @@ def load_transactions(
             continue
         units = tx.get("units", 0)
         amount = tx.get("amount", 0)
+        txn_type = str(tx.get("type", "") or "").strip().upper()
+        allowed_types = {
+            "PURCHASE", "SIP", "SWITCH_IN", "STP_IN", "DIVIDEND_REINVEST",
+            "REDEMPTION", "SWITCH_OUT", "STP_OUT", "DIVIDEND",
+        }
+        if txn_type not in allowed_types:
+            raise ValueError(f"Unsupported transaction type {txn_type!r} for scheme {scheme!r}")
+        description = str(tx.get("description", tx.get("desc", "")) or "")
+        if txn_type == "DIVIDEND" and any(
+            marker in description.casefold() for marker in ("reinvest", "reinvestment", "drp")
+        ):
+            txn_type = "DIVIDEND_REINVEST"
+        elif txn_type == "DIVIDEND":
+            continue  # Cash payout does not create or remove units in the lot pool.
         if units == 0 and amount == 0:
             continue  # Skip zero-activity entries (address updates, nominee registrations, etc.)
 
@@ -126,6 +140,7 @@ def load_transactions(
             "units": Decimal(str(units)),
             "amount": float(amount),
             "nav": float(tx.get("nav", 0)) if tx.get("nav") else 0.0,
+            "type": txn_type,
             "equity_pct": tx.get("equity_allocation_pct", (equity_allocation_by_fund or {}).get(scheme)),
             "description": tx.get("description", ""),
         })
@@ -153,6 +168,19 @@ def load_transactions(
                 t["units"] = -t["units"]
                 t["amount"] = -t["amount"]
                 t["_reversal_normalised"] = True
+
+    purchase_types = {"PURCHASE", "SIP", "SWITCH_IN", "STP_IN", "DIVIDEND_REINVEST"}
+    redemption_types = {"REDEMPTION", "SWITCH_OUT", "STP_OUT"}
+    for fund_id, txs in transactions_by_fund.items():
+        for row in txs:
+            if row["type"] in purchase_types:
+                if row["units"] <= 0 or row["amount"] <= 0:
+                    raise ValueError(f"Purchase row for {fund_id} has non-positive amount/units")
+                if row["nav"] <= 0:
+                    row["nav"] = row["amount"] / float(row["units"])
+            elif row["type"] in redemption_types:
+                if row["units"] >= 0 or row["amount"] >= 0:
+                    raise ValueError(f"Redemption/switch-out row for {fund_id} has invalid sign convention")
 
     # Reversal netting: drop BOTH rows of a matched reversal pair. A pair is
     # identified by equal |amount| (within 1 paisa) and |units| (within 0.001)
@@ -194,8 +222,8 @@ def load_transactions(
         # Separate purchases and redemptions
         # GAP-289 FIX: Require units field for all transactions. No silent fallback.
         # Production CAS data always includes units. Test data must provide units and nav.
-        purchases = [t for t in txs if t["units"] > 0 and t["amount"] > 0]
-        redemptions = [t for t in txs if t["units"] < 0 and t["amount"] < 0]
+        purchases = [t for t in txs if t["type"] in purchase_types]
+        redemptions = [t for t in txs if t["type"] in redemption_types]
 
         if not purchases:
             continue  # No purchases to survive
