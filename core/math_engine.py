@@ -2678,7 +2678,7 @@ def _parse_sebi_risk_tier(risk_tier: str) -> int:
     tier_str = str(risk_tier or "").strip().casefold()
     if not tier_str:
         raise ValueError("Risk tier is required")
-    match = re.search(r"\\btier\\s*([1-6])\\b", tier_str)
+    match = re.search(r"\btier\s*([1-6])\b", tier_str)
     if match:
         return int(match.group(1))
     if "capital preservation" in tier_str or "very low" in tier_str or tier_str == "preservation":
