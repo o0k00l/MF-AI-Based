@@ -3746,7 +3746,11 @@ def select_autonomous_blueprint_funds(
     scheme fallback is permitted. A missing qualifying candidate returns an
     explicit NO_ACTION slot with its full target shown as unallocated.
     """
-    from core.eligibility import check_eligibility_gates, load_candidate_universe
+    from core.eligibility import (
+        check_eligibility_gates,
+        load_candidate_universe,
+        _reviewed_direct_plan_evidence_status,
+    )
     from core.fund_classifier import classify_fund_category, detect_fund_theme
 
     import json
@@ -3903,9 +3907,13 @@ def select_autonomous_blueprint_funds(
             category = candidate.get("category", "")
             if not category_predicate(candidate, name, category):
                 continue
-            # Explicit direct-plan identity is mandatory; do not infer it from
-            # a scheme name containing the word Direct.
-            if candidate.get("is_direct") is not True:
+            # Explicit Direct-plan identity and its local source file must
+            # both be reviewer-attested and hash-matched. A caller cannot bypass
+            # this by supplying is_direct=True or copying the status string.
+            if (
+                candidate.get("is_direct") is not True
+                or _reviewed_direct_plan_evidence_status(candidate) != "REVIEWER_ATTESTED_HASH_MATCH"
+            ):
                 continue
             gate_result = check_eligibility_gates(
                 candidate,
