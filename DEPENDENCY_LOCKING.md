@@ -1,6 +1,6 @@
 # Reproducible Python dependency lock
 
-**Current status: not complete.** `requirements.txt` is a human-maintained input file with open version ranges. It is not a reproducible environment and must not be used as the production installation manifest.
+**Current status: not complete.** `requirements.txt` is a human-maintained input file with open version ranges. Current security floors include Requests 2.33.0, python-dotenv 1.2.2, xhtml2pdf 0.2.20, pytest 9.0.3 and Pillow 13.0.0. It is not a reproducible environment and must not be used as the production installation manifest.
 
 ## Generate the lock on the supported build platform
 
@@ -27,6 +27,8 @@ python -m pytest test_p0_fiduciary_invariants.py -v --tb=short
 python -m pytest tests/test_p0_correctness_regressions.py -v --tb=short
 python validate_final_logics.py
 ```
+
+The project does not currently declare a JWT library. The previous `python-jose[cryptography]` requirement was removed: the latest upstream 3.5.0 release is affected by a critical algorithm-confusion advisory, and no patched release is listed. Its default package dependency also brought in the `ecdsa` package, for which the upstream project states no planned fix for the Minerva timing issue. Do not re-add either library by transitive constraint. When an authenticated API is actually implemented, select a maintained JOSE/JWT implementation and restrict accepted algorithms and key types explicitly.
 
 The production release workflow installs only from `requirements.lock` and fails closed while it is absent. Do not create a placeholder lock or claim reproducibility from `pip freeze` generated in an unclean developer environment.
 
