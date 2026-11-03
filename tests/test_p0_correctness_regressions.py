@@ -1431,3 +1431,65 @@ def test_starter_routing_thresholds_and_weights_are_policy_driven():
     )
     threshold_roles = {item.category_role: item for item in at_threshold.items}
     assert "Large-Cap Bluechip Anchor" in threshold_roles
+
+
+def test_candidate_ingestion_never_hardcodes_direct_plan_status(tmp_path):
+    import json
+    from core.eligibility import load_candidate_universe, check_eligibility_gates
+
+    metrics_path = tmp_path / "fund_metrics.json"
+    metrics_path.write_text(json.dumps({"funds": [
+        {
+            "id": "synthetic-direct-label-only",
+            "name": "Synthetic Flexi Cap Direct Growth",
+            "category": "Flexi Cap Equity",
+        },
+        {
+            "id": "synthetic-source-classified-direct",
+            "name": "Synthetic Flexi Cap Growth",
+            "category": "Flexi Cap Equity",
+            "is_direct": True,
+            "plan": "Direct",
+        },
+        {
+            "id": "synthetic-source-classified-regular",
+            "name": "Synthetic Flexi Cap Growth",
+            "category": "Flexi Cap Equity",
+            "is_direct": False,
+            "plan": "Regular",
+        },
+    ]}), encoding="utf-8")
+
+    candidates = {c["fund_id"]: c for c in load_candidate_universe(metrics_path)}
+    assert candidates["synthetic-direct-label-only"]["is_direct"] is None
+    assert candidates["synthetic-source-classified-direct"]["is_direct"] is True
+    assert candidates["synthetic-source-classified-regular"]["is_direct"] is False
+
+    missing_source_gate = check_eligibility_gates(candidates["synthetic-direct-label-only"], [])
+    assert missing_source_gate.direct_plan_gate is False
+    assert any("explicit Direct-plan source classification" in item for item in missing_source_gate.failed_gates)
+
+    direct_source_gate = check_eligibility_gates(candidates["synthetic-source-classified-direct"], [])
+    assert direct_source_gate.direct_plan_gate is True
+
+
+def test_selector_does_not_select_candidate_using_direct_name_suffix_only():
+    from core.math_engine import select_autonomous_blueprint_funds
+
+    candidate = {
+        "fund_id": "synthetic-flexi-unverified-plan",
+        "fund_name": "Synthetic Flexi Cap Direct Growth",
+        "category": "Flexi Cap Equity",
+        # No is_direct value from a source record.
+    }
+    result = select_autonomous_blueprint_funds(
+        holdings=[],
+        candidate_universe=[candidate],
+        client_risk_tier=6,
+    )
+    slot = result["Slot 1: Core Flexi-Cap Compounder"]
+    assert slot["gate_passed"] is False
+    assert slot["is_direct"] is None
+    assert str(slot["scheme"]).startswith("NO_ACTION")
+    assert slot["allocation_pct"] == 0.0
+    assert slot["unallocated_pct"] > 0.0
