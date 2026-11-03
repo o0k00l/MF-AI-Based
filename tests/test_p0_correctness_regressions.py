@@ -1800,3 +1800,18 @@ def test_tri_fixture_verifier_rejects_incorrect_declared_observation_count(tmp_p
     failures = verify_fixture(corrupted)
     assert any("does not match observed count" in failure for failure in failures)
 
+
+
+def test_candidate_universe_rejects_repository_local_client_data(monkeypatch):
+    from pathlib import Path
+    from core.math_engine import select_autonomous_blueprint_funds
+
+    repository_root = Path(__file__).resolve().parents[1]
+    monkeypatch.setenv("MF_CLIENT_DATA_DIR", str(repository_root / "data"))
+    with pytest.raises(ValueError, match="MF_CLIENT_DATA_DIR must be outside the Git repository"):
+        select_autonomous_blueprint_funds(
+            holdings=[],
+            candidate_universe=None,
+            client_risk_tier=6,
+        )
+
