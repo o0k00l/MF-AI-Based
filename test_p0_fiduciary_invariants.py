@@ -999,7 +999,8 @@ def test_p0_14_cashflow_matched_tri_benchmark_engine():
 
     assert tri_path.exists(), "benchmark_tri_series.json must exist"
 
-    # 1. NIFTY 500 TRI Audit - Original file should fail coverage gate
+    # No independently maintained NSE trading calendar is shipped with this repo.
+    # The calculation must fail closed instead of trusting benchmark-fixture metadata.
     from core.models import TriProvenanceError
     with pytest.raises(TriProvenanceError) as exc_info:
         calculate_cashflow_matched_benchmark_xirr(
@@ -1008,25 +1009,8 @@ def test_p0_14_cashflow_matched_tri_benchmark_engine():
             benchmark_series_path=tri_path,
             cas_current=5170911.38
         )
-    assert "coverage" in str(exc_info.value).lower()
-    assert exc_info.value.validation_stage == "coverage_insufficient"
-
-    # Use HIGH-COVERAGE fixture (daily business day observations, 100% coverage)
-    tri_high_path = Path("data/policy/benchmark_tri_series_high_coverage.json")
-
-    with pytest.raises(TriProvenanceError) as high_fixture_error:
-        calculate_cashflow_matched_benchmark_xirr(
-            transactions_path=tx_path,
-            benchmark_key="NIFTY 500 TRI",
-            benchmark_series_path=tri_high_path,
-            cas_current=5170911.38
-        )
-    assert high_fixture_error.value.validation_stage == "frequency_insufficient"
-
-    # The high-coverage fixture contains 985 points but its own provenance says
-    # Monthly with daily interpolation. It is not an independently sourced daily TRI.
-    print("[PASS] P0.14 TRI rejects the monthly/interpolated fixture rather than publishing false daily alpha")
-
+    assert exc_info.value.validation_stage == "trading_calendar_missing"
+    print("[PASS] P0.14 TRI refuses to calculate without an independent NSE session calendar")
 
 def test_p0_15_runtime_mandate_hold_enforcement():
     """
@@ -1105,6 +1089,23 @@ def test_p0_16_tri_coverage_gate_rejects_inflated_metadata():
     with open(sparse_tri_path, 'w') as f:
         json.dump(sparse_data, f)
 
+    # Build a separate calendar fixture from the complete test dataset, not the
+    # edited sparse benchmark levels or their editable coverage metadata.
+    calendar_sessions = sorted(tri_data["benchmarks"]["NIFTY 500 TRI"]["levels"].keys())
+    sessions_sha256 = hashlib.sha256(json.dumps(calendar_sessions, separators=(",", ":")).encode()).hexdigest()
+    calendar_data = {
+        "exchange": "NSE",
+        "status": "VERIFIED",
+        "sessions": calendar_sessions,
+        "provenance": {
+            "source_url": "https://www.nseindia.com/reports",
+            "source_document_sha256": "c" * 64,
+            "sessions_sha256": sessions_sha256,
+        },
+    }
+    calendar_path = Path(sparse_tri_path).with_name("nse_calendar.json")
+    calendar_path.write_text(json.dumps(calendar_data), encoding="utf-8")
+
     try:
         # This should raise TriProvenanceError because actual coverage (10/985 ~ 1%) 
         # is below 95% even though metadata claims 100%
@@ -1112,7 +1113,8 @@ def test_p0_16_tri_coverage_gate_rejects_inflated_metadata():
             transactions_path=Path("data/lalit_portfolio/transactions.json"),
             benchmark_key="NIFTY 500 TRI",
             benchmark_series_path=Path(sparse_tri_path),
-            cas_current=5170911.38
+            cas_current=5170911.38,
+            trading_calendar_path=calendar_path
         )
         assert False, "Should have raised TriProvenanceError for inflated metadata"
     except TriProvenanceError as e:
