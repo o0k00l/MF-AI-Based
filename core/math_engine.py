@@ -2853,6 +2853,57 @@ class MonthlyPortfolioSnapshot:
     closing_underlying_equity_pct: Optional[float] = None
 
 
+@dataclass(frozen=True)
+class MonthlySnapshotCoverageEvidence:
+    expected_months: Tuple[date, ...]
+    source_url: str
+    source_document_sha256: str
+    independently_verified: bool
+
+
+def validate_monthly_snapshot_coverage(
+    snapshots: List[MonthlyPortfolioSnapshot],
+    fy_start: date,
+    fy_end: date,
+    evidence: Optional[MonthlySnapshotCoverageEvidence],
+) -> None:
+    import re
+    from core.models import InsufficientDataError
+
+    if not isinstance(evidence, MonthlySnapshotCoverageEvidence):
+        raise InsufficientDataError(
+            "Section 198 requires provenance-backed monthly coverage evidence, not only 12 supplied records.",
+            missing_data="MonthlySnapshotCoverageEvidence",
+            required_source="Verified monthly disclosure calendar with source URL and SHA-256",
+        )
+    if evidence.independently_verified is not True:
+        raise InsufficientDataError(
+            "Section 198 monthly disclosure calendar is not independently verified.",
+            missing_data="independent monthly coverage verification",
+            required_source="Independently verified monthly disclosure calendar",
+        )
+    if not isinstance(evidence.source_url, str) or not evidence.source_url.startswith("https://"):
+        raise ValueError("Monthly snapshot source_url must be an HTTPS URL")
+    if not isinstance(evidence.source_document_sha256, str) or not re.fullmatch(r"[0-9a-fA-F]{64}", evidence.source_document_sha256):
+        raise ValueError("Monthly snapshot source_document_sha256 must be a 64-character SHA-256 hex digest")
+    expected = list(evidence.expected_months)
+    if not expected or expected != sorted(set(expected)):
+        raise ValueError("Expected monthly snapshot dates must be non-empty, sorted and unique")
+    if any(d.day != 1 for d in expected):
+        raise ValueError("Expected monthly snapshot dates must be first day of each month")
+    observed = [s.month for s in snapshots or []]
+    if len(observed) != len(set(observed)):
+        raise ValueError("Observed monthly portfolio snapshots contain duplicate months")
+    if set(observed) != set(expected):
+        missing = sorted(set(expected) - set(observed))
+        unexpected = sorted(set(observed) - set(expected))
+        raise InsufficientDataError(
+            "Section 198 monthly snapshot dates do not match the verified monthly disclosure calendar.",
+            missing_data=f"missing_months={missing}, unexpected_months={unexpected}",
+            required_source="Complete monthly opening and closing portfolio disclosures",
+        )
+
+
 @dataclass
 class DailyPortfolioSnapshot:
     """Daily portfolio composition for annual-average-of-daily-closing calculation."""
@@ -3013,10 +3064,12 @@ def qualifies_as_equity_oriented_under_section_198(
     equity_pct: float,
     calculation_method: str = "annual_average_monthly_opening_closing",
     monthly_snapshots: Optional[List[MonthlyPortfolioSnapshot]] = None,
+    monthly_coverage_evidence: Optional[MonthlySnapshotCoverageEvidence] = None,
     fof_underlying_traded_on_recognised_exchange: Optional[bool] = None,
     fy_start: Optional[date] = None,
     fy_end: Optional[date] = None,
     is_fund_of_funds: bool = False,
+    monthly_coverage_evidence: Optional[MonthlySnapshotCoverageEvidence] = None,
 ) -> ClassificationResult:
     """
     Section 198(8): equity-oriented fund qualification.
@@ -3035,6 +3088,8 @@ def qualifies_as_equity_oriented_under_section_198(
             missing_data="monthly opening and closing portfolio-composition snapshots",
             required_source="Verified monthly portfolio disclosures for all 12 financial-year months",
         )
+
+    validate_monthly_snapshot_coverage(monthly_snapshots, fy_start, fy_end, monthly_coverage_evidence)
 
     if is_fund_of_funds:
         if not isinstance(fof_underlying_traded_on_recognised_exchange, bool):
@@ -3505,6 +3560,7 @@ def classify_specified_mutual_fund(
             fy_start=fy_start,
             fy_end=fy_end,
             is_fund_of_funds=is_fund_of_funds,
+            monthly_coverage_evidence=monthly_coverage_evidence,
             fof_underlying_traded_on_recognised_exchange=fof_underlying_traded_on_recognised_exchange,
         )
     
