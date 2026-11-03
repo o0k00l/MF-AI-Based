@@ -4124,7 +4124,9 @@ def compute_deterministic_lumpsum_blueprint(
     slots = select_autonomous_blueprint_funds(
         holdings=holdings,
         client_risk_tier=tier_num,
-        thematic_deficit_theme=thematic_deficit_theme
+        thematic_deficit_theme=thematic_deficit_theme,
+        thematic_satellite_authorized=thematic_satellite_authorized,
+        thematic_satellite_pct_of_equity=satellite_pct,
     )
     flexi_info = slots["Slot 1: Core Flexi-Cap Compounder"]
     mid_info = slots["Slot 2: Mid-Cap Alpha Engine"]
@@ -4389,7 +4391,7 @@ def compute_deterministic_sip_blueprint(
     direct_pharma_folio = thematic_info.get("folio")
     pharma_rat = thematic_info.get("rationale", "NO_ACTION: No eligible thematic fund selected for Slot 4.")
 
-    debt_scheme = debt_info.get("scheme", "ICICI Prudential Short Term Fund - Direct Plan - Growth")
+    debt_scheme = debt_info.get("scheme") or "NO_ACTION: No verified debt candidate selected"
     direct_debt_folio = debt_info.get("folio")
     debt_rat = debt_info.get("rationale", "High-grade AAA short-term debt fulfilling SAA fixed income target.")
 
