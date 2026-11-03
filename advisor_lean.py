@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """
+
 advisor_lean.py — legacy report CLI.
 Reads local private client data and uses shared core calculation modules.
 This is an executable report script, not a side-effect-free importable library.
@@ -9,7 +10,17 @@ Usage:
     python advisor_lean.py --query "..." # one-off grounded answer
     python advisor_lean.py --chat       # interactive REPL
 """
+
+
+
 from __future__ import annotations
+
+if __name__ != "__main__":
+    raise RuntimeError(
+        "advisor_lean.py is a legacy CLI with import-time private-data loading; "
+        "run it as a script or use the side-effect-free core modules."
+    )
+
 import json, re, sys, argparse
 from datetime import date, datetime
 from collections import defaultdict
@@ -324,7 +335,7 @@ def compute_fifo_tax_lots(as_of_date=None):
     Tags each purchase lot as LTCG (>365d, 0% exit load) or STCG (<=365d, 1% load).
     """
     if as_of_date is None:
-        as_of_date = date(2026, 10, 9)
+        as_of_date = date.today()
     txns_path = CLIENT / "transactions.json"
     if not txns_path.exists():
         return []
@@ -475,11 +486,10 @@ transactions_path = CLIENT / "transactions.json"
 cas_invested = sum(h["invested"] for h in holdings)
 cas_current = sum(h["value"] for h in holdings if h["value"] > 0)
 portfolio_xirr = calculate_portfolio_xirr(transactions_path, holdings, cas_invested, cas_current)
+# Matched TRI alpha is intentionally unavailable in this legacy report path.
+# Do not substitute a fixed return assumption for a cash-flow-matched benchmark.
 benchmark_xirr = None
 alpha_pct = None
-if portfolio_xirr is not None:
-    benchmark_xirr = 0.12
-    alpha_pct = (portfolio_xirr - 0.12) * 100
 
 # Optional imports - may be unavailable in test environments
 try:
@@ -795,7 +805,7 @@ facts = {
     "lumpsum_plan": compute_lumpsum_blueprint(lumpsum_amount=cfg.get("ips",{}).get("lumpsum_budget", 200000), profile_name=cfg.get("ips",{}).get("risk_tolerance", "aggressive"), mid_choice="hdfc_midcap"),
 }
 
-SYS = """You are a SEBI-registered fee-only Fiduciary Wealth Advisor. Rules:
+SYS = """Act as a mutual-fund research assistant. Do not claim SEBI registration or adviser status. Rules:
 1. NEVER hallucinate numbers -- quote EXACT values from input.
 2. REGULAR->DIRECT SWITCH TAX REALITY: Under Indian Income Tax Act Sec 47/112A, a Regular to Direct switch is legally treated as a REDEMPTION followed by a PURCHASE. It triggers Capital Gains Tax (STCG 20% <1yr, LTCG 12.5% >1yr above Rs1.25L) and Exit Loads (typically 1% <1yr). It is NOT tax-neutral!
 3. NEVER advise switching all regular funds blindly in Week 1. This triggers massive tax liability and exit load penalties.
