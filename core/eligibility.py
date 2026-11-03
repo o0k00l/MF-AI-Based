@@ -463,16 +463,16 @@ def check_eligibility_gates(
     # --- Gate 10: 100% Direct Plan Mandate Gate ---
     plan_value = str(fund_data.get("plan", "") or "").strip().casefold()
     direct_flag = fund_data.get("is_direct")
-    direct_label = plan_value.startswith("direct")
-    if direct_flag is True and (not plan_value or direct_label):
-        is_direct = True
-    elif direct_flag is False or "regular" in plan_value or "distributor" in plan_value or "regular" in fund_name.lower():
+    # The word "Direct" in a scheme name is not evidence. Require an
+    # explicit boolean plan classification from a scheme master or official
+    # scheme document; conflicting plan text overrides a positive flag.
+    if "regular" in plan_value or "distributor" in plan_value or "regular" in fund_name.casefold():
         is_direct = False
-    elif direct_label:
+    elif direct_flag is True and (not plan_value or plan_value.startswith("direct")):
         is_direct = True
     else:
         is_direct = False
-        failed.append("Gate 10 [Direct Plan Mandate]: explicit Direct plan classification missing or invalid — fail-closed")
+        failed.append("Gate 10 [Direct Plan Mandate]: explicit Direct-plan source classification missing or invalid — fail-closed")
     if not is_direct:
         failed.append("Gate 10 [Direct Plan Mandate]: Scheme is not verified as a Direct plan")
     details["is_direct"] = is_direct
@@ -650,7 +650,10 @@ def load_candidate_universe(
             "manager_tenure_years": float(manager_tenure_raw) if manager_tenure_raw is not None else None,
             "track_record_years": float(track_record_raw) if track_record_raw is not None else None,
             "composite_score": float(composite_raw) if composite_raw is not None else None,
-            "is_direct": True,
+            # Never synthesize Direct-plan status. It must be a boolean
+            # from the dated scheme-level source record.
+            "is_direct": m.get("is_direct") if isinstance(m.get("is_direct"), bool) else None,
+            "plan": m.get("plan", m.get("plan_type", "")),
             "is_passive": is_passive_raw if is_passive_raw is not None else False,
             "_provenance": provenance_raw if provenance_raw is not None else {},
             "eligibility": {}
