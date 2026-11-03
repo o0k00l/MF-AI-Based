@@ -998,6 +998,9 @@ def test_section_76_requires_acquisition_date_and_daily_series_coverage():
             equity_pct=10.0,
             debt_and_money_market_pct=90.0,
             transfer_date=date(2026, 11, 3),
+            monthly_snapshots=_monthly_snapshots_for_fy(date(2026, 4, 1), equity_pct=10.0),
+            fy_start=date(2026, 4, 1),
+            fy_end=date(2027, 3, 31),
         )
 
     snapshots = _daily_snapshots_for_fy(
@@ -1011,6 +1014,7 @@ def test_section_76_requires_acquisition_date_and_daily_series_coverage():
             acquisition_date=date(2023, 4, 1),
             transfer_date=date(2026, 11, 3),
             snapshots=snapshots,
+            monthly_snapshots=_monthly_snapshots_for_fy(date(2026, 4, 1), equity_pct=10.0),
             fy_start=date(2026, 4, 1),
             fy_end=date(2027, 3, 31),
             snapshot_coverage_evidence=None,
@@ -1036,14 +1040,10 @@ def test_section_76_strict_debt_plus_money_market_boundary(debt_pct, money_marke
         acquisition_date=date(2023, 4, 1),
         transfer_date=date(2026, 11, 3),
         snapshots=snapshots,
+        monthly_snapshots=_monthly_snapshots_for_fy(fy_start, equity_pct=10.0),
         fy_start=fy_start,
         fy_end=fy_end,
-        snapshot_coverage_evidence=__import__("core.math_engine", fromlist=["DailySnapshotCoverageEvidence"]).DailySnapshotCoverageEvidence(
-            expected_dates=tuple(snapshot.date for snapshot in snapshots),
-            source_url="https://example.test/verified-daily-calendar",
-            source_document_sha256="b" * 64,
-            independently_verified=True,
-        ),
+        snapshot_coverage_evidence=_daily_coverage_evidence(snapshots),
     )
     assert result["specified_76"]["effective_debt_pct"] == pytest.approx(debt_pct + money_market_pct)
     assert result["specified_76"]["qualifies"] is expected
@@ -1059,6 +1059,10 @@ def test_section_76_strict_debt_plus_money_market_boundary(debt_pct, money_marke
 def test_section_76_fund_of_funds_threshold_is_inclusive(fof_pct, expected):
     from core.math_engine import classify_specified_mutual_fund
 
+    fy_start, fy_end = date(2026, 4, 1), date(2027, 3, 31)
+    snapshots = _daily_snapshots_for_fy(
+        fy_start, fy_end, debt_pct=0.0, money_market_pct=0.0, equity_pct=10.0, fof_pct=fof_pct
+    )
     result = classify_specified_mutual_fund(
         "Fund of Funds",
         equity_pct=10.0,
@@ -1067,6 +1071,11 @@ def test_section_76_fund_of_funds_threshold_is_inclusive(fof_pct, expected):
         fof_debt_investing_pct=fof_pct,
         acquisition_date=date(2023, 4, 1),
         transfer_date=date(2026, 11, 3),
+        snapshots=snapshots,
+        monthly_snapshots=_monthly_snapshots_for_fy(fy_start, equity_pct=10.0, fof_units_pct=0.0, underlying_equity_pct=0.0),
+        fy_start=fy_start,
+        fy_end=fy_end,
+        snapshot_coverage_evidence=_daily_coverage_evidence(snapshots),
     )
     assert result["specified_76"]["qualifies"] is expected
 
@@ -1238,6 +1247,7 @@ def test_section_76_rejects_missing_dates_even_with_calendar_provenance():
             acquisition_date=date(2023, 4, 1),
             transfer_date=date(2026, 11, 3),
             snapshots=incomplete,
+            monthly_snapshots=_monthly_snapshots_for_fy(fy_start, equity_pct=10.0),
             fy_start=fy_start,
             fy_end=fy_end,
             snapshot_coverage_evidence=evidence,
