@@ -28,18 +28,19 @@ A deterministic, conflict-free, fee-only fiduciary wealth management and portfol
 
 ---
 
-## 📐 The 5 Universal Mathematical Invariants
+## 📐 Deployment Heuristics and Portfolio Controls
 
-### 1. The Universal Lumpsum Equation (The 20/80 Rule)
-Eliminates market-timing anxiety and sequence-of-returns risk across all ticket sizes:
+The rules below are implementation policies or configurable heuristics, not universal financial laws or statutory requirements. They must be overridden where the investor's IPS, cash-flow needs, market conditions, verified tax facts or mandate requires it.
+
+### 1. Configurable Lumpsum Deployment Heuristic (20/80)
+A configurable starting point for phasing a lumpsum—not a guarantee against market timing or sequence-of-returns risk, and not suitable for every investor or market condition:
 
 $$\text{Day 1 Immediate Core Equity Anchor} = 20\% \times \text{Lumpsum}$$
 $$\text{Tax-Shielded Arbitrage Parking Pool (@ ~6.8\% Yield)} = 80\% \times \text{Lumpsum}$$
 $$\text{Monthly Systematic Transfer (STP)} = \frac{80\% \times \text{Lumpsum}}{\text{STP Duration}}$$
 
-* **Statutory Arbitrage Tax Shelter:**
-  Under Section 50AA (1961 Act) and Section 76 (2025 Act), pure debt mutual fund gains are taxed at the investor's **marginal slab rate (up to 39.0%)**. Capital is parked exclusively in **Equity Arbitrage Funds - Direct Plan** (holding $> 65.0\%$ domestic equity + derivative arbitrage). Arbitrage funds qualify for equity taxation under Section 198/196 (2025 Act) or Section 112A/111A (1961 Act). On a ₹50 Lakh deployment, this preserves **₹15,232.00** in statutory tax drag.
-* **Duration Scaling:** 6 months ($\le$ ₹5L), 9 months (₹5L–₹10L), 12 months (₹10L–₹25L), 18 months (> ₹25L).
+* **Tax classification is conditional:** An arbitrage fund is not automatically an equity-oriented fund merely because it uses derivatives or is labelled arbitrage. Verify its statutory domestic-equity allocation and the applicable law for the actual sale date. Do not treat the parking vehicle as risk-free, guaranteed-yield or a guaranteed tax shelter. No fixed tax saving is claimed.
+* **Illustrative duration bands:** 6 months ($\le$ ₹5L), 9 months (₹5L–₹10L), 12 months (₹10L–₹25L), 18 months (> ₹25L). Confirm liquidity, exit loads, taxes and investor risk before applying.
 * **Multi-Slot SAA Preservation:** For big-ticket deployments ($\ge$ ₹5L), the 80% STP branches across Flexi (50%), Mid (35%), and Large (15%).
 
 ---
@@ -52,8 +53,8 @@ The three core sleeves below are normalized to **100% of the core equity budget*
 
 ### 3. The Universal Tax Shield Siphon (Section 112A / Section 198)
 Switches between Regular and Direct plans are legally transfers under Section 2(47) and taxable under Sections 45 & 112A (1961 Act) or Section 198 (2025 Act):
-* **Tranche Siphon:** Harvests up to **₹1,25,000 LTCG tax-free** per financial year across the portfolio.
-* **Day 366 Exit Load Lock:** Immature lots (<365 days) are locked until Day 366 to strictly avoid 1.0% exit loads and 20% STCG.
+* **Tranche Siphon:** May use the applicable annual LTCG exemption (currently ₹1,25,000 for eligible equity-oriented LTCG under the stated regime), after verifying realized gains, losses, prior utilization, asset classification and the relevant sale-date law. It is not a blanket tax-free withdrawal allowance.
+* **Holding-period / exit-load control:** Check each scheme's actual exit-load schedule and each lot's acquisition anniversary. A 12-month tax holding period and a scheme-specific exit-load period are separate tests; neither should be hard-coded as a universal 1%/20% rule.
 
 ---
 
