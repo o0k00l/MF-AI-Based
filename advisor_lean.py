@@ -54,8 +54,8 @@ def _num(v):
         value = float(str(v).replace(",", "").replace("₹", "").strip())
     except (TypeError, ValueError) as exc:
         raise ValueError(f"Invalid CAS numeric value: {v!r}") from exc
-    if not math.isfinite(value) or value < 0:
-        raise ValueError(f"CAS numeric value must be finite and non-negative: {v!r}")
+    if not math.isfinite(value):
+        raise ValueError(f"CAS numeric value must be finite: {v!r}")
     return value
 
 def norm(s):
