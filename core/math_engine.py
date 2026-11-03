@@ -4118,14 +4118,34 @@ def compute_deterministic_sip_blueprint(
                 )
             )
 
-    # Balance rounding discrepancy if any
-    total_allocated = sum(item.monthly_inr for item in items)
-    diff = round(b - total_allocated, 2)
-    if abs(diff) > 0.0 and items:
-        items[0].monthly_inr = round(items[0].monthly_inr + diff, 2)
+    # Fail closed as a whole: if any positive slot lacks an explicitly
+    # verified Direct-plan candidate, do not partially deploy or reallocate the
+    # investor's budget to another slot. Preserve target allocation percentages
+    # for diagnosis, but zero every amount and disclose the full unallocated sum.
+    unverified_active_slots = [
+        item for item in items
+        if item.monthly_inr > 0
+        and (item.is_direct is not True or item.scheme_name.upper().startswith("NO_ACTION"))
+    ]
+    unallocated_budget = 0.0
+    if unverified_active_slots:
+        unallocated_budget = b
+        for item in items:
+            item.monthly_inr = 0.0
+            item.fiduciary_rationale = (
+                "NO ACTION — entire SIP budget withheld because at least one required "
+                "slot lacks verified Direct-plan eligibility. No redistribution is permitted. "
+                + item.fiduciary_rationale
+            )
+    else:
+        total_allocated = sum(item.monthly_inr for item in items)
+        diff = round(b - total_allocated, 2)
+        if abs(diff) > 0.0 and items:
+            items[0].monthly_inr = round(items[0].monthly_inr + diff, 2)
 
     plan = DeterministicSIPPlan(
         total_monthly_budget_inr=b,
+        unallocated_budget_inr=unallocated_budget,
         equity_sip_pct=target_eq,
         debt_sip_pct=target_debt,
         items=items
