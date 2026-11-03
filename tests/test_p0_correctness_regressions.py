@@ -719,3 +719,69 @@ def test_sip_builder_withholds_entire_budget_when_any_required_slot_is_unverifie
     assert sum(item.monthly_inr for item in plan.items) == pytest.approx(0.0)
     assert all(item.monthly_inr == 0.0 for item in plan.items)
     assert all("NO ACTION" in item.fiduciary_rationale for item in plan.items)
+
+
+@pytest.mark.parametrize("confidence", [-0.1, 1.01, float("nan"), float("inf")])
+def test_eligibility_rejects_out_of_range_confidence_score(confidence):
+    fund = {
+        "fund_id": "fund-x",
+        "fund_name": "Example Large Cap Direct Plan",
+        "amc_name": "EXAMPLE AMC",
+        "aum_crore": 5000.0,
+        "category": "Large Cap",
+        "top10_concentration_pct": 30.0,
+        "single_sector_weight_pct": 20.0,
+        "sharpe_3y": 0.8,
+        "alpha_3y": 2.0,
+        "downside_capture_ratio": 80.0,
+        "upside_capture_ratio": 110.0,
+        "riskometer_score": 5,
+        "confidence_score": confidence,
+        "data_complete": True,
+        "manager_tenure_years": 4.0,
+        "track_record_years": 5.0,
+        "mandate_suitable": True,
+        "aum_stable": True,
+        "is_direct": True,
+        "plan": "Direct Plan - Growth Option",
+        "isin": "TEST-ISIN",
+    }
+    holdings = [
+        {"amc_name": "EXAMPLE AMC", "current_value_inr": 200000.0},
+        {"amc_name": "OTHER AMC", "current_value_inr": 800000.0},
+    ]
+    result = check_eligibility_gates(fund, portfolio_holdings=holdings)
+    assert result.data_integrity_gate is False
+    assert result.passed is False
+
+
+def test_gate10_accepts_explicit_direct_plan_growth_option_classification():
+    fund = {
+        "fund_id": "fund-x",
+        "fund_name": "Example Large Cap Fund",
+        "amc_name": "EXAMPLE AMC",
+        "aum_crore": 5000.0,
+        "category": "Large Cap",
+        "top10_concentration_pct": 30.0,
+        "single_sector_weight_pct": 20.0,
+        "sharpe_3y": 0.8,
+        "alpha_3y": 2.0,
+        "downside_capture_ratio": 80.0,
+        "upside_capture_ratio": 110.0,
+        "riskometer_score": 5,
+        "confidence_score": 0.95,
+        "data_complete": True,
+        "manager_tenure_years": 4.0,
+        "track_record_years": 5.0,
+        "mandate_suitable": True,
+        "aum_stable": True,
+        "is_direct": True,
+        "plan": "Direct Plan - Growth Option",
+        "isin": "TEST-ISIN",
+    }
+    holdings = [
+        {"amc_name": "EXAMPLE AMC", "current_value_inr": 200000.0},
+        {"amc_name": "OTHER AMC", "current_value_inr": 800000.0},
+    ]
+    result = check_eligibility_gates(fund, portfolio_holdings=holdings)
+    assert result.direct_plan_gate is True
