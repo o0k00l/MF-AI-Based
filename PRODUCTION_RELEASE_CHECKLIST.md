@@ -59,8 +59,8 @@ A release is assessed against one exact commit SHA. Evidence from older commits,
 
 - [ ] Applicable statute and version are selected by the actual transfer date.
 - [ ] Acquisition dates, instrument type, fund-of-funds structure and annual observation period are verified for each tax lot.
-- [ ] Section 198 monthly opening/closing observations and the correct direct-fund / qualifying FoF limb are evidenced.
-- [ ] Section 50AA and Section 76 composition observations and date boundaries are evidenced under the applicable provision.
+- [ ] Section 198 direct-fund qualification applies the statutory **minimum 65%** threshold (65.00% qualifies); qualifying FoF units and underlying equity each meet the statutory minimum 90% limb, with monthly opening/closing averages.
+- [ ] Historical Section 50AA uses its applicable date-specific equity test; from 1 April 2026, Section 76 applies **more than 65%** debt/money-market for a direct fund and **65% or more** in specified-fund units for a FoF, using annual-average daily closing figures.
 - [ ] Market-linked debentures are classified as instruments, not mutual-fund units.
 - [ ] Tax planner supports every asset class it accepts; unsupported debt/non-equity cases are rejected.
 - [ ] Loss netting, surcharge, cess, exemption utilization, holding period, exit load and tax-lot allocation are independently reconciled.
@@ -89,12 +89,12 @@ A release is assessed against one exact commit SHA. Evidence from older commits,
 - [ ] Universal policy checks pass against central policy files, without duplicated hardcoded thresholds.
 - [ ] No unexplained skips remain; private-client integration checks are optional, isolated and separately evidenced.
 - [ ] Clean checkout produces the same test results and report schemas.
-- [ ] Runtime and development dependencies are fully resolved and locked, including transitive dependencies and hashes.
+- [ ] Runtime and development dependencies are fully resolved and locked, including transitive dependencies and hashes. `requirements.txt` is only an input constraints file; production installs must use a reviewed `requirements.lock` with hashes.
 - [ ] Supported Python version and runtime platform are pinned and verified.
 - [ ] Static analysis, formatting, type checking, dependency vulnerability review and secret scanning pass.
 - [ ] Software bill of materials and release artifact digest are retained.
 
-**Current status:** Unit and regression runs have passed on earlier revisions, but the current SHA must pass the entire workflow. `requirements.txt` is not a full transitive hash-locked environment.
+**Current status:** The CI workflow is being split so independent suites report separately. No current-branch workflow result has yet been used to approve this release. `requirements.lock` is not yet present; the tag release workflow intentionally refuses to proceed without it.
 
 ## Gate 7 — GitHub release controls
 
@@ -108,7 +108,7 @@ A release is assessed against one exact commit SHA. Evidence from older commits,
 - [ ] The release owner is not the sole code author and approver.
 - [ ] The exact approved SHA, test run, report, review sign-off and artifact digest are recorded.
 
-**Current status:** `main` was last observed as unprotected. The GitHub connection available to this workflow can inspect branch protection but cannot change repository administration settings. Follow `SECURITY_DATA_HANDLING.md` in GitHub Settings.
+**Current status:** `main` was last observed as unprotected. The GitHub connection used for this repair cannot change repository rulesets. Follow `SECURITY_DATA_HANDLING.md` in GitHub Settings and require all CI/security checks listed there.
 
 ## Release decision
 
