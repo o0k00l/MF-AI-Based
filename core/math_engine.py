@@ -4007,6 +4007,8 @@ def compute_deterministic_sip_blueprint(
     holdings: Optional[List[HoldingItem]] = None,
     client_aum: float = 0.0,
     thematic_deficit_theme: str = "Pharma",
+    thematic_satellite_pct_of_equity: float = 0.0,
+    thematic_satellite_authorized: bool = False,
 ) -> DeterministicSIPPlan:
     """
     Computes deterministic SIP blueprint dynamically tailored across all SEBI risk tiers
@@ -4031,6 +4033,16 @@ def compute_deterministic_sip_blueprint(
         raise ValueError("Stability buffer percentage must be finite and between 0 and 100")
     stability_buffer_pct = stability_value
     client_aum = aum_value
+    try:
+        satellite_pct = float(thematic_satellite_pct_of_equity)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Thematic satellite percentage must be numeric") from exc
+    if not math.isfinite(satellite_pct) or not 0.0 <= satellite_pct <= 15.0:
+        raise ValueError("Thematic satellite percentage of equity must be finite and between 0 and 15")
+    if satellite_pct > 0.0 and thematic_satellite_authorized is not True:
+        raise ValueError("A positive thematic satellite allocation requires explicit IPS authorization")
+    if thematic_satellite_authorized not in (True, False):
+        raise ValueError("thematic_satellite_authorized must be a boolean")
     is_starter = (client_aum > 0 and client_aum < 500000.0) or (b < 15000.0)
 
     # Dynamic Folio Discovery
@@ -4130,33 +4142,42 @@ def compute_deterministic_sip_blueprint(
                 1: 'low', 2: 'low_to_moderate', 3: 'moderate',
                 4: 'moderately_high', 5: 'high', 6: 'very_high',
             }
-            _profile_key = _tier_to_profile.get(tier_num, 'very_high')
-            _saa = {}
+            if tier_num not in _tier_to_profile:
+                raise ValueError(f"Unsupported SEBI risk tier: {tier_num}")
+            _profile_key = _tier_to_profile[tier_num]
+            import json as _json
+            from pathlib import Path as _Path
+            _policy_path = _Path(__file__).resolve().parents[1] / "data" / "policy" / "asset_allocation.json"
+            if not _policy_path.is_file():
+                raise ValueError(f"Required allocation policy file is missing: {_policy_path}")
             try:
-                import json as _json
-                from pathlib import Path as _Path
-                _ap = _Path('data/policy/asset_allocation.json')
-                if _ap.exists():
-                    _saa = (_json.loads(_ap.read_text())
-                            .get('behavioral_risk_profiles', {})
-                            .get(_profile_key, {})
-                            .get('saa_targets', {}))
-            except Exception:
-                pass  # fall back to defaults below
-            _large  = float(_saa.get('large_cap_pct', 20))
-            _mid    = float(_saa.get('mid_cap_pct', 25))
-            _small  = float(_saa.get('small_cap_pct', 10))
-            _flexi  = float(_saa.get('flexi_multi_cap_pct', 25))
-            _eq_sum = (_large + _mid + _small + _flexi) or 80.0
-            # Slot 1=Flexi  Slot 2=Mid+Small  Slot 3=Large  Slot 4=Thematic
-            _w_flexi    = _flexi / _eq_sum
-            _w_mid_sm   = (_mid + _small) / _eq_sum
-            _w_large    = _large / _eq_sum
-            _w_thematic = max(0.0, 1.0 - _w_flexi - _w_mid_sm - _w_large)
-            flexi_pct    = round(target_eq * _w_flexi, 1)
-            mid_pct      = round(target_eq * _w_mid_sm, 1)
-            large_pct    = round(target_eq * _w_large, 1)
-            thematic_pct = round(target_eq * _w_thematic, 1)
+                _policy = _json.loads(_policy_path.read_text(encoding="utf-8"))
+                _saa = _policy["behavioral_risk_profiles"][_profile_key]["saa_targets"]
+            except (OSError, _json.JSONDecodeError, KeyError, TypeError) as exc:
+                raise ValueError(f"Required SAA policy is invalid for risk profile {_profile_key!r}") from exc
+            try:
+                _large = float(_saa["large_cap_pct"])
+                _mid = float(_saa["mid_cap_pct"])
+                _small = float(_saa["small_cap_pct"])
+                _flexi = float(_saa["flexi_multi_cap_pct"])
+            except (TypeError, ValueError, KeyError) as exc:
+                raise ValueError("SAA policy must contain numeric large/mid/small/flexi weights") from exc
+            _core_weights = (_large, _mid, _small, _flexi)
+            if any(not math.isfinite(v) or v < 0.0 for v in _core_weights):
+                raise ValueError("SAA core weights must be finite and non-negative")
+            _eq_sum = sum(_core_weights)
+            if _eq_sum <= 0.0 or _eq_sum > 100.0:
+                raise ValueError("SAA core equity weights must sum to a value in (0, 100]")
+            # Slot 4 is zero by default. A separately authorized satellite is
+            # carved out of the equity budget before core weights are applied.
+            thematic_pct = round(target_eq * satellite_pct / 100.0, 1)
+            core_equity_pct = target_eq - thematic_pct
+            _w_flexi = _flexi / _eq_sum
+            _w_mid_sm = (_mid + _small) / _eq_sum
+            _w_large = _large / _eq_sum
+            flexi_pct = round(core_equity_pct * _w_flexi, 1)
+            mid_pct = round(core_equity_pct * _w_mid_sm, 1)
+            large_pct = round(core_equity_pct * _w_large, 1)
 
             # Absorb any sub-percent rounding discrepancy into Slot 1
             eq_diff = round(target_eq - (flexi_pct + mid_pct + large_pct + thematic_pct), 1)
