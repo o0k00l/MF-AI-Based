@@ -588,8 +588,14 @@ def calculate_cashflow_matched_benchmark_xirr(
             "cashflows_count": 0,
             "methodology": "Zero cashflows"
         }
+    if as_of_date is None:
+        raise TriProvenanceError(
+            "Explicit as_of_date matching the CAS valuation date is required; the latest transaction date is not a valid terminal-date substitute.",
+            benchmark=benchmark_key,
+            validation_stage="as_of_date_missing"
+        )
     coverage_start = min(required_dates)
-    coverage_end = as_of_date or max(required_dates)
+    coverage_end = as_of_date
     if coverage_start < calendar_sessions[0] or coverage_end > calendar_sessions[-1]:
         raise TriProvenanceError(
             "Independent NSE calendar date range does not cover the full investor cash-flow window.",
