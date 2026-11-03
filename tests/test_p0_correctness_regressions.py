@@ -1028,3 +1028,66 @@ def test_daily_average_rejects_duplicate_and_non_finite_composition_observations
     invalid = [DailyPortfolioSnapshot(fy_start, 10.0, float("nan"), 10.0)]
     with pytest.raises(ValueError, match="finite and between 0 and 100"):
         compute_annual_average_daily_closing(invalid, fy_start, fy_end, "debt_pct")
+
+
+def test_tax_policy_has_separate_section_50aa_and_section_76_effective_dates():
+    import json
+    from pathlib import Path
+
+    policy = json.loads((Path(__file__).resolve().parents[1] / "data/policy/tax_rules.json").read_text())
+    regimes = policy["specified_mutual_fund_regimes"]
+    old = regimes["section_50AA_1961"]
+    new = regimes["section_76_2025"]
+    assert old["transfer_effective_from"] == "2024-04-01"
+    assert old["transfer_effective_to_exclusive"] == "2026-04-01"
+    assert "not_more_than_35_percent" in old["mutual_fund_test"]
+    assert new["transfer_effective_from"] == "2026-04-01"
+    assert "more_than_65_percent" in new["mutual_fund_test"]
+    assert "at_least_65_percent" in new["fund_of_funds_test"]
+    assert "complete_daily_observation_coverage" in new["evidence_required"]
+    assert policy["status"] == "provisional_statutory_review_required"
+
+
+def test_thematic_category_does_not_create_automatic_redemption_instruction():
+    import json
+    from pathlib import Path
+
+    policy = json.loads((Path(__file__).resolve().parents[1] / "data/policy/fund_screening.json").read_text())
+    rule = policy["category_rules"]["thematic_sectoral_liquidation"]
+    assert rule["action"] == "REVIEW_REQUIRED"
+    assert "not a redemption instruction" in rule["rationale"]
+    assert "Do not force liquidation" in rule["rationale"]
+
+
+def test_standalone_advisor_saa_profiles_reconcile_to_central_policy():
+    import ast
+    import json
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    source = ast.parse((root / "advisor_lean.py").read_text())
+    profile_node = next(
+        node.value for node in source.body
+        if isinstance(node, ast.Assign)
+        and any(isinstance(target, ast.Name) and target.id == "SEBI_RISKOMETER_PROFILES" for target in node.targets)
+    )
+    profiles = ast.literal_eval(profile_node)
+    policy = json.loads((root / "data/policy/asset_allocation.json").read_text())
+    keys = ["1_low", "2_low_to_moderate", "3_moderate", "4_moderately_high", "5_high", "6_very_high"]
+    policy_keys = ["low", "low_to_moderate", "moderate", "moderately_high", "high", "very_high"]
+    for key, policy_key in zip(keys, policy_keys):
+        profile = profiles[key]
+        targets = policy["behavioral_risk_profiles"][policy_key]["saa_targets"]
+        expected = {
+            "large": targets["large_cap_pct"] + targets["flexi_multi_cap_pct"],
+            "mid_small": targets["mid_cap_pct"] + targets["small_cap_pct"],
+            "debt": targets["debt_liquid_pct"],
+        }
+        assert {k: profile[k] for k in expected} == expected
+        assert sum(expected.values()) == 100
+    compute_saa = next(
+        node for node in source.body
+        if isinstance(node, ast.FunctionDef) and node.name == "compute_saa"
+    )
+    params = {arg.arg for arg in compute_saa.args.args}
+    assert {"current_exposure", "total_value"} <= params
