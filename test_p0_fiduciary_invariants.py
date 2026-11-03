@@ -660,62 +660,36 @@ def test_p0_8_folio_router_and_idcw_rejection():
 
 def test_p0_9_thematic_taper_exact_algebra_and_boundary():
     """
-    Verifies the closed-form algebraic derivation and boundary conditions of the thematic taper:
-    Equation: (V_h + S_h * m) / (V_tot + S_tot * m) = Ceiling
-    For Lalit Saini:
-      V_tot = 51,70,911.38
-      V_h = 80,396.14 (1.554% look-through healthcare)
-      S_tot = 1,00,000 / month
-      S_h = 15,000 * 0.95 = 14,250 / month (15% allocation x 95% underlying equity)
-      Ceiling = 0.075 (7.50% benchmark-relative policy ceiling)
-
-    Algebraic Solution:
-      m * (14,250 - 0.075 * 100,000) = (0.075 * 51,70,911.38) - 80,396.14
-      m * 6,750 = 387,818.3535 - 80,396.14 = 307,422.2135
-      m = 307,422.2135 / 6,750 = 45.5440 months!
+    Synthetic mathematical boundary test. No personal portfolio values,
+    holdings or actual monthly budgets are embedded in the test.
     """
-    v_tot = 5170911.38
-    v_h = 80396.14
-    s_tot = 100000.0
-    s_h = 14250.0  # 15% SIP x 95% underlying healthcare equity
-    ceiling = 0.075
+    v_tot = 100000.0
+    v_h = 1000.0
+    s_tot = 10000.0
+    s_h = 800.0
+    ceiling = 0.05
 
-    # 1. Exact algebraic solution check
+    # Exact crossing occurs after month 13 and before month 14.
     num = (ceiling * v_tot) - v_h
     den = s_h - (ceiling * s_tot)
     m_exact = num / den
-    assert abs(m_exact - 45.5440) < 1e-3, f"Exact m must be 45.544 months, got {m_exact}"
+    assert m_exact == pytest.approx(13.3333333333)
 
-    # 2. Month 39 boundary check: Must NOT breach ceiling
-    m39_pct = ((v_h + s_h * 39) / (v_tot + s_tot * 39)) * 100.0
-    assert m39_pct < 7.50, f"Month 39 exposure ({m39_pct:.3f}%) must be under 7.50% ceiling"
-    assert round(m39_pct, 2) == 7.01, f"Month 39 exposure expected 7.01%, got {m39_pct:.2f}%"
+    m13_pct = ((v_h + s_h * 13) / (v_tot + s_tot * 13)) * 100.0
+    m14_pct = ((v_h + s_h * 14) / (v_tot + s_tot * 14)) * 100.0
+    assert m13_pct < 5.0
+    assert round(m13_pct, 2) == 4.96
+    assert m14_pct >= 5.0
+    assert round(m14_pct, 2) == 5.08
 
-    # 3. Month 40 boundary check: Must NOT breach ceiling
-    m40_pct = ((v_h + s_h * 40) / (v_tot + s_tot * 40)) * 100.0
-    assert m40_pct < 7.50, f"Month 40 exposure ({m40_pct:.3f}%) must be under 7.50% ceiling"
-    assert round(m40_pct, 2) == 7.09, f"Month 40 exposure expected 7.09%, got {m40_pct:.2f}%"
-
-    # 4. Month 45 boundary check: Under ceiling
-    m45_pct = ((v_h + s_h * 45) / (v_tot + s_tot * 45)) * 100.0
-    assert m45_pct < 7.50, f"Month 45 exposure ({m45_pct:.3f}%) must be under 7.50%"
-    assert round(m45_pct, 2) == 7.46, f"Month 45 exposure expected 7.46%, got {m45_pct:.2f}%"
-
-    # 5. Month 46 boundary check: Breaches ceiling, triggering taper
-    m46_pct = ((v_h + s_h * 46) / (v_tot + s_tot * 46)) * 100.0
-    assert m46_pct >= 7.50, f"Month 46 exposure ({m46_pct:.3f}%) must breach 7.50% ceiling"
-    assert round(m46_pct, 2) == 7.53, f"Month 46 exposure expected 7.53%, got {m46_pct:.2f}%"
-
-    # 6. Zero-inflow case: ΔV = 0
     zero_inflow_pct = (v_h / v_tot) * 100.0
-    assert round(zero_inflow_pct, 3) == 1.555, f"Zero inflow exposure expected 1.555%, got {zero_inflow_pct}"
+    assert zero_inflow_pct == pytest.approx(1.0)
 
-    # 7. Changed look-through case: If portfolio already has 7.0% healthcare (₹3,61,963.80)
-    v_h_high = v_tot * 0.070
+    # A starting exposure just below the ceiling crosses almost immediately.
+    v_h_high = v_tot * 0.049
     m_high = ((ceiling * v_tot) - v_h_high) / den
-    assert m_high < 4.0, f"High initial exposure breaches ceiling in < 4 months, got {m_high:.2f}"
-    print("[PASS] P0.9 Thematic Taper Exact Algebra & Boundary Verified")
-
+    assert 0.0 < m_high < 1.0
+    print("[PASS] P0.9 Synthetic Thematic Taper Algebra & Boundary Verified")
 
 def test_p0_10_gate4_fail_closed_and_missing_metrics():
     """
