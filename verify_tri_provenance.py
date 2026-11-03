@@ -1,16 +1,53 @@
 #!/usr/bin/env python3
-"""Verify TRI file integrity without conflating checksums with source authenticity."""
+"""Check TRI fixture integrity and enforce an explicit alpha-release gate.
 
+Normal CI checks fixture self-consistency only. It deliberately does not
+certify publisher authenticity. Use --require-alpha-release for a tag/release
+gate; provisional or incomplete benchmark evidence must then fail closed.
+"""
+from __future__ import annotations
+
+import argparse
 import hashlib
 import json
 import sys
 from pathlib import Path
+from urllib.parse import urlparse
+
+ROOT = Path(__file__).resolve().parent
+FIXTURES = (
+    ROOT / "data/policy/benchmark_tri_series.json",
+    ROOT / "data/policy/benchmark_tri_series_high_coverage.json",
+)
+OFFICIAL_HOSTS = {"nseindia.com", "www.nseindia.com", "niftyindices.com", "www.niftyindices.com"}
+
+
+def _canonical_sha256(value: object) -> str:
+    payload = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
+def _safe_repo_file(relative: object, description: str) -> tuple[Path | None, str | None]:
+    if not isinstance(relative, str) or not relative.strip():
+        return None, f"{description}: repository-relative file path is missing"
+    candidate = Path(relative)
+    if candidate.is_absolute():
+        return None, f"{description}: absolute paths are not allowed"
+    resolved = (ROOT / candidate).resolve()
+    try:
+        resolved.relative_to(ROOT)
+    except ValueError:
+        return None, f"{description}: path escapes the repository"
+    if not resolved.is_file():
+        return None, f"{description}: file does not exist: {relative}"
+    return resolved, None
 
 
 def verify_fixture(path: Path) -> list[str]:
-    with path.open(encoding="utf-8") as handle:
-        data = json.load(handle)
-
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return [f"{path.relative_to(ROOT)}: unable to read valid JSON: {exc}"]
     provenance = data.get("provenance", {})
     failures = []
     for index_name, checksum_key in (
@@ -19,69 +56,154 @@ def verify_fixture(path: Path) -> list[str]:
     ):
         levels = data.get("benchmarks", {}).get(index_name, {}).get("levels", {})
         expected = str(provenance.get(checksum_key, ""))
-        computed = hashlib.sha256(
-            json.dumps(levels, sort_keys=True, separators=(",", ":")).encode("utf-8")
-        ).hexdigest()
+        computed = _canonical_sha256(levels)
         if not levels or computed != expected:
             failures.append(
-                f"{path}: {index_name}: checksum missing/mismatched; "
+                f"{path.relative_to(ROOT)}: {index_name}: checksum missing/mismatched; "
                 f"expected={expected or '<missing>'}; computed={computed}"
             )
         else:
-            print(f"{path}: {index_name}: checksum matches ({len(levels)} observations)")
+            print(f"{path.relative_to(ROOT)}: {index_name}: levels checksum matches ({len(levels)} observations)")
     return failures
 
 
-def main():
+def _is_approved_official_url(value: object) -> bool:
+    parsed = urlparse(value if isinstance(value, str) else "")
+    host = (parsed.hostname or "").lower()
+    return parsed.scheme == "https" and any(
+        host == allowed or host.endswith("." + allowed) for allowed in OFFICIAL_HOSTS
+    )
+
+
+def alpha_release_blockers(fixture_path: Path) -> list[str]:
+    blockers: list[str] = []
+    try:
+        data = json.loads(fixture_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return [f"high-coverage TRI fixture cannot be read: {exc}"]
+
+    provenance = data.get("provenance", {})
+    if not str(provenance.get("frequency", "")).strip().lower().startswith("daily"):
+        blockers.append(f"series frequency is not Daily: {provenance.get('frequency')!r}")
+    if provenance.get("interpolation_used") is not False:
+        blockers.append("interpolation_used must be explicitly false")
+    if str(provenance.get("source_authenticity", "")).upper() != "VERIFIED":
+        blockers.append("source_authenticity is not VERIFIED")
+    if str(provenance.get("release_eligibility", "")).upper() != "ELIGIBLE":
+        blockers.append("fixture release_eligibility is not ELIGIBLE")
+    if not _is_approved_official_url(provenance.get("historical_source_url")):
+        blockers.append("historical_source_url must be HTTPS on an approved NSE/Nifty Indices domain")
+
+    source_path, path_error = _safe_repo_file(provenance.get("historical_source_file"), "historical TRI source document")
+    if path_error:
+        blockers.append(path_error)
+    else:
+        declared = str(provenance.get("source_document_sha256", "")).lower()
+        actual = hashlib.sha256(source_path.read_bytes()).hexdigest()
+        if len(declared) != 64 or declared != actual:
+            blockers.append("historical TRI source document SHA-256 is absent or does not match the stored source file")
+
+    calendar_path = ROOT / "data/policy/nse_trading_calendar.json"
+    if not calendar_path.is_file():
+        blockers.append("independently sourced data/policy/nse_trading_calendar.json is absent")
+        return blockers
+    try:
+        calendar = json.loads(calendar_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        blockers.append(f"NSE trading calendar cannot be read: {exc}")
+        return blockers
+
+    if calendar.get("exchange") != "NSE" or str(calendar.get("status", "")).upper() != "VERIFIED":
+        blockers.append("NSE calendar must identify exchange=NSE and status=VERIFIED")
+    sessions = calendar.get("sessions")
+    if not isinstance(sessions, list) or not sessions or any(not isinstance(day, str) for day in sessions):
+        blockers.append("NSE calendar sessions must be a non-empty list of ISO date strings")
+        sessions = []
+    if sessions != sorted(set(sessions)):
+        blockers.append("NSE calendar sessions must be sorted and unique")
+    cal_provenance = calendar.get("provenance", {})
+    if cal_provenance.get("sessions_sha256") != _canonical_sha256(sessions):
+        blockers.append("NSE calendar sessions checksum is missing or mismatched")
+    if not _is_approved_official_url(cal_provenance.get("source_url")):
+        blockers.append("NSE calendar source_url must be HTTPS on an approved NSE/Nifty Indices domain")
+    cal_source_path, cal_path_error = _safe_repo_file(
+        cal_provenance.get("source_document_file"), "NSE calendar source document"
+    )
+    if cal_path_error:
+        blockers.append(cal_path_error)
+    else:
+        declared = str(cal_provenance.get("source_document_sha256", "")).lower()
+        actual = hashlib.sha256(cal_source_path.read_bytes()).hexdigest()
+        if len(declared) != 64 or declared != actual:
+            blockers.append("NSE calendar source document SHA-256 is absent or does not match the stored source file")
+    if cal_provenance.get("reviewer_attested") is not True:
+        blockers.append("NSE calendar lacks an explicit independent reviewer attestation")
+
+    sessions_set = set(sessions)
+    benchmarks = data.get("benchmarks", {})
+    for index_name, benchmark in benchmarks.items():
+        levels = benchmark.get("levels", {})
+        if not isinstance(levels, dict):
+            blockers.append(f"{index_name}: TRI levels must be a date-to-value object")
+            continue
+        if set(levels) != sessions_set:
+            blockers.append(
+                f"{index_name}: observations do not exactly match the independently sourced NSE session calendar "
+                f"(observed={len(levels)}, sessions={len(sessions_set)})"
+            )
+        for day, value in levels.items():
+            try:
+                number = float(value)
+            except (TypeError, ValueError):
+                blockers.append(f"{index_name}: non-numeric TRI value on {day}")
+                break
+            if not number > 0:
+                blockers.append(f"{index_name}: non-positive TRI value on {day}")
+                break
+    if not benchmarks:
+        blockers.append("no benchmark series supplied")
+    if not provenance.get("independent_reviewer_id"):
+        blockers.append("independent reviewer identity is not recorded in provenance")
+    return blockers
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--require-alpha-release",
+        action="store_true",
+        help="fail unless daily TRI data and source/calendar evidence meet the alpha release gate",
+    )
+    args = parser.parse_args(argv)
+
     print("=" * 70)
     print("TRI FIXTURE INTEGRITY / RELEASE-ELIGIBILITY CHECK")
     print("=" * 70)
-
-    fixtures = [
-        Path("data/policy/benchmark_tri_series.json"),
-        Path("data/policy/benchmark_tri_series_high_coverage.json"),
-    ]
     failures = []
-    for path in fixtures:
-        if not path.exists():
-            failures.append(f"{path}: fixture missing")
-            continue
-        failures.extend(verify_fixture(path))
-
+    for fixture in FIXTURES:
+        if not fixture.is_file():
+            failures.append(f"{fixture.relative_to(ROOT)}: fixture missing")
+        else:
+            failures.extend(verify_fixture(fixture))
     if failures:
         print("\nINTEGRITY FAILURE:")
         for failure in failures:
             print(f"- {failure}")
-        sys.exit(1)
+        return 1
 
-    print("\nLevels-file integrity: PASS for all TRI fixtures")
-    # The high-coverage fixture is still only a provisional series: its declared
-    # frequency is monthly/interpolated and the URLs are live-market pages.
-    with fixtures[1].open(encoding="utf-8") as handle:
-        high = json.load(handle)
-    provenance = high.get("provenance", {})
-    frequency = str(provenance.get("frequency", "")).strip().lower()
-    historical_url = str(provenance.get("historical_source_url", "") or "")
-    source_sha256 = str(provenance.get("source_document_sha256", "") or "")
-    calendar_path = Path("data/policy/nse_trading_calendar.json")
-
-    blockers = []
-    if not frequency.startswith("daily"):
-        blockers.append(f"series frequency is declared {provenance.get('frequency')!r}, not Daily")
-    if not historical_url.startswith("https://") or len(source_sha256) != 64:
-        blockers.append("historical TRI source document URL/SHA256 is not supplied")
-    if not calendar_path.exists():
-        blockers.append("independent NSE trading calendar file is absent")
-
+    print("\nLevels-file integrity: PASS for available TRI fixtures")
+    blockers = alpha_release_blockers(FIXTURES[1])
     if blockers:
         print("TRI alpha release eligibility: BLOCKED")
         for blocker in blockers:
             print(f"- {blocker}")
-        print("A matching levels checksum proves file integrity only; it does not prove source authenticity or exchange-calendar coverage.")
-        return
+        print("A fixture checksum proves local file integrity only; it does not by itself establish publisher authenticity.")
+        return 2 if args.require_alpha_release else 0
 
-    print("TRI alpha release eligibility: METADATA PRESENT — source authenticity still requires human verification")
+    print("TRI alpha release eligibility: METADATA AND LOCAL SOURCE-INTEGRITY GATES MET")
+    print("Independent human review remains a release approval requirement.")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
