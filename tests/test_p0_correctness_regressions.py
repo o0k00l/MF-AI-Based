@@ -785,3 +785,55 @@ def test_gate10_accepts_explicit_direct_plan_growth_option_classification():
     ]
     result = check_eligibility_gates(fund, portfolio_holdings=holdings)
     assert result.direct_plan_gate is True
+
+
+@pytest.mark.parametrize(
+    ("label", "expected"),
+    [
+        ("Tier 1 (Capital Preservation)", 1),
+        ("Tier 2 (Low to Moderate)", 2),
+        ("Tier 3 (Moderate)", 3),
+        ("Tier 4 (Moderately High)", 4),
+        ("Tier 5 (High)", 5),
+        ("Tier 6 (Very High)", 6),
+        ("Aggressive", 6),
+    ],
+)
+def test_engine_risk_tier_parser_is_unambiguous(label, expected):
+    from core.math_engine import _parse_sebi_risk_tier
+    assert _parse_sebi_risk_tier(label) == expected
+
+
+@pytest.mark.parametrize("bad_tier", ["", "unknown", "risk 7", None])
+def test_engine_risk_tier_parser_rejects_unrecognized_values(bad_tier):
+    from core.math_engine import _parse_sebi_risk_tier
+    with pytest.raises(ValueError):
+        _parse_sebi_risk_tier(bad_tier)
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"monthly_budget": -1.0},
+        {"monthly_budget": float("nan")},
+        {"client_aum": float("inf")},
+        {"stability_buffer_pct": 101.0},
+    ],
+)
+def test_sip_blueprint_rejects_invalid_numeric_inputs(monkeypatch, kwargs):
+    import core.math_engine as engine
+    args = {
+        "monthly_budget": 10000.0,
+        "risk_tier": "Tier 6 (Very High)",
+        "stability_buffer_pct": 7.5,
+        "client_aum": 1000000.0,
+    }
+    args.update(kwargs)
+    # Invalid numeric inputs are rejected before the selection engine is called.
+    monkeypatch.setattr(
+        engine,
+        "select_autonomous_blueprint_funds",
+        lambda **_kwargs: {},
+    )
+    with pytest.raises(ValueError):
+        engine.compute_deterministic_sip_blueprint(**args)
