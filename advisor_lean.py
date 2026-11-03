@@ -7,6 +7,7 @@ if __name__ != "__main__":
         "run it as a script or use the side-effect-free core modules."
     )
 
+
 advisor_lean.py — legacy report CLI.
 Reads local private client data and uses shared core calculation modules.
 This is an executable report script, not a side-effect-free importable library.
