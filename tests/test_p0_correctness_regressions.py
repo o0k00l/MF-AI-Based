@@ -93,3 +93,113 @@ def test_tax_planner_allocates_each_lot_only_once():
     tranches = [row for rows in result.values() for row in rows]
     assert sum(row["units_sold"] for row in tranches) == pytest.approx(10.0)
     assert len(tranches) == 1
+
+
+def test_tri_calculation_rejects_missing_terminal_cas_value(tmp_path):
+    import hashlib
+    import json
+    from core.math_engine import calculate_cashflow_matched_benchmark_xirr
+    from core.models import TriProvenanceError
+
+    levels = {
+        "2026-11-02": 100.0,
+        "2026-11-03": 101.0,
+        "2026-11-04": 102.0,
+        "2026-11-05": 103.0,
+        "2026-11-06": 104.0,
+    }
+    checksum = hashlib.sha256(
+        json.dumps(levels, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    tri = {
+        "provenance": {
+            "checksum_sha256_nifty_500_tri": checksum,
+            "frequency": "Daily",
+            "historical_source_url": "https://example.invalid/historical-tri.csv",
+            "source_document_sha256": "a" * 64,
+        },
+        "coverage": {
+            "nifty_500_tri": {
+                "expected_trading_days": 5,
+                "provided_data_points": 5,
+                "coverage_pct": 100.0,
+            }
+        },
+        "benchmarks": {
+            "NIFTY 500 TRI": {
+                "name": "Test Nifty 500 TRI",
+                "levels": levels,
+            }
+        },
+    }
+    transactions = {
+        "transactions": [
+            {"date": "2026-11-02", "amount": -1000.0, "type": "PURCHASE"}
+        ]
+    }
+    tri_path = tmp_path / "tri.json"
+    tx_path = tmp_path / "transactions.json"
+    tri_path.write_text(json.dumps(tri), encoding="utf-8")
+    tx_path.write_text(json.dumps(transactions), encoding="utf-8")
+
+    with pytest.raises(TriProvenanceError, match="Current CAS valuation is missing"):
+        calculate_cashflow_matched_benchmark_xirr(
+            transactions_path=tx_path,
+            as_of_date=date(2026, 11, 6),
+            benchmark_key="NIFTY 500 TRI",
+            benchmark_series_path=tri_path,
+            cas_current=None,
+        )
+
+
+def test_tri_internal_switch_pair_is_netted_across_different_schemes(tmp_path):
+    import hashlib
+    import json
+    from core.math_engine import calculate_cashflow_matched_benchmark_xirr
+
+    levels = {
+        "2026-11-02": 100.0,
+        "2026-11-03": 101.0,
+        "2026-11-04": 102.0,
+        "2026-11-05": 103.0,
+        "2026-11-06": 104.0,
+    }
+    checksum = hashlib.sha256(
+        json.dumps(levels, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    tri = {
+        "provenance": {
+            "checksum_sha256_nifty_500_tri": checksum,
+            "frequency": "Daily",
+            "historical_source_url": "https://example.invalid/historical-tri.csv",
+            "source_document_sha256": "a" * 64,
+        },
+        "coverage": {
+            "nifty_500_tri": {
+                "expected_trading_days": 5,
+                "provided_data_points": 5,
+                "coverage_pct": 100.0,
+            }
+        },
+        "benchmarks": {"NIFTY 500 TRI": {"name": "Test TRI", "levels": levels}},
+    }
+    transactions = {
+        "transactions": [
+            {"date": "2026-11-03", "amount": 1000.0, "type": "SWITCH_OUT", "folio": "F1", "scheme": "Old Fund"},
+            {"date": "2026-11-03", "amount": -1000.0, "type": "SWITCH_IN", "folio": "F1", "scheme": "New Fund"},
+        ]
+    }
+    tri_path = tmp_path / "tri.json"
+    tx_path = tmp_path / "transactions.json"
+    tri_path.write_text(json.dumps(tri), encoding="utf-8")
+    tx_path.write_text(json.dumps(transactions), encoding="utf-8")
+
+    result = calculate_cashflow_matched_benchmark_xirr(
+        transactions_path=tx_path,
+        as_of_date=date(2026, 11, 6),
+        benchmark_key="NIFTY 500 TRI",
+        benchmark_series_path=tri_path,
+        cas_current=1000.0,
+    )
+    assert result["cashflows_count"] == 0
+    assert result["methodology"] == "Zero cashflows"
