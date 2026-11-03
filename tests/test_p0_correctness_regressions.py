@@ -612,3 +612,38 @@ def test_transition_fifo_loader_rejects_unknown_or_incomplete_transaction_rows(t
     path.write_text(json.dumps({"transactions": [transaction]}), encoding="utf-8")
     with pytest.raises(ValueError):
         load_transactions(path)
+
+
+@pytest.mark.parametrize(
+    ("purchase_date", "expected_exit_load"),
+    [
+        (date(2025, 9, 1), 0.0),
+        (date(2026, 5, 1), 9.0),
+    ],
+)
+def test_current_fy_exit_load_uses_actual_planning_date(purchase_date, expected_exit_load):
+    lot = Lot(
+        fund_id="fund-x",
+        folio_name="folio-1",
+        purchase_date=purchase_date,
+        units=10,
+        nav=100,
+        cost=1000,
+        source="cas",
+        equity_pct=100.0,
+    )
+    plan = FundSellPlan(fund_id="fund-x", total_amount=900.0, lots=[lot])
+    result = plan_fy_tranches(
+        plans={"fund-x": plan},
+        tax_rules={
+            "ltcg_exemption": 125000.0,
+            "lt_holding_months": 12,
+            "exit_load_pct": 1.0,
+            "classification_test": {"equity_oriented_threshold_pct": 65.0},
+            "exit_load_schedules": {},
+        },
+        as_of=date(2026, 11, 3),
+        current_navs={"fund-x": 90.0},
+    )
+    current_fy_rows = result[2026]
+    assert sum(row["exit_load"] for row in current_fy_rows) == pytest.approx(expected_exit_load)
