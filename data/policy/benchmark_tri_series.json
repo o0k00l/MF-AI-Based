@@ -1,7 +1,7 @@
 {
   "_notice": "Official Total Return Index (TRI) benchmark series for cash-flow matched fiduciary performance audit.",
   "source": "NSE Indices / AMFI Official Daily/Monthly TRI Series",
-  "status": "VALIDATED — provenance checksums and coverage verified",
+  "status": "PROVISIONAL — coverage below 95% minimum; fails TriProvenanceError coverage gate",
   "provenance": {
     "download_url_nifty_500_tri": "https://www.nseindia.com/market-data/live-equity-market?symbol=NIFTY500",
     "download_url_nifty_50_tri": "https://www.nseindia.com/market-data/live-equity-market?symbol=NIFTY50",

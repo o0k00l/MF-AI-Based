@@ -106,6 +106,8 @@ def is_verified_passive_scheme(
 
     # Check 1: Explicit boolean flag (must be strictly True, not truthy string or int)
     if fund_data.get("is_passive") is True:
+        import warnings
+        warnings.warn("Passive verification via metadata flag - scheme master not used. Gate 4 release gate requires scheme_master.")
         return True
 
     # Check 2: Exact SEBI Category designation
@@ -115,11 +117,15 @@ def is_verified_passive_scheme(
         "index: small cap", "index: flexi cap", "index: broad"
     ]
     if any(cat_lower == sc or cat_lower.startswith("index: ") or cat_lower.startswith("etf: ") for sc in sebi_passive_categories):
+        import warnings
+        warnings.warn("Passive verification via SEBI category heuristic - scheme master not used. Gate 4 release gate requires scheme_master.")
         return True
 
     # Check 3: Verified Scheme Name Structure
     passive_name_tokens = ["index fund", " etf", "-etf", "(etf)", "index direct", "nifty 50 index", "nifty midcap 150 index"]
     if any(token in name_lower for token in passive_name_tokens):
+        import warnings
+        warnings.warn("Passive verification via name heuristic - scheme master not used. Gate 4 release gate requires scheme_master.")
         return True
 
     return False

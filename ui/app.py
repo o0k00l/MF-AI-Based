@@ -26,6 +26,7 @@ from core.math_engine import (
 from core.prompt_advisor import answer_interactive_query
 from core.pdf_exporter import convert_markdown_file_to_pdf
 from ui.pages.page_upload import render_upload_page
+from ui.pages.page_profile import render_profile_page
 
 # Page Configuration must be first Streamlit command
 st.set_page_config(
@@ -164,13 +165,14 @@ with c4:
 
 st.write("")
 
-# 5 Main Tabs
-tab_switch, tab_fresh, tab_redeem, tab_copilot, tab_upload = st.tabs([
+# 6 Main Tabs
+tab_switch, tab_fresh, tab_redeem, tab_copilot, tab_upload, tab_profile = st.tabs([
     f"📋 Switch to Direct (Save ₹{f1.annual_bleed_inr/1000:.0f}k/yr)",
     "🎯 Fresh Money (SIP & Lumpsum)",
     "💸 Personal Redemption Planner",
     "💬 Ask Copilot & Reports",
-    "📤 Upload Statement"
+    "📤 Upload Statement",
+    "⚖️ Risk Profiler & Tolerances"
 ])
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -465,6 +467,13 @@ with tab_copilot:
 # ═══════════════════════════════════════════════════════════════════════
 with tab_upload:
     render_upload_page()
+
+# ═══════════════════════════════════════════════════════════════════════
+# TAB 6: RISK PROFILER & TOLERANCES
+# ═══════════════════════════════════════════════════════════════════════
+with tab_profile:
+    client_path = ROOT / "data" / selected_client_key
+    render_profile_page(client_path)
 
 st.divider()
 st.caption("🛡️ **Fiduciary Wealth Copilot** • 100% Fee-Only Direct Mutual Funds • SEBI (Investment Advisers) Regulations, 2013 • Zero Commission Leakage")

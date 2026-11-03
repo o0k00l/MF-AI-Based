@@ -10,8 +10,27 @@ from typing import List, Dict, Any, Optional
 from core.models import EligibilityGateResult, NOActionResult, RiskTier
 
 
+def _resolve_field(fund_data: dict, *names, default=None):
+    """Resolve a field from either expanded or abbreviated names.
+    
+    Checks expanded names first, then abbreviated forms.
+    Returns (value, source_name) or (default, None) if not found.
+    """
+    for name in names:
+        if name in fund_data:
+            return fund_data[name], name
+    return default, None
+
+
+def _require_field(fund_data: dict, gate: str, *names):
+    """Require a field; append failure message if missing. Returns (value, is_missing)."""
+    val, source = _resolve_field(fund_data, *names)
+    if source is None:
+        return None, True
+    return val, False
+
+
 def _risk_tier_to_int(tier: Any) -> int:
-    """Convert RiskTier enum or string to legacy 1-6 integer scale."""
     if isinstance(tier, int):
         return tier
     if isinstance(tier, RiskTier):
@@ -122,18 +141,26 @@ def check_eligibility_gates(
         aum_cap_ok = False
         failed.append(f"Gate 2 [AUM Size Drag]: AUM ₹{aum:,.0f} Cr exceeds {category} ceiling ₹{cat_cap:,.0f} Cr")
 
-    aum_stable = fund_data.get("aum_stable", True)
-    if not aum_stable:
+    aum_stable = fund_data.get("aum_stable")
+    if aum_stable is None:
+        failed.append("Gate 2 [AUM Stability]: aum_stable field missing — cannot verify liquidity (fail-closed)")
+    elif not aum_stable:
         failed.append("Gate 2 [AUM Stability]: Outflows detected compromising liquidity")
 
-    liquidity_and_aum_ok = aum_min_ok and aum_cap_ok and aum_stable
+    liquidity_and_aum_ok = aum_min_ok and aum_cap_ok and (aum_stable is True)
     details["aum_crore"] = aum
 
     # --- Gate 3: Top-10 Concentration Gate ---
-    top10 = float(fund_data.get("top10_concentration_pct", fund_data.get("concentration_top10_pct", fund_data.get("top10", 0.0))) or 0.0)
-    top10_ok = top10 <= max_top10_concentration_pct
-    if not top10_ok:
-        failed.append(f"Gate 3 [Top-10 Concentration]: Top 10 holdings {top10:.1f}% > {max_top10_concentration_pct:.1f}%")
+    top10_raw = fund_data.get("top10_concentration_pct", fund_data.get("concentration_top10_pct", fund_data.get("top10")))
+    if top10_raw is None:
+        failed.append("Gate 3 [Top-10 Concentration]: top10_concentration_pct field missing — cannot verify (fail-closed)")
+        top10 = 0.0
+        top10_ok = False
+    else:
+        top10 = float(top10_raw) or 0.0
+        top10_ok = top10 <= max_top10_concentration_pct
+        if not top10_ok:
+            failed.append(f"Gate 3 [Top-10 Concentration]: Top 10 holdings {top10:.1f}% > {max_top10_concentration_pct:.1f}%")
     details["top10_concentration_pct"] = top10
 
     # Sector concentration check
@@ -234,8 +261,20 @@ def check_eligibility_gates(
     details["upside_capture"] = upside_capture
 
     # --- Gate 6: Mandate Suitability Gate ---
-    riskometer_score = int(fund_data.get("riskometer_score", 6))
-    mandate_ok = fund_data.get("mandate_suitable", True)
+    riskometer_raw = fund_data.get("riskometer_score")
+    if riskometer_raw is None:
+        failed.append("Gate 6 [Riskometer]: riskometer_score field missing - cannot verify suitability (fail-closed)")
+        riskometer_score = 6
+        mandate_ok = False
+    else:
+        riskometer_score = int(riskometer_raw)
+        mandate_ok = True
+    mandate_suitable_raw = fund_data.get("mandate_suitable")
+    if mandate_suitable_raw is None:
+        failed.append("Gate 6 [Mandate Suitability]: mandate_suitable field missing - cannot verify (fail-closed)")
+        mandate_ok = False
+    elif not mandate_suitable_raw:
+        mandate_ok = False
     # Convert client_risk_tier_num to int (handles RiskTier enum, string, or int)
     client_tier_int = _risk_tier_to_int(client_risk_tier_num)
     
@@ -252,18 +291,42 @@ def check_eligibility_gates(
 
     # --- Gate 7: Data Integrity & Provenance Gate ---
     provenance = fund_data.get("_provenance", {})
-    confidence_score = float(provenance.get("confidence_score", fund_data.get("confidence_score", 1.0)) or 1.0)
-    data_complete = fund_data.get("data_complete", True)
-    data_ok = (confidence_score >= min_confidence_score) and data_complete
-    if not data_ok:
-        failed.append(f"Gate 7 [Data Integrity]: Confidence score {confidence_score:.2f} < {min_confidence_score:.2f} or incomplete factsheet")
+    # Top-level confidence_score overrides _provenance.confidence_score
+    confidence_score = None
+    if "confidence_score" in fund_data:
+        confidence_score = float(fund_data.get("confidence_score", 0.0) or 0.0)
+    elif "confidence_score" in provenance:
+        confidence_score = float(provenance.get("confidence_score", 0.0) or 0.0)
+    
+    if confidence_score is None:
+        failed.append("Gate 7 [Data Integrity]: confidence_score missing from fund_data and _provenance - cannot verify (fail-closed)")
+        data_ok = False
+    else:
+        data_ok = confidence_score >= min_confidence_score
+        if not data_ok:
+            failed.append(f"Gate 7 [Data Integrity]: Confidence score {confidence_score:.2f} < {min_confidence_score:.2f}")
+    
+    if "data_complete" not in fund_data:
+        failed.append("Gate 7 [Data Integrity]: data_complete field missing - cannot verify (fail-closed)")
+        data_ok = False
+    elif not fund_data.get("data_complete", False):
+        failed.append("Gate 7 [Data Integrity]: data_complete is False - factsheet incomplete")
+        data_ok = False
     details["confidence_score"] = confidence_score
 
     # --- Gate 8: Manager Tenure & Process Continuity Gate ---
     # Evaluates scheme operational history (>= 3.0 yrs) and manager continuity (tenure >= min_manager_tenure_years, default 2.0 yrs).
     # Process-driven index and arbitrage funds are exempted from individual manager tenure.
-    tenure = float(fund_data.get("manager_tenure_years", fund_data.get("tenure", 3.0)) or 0.0)
-    scheme_track_record = float(fund_data.get("track_record_years", fund_data.get("track_record", 5.0)) or 5.0)
+    if "manager_tenure_years" not in fund_data and "tenure" not in fund_data:
+        failed.append("Gate 8 [Manager Tenure]: manager_tenure_years field missing - cannot verify (fail-closed)")
+        tenure = 0.0
+    else:
+        tenure = float(fund_data.get("manager_tenure_years", fund_data.get("tenure", 0.0)) or 0.0)
+    if "track_record_years" not in fund_data and "track_record" not in fund_data:
+        failed.append("Gate 8 [Track Record]: track_record_years field missing - cannot verify (fail-closed)")
+        scheme_track_record = 0.0
+    else:
+        scheme_track_record = float(fund_data.get("track_record_years", fund_data.get("track_record", 0.0)) or 0.0)
     is_process_driven = bool(fund_data.get("is_process_driven", False) or "index" in category.lower() or "arbitrage" in category.lower())
 
     track_ok = scheme_track_record >= 3.0
@@ -446,6 +509,7 @@ def load_candidate_universe(
             "mandate_suitable": True,
             "data_complete": True,
             "manager_tenure_years": float(m.get("manager_tenure_years", 5.0) or 5.0),
+            "track_record_years": float(m.get("track_record_years", 5.0) or 5.0),
             "composite_score": float(m.get("composite_score", 65.0) or 65.0),
             "is_direct": True,
             "is_passive": m.get("is_passive", False),

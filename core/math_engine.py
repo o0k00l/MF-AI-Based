@@ -18,6 +18,9 @@ from datetime import datetime, date
 from dataclasses import dataclass
 import math
 
+# Import TriProvenanceError for benchmark validation error handling
+from core.models import TriProvenanceError
+
 # ─────────────────────────────────────────────────────────────────────────────
 # DATE-AWARE STATUTORY TAX LAYER (1961 Act vs 2025 Act)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -485,6 +488,17 @@ def calculate_cashflow_matched_benchmark_xirr(
     coverage_info = coverage.get(coverage_key, {})
     coverage_pct = coverage_info.get("coverage_pct", 0)
     min_coverage_pct = 95.0  # Per provenance missing_date_policy
+    
+    # ENFORCE coverage threshold — fail closed if below minimum
+    if coverage_pct < min_coverage_pct:
+        raise TriProvenanceError(
+            f"TRI coverage {coverage_pct:.2f}% below minimum {min_coverage_pct:.1f}% "
+            f"for {benchmark_key}. Expected {coverage_info.get('expected_trading_days', '?')} trading days, "
+            f"got {coverage_info.get('provided_data_points', '?')} data points. "
+            f"Note: {coverage_info.get('note', 'No note provided.')}",
+            benchmark=benchmark_key,
+            validation_stage="coverage_insufficient"
+        )
     
     # MISSING-DATE AUDIT: Forward-fill tracking
     sorted_dates = sorted([datetime.strptime(d, "%Y-%m-%d").date() for d in levels])
@@ -1719,16 +1733,21 @@ def aggregate_fiduciary_facts(
     alpha_pct = None
     bench_audit_record = None
     if portfolio_xirr is not None and transactions_path.exists():
-        bench_audit = calculate_cashflow_matched_benchmark_xirr(
-            transactions_path=transactions_path,
-            as_of_date=None,
-            benchmark_key="NIFTY 500 TRI",
-            cas_current=tot_cur
-        )
-        bench_audit_record = bench_audit
-        if bench_audit.get("benchmark_matched_xirr_pct") is not None:
-            benchmark_xirr = bench_audit["benchmark_matched_xirr_pct"] / 100.0
-            alpha_pct = bench_audit.get("alpha_pct")
+        try:
+            bench_audit = calculate_cashflow_matched_benchmark_xirr(
+                transactions_path=transactions_path,
+                as_of_date=None,
+                benchmark_key="NIFTY 500 TRI",
+                cas_current=tot_cur
+            )
+            bench_audit_record = bench_audit
+            if bench_audit.get("benchmark_matched_xirr_pct") is not None:
+                benchmark_xirr = bench_audit["benchmark_matched_xirr_pct"] / 100.0
+                alpha_pct = bench_audit.get("alpha_pct")
+        except TriProvenanceError as e:
+            bench_audit_record = {"error": str(e), "validation_stage": e.validation_stage}
+            benchmark_xirr = None
+            alpha_pct = None
 
         # Persist the full cashflow-matched benchmark audit record
         bench_out_path = Path("data/lalit_portfolio/benchmark_xirr.json")
@@ -3228,7 +3247,8 @@ def select_autonomous_blueprint_funds(
             else:
                 blueprint["Slot 1: Core Flexi-Cap Compounder"] = {
                     "allocation_pct": 40.0,
-                    "scheme": None,
+                    "scheme": "NO_ACTION: No eligible Flexi Cap fund found",
+                    "fund_name": "NO_ACTION: No eligible Flexi Cap fund found",
                     "folio": None,
                     "rationale": "NO_ACTION: No eligible Flexi Cap fund passed all 10 eligibility gates.",
                     "note": "No eligible Flexi Cap fund found"
@@ -3276,7 +3296,8 @@ def select_autonomous_blueprint_funds(
         else:
             blueprint["Slot 2: Mid-Cap Alpha Engine"] = {
                 "allocation_pct": 30.0,
-                "scheme": None,
+                "scheme": "NO_ACTION: No eligible Mid Cap fund found",
+                "fund_name": "NO_ACTION: No eligible Mid Cap fund found",
                 "folio": None,
                 "rationale": "NO_ACTION: No eligible Mid Cap fund passed all 10 eligibility gates.",
                 "note": "No eligible Mid Cap fund found"
@@ -3378,7 +3399,8 @@ def select_autonomous_blueprint_funds(
         else:
             blueprint["Slot 4: Tactical Thematic Satellite"] = {
                 "allocation_pct": 15.0,
-                "scheme": None,
+                "scheme": f"NO_ACTION: No eligible {thematic_deficit_theme} fund found",
+                "fund_name": f"NO_ACTION: No eligible {thematic_deficit_theme} fund found",
                 "folio": None,
                 "rationale": f"NO_ACTION: No eligible {thematic_deficit_theme} fund passed all 10 eligibility gates.",
                 "note": f"No eligible {thematic_deficit_theme} fund found"
@@ -3556,9 +3578,15 @@ def compute_deterministic_lumpsum_blueprint(
         mid_info = slots["Slot 2: Mid-Cap Alpha Engine"]
         large_info = slots["Slot 3: Large-Cap Bluechip Anchor"]
 
-        flexi_s, flexi_f, flexi_r = flexi_info["scheme"], flexi_info["folio"], flexi_info["rationale"]
-        mid_s, mid_f, mid_r = mid_info["scheme"], mid_info["folio"], mid_info["rationale"]
-        large_s, large_f, large_r = large_info["scheme"], large_info["folio"], large_info["rationale"]
+        flexi_s = flexi_info.get("scheme") or flexi_info.get("fund_name") or "NO_ACTION: No eligible fund selected"
+        flexi_f = flexi_info.get("folio")
+        flexi_r = flexi_info.get("rationale", "NO_ACTION: No eligible fund selected for Slot 1.")
+        mid_s = mid_info.get("scheme") or mid_info.get("fund_name") or "NO_ACTION: No eligible fund selected"
+        mid_f = mid_info.get("folio")
+        mid_r = mid_info.get("rationale", "NO_ACTION: No eligible fund selected for Slot 2.")
+        large_s = large_info.get("scheme") or large_info.get("fund_name") or "NO_ACTION: No eligible fund selected"
+        large_f = large_info.get("folio")
+        large_r = large_info.get("rationale", "NO_ACTION: No eligible fund selected for Slot 3.")
 
         # Day 1 Large-Cap Anchor
         imm_pct = round((immediate_eq / L) * 100.0, 1)
@@ -3690,19 +3718,19 @@ def compute_deterministic_sip_blueprint(
     thematic_info = slots["Slot 4: Tactical Thematic Satellite"]
     debt_info = slots.get("High-Grade Debt Anchor", {})
 
-    flexi_scheme = flexi_info.get("scheme")
+    flexi_scheme = flexi_info.get("scheme") or flexi_info.get("fund_name") or "NO_ACTION: No eligible fund selected"
     flexi_target_folio = flexi_info.get("folio")
     flexi_default_rat = flexi_info.get("rationale", "NO_ACTION: No eligible fund selected for Slot 1.")
 
-    mid_scheme = mid_info.get("scheme")
+    mid_scheme = mid_info.get("scheme") or mid_info.get("fund_name") or "NO_ACTION: No eligible fund selected"
     mid_target_folio = mid_info.get("folio")
     mid_default_rat = mid_info.get("rationale", "NO_ACTION: No eligible fund selected for Slot 2.")
 
-    large_scheme = large_info.get("scheme")
+    large_scheme = large_info.get("scheme") or large_info.get("fund_name") or "NO_ACTION: No eligible fund selected"
     large_target_folio = large_info.get("folio")
     large_default_rat = large_info.get("rationale", "NO_ACTION: No eligible fund selected for Slot 3.")
 
-    pharma_scheme = thematic_info.get("scheme")
+    pharma_scheme = thematic_info.get("scheme") or thematic_info.get("fund_name") or "NO_ACTION: No eligible fund selected"
     direct_pharma_folio = thematic_info.get("folio")
     pharma_rat = thematic_info.get("rationale", "NO_ACTION: No eligible thematic fund selected for Slot 4.")
 

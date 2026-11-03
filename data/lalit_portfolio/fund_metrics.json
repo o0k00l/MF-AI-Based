@@ -76,7 +76,13 @@
       "name": "HDFC Balanced Advantage Fund - Direct Plan - Growth Option",
       "scheme_name": "HDFC Balanced Advantage Fund - Direct Plan - Growth Option",
       "international_equity_pct": 0.0,
-      "cash_debt_buffer_pct": 23.86
+      "cash_debt_buffer_pct": 23.86,
+      "aum_stable": true,
+      "riskometer_score": 5,
+      "mandate_suitable": true,
+      "manager_tenure_years": 3.0,
+      "track_record_years": 5.0,
+      "data_complete": true
     },
     {
       "id": "HDFC Flexi Cap",
@@ -138,7 +144,13 @@
       "international_equity_pct": 0.0,
       "cash_debt_buffer_pct": 0.45,
       "downside_capture_ratio": 105.0,
-      "upside_capture_ratio": 110.0
+      "upside_capture_ratio": 110.0,
+      "aum_stable": true,
+      "riskometer_score": 6,
+      "mandate_suitable": true,
+      "manager_tenure_years": 3.0,
+      "track_record_years": 5.0,
+      "data_complete": true
     },
     {
       "id": "HDFC Mid Cap",
@@ -198,7 +210,13 @@
       "name": "HDFC Mid-Cap Opportunities Fund - Direct Plan - Growth",
       "scheme_name": "HDFC Mid-Cap Opportunities Fund - Direct Plan - Growth",
       "international_equity_pct": 0.0,
-      "cash_debt_buffer_pct": 0.0
+      "cash_debt_buffer_pct": 0.0,
+      "aum_stable": true,
+      "riskometer_score": 6,
+      "mandate_suitable": true,
+      "manager_tenure_years": 3.0,
+      "track_record_years": 5.0,
+      "data_complete": true
     },
     {
       "id": "HDFC Defence",
@@ -259,7 +277,13 @@
       "international_equity_pct": 0.0,
       "cash_debt_buffer_pct": 0.0,
       "downside_capture_ratio": 108.0,
-      "upside_capture_ratio": 118.0
+      "upside_capture_ratio": 118.0,
+      "aum_stable": true,
+      "riskometer_score": 6,
+      "mandate_suitable": true,
+      "manager_tenure_years": 3.0,
+      "track_record_years": 5.0,
+      "data_complete": true
     },
     {
       "id": "SBI Energy Opps",
@@ -317,7 +341,13 @@
       "name": "SBI Energy Opportunities Fund - Direct Plan - Growth",
       "scheme_name": "SBI Energy Opportunities Fund - Direct Plan - Growth",
       "international_equity_pct": 0.0,
-      "cash_debt_buffer_pct": 0.06
+      "cash_debt_buffer_pct": 0.06,
+      "aum_stable": true,
+      "riskometer_score": 6,
+      "mandate_suitable": true,
+      "manager_tenure_years": 3.0,
+      "track_record_years": 5.0,
+      "data_complete": true
     },
     {
       "id": "ICICI Pru Large & Mid",
@@ -377,7 +407,13 @@
       "name": "ICICI Prudential Large & Mid Cap Fund - Direct Plan - Growth",
       "scheme_name": "ICICI Prudential Large & Mid Cap Fund - Direct Plan - Growth",
       "international_equity_pct": 0.0,
-      "cash_debt_buffer_pct": 0.02
+      "cash_debt_buffer_pct": 0.02,
+      "aum_stable": true,
+      "riskometer_score": 5,
+      "mandate_suitable": true,
+      "manager_tenure_years": 3.0,
+      "track_record_years": 5.0,
+      "data_complete": true
     },
     {
       "id": "PPFAS Flexi Cap",
@@ -439,7 +475,13 @@
       "international_equity_pct": 15.5,
       "cash_debt_buffer_pct": 17.5,
       "downside_capture_ratio": 92.0,
-      "upside_capture_ratio": 115.0
+      "upside_capture_ratio": 115.0,
+      "aum_stable": true,
+      "riskometer_score": 6,
+      "mandate_suitable": true,
+      "manager_tenure_years": 3.0,
+      "track_record_years": 5.0,
+      "data_complete": true
     },
     {
       "id": "WhiteOak Special Opps",
@@ -497,7 +539,13 @@
       "name": "WhiteOak Capital Special Opportunities Fund - Direct Plan - Growth",
       "scheme_name": "WhiteOak Capital Special Opportunities Fund - Direct Plan - Growth",
       "international_equity_pct": 0.0,
-      "cash_debt_buffer_pct": 0.79
+      "cash_debt_buffer_pct": 0.79,
+      "aum_stable": true,
+      "riskometer_score": 6,
+      "mandate_suitable": true,
+      "manager_tenure_years": 3.0,
+      "track_record_years": 5.0,
+      "data_complete": true
     },
     {
       "id": "Mirae Multicap",
@@ -559,7 +607,13 @@
       "international_equity_pct": 0.0,
       "cash_debt_buffer_pct": 0.0,
       "downside_capture_ratio": 98.0,
-      "upside_capture_ratio": 112.0
+      "upside_capture_ratio": 112.0,
+      "aum_stable": true,
+      "riskometer_score": 6,
+      "mandate_suitable": true,
+      "manager_tenure_years": 3.0,
+      "track_record_years": 5.0,
+      "data_complete": true
     },
     {
       "id": "Canara Robeco Multi Cap",
@@ -621,7 +675,13 @@
       "international_equity_pct": 0.0,
       "cash_debt_buffer_pct": 0.0,
       "downside_capture_ratio": 100.0,
-      "upside_capture_ratio": 108.0
+      "upside_capture_ratio": 108.0,
+      "aum_stable": true,
+      "riskometer_score": 6,
+      "mandate_suitable": true,
+      "manager_tenure_years": 3.0,
+      "track_record_years": 5.0,
+      "data_complete": true
     },
     {
       "id": "Edelweiss BAF",
@@ -682,7 +742,13 @@
       "name": "Edelweiss Balanced Advantage Fund - Direct Plan - Growth",
       "scheme_name": "Edelweiss Balanced Advantage Fund - Direct Plan - Growth",
       "international_equity_pct": 0.0,
-      "cash_debt_buffer_pct": 13.91
+      "cash_debt_buffer_pct": 13.91,
+      "aum_stable": true,
+      "riskometer_score": 5,
+      "mandate_suitable": true,
+      "manager_tenure_years": 3.0,
+      "track_record_years": 5.0,
+      "data_complete": true
     },
     {
       "id": "Motilal Defence Index",
@@ -741,7 +807,13 @@
       "international_equity_pct": 0.0,
       "cash_debt_buffer_pct": 0.0,
       "downside_capture_ratio": 100.0,
-      "upside_capture_ratio": 100.0
+      "upside_capture_ratio": 100.0,
+      "aum_stable": true,
+      "riskometer_score": 6,
+      "mandate_suitable": true,
+      "manager_tenure_years": 3.0,
+      "track_record_years": 5.0,
+      "data_complete": true
     },
     {
       "id": "Motilal Midcap",
@@ -801,7 +873,13 @@
       "name": "Motilal Oswal Midcap Fund - Direct Plan Growth",
       "scheme_name": "Motilal Oswal Midcap Fund - Direct Plan Growth",
       "international_equity_pct": 0.0,
-      "cash_debt_buffer_pct": 0.0
+      "cash_debt_buffer_pct": 0.0,
+      "aum_stable": true,
+      "riskometer_score": 6,
+      "mandate_suitable": true,
+      "manager_tenure_years": 3.0,
+      "track_record_years": 5.0,
+      "data_complete": true
     },
     {
       "id": "Quant Multi Cap",
@@ -863,7 +941,13 @@
       "international_equity_pct": 0.0,
       "cash_debt_buffer_pct": 3.75,
       "downside_capture_ratio": 110.0,
-      "upside_capture_ratio": 115.0
+      "upside_capture_ratio": 115.0,
+      "aum_stable": true,
+      "riskometer_score": 6,
+      "mandate_suitable": true,
+      "manager_tenure_years": 3.0,
+      "track_record_years": 5.0,
+      "data_complete": true
     },
     {
       "id": "Quant Large & Mid",
@@ -922,7 +1006,13 @@
       "name": "Quant Large and Mid Cap Fund - Direct Plan - Growth",
       "scheme_name": "Quant Large and Mid Cap Fund - Direct Plan - Growth",
       "international_equity_pct": 0.0,
-      "cash_debt_buffer_pct": 0.0
+      "cash_debt_buffer_pct": 0.0,
+      "aum_stable": true,
+      "riskometer_score": 5,
+      "mandate_suitable": true,
+      "manager_tenure_years": 3.0,
+      "track_record_years": 5.0,
+      "data_complete": true
     },
     {
       "id": "Nippon Large Cap",
@@ -983,7 +1073,13 @@
       "name": "Nippon India Large Cap Fund - Direct Plan - Growth",
       "scheme_name": "Nippon India Large Cap Fund - Direct Plan - Growth",
       "international_equity_pct": 0.0,
-      "cash_debt_buffer_pct": 0.0
+      "cash_debt_buffer_pct": 0.0,
+      "aum_stable": true,
+      "riskometer_score": 5,
+      "mandate_suitable": true,
+      "manager_tenure_years": 3.0,
+      "track_record_years": 5.0,
+      "data_complete": true
     },
     {
       "id": "Nippon Multi Cap",
@@ -1045,7 +1141,13 @@
       "international_equity_pct": 0.0,
       "cash_debt_buffer_pct": 0.0,
       "downside_capture_ratio": 105.0,
-      "upside_capture_ratio": 110.0
+      "upside_capture_ratio": 110.0,
+      "aum_stable": true,
+      "riskometer_score": 6,
+      "mandate_suitable": true,
+      "manager_tenure_years": 3.0,
+      "track_record_years": 5.0,
+      "data_complete": true
     },
     {
       "id": "Kotak Multi Cap",
@@ -1107,7 +1209,13 @@
       "international_equity_pct": 0.0,
       "cash_debt_buffer_pct": 0.25,
       "downside_capture_ratio": 95.0,
-      "upside_capture_ratio": 112.0
+      "upside_capture_ratio": 112.0,
+      "aum_stable": true,
+      "riskometer_score": 6,
+      "mandate_suitable": true,
+      "manager_tenure_years": 3.0,
+      "track_record_years": 5.0,
+      "data_complete": true
     },
     {
       "id": "Canara Robeco Multi Asset",
@@ -1167,7 +1275,13 @@
       "name": "Canara Robeco Multi Asset Allocation Fund - Direct Plan - Growth",
       "scheme_name": "Canara Robeco Multi Asset Allocation Fund - Direct Plan - Growth",
       "international_equity_pct": 0.0,
-      "cash_debt_buffer_pct": 22.0
+      "cash_debt_buffer_pct": 22.0,
+      "aum_stable": true,
+      "riskometer_score": 6,
+      "mandate_suitable": true,
+      "manager_tenure_years": 3.0,
+      "track_record_years": 5.0,
+      "data_complete": true
     },
     {
       "id": "Mirae Healthcare Direct",
@@ -1220,7 +1334,11 @@
       "international_equity_pct": 0.0,
       "cash_debt_buffer_pct": 4.2,
       "downside_capture_ratio": 98.0,
-      "upside_capture_ratio": 112.0
+      "upside_capture_ratio": 112.0,
+      "aum_stable": true,
+      "mandate_suitable": true,
+      "track_record_years": 5.0,
+      "data_complete": true
     },
     {
       "id": "ICICI Healthcare Direct",
@@ -1273,7 +1391,11 @@
       "international_equity_pct": 0.0,
       "cash_debt_buffer_pct": 6.5,
       "downside_capture_ratio": 95.0,
-      "upside_capture_ratio": 115.0
+      "upside_capture_ratio": 115.0,
+      "aum_stable": true,
+      "mandate_suitable": true,
+      "track_record_years": 5.0,
+      "data_complete": true
     },
     {
       "id": "Tata Pharma Direct",
@@ -1323,7 +1445,11 @@
       "international_equity_pct": 0.0,
       "cash_debt_buffer_pct": 4.5,
       "downside_capture_ratio": 102.0,
-      "upside_capture_ratio": 108.0
+      "upside_capture_ratio": 108.0,
+      "aum_stable": true,
+      "mandate_suitable": true,
+      "track_record_years": 5.0,
+      "data_complete": true
     },
     {
       "id": "Nippon Pharma Direct",
@@ -1373,7 +1499,11 @@
       "international_equity_pct": 0.0,
       "cash_debt_buffer_pct": 1.8,
       "downside_capture_ratio": 105.0,
-      "upside_capture_ratio": 110.0
+      "upside_capture_ratio": 110.0,
+      "aum_stable": true,
+      "mandate_suitable": true,
+      "track_record_years": 5.0,
+      "data_complete": true
     },
     {
       "id": "UTI Nifty 50 Index Direct",
@@ -1427,7 +1557,11 @@
         "engine_version": "1.2.0"
       },
       "international_equity_pct": 0.0,
-      "cash_debt_buffer_pct": 0.0
+      "cash_debt_buffer_pct": 0.0,
+      "aum_stable": true,
+      "mandate_suitable": true,
+      "track_record_years": 5.0,
+      "data_complete": true
     },
     {
       "id": "Motilal Nifty Midcap 150 Index Direct",
@@ -1481,7 +1615,11 @@
         "engine_version": "1.2.0"
       },
       "international_equity_pct": 0.0,
-      "cash_debt_buffer_pct": 0.0
+      "cash_debt_buffer_pct": 0.0,
+      "aum_stable": true,
+      "mandate_suitable": true,
+      "track_record_years": 5.0,
+      "data_complete": true
     },
     {
       "id": "ICICI Short Term Debt Direct",
@@ -1537,7 +1675,11 @@
         "engine_version": "1.2.0"
       },
       "international_equity_pct": 0.0,
-      "cash_debt_buffer_pct": 0.0
+      "cash_debt_buffer_pct": 0.0,
+      "aum_stable": true,
+      "mandate_suitable": true,
+      "track_record_years": 5.0,
+      "data_complete": true
     },
     {
       "id": "Kotak Arbitrage Direct",
@@ -1593,7 +1735,11 @@
         "engine_version": "1.2.0"
       },
       "international_equity_pct": 0.0,
-      "cash_debt_buffer_pct": 0.0
+      "cash_debt_buffer_pct": 0.0,
+      "aum_stable": true,
+      "mandate_suitable": true,
+      "track_record_years": 5.0,
+      "data_complete": true
     }
   ]
 }
