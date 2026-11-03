@@ -1,21 +1,21 @@
 {
   "math_assumptions": {
-    "default_gain_rate_pct": 25.0,
+    "default_gain_rate_pct": 25,
     "compounding_years": 10,
-    "short_term_gain_rate_pct": 15.0,
-    "default_exit_load_pct": 1.0,
-    "compounding_equity_return_pct": 25.0
+    "short_term_gain_rate_pct": 15,
+    "default_exit_load_pct": 1,
+    "compounding_equity_return_pct": 25
   },
   "cost_assumptions": {
-    "regular_plan_premium_pct": 1.0
+    "regular_plan_premium_pct": 1
   },
   "tax_estimates": {
-    "estimated_gain_rate_pct": 25.0,
-    "estimated_annual_savings_rate_pct": 12.0
+    "estimated_gain_rate_pct": 25,
+    "estimated_annual_savings_rate_pct": 12
   },
   "payback_policy": {
-    "max_payback_years": 5.0,
-    "warn_threshold_years": 2.0,
+    "max_payback_years": 5,
+    "warn_threshold_years": 2,
     "note": "Per POL-TAX-002 & FM-PAYBACK-V1. Tiered thresholds: <=2.0Y = approve; 2.0-5.0Y = staged/IPS-dependent; >5.0Y = reject. Configurable via IPS. Used by GATE-8 (release_gates.py)."
   },
   "as_of": "2026-10-30",
@@ -108,7 +108,7 @@
         "mid_cap_pct": 20,
         "small_cap_pct": 10,
         "flexi_multi_cap_pct": 15,
-        "debt_liquid_pct": 15
+        "debt_liquid_pct": 25
       },
       "tolerance_band_pct": 5,
       "new_sip_allocation": {
@@ -178,8 +178,8 @@
     }
   },
   "sip_allocation_policy": {
-    "build_portfolio_gap_threshold_pct": 10.0,
-    "max_fund_allocation_pct": 20.0,
+    "build_portfolio_gap_threshold_pct": 10,
+    "max_fund_allocation_pct": 20,
     "max_new_funds_per_12_months": 2,
     "max_core_fund_count": 6,
     "min_sip_per_fund_inr": 1000,
@@ -210,7 +210,7 @@
   },
   "withdrawal_policy": {
     "trigger_remaining_horizon_years": 3,
-    "max_annual_withdrawal_rate_pct": 4.0,
+    "max_annual_withdrawal_rate_pct": 4,
     "liquidity_reserve_months": 6,
     "drawdown_sequence": [
       "lowest_realized_gain_first",
