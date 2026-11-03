@@ -2857,30 +2857,42 @@ def compute_annual_average_daily_closing(
     metric: str = "equity_pct"
 ) -> Optional[float]:
     """
-    Compute annual average of daily closing figures per Section 50AA(2) / Section 76.
-    
-    Args:
-        snapshots: Daily portfolio composition snapshots
-        fy_start: Financial year start date (e.g., 2024-04-01)
-        fy_end: Financial year end date (e.g., 2025-03-31)
-        metric: Which metric to average ("equity_pct" | "debt_pct" | "money_market_pct")
-    
-    Returns:
-        Weighted annual average, or None if insufficient data
+    Compute the arithmetic average of the supplied daily closing observations.
+
+    This function validates the observations it receives, but does not itself
+    prove that every required day is present. Statutory callers must separately
+    establish and pass verified coverage before relying on the result.
     """
+    allowed_metrics = {"equity_pct", "debt_pct", "money_market_pct"}
+    if metric not in allowed_metrics:
+        raise ValueError(f"Unsupported portfolio-composition metric: {metric!r}")
+    if fy_start > fy_end:
+        raise ValueError("Financial-year start date must not be after its end date")
     if not snapshots:
         return None
-    
-    # Filter snapshots within FY
+
     fy_snapshots = [s for s in snapshots if fy_start <= s.date <= fy_end]
     if not fy_snapshots:
         return None
-    
-    # Weight by trading days (simplified: count of days each snapshot represents)
-    # In production, this would weight by actual trading days per snapshot
-    values = [getattr(s, metric) for s in fy_snapshots]
-    return sum(values) / len(values) if values else None
 
+    seen_dates = set()
+    values = []
+    for snapshot in fy_snapshots:
+        if snapshot.date in seen_dates:
+            raise ValueError(f"Duplicate daily portfolio snapshot for {snapshot.date}")
+        seen_dates.add(snapshot.date)
+        raw_value = getattr(snapshot, metric)
+        if isinstance(raw_value, bool):
+            raise ValueError(f"{metric} must be a finite percentage, not a boolean")
+        try:
+            value = float(raw_value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"{metric} must be numeric for {snapshot.date}") from exc
+        if not math.isfinite(value) or not 0.0 <= value <= 100.0:
+            raise ValueError(f"{metric} must be finite and between 0 and 100 for {snapshot.date}")
+        values.append(value)
+
+    return sum(values) / len(values)
 
 def qualifies_as_equity_oriented_under_section_198(
     equity_pct: float,
