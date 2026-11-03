@@ -182,6 +182,7 @@ class DeterministicSIPRecommendation(BaseModel):
     scheme_name: str          # Must be Direct Plan
     isin: Optional[str] = None
     folio_target: Optional[str] = None
+    is_direct: Optional[bool] = None
     monthly_inr: float
     allocation_pct: float
     rational_code: str        # 'CORE_COMPOUNDER', 'ALPHA_ENGINE', 'SATELLITE_THEME'
