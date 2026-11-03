@@ -489,6 +489,18 @@ def calculate_cashflow_matched_benchmark_xirr(
     
     # Compute actual coverage from observed data points and expected trading days
     # Use metadata's expected_trading_days as the ground truth for expected coverage
+    try:
+        for date_key, raw_level in levels.items():
+            parsed_level = float(raw_level)
+            datetime.strptime(date_key, "%Y-%m-%d")
+            if not math.isfinite(parsed_level) or parsed_level <= 0:
+                raise ValueError(f"Invalid TRI level for {date_key}")
+    except (TypeError, ValueError) as exc:
+        raise TriProvenanceError(
+            f"TRI levels contain invalid dates or non-positive/non-finite values: {exc}",
+            benchmark=benchmark_key,
+            validation_stage="levels_invalid"
+        )
     sorted_dates = sorted([datetime.strptime(d, "%Y-%m-%d").date() for d in levels])
     if not sorted_dates:
         raise TriProvenanceError(
@@ -622,6 +634,15 @@ def calculate_cashflow_matched_benchmark_xirr(
         except Exception:
             continue
     
+    if txn_dates:
+        out_of_range = [d for d in txn_dates if d < sorted_dates[0] or d > sorted_dates[-1]]
+        if out_of_range:
+            raise TriProvenanceError(
+                f"Cash-flow dates fall outside observed TRI range: {out_of_range[:5]}",
+                benchmark=benchmark_key,
+                validation_stage="cashflow_date_out_of_range"
+            )
+
     # Net SWITCH/STP pairs at portfolio level
     unmatched_switch_stp = 0
     for key, vals in switch_stp_by_key.items():
@@ -651,7 +672,49 @@ def calculate_cashflow_matched_benchmark_xirr(
     if as_of_date is None:
         as_of_date = max(txn_dates) if txn_dates else date.today()
 
-    port_val = float(cas_current) if cas_current is not None and cas_current > 0 else 5170911.38
+    # Terminal portfolio value is investor-specific evidence, never a fallback constant.
+    if cas_current is None or isinstance(cas_current, bool):
+        raise TriProvenanceError(
+            "Current CAS valuation is missing; portfolio XIRR/alpha cannot be calculated.",
+            benchmark=benchmark_key,
+            validation_stage="terminal_valuation_missing"
+        )
+    try:
+        port_val = float(cas_current)
+    except (TypeError, ValueError) as exc:
+        raise TriProvenanceError(
+            f"Current CAS valuation is invalid: {exc}",
+            benchmark=benchmark_key,
+            validation_stage="terminal_valuation_invalid"
+        )
+    if not math.isfinite(port_val) or port_val <= 0:
+        raise TriProvenanceError(
+            "Current CAS valuation must be finite and positive.",
+            benchmark=benchmark_key,
+            validation_stage="terminal_valuation_invalid"
+        )
+    if as_of_date < max(txn_dates):
+        raise TriProvenanceError(
+            "As-of date precedes the latest transaction; terminal valuation is temporally invalid.",
+            benchmark=benchmark_key,
+            validation_stage="terminal_valuation_date"
+        )
+    # Monthly points cannot support exact daily cash-flow matching through interpolation.
+    if str(provenance.get("frequency", "")).strip().lower().startswith(("monthly", "quarterly")):
+        raise TriProvenanceError(
+            "Benchmark series is not daily; interpolated monthly/quarterly points are not accepted for cash-flow-matched XIRR.",
+            benchmark=benchmark_key,
+            validation_stage="frequency_insufficient"
+        )
+    # A live-market page is not historical TRI source provenance.
+    historical_source = provenance.get("historical_source_url")
+    source_document_sha256 = provenance.get("source_document_sha256")
+    if not historical_source or not source_document_sha256:
+        raise TriProvenanceError(
+            "Historical source URL and source-document SHA256 are required; a levels checksum alone does not authenticate provenance.",
+            benchmark=benchmark_key,
+            validation_stage="source_provenance_missing"
+        )
     port_xirr = calculate_xirr(cashflows + [(as_of_date, port_val)])
 
     total_units = 0.0
