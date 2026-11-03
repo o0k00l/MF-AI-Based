@@ -40,7 +40,7 @@ jobs:
         run: |
           set -euo pipefail
           pip-compile --index-url=https://pypi.org/simple --resolver=backtracking --generate-hashes --output-file=requirements.lock requirements.txt
-          if grep -q -- '--no-index' requirements.lock; then
+          if grep -Eq '^[[:space:]]*--no-index([[:space:]]|$)' requirements.lock; then
             echo "Invalid no-index directive in lockfile"
             exit 1
           fi
