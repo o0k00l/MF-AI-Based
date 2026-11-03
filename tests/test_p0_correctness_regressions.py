@@ -753,7 +753,7 @@ def test_sip_builder_withholds_entire_budget_when_any_required_slot_is_unverifie
 
 
 @pytest.mark.parametrize("confidence", [-0.1, 1.01, float("nan"), float("inf")])
-def test_eligibility_rejects_out_of_range_confidence_score(confidence):
+def test_eligibility_rejects_out_of_range_confidence_score(confidence, tmp_path):
     fund = {
         "fund_id": "fund-x",
         "fund_name": "Example Large Cap Direct Plan",
