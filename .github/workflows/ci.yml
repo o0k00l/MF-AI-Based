@@ -19,8 +19,8 @@ env:
   PIP_DISABLE_PIP_VERSION_CHECK: "1"
 
 jobs:
-  p0-invariants:
-    name: P0 fiduciary invariants
+  dependency-lock:
+    name: Resolve hash-locked dependency set
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -28,15 +28,45 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
-          cache: pip
-          cache-dependency-path: requirements.txt
-      - name: Install dependencies
+      - name: Install pinned lock resolver
+        run: python -m pip install pip==25.3 pip-tools==7.5.2
+      - name: Resolve direct and transitive dependencies with hashes
+        run: |
+          set -euo pipefail
+          pip-compile --index-url=https://pypi.org/simple --resolver=backtracking --generate-hashes --output-file=requirements.lock requirements.txt
+          if grep -q -- '--no-index' requirements.lock; then
+            echo "Invalid no-index directive in lockfile"
+            exit 1
+          fi
+      - name: Upload generated hash lock
+        uses: actions/upload-artifact@v4
+        with:
+          name: requirements-lock
+          path: requirements.lock
+          if-no-files-found: error
+          retention-days: 7
+
+  p0-invariants:
+    name: P0 fiduciary invariants
+    needs: dependency-lock
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - uses: actions/download-artifact@v4
+        with:
+          name: requirements-lock
+      - name: Install hash-locked dependencies
         run: python -m pip install --require-hashes -r requirements.lock
       - name: Run P0 invariant suite
         run: python -m pytest test_p0_fiduciary_invariants.py -v --tb=short
 
   correctness-regressions:
     name: P0 correctness regressions
+    needs: dependency-lock
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -44,15 +74,17 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
-          cache: pip
-          cache-dependency-path: requirements.txt
-      - name: Install dependencies
+      - uses: actions/download-artifact@v4
+        with:
+          name: requirements-lock
+      - name: Install hash-locked dependencies
         run: python -m pip install --require-hashes -r requirements.lock
       - name: Run correctness regression suite
         run: python -m pytest tests/test_p0_correctness_regressions.py -v --tb=short
 
   full-test-suite:
     name: Full test suite
+    needs: dependency-lock
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -60,9 +92,10 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
-          cache: pip
-          cache-dependency-path: requirements.txt
-      - name: Install dependencies
+      - uses: actions/download-artifact@v4
+        with:
+          name: requirements-lock
+      - name: Install hash-locked dependencies
         run: python -m pip install --require-hashes -r requirements.lock
       - name: Validate dependency consistency
         run: python -m pip check
@@ -73,6 +106,7 @@ jobs:
 
   universal-policy-validation:
     name: Universal policy validation
+    needs: dependency-lock
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -80,15 +114,17 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
-          cache: pip
-          cache-dependency-path: requirements.txt
-      - name: Install dependencies
+      - uses: actions/download-artifact@v4
+        with:
+          name: requirements-lock
+      - name: Install hash-locked dependencies
         run: python -m pip install --require-hashes -r requirements.lock
       - name: Validate policy logic
         run: python validate_final_logics.py
 
   tri-fixture-integrity:
     name: TRI fixture integrity and release-state validation
+    needs: dependency-lock
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -96,15 +132,17 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
-          cache: pip
-          cache-dependency-path: requirements.txt
-      - name: Install dependencies
+      - uses: actions/download-artifact@v4
+        with:
+          name: requirements-lock
+      - name: Install hash-locked dependencies
         run: python -m pip install --require-hashes -r requirements.lock
       - name: Verify fixture checksums and explicit blocked release state
         run: python verify_tri_provenance.py
 
   tri-coverage:
     name: TRI coverage gate
+    needs: dependency-lock
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -112,12 +150,33 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
-          cache: pip
-          cache-dependency-path: requirements.txt
-      - name: Install dependencies
+      - uses: actions/download-artifact@v4
+        with:
+          name: requirements-lock
+      - name: Install hash-locked dependencies
         run: python -m pip install --require-hashes -r requirements.lock
       - name: Verify coverage from observed sessions
         run: python -m pytest test_p0_fiduciary_invariants.py::test_p0_16_tri_coverage_gate_uses_observed_sessions_not_metadata -v --tb=short
+
+  dependency-audit:
+    name: Dependency vulnerability audit
+    needs: dependency-lock
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - uses: actions/download-artifact@v4
+        with:
+          name: requirements-lock
+      - name: Install locked dependencies and audit tool
+        run: |
+          python -m pip install --require-hashes -r requirements.lock
+          python -m pip install pip-audit==2.10.1
+      - name: Audit direct and transitive dependencies
+        run: pip-audit -r requirements.lock
 
   secret-scan:
     name: Full Git history secret scan
@@ -136,46 +195,3 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_ENABLE_COMMENTS: "false"
-
-  dependency-lock:
-    name: Resolve hash-locked dependency set
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
-        with:
-          python-version: "3.11"
-      - name: Install pinned resolver
-        run: python -m pip install pip==25.3 pip-tools==7.5.2
-      - name: Resolve all direct and transitive dependencies with hashes
-        run: pip-compile --index-url=https://pypi.org/simple --resolver=backtracking --generate-hashes --output-file=requirements.lock requirements.txt
-          if grep -q -- '--no-index' requirements.lock; then echo 'Invalid no-index directive in lockfile'; exit 1; fi
-      - name: Upload reproducible lockfile for review
-        uses: actions/upload-artifact@v4
-        with:
-          name: requirements-lock
-          path: requirements.lock
-          if-no-files-found: error
-          retention-days: 7
-
-  dependency-audit:
-    name: Dependency vulnerability audit
-    needs: dependency-lock
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
-        with:
-          python-version: "3.11"
-      - name: Download generated hash lock
-        uses: actions/download-artifact@v4
-        with:
-          name: requirements-lock
-      - name: Install locked dependencies and audit tool
-        run: |
-          python -m pip install --require-hashes -r requirements.lock
-          python -m pip install pip-audit==2.10.1
-      - name: Audit direct and transitive dependencies
-        run: pip-audit -r requirements.lock
