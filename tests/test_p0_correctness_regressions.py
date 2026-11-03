@@ -469,3 +469,28 @@ def test_non_thematic_eligibility_does_not_require_thematic_allocation_field():
     ]
     result = check_eligibility_gates(fund, portfolio_holdings=holdings)
     assert result.thematic_satellite_gate is True
+
+
+def test_fifo_tax_lot_loader_carries_verified_scheme_equity_allocation(tmp_path):
+    import json
+    from tax.transition_planner import load_transactions
+
+    tx_path = tmp_path / "transactions.json"
+    tx_path.write_text(
+        json.dumps({
+            "transactions": [{
+                "scheme": "Example Equity Direct Growth",
+                "date": "2024-01-01",
+                "amount": 500.0,
+                "units": 10.0,
+                "nav": 50.0,
+                "type": "PURCHASE",
+            }]
+        }),
+        encoding="utf-8",
+    )
+    lots = load_transactions(
+        tx_path,
+        equity_allocation_by_fund={"Example Equity Direct Growth": 100.0},
+    )
+    assert lots["Example Equity Direct Growth"][0].equity_pct == pytest.approx(100.0)
