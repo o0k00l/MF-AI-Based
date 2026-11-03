@@ -930,7 +930,7 @@ def test_p0_12_all_four_slots_fail_closed_without_verified_candidates():
         assert slot.get("scheme") is None
         assert slot.get("allocation_pct") == 0.0
         assert slot.get("unallocated_pct", 0.0) >= 0.0
-        assert "NO_ACTION" in slot.get("rationale", "").replace("NO ACTION", "NO_ACTION").replace("NO_ACTION", "NO_ACTION")
+        assert "NO_ACTION" in slot.get("rationale", "")
 
     assert slots["Slot 4: Tactical Thematic Satellite"]["unallocated_pct"] == 0.0
     print("[PASS] P0.12 No Candidate Universe Fails Closed Without Invented Schemes")
