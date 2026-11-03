@@ -951,7 +951,7 @@ def test_section_76_requires_acquisition_date_and_daily_series_coverage():
     snapshots = _daily_snapshots_for_fy(
         date(2026, 4, 1), date(2027, 3, 31), debt_pct=70.0, money_market_pct=10.0
     )
-    with pytest.raises(InsufficientDataError, match="coverage has not been independently verified"):
+    with pytest.raises(InsufficientDataError, match="explicit expected-date coverage evidence"):
         classify_specified_mutual_fund(
             "Debt",
             equity_pct=10.0,
@@ -961,7 +961,7 @@ def test_section_76_requires_acquisition_date_and_daily_series_coverage():
             snapshots=snapshots,
             fy_start=date(2026, 4, 1),
             fy_end=date(2027, 3, 31),
-            daily_snapshot_coverage_verified=False,
+            snapshot_coverage_evidence=None,
         )
 
 
@@ -986,7 +986,12 @@ def test_section_76_strict_debt_plus_money_market_boundary(debt_pct, money_marke
         snapshots=snapshots,
         fy_start=fy_start,
         fy_end=fy_end,
-        daily_snapshot_coverage_verified=True,
+        snapshot_coverage_evidence=__import__("core.math_engine", fromlist=["DailySnapshotCoverageEvidence"]).DailySnapshotCoverageEvidence(
+            expected_dates=tuple(snapshot.date for snapshot in snapshots),
+            source_url="https://example.test/verified-daily-calendar",
+            source_document_sha256="b" * 64,
+            independently_verified=True,
+        ),
     )
     assert result["specified_76"]["effective_debt_pct"] == pytest.approx(debt_pct + money_market_pct)
     assert result["specified_76"]["qualifies"] is expected
@@ -1151,3 +1156,34 @@ def test_universal_tier_split_uses_policy_base_and_stability_threshold(tier, pro
     if threshold > 0:
         assert calculate_universal_tier_split(tier, threshold - 0.01) == (expected_equity, expected_debt)
     assert calculate_universal_tier_split(tier, threshold) == (100.0, 0.0)
+
+
+def test_section_76_rejects_missing_dates_even_with_calendar_provenance():
+    from core.math_engine import (
+        DailySnapshotCoverageEvidence,
+        classify_specified_mutual_fund,
+    )
+    from core.models import InsufficientDataError
+
+    fy_start, fy_end = date(2026, 4, 1), date(2027, 3, 31)
+    snapshots = _daily_snapshots_for_fy(fy_start, fy_end, debt_pct=70.0, money_market_pct=10.0)
+    expected = tuple(snapshot.date for snapshot in snapshots)
+    evidence = DailySnapshotCoverageEvidence(
+        expected_dates=expected,
+        source_url="https://example.test/verified-daily-calendar",
+        source_document_sha256="c" * 64,
+        independently_verified=True,
+    )
+    incomplete = snapshots[:-1]
+    with pytest.raises(InsufficientDataError, match="do not exactly match"):
+        classify_specified_mutual_fund(
+            "Debt",
+            equity_pct=10.0,
+            debt_and_money_market_pct=90.0,
+            acquisition_date=date(2023, 4, 1),
+            transfer_date=date(2026, 11, 3),
+            snapshots=incomplete,
+            fy_start=fy_start,
+            fy_end=fy_end,
+            snapshot_coverage_evidence=evidence,
+        )
