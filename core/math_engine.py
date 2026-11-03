@@ -591,7 +591,11 @@ def calculate_cashflow_matched_benchmark_xirr(
     for txn_index, txn in enumerate(tx_data.get("transactions", [])):
         d_str = txn.get("date", "")
         if not d_str:
-            continue
+            raise TriProvenanceError(
+                f"Transaction row {txn_index} has no date and cannot be silently omitted.",
+                benchmark=benchmark_key,
+                validation_stage="transaction_date_missing"
+            )
         try:
             txn_date = datetime.strptime(d_str[:10], "%Y-%m-%d").date()
             amount = float(txn.get("amount", 0))
