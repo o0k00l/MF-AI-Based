@@ -297,6 +297,7 @@ def test_tax_planner_refuses_non_equity_tax_class_in_equity_exemption_path():
             },
             as_of=date(2026, 11, 3),
             current_navs={"fund-x": 100.0},
+            prior_ltcg_this_fy=0.0,
         )
 
 
@@ -428,6 +429,7 @@ def test_tax_planner_rejects_missing_nav_and_insufficient_verified_lots():
             tax_rules=tax_rules,
             as_of=date(2026, 11, 3),
             current_navs={"fund-x": 100.0},
+            prior_ltcg_this_fy=0.0,
         )
 
 
