@@ -394,6 +394,80 @@ def filter_external_cashflows(transactions: list[dict]) -> list[dict]:
     ]
 
 
+def calculate_tri_calendar_coverage(
+    observed_dates: List[date],
+    calendar_sessions: List[date],
+    coverage_start: date,
+    coverage_end: date,
+    minimum_coverage_pct: float = 95.0,
+    benchmark_key: str = "TRI",
+) -> Dict[str, Any]:
+    """
+    Calculate TRI observation coverage against an independently supplied
+    exchange-session calendar. This helper validates arithmetic only; the
+    caller remains responsible for authenticating calendar and TRI sources.
+    """
+    from core.models import TriProvenanceError
+
+    if not isinstance(coverage_start, date) or not isinstance(coverage_end, date) or coverage_start > coverage_end:
+        raise ValueError("TRI coverage window must contain ordered date values")
+    if isinstance(minimum_coverage_pct, bool):
+        raise ValueError("minimum_coverage_pct must be numeric")
+    try:
+        minimum = float(minimum_coverage_pct)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("minimum_coverage_pct must be numeric") from exc
+    if not math.isfinite(minimum) or not 0.0 < minimum <= 100.0:
+        raise ValueError("minimum_coverage_pct must be finite and in (0, 100]")
+
+    if not calendar_sessions:
+        raise TriProvenanceError(
+            "Independent exchange-session calendar is empty.",
+            benchmark=benchmark_key,
+            validation_stage="trading_calendar_range_insufficient",
+        )
+    if calendar_sessions != sorted(set(calendar_sessions)):
+        raise TriProvenanceError(
+            "Exchange-session calendar must be unique and strictly ascending.",
+            benchmark=benchmark_key,
+            validation_stage="trading_calendar_order_invalid",
+        )
+    if coverage_start < calendar_sessions[0] or coverage_end > calendar_sessions[-1]:
+        raise TriProvenanceError(
+            "Independent exchange calendar does not cover the full investor cash-flow window.",
+            benchmark=benchmark_key,
+            validation_stage="trading_calendar_range_insufficient",
+        )
+
+    expected_sessions = [d for d in calendar_sessions if coverage_start <= d <= coverage_end]
+    expected_set = set(expected_sessions)
+    observed_set = set(observed_dates)
+    non_session_points = sorted(observed_set - set(calendar_sessions))
+    if non_session_points:
+        raise TriProvenanceError(
+            f"TRI data contains dates that are not exchange sessions: {non_session_points[:5]}",
+            benchmark=benchmark_key,
+            validation_stage="tri_dates_not_exchange_sessions",
+        )
+
+    expected_count = len(expected_sessions)
+    provided_count = len(observed_set & expected_set)
+    coverage_pct = provided_count / expected_count * 100.0 if expected_count else 0.0
+    if expected_count == 0 or coverage_pct < minimum:
+        raise TriProvenanceError(
+            f"TRI coverage {coverage_pct:.2f}% below minimum {minimum:.1f}% "
+            f"for {benchmark_key}. Independent calendar expects {expected_count} sessions "
+            f"between {coverage_start} and {coverage_end}; observed {provided_count}.",
+            benchmark=benchmark_key,
+            validation_stage="coverage_insufficient",
+        )
+    return {
+        "expected_trading_days": expected_count,
+        "provided_data_points": provided_count,
+        "coverage_pct": coverage_pct,
+    }
+
+
 def calculate_cashflow_matched_benchmark_xirr(
     transactions_path: Path,
     as_of_date: Optional[date] = None,
@@ -596,39 +670,17 @@ def calculate_cashflow_matched_benchmark_xirr(
         )
     coverage_start = min(required_dates)
     coverage_end = as_of_date
-    if coverage_start < calendar_sessions[0] or coverage_end > calendar_sessions[-1]:
-        raise TriProvenanceError(
-            "Independent NSE calendar date range does not cover the full investor cash-flow window.",
-            benchmark=benchmark_key,
-            validation_stage="trading_calendar_range_insufficient"
-        )
-    expected_sessions = [d for d in calendar_sessions if coverage_start <= d <= coverage_end]
-    expected_session_set = set(expected_sessions)
-    observed_sessions = set(sorted_dates)
-    all_calendar_sessions = set(calendar_sessions)
-    non_session_points = sorted(observed_sessions - all_calendar_sessions)
-    if non_session_points:
-        raise TriProvenanceError(
-            f"TRI data contains dates that are not NSE trading sessions: {non_session_points[:5]}",
-            benchmark=benchmark_key,
-            validation_stage="tri_dates_not_exchange_sessions"
-        )
-    expected_trading_days = len(expected_sessions)
-    provided_data_points = len(observed_sessions & expected_session_set)
-    actual_coverage_pct = (
-        provided_data_points / expected_trading_days * 100.0
-        if expected_trading_days else 0.0
+    coverage_result = calculate_tri_calendar_coverage(
+        observed_dates=sorted_dates,
+        calendar_sessions=calendar_sessions,
+        coverage_start=coverage_start,
+        coverage_end=coverage_end,
+        minimum_coverage_pct=95.0,
+        benchmark_key=benchmark_key,
     )
-    min_coverage_pct = 95.0
-    effective_coverage_pct = actual_coverage_pct
-    if expected_trading_days == 0 or effective_coverage_pct < min_coverage_pct:
-        raise TriProvenanceError(
-            f"TRI coverage {effective_coverage_pct:.2f}% below minimum {min_coverage_pct:.1f}% "
-            f"for {benchmark_key}. Independent NSE calendar expects {expected_trading_days} sessions "
-            f"between {coverage_start} and {coverage_end}; observed {provided_data_points}.",
-            benchmark=benchmark_key,
-            validation_stage="coverage_insufficient"
-        )
+    expected_trading_days = coverage_result["expected_trading_days"]
+    provided_data_points = coverage_result["provided_data_points"]
+    effective_coverage_pct = coverage_result["coverage_pct"]
 
     # MISSING-DATE AUDIT: Forward-fill tracking
     sorted_dates = sorted([datetime.strptime(d, "%Y-%m-%d").date() for d in levels])
