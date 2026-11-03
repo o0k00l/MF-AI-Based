@@ -99,7 +99,15 @@ def match_scheme(scheme):
     return metrics[fund_id]
 
 import openpyxl
-xlsx = sorted((CLIENT/"statements").glob("cas_detailed_report_*.xlsx"))[-1]
+statement_files = sorted((CLIENT/"statements").glob("cas_detailed_report_*.xlsx"))
+if not statement_files:
+    statement_files = sorted((CLIENT/"statements").glob("*.xlsx"))
+if not statement_files:
+    raise FileNotFoundError(
+        f"No CAS Excel statement found under {CLIENT/'statements'}. "
+        "Place the latest verified CAS workbook in the private statements directory."
+    )
+xlsx = statement_files[-1]
 wb = openpyxl.load_workbook(xlsx, data_only=True)
 ws = wb["Portfolio Details"]
 hdr, as_of, holdings = None, "", []
