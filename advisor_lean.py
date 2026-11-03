@@ -11,15 +11,16 @@ Usage:
     python advisor_lean.py --chat       # interactive REPL
 """
 
+
+
+from __future__ import annotations
+
 if __name__ != "__main__":
     raise RuntimeError(
         "advisor_lean.py is a legacy CLI with import-time private-data loading; "
         "run it as a script or use the side-effect-free core modules."
     )
 
-
-
-from __future__ import annotations
 import json, re, sys, argparse
 from datetime import date, datetime
 from collections import defaultdict
