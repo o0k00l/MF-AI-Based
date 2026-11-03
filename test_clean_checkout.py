@@ -6,8 +6,9 @@ artifacts, cached data, or environment-specific configuration.
 
 This test simulates a clean checkout by:
 1. Creating a temporary directory
-2. Copying only tracked source files and checking that no client artifacts or outputs are present
-3. Running the full test suite and advisor.py in the clean environment
+2. Copying tracked files only and checking that no client artifacts or outputs are present
+3. Running the P0 invariant tests and policy validation in the isolated copy
+4. Verifying that the core calculation engine imports successfully
 """
 
 import os
@@ -20,12 +21,14 @@ from pathlib import Path
 
 def test_clean_checkout():
     """
-    Test that a clean checkout works by:
-    - Copying source to temp directory (excluding generated/artifact directories)
-    - Installing dependencies
-    - Running P0 invariant tests
-    - Running universal logic validation
-    - Running advisor.py end-to-end
+    Test clean-checkout viability by:
+    - Copying tracked source to a temporary directory
+    - Checking that private client artifacts and generated outputs are absent
+    - Running P0 invariant tests and universal policy validation
+    - Importing the core calculation engine
+
+    Dependencies are supplied by the outer test environment; this test does
+    not create a virtual environment or install packages.
     """
     # Get the project root
     project_root = Path(__file__).resolve().parent
@@ -89,6 +92,7 @@ def test_clean_checkout():
             "test_p0_fiduciary_invariants.py",
             "validate_final_logics.py",
             "requirements.txt",
+            "requirements.lock",
             "data/policy/benchmark_tri_series.json",
             "data/policy/passive_universe.json",
             "data/policy/scheme_master.json",
@@ -136,8 +140,7 @@ def test_clean_checkout():
         assert "84/84 CHECKS PASSED" in result.stdout or result.returncode == 0, "Expected validation checks to pass"
         print("[CLEAN CHECKOUT] Universal logic validation PASSED")
         
-        # Run advisor.py end-to-end (this will fail without CAS statements, which is expected)
-        # We test that the engine initializes correctly
+        # Verify that the core engine imports without client data or provider configuration.
         print("[CLEAN CHECKOUT] Testing engine initialization...")
         result = subprocess.run(
             [sys.executable, "-c", "from core.math_engine import aggregate_fiduciary_facts; print('Engine imports OK')"],
@@ -154,7 +157,7 @@ def test_clean_checkout():
         print("   P0 invariant tests pass in the isolated checkout")
         print("   Universal logic validation passes")
         print("   Engine imports successfully")
-        print("   No hardcoded paths or environment dependencies detected")
+        print("   No client data or generated outputs copied into the isolated checkout")
 
 
 if __name__ == "__main__":
