@@ -297,10 +297,22 @@ for t_name, exp_eq, exp_debt in tier_targets:
         stability_buffer_pct=None
     )
     check(
-        f"{t_name} SIP SAA Precision",
+        f"{t_name} SIP Base Allocation Precision",
         sip_tier.equity_sip_pct == exp_eq and sip_tier.debt_sip_pct == exp_debt,
         f"-> Eq: {sip_tier.equity_sip_pct}% | Debt: {sip_tier.debt_sip_pct}%"
     )
+    if t_name == "Tier 6 (Very High)":
+        sip_override = compute_deterministic_sip_blueprint(
+            monthly_budget=50000.0,
+            risk_tier=t_name,
+            stability_buffer_pct=None,
+            equity_sip_routing_override=True,
+        )
+        check(
+            "Tier 6 100/0 SIP routing requires explicit IPS override",
+            sip_override.equity_sip_pct == 100.0 and sip_override.debt_sip_pct == 0.0,
+            f"Authorized override -> Eq: {sip_override.equity_sip_pct}% | Debt: {sip_override.debt_sip_pct}%",
+        )
     sip_tot = sum(it.monthly_inr for it in sip_tier.items)
     sip_accounted = sip_tot + sip_tier.unallocated_budget_inr
     check(
