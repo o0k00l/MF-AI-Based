@@ -522,10 +522,9 @@ def check_eligibility_gates(
     # --- Gate 10: 100% Direct Plan Mandate Gate ---
     plan_value = str(fund_data.get("plan", "") or "").strip().casefold()
     direct_flag = fund_data.get("is_direct")
-    direct_evidence_status = fund_data.get("direct_plan_evidence_status")
-    # The scheme name and a caller-supplied boolean are not proof. Require
-    # reviewer-attested evidence whose local source-file hash was checked at
-    # ingestion. This is an evidence-integrity check, not publisher authentication.
+    # Recompute the local evidence digest at the decision boundary; never trust
+    # a copied/caller-supplied status string as proof of Direct-plan identity.
+    direct_evidence_status = _reviewed_direct_plan_evidence_status(fund_data)
     if "regular" in plan_value or "distributor" in plan_value or "regular" in fund_name.casefold():
         is_direct = False
     elif (
