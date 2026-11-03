@@ -37,6 +37,8 @@ class Lot:
     equity_pct_source_url: str | None = None
     equity_pct_source_sha256: str | None = None
     equity_pct_source_reviewed: bool = False
+    equity_pct_source_file: str | None = None
+    equity_pct_evidence_root: str | None = None
 
     def holding_days(self, as_of: date) -> int:
         return (as_of - self.purchase_date).days
@@ -102,6 +104,7 @@ def _parse_date(s: str | date) -> date:
 def load_transactions(
     transactions_path: Path,
     equity_allocation_by_fund: dict[str, float] | None = None,
+    evidence_root: Path | None = None,
 ) -> dict[str, list[Lot]]:
     """
     Load and parse transactions.json into per-fund lots, applying FIFO burn
@@ -112,6 +115,13 @@ def load_transactions(
     Returns: fund_id -> list[Lot]  (only currently-held lots survive)
     """
     data = json.loads(transactions_path.read_text(encoding="utf-8"))
+    # An evidence root is an explicit trust boundary. Do not infer it from
+    # the transaction file's parent directory.
+    evidence_root_path = (
+        Path(evidence_root).expanduser().resolve(strict=True)
+        if evidence_root is not None
+        else None
+    )
 
     # First pass: collect all transactions per fund (both purchases and redemptions)
     transactions_by_fund: dict[str, list[dict]] = defaultdict(list)
@@ -160,6 +170,7 @@ def load_transactions(
             equity_pct_source_url = allocation_record.get("source_url")
             equity_pct_source_sha256 = allocation_record.get("source_document_sha256")
             equity_pct_source_reviewed = allocation_record.get("independently_verified", False)
+            equity_pct_source_file = allocation_record.get("source_file")
         else:
             equity_pct = tx.get("equity_allocation_pct", allocation_record)
             equity_pct_method = tx.get("equity_allocation_method")
@@ -167,6 +178,7 @@ def load_transactions(
             equity_pct_source_url = tx.get("equity_allocation_source_url")
             equity_pct_source_sha256 = tx.get("equity_allocation_source_sha256")
             equity_pct_source_reviewed = tx.get("equity_allocation_source_verified", False)
+            equity_pct_source_file = tx.get("equity_allocation_source_file")
         transactions_by_fund[scheme].append({
             "date": dt,
             "units": Decimal(str(units)),
@@ -179,6 +191,7 @@ def load_transactions(
             "equity_pct_source_url": equity_pct_source_url,
             "equity_pct_source_sha256": equity_pct_source_sha256,
             "equity_pct_source_reviewed": equity_pct_source_reviewed,
+            "equity_pct_source_file": equity_pct_source_file,
             "description": tx.get("description", ""),
         })
 
@@ -284,6 +297,12 @@ def load_transactions(
                 "nav": p["nav"],
                 "cost": p["amount"],
                 "equity_pct": p.get("equity_pct"),
+                "equity_pct_method": p.get("equity_pct_method"),
+                "equity_pct_fy_start": p.get("equity_pct_fy_start"),
+                "equity_pct_source_url": p.get("equity_pct_source_url"),
+                "equity_pct_source_sha256": p.get("equity_pct_source_sha256"),
+                "equity_pct_source_reviewed": p.get("equity_pct_source_reviewed", False),
+                "equity_pct_source_file": p.get("equity_pct_source_file"),
             })
 
         for red in redemptions:
@@ -322,6 +341,8 @@ def load_transactions(
                     equity_pct_source_url=p.get("equity_pct_source_url"),
                     equity_pct_source_sha256=p.get("equity_pct_source_sha256"),
                     equity_pct_source_reviewed=p.get("equity_pct_source_reviewed", False),
+                    equity_pct_source_file=p.get("equity_pct_source_file"),
+                    equity_pct_evidence_root=str(evidence_root_path) if evidence_root_path is not None else None,
                 ))
 
     return lots_by_fund
@@ -491,6 +512,7 @@ def classify_fund_for_tax(source_holding, tax_rules, sale_date=None):
     """
     import math
     import re
+    import hashlib
 
     equity_pct = getattr(source_holding, "equity_pct", None)
     if equity_pct is None or isinstance(equity_pct, bool):
@@ -513,6 +535,32 @@ def classify_fund_for_tax(source_holding, tax_rules, sale_date=None):
     source_hash = getattr(source_holding, "equity_pct_source_sha256", None)
     if not isinstance(source_hash, str) or not re.fullmatch(r"[0-9a-fA-F]{64}", source_hash):
         raise ValueError("Section 198 equity-allocation source document SHA-256 is required")
+
+    # Recompute the digest from the actual local source bytes. A SHA-shaped
+    # string or URL alone is not evidence. The resolved path must remain
+    # contained inside the explicitly supplied evidence root (including
+    # protection against ../ traversal and symlink escape).
+    source_file = getattr(source_holding, "equity_pct_source_file", None)
+    evidence_root = getattr(source_holding, "equity_pct_evidence_root", None)
+    if not isinstance(source_file, str) or not source_file.strip():
+        raise ValueError("Section 198 source document file is required for byte-level digest verification")
+    if not isinstance(evidence_root, str) or not evidence_root.strip():
+        raise ValueError("Section 198 source evidence root is required for byte-level digest verification")
+    try:
+        root_path = Path(evidence_root).expanduser().resolve(strict=True)
+        relative_source = Path(source_file)
+        if relative_source.is_absolute():
+            raise ValueError("source document path must be relative to the evidence root")
+        source_path = (root_path / relative_source).resolve(strict=True)
+        source_path.relative_to(root_path)
+        if not source_path.is_file():
+            raise ValueError("source document path is not a regular file")
+        actual_hash = hashlib.sha256(source_path.read_bytes()).hexdigest()
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise ValueError(f"Section 198 source document cannot be safely verified: {exc}") from exc
+    if actual_hash.lower() != source_hash.lower():
+        raise ValueError("Section 198 source document SHA-256 does not match local source bytes")
+
     fy_start = getattr(source_holding, "equity_pct_fy_start", None)
     if isinstance(fy_start, bool) or not isinstance(fy_start, int):
         raise ValueError("Section 198 equity-allocation financial_year_start is required")
