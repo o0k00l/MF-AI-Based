@@ -3253,6 +3253,7 @@ def classify_specified_mutual_fund(
     fy_start: Optional[date] = None,
     fy_end: Optional[date] = None,
     is_mld: bool = False,
+    daily_snapshot_coverage_verified: bool = False,
     # Aliases for backward-compatibility
     purchase_date: Optional[date] = None,
 ) -> dict:
@@ -3295,7 +3296,8 @@ def classify_specified_mutual_fund(
         is_mld=is_mld,
         snapshots=snapshots,
         fy_start=fy_start,
-        fy_end=fy_end
+        fy_end=fy_end,
+        daily_snapshot_coverage_verified=daily_snapshot_coverage_verified,
     )
     
     is_equity_oriented = equity_result.qualifies
