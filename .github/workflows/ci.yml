@@ -119,8 +119,8 @@ jobs:
       - name: Verify coverage from observed sessions
         run: python -m pytest test_p0_fiduciary_invariants.py::test_p0_16_tri_coverage_gate_uses_observed_sessions_not_metadata -v --tb=short
 
-  dependency-audit:
-    name: Dependency vulnerability audit
+  dependency-lock:
+    name: Resolve hash-locked dependency set
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -128,9 +128,35 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Install declared dependencies and audit tool
+      - name: Install pinned resolver
+        run: python -m pip install pip-tools==7.5.2
+      - name: Resolve all direct and transitive dependencies with hashes
+        run: pip-compile --resolver=backtracking --generate-hashes --output-file=requirements.lock requirements.txt
+      - name: Upload reproducible lockfile for review
+        uses: actions/upload-artifact@v4
+        with:
+          name: requirements-lock
+          path: requirements.lock
+          if-no-files-found: error
+          retention-days: 7
+
+  dependency-audit:
+    name: Dependency vulnerability audit
+    needs: dependency-lock
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Download generated hash lock
+        uses: actions/download-artifact@v4
+        with:
+          name: requirements-lock
+      - name: Install locked dependencies and audit tool
         run: |
-          python -m pip install -r requirements.txt
-          python -m pip install pip-audit
+          python -m pip install --require-hashes -r requirements.lock
+          python -m pip install pip-audit==2.10.1
       - name: Audit direct and transitive dependencies
-        run: pip-audit -r requirements.txt
+        run: pip-audit -r requirements.lock
