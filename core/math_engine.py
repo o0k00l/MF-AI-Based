@@ -4042,6 +4042,8 @@ def compute_deterministic_sip_blueprint(
     Reuses existing client Direct folios dynamically; NEVER hardcodes folios.
     """
     import math
+    import json
+    from pathlib import Path
     try:
         b = float(monthly_budget)
         aum_value = float(client_aum)
@@ -4058,12 +4060,23 @@ def compute_deterministic_sip_blueprint(
         raise ValueError("Stability buffer percentage must be finite and between 0 and 100")
     stability_buffer_pct = stability_value
     client_aum = aum_value
+    policy_path = Path(__file__).resolve().parents[1] / "data" / "policy" / "asset_allocation.json"
+    if not policy_path.is_file():
+        raise ValueError(f"Required allocation policy file is missing: {policy_path}")
+    try:
+        allocation_policy = json.loads(policy_path.read_text(encoding="utf-8"))
+        satellite_policy = allocation_policy["thematic_satellite_policy"]
+        max_satellite_pct = float(satellite_policy["max_pct_of_equity"])
+    except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
+        raise ValueError("Thematic satellite policy is missing or invalid") from exc
+    if not math.isfinite(max_satellite_pct) or not 0.0 <= max_satellite_pct <= 100.0:
+        raise ValueError("Thematic satellite policy cap must be finite and between 0 and 100")
     try:
         satellite_pct = float(thematic_satellite_pct_of_equity)
     except (TypeError, ValueError) as exc:
         raise ValueError("Thematic satellite percentage must be numeric") from exc
-    if not math.isfinite(satellite_pct) or not 0.0 <= satellite_pct <= 15.0:
-        raise ValueError("Thematic satellite percentage of equity must be finite and between 0 and 15")
+    if not math.isfinite(satellite_pct) or not 0.0 <= satellite_pct <= max_satellite_pct:
+        raise ValueError(f"Thematic satellite percentage of equity must be finite and between 0 and {max_satellite_pct:g}")
     if satellite_pct > 0.0 and thematic_satellite_authorized is not True:
         raise ValueError("A positive thematic satellite allocation requires explicit IPS authorization")
     if not isinstance(thematic_satellite_authorized, bool):
@@ -4170,15 +4183,9 @@ def compute_deterministic_sip_blueprint(
             if tier_num not in _tier_to_profile:
                 raise ValueError(f"Unsupported SEBI risk tier: {tier_num}")
             _profile_key = _tier_to_profile[tier_num]
-            import json as _json
-            from pathlib import Path as _Path
-            _policy_path = _Path(__file__).resolve().parents[1] / "data" / "policy" / "asset_allocation.json"
-            if not _policy_path.is_file():
-                raise ValueError(f"Required allocation policy file is missing: {_policy_path}")
             try:
-                _policy = _json.loads(_policy_path.read_text(encoding="utf-8"))
-                _saa = _policy["behavioral_risk_profiles"][_profile_key]["saa_targets"]
-            except (OSError, _json.JSONDecodeError, KeyError, TypeError) as exc:
+                _saa = allocation_policy["behavioral_risk_profiles"][_profile_key]["saa_targets"]
+            except (KeyError, TypeError) as exc:
                 raise ValueError(f"Required SAA policy is invalid for risk profile {_profile_key!r}") from exc
             try:
                 _large = float(_saa["large_cap_pct"])
