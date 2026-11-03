@@ -2689,11 +2689,11 @@ def _parse_sebi_risk_tier(risk_tier: str) -> int:
         return 4
     if "very high" in tier_str or "aggressive" in tier_str:
         return 6
-    if tier_str == "low":
+    if tier_str == "low" or "conservative" in tier_str:
         return 2
-    if tier_str == "moderate":
+    if "moderate" in tier_str and "high" not in tier_str:
         return 3
-    if tier_str == "high":
+    if tier_str == "high" or tier_str.startswith("high "):
         return 5
     raise ValueError(f"Unrecognized SEBI risk tier: {risk_tier!r}")
 
