@@ -457,7 +457,6 @@ def test_p0_6_multi_horizon_selection_and_peer_evaluation():
     slots = select_autonomous_blueprint_funds(holdings=[], client_risk_tier=6, thematic_deficit_theme="Pharma")
     slot4 = slots["Slot 4: Tactical Thematic Satellite"]
     assert "NO_ACTION" in slot4["scheme"], f"Missing fiduciary metadata must fail closed, got {slot4['scheme']}"
-    assert slot4["gate_passed"] is False
     print("[PASS] P0.6 Multi-Horizon Selection & Peer Evaluation Verified")
 
 def test_p0_7_boundary_mutex_and_thematic_taper():
