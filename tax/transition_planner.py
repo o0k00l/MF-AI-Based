@@ -508,12 +508,18 @@ def plan_fy_tranches(
     # Collect lots up to plan.total_amount per fund using strict FIFO
     all_lots = []
     
+    import math
     for fund_id, plan in plans.items():
-        current_nav = current_navs.get(fund_id, 0.0)
-        if current_nav <= 0:
+        if not plan.lots and (plan.total_amount is None or float(plan.total_amount) <= 0):
             continue
+        raw_nav = current_navs.get(fund_id)
+        try:
+            current_nav = float(raw_nav)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"Missing or invalid current NAV for {fund_id}: {raw_nav!r}") from exc
+        if not math.isfinite(current_nav) or current_nav <= 0:
+            raise ValueError(f"Current NAV for {fund_id} must be finite and positive")
         
-        # Classify fund for tax treatment
         # Validate the requested gross amount before allocating any lot.
         target_sell_amount = float(plan.total_amount) if plan.total_amount is not None else float("inf")
         if target_sell_amount < 0 or not (target_sell_amount == float("inf") or (target_sell_amount < float("inf"))):
@@ -525,7 +531,11 @@ def plan_fy_tranches(
         for lot in sorted_lots:
             if remaining_target <= 0.01:
                 break
-            if lot.units <= 0 or lot.cost < 0:
+            if (
+                isinstance(lot.units, bool) or isinstance(lot.cost, bool)
+                or not math.isfinite(float(lot.units)) or not math.isfinite(float(lot.cost))
+                or lot.units <= 0 or lot.cost < 0
+            ):
                 raise ValueError(f"Invalid lot units/cost for {fund_id}: units={lot.units}, cost={lot.cost}")
             lot_val = lot.units * current_nav
             units_to_sell = lot.units
@@ -537,6 +547,8 @@ def plan_fy_tranches(
             is_lt = lot.is_long_term_given(as_of, tax_rules.get("lt_holding_months", 12))
             cost_basis = (units_to_sell / lot.units) * lot.cost if lot.units > 0 else 0.0
             lot_gain = lot_val - cost_basis
+            if not math.isfinite(lot_gain) or not math.isfinite(cost_basis):
+                raise ValueError(f"Non-finite gain/cost basis for {fund_id}")
             fund_tax_class = classify_fund_for_tax(lot, tax_rules)
             if fund_tax_class != "equity_oriented":
                 raise ValueError(
