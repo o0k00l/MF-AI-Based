@@ -958,7 +958,19 @@ def test_p0_13_statutory_tax_specified_fund_and_mandate_state():
             rows.append(MonthlyPortfolioSnapshot(date(year, month, 1), equity_pct, equity_pct))
         for month in range(1, 4):
             rows.append(MonthlyPortfolioSnapshot(date(year + 1, month, 1), equity_pct, equity_pct))
-        return {"monthly_snapshots": rows, "fy_start": fy_start, "fy_end": fy_end}
+        from core.math_engine import MonthlySnapshotCoverageEvidence
+        evidence = MonthlySnapshotCoverageEvidence(
+            expected_months=tuple(row.month for row in rows),
+            source_url="https://example.test/verified-monthly-calendar",
+            source_document_sha256="e" * 64,
+            independently_verified=True,
+        )
+        return {
+            "monthly_snapshots": rows,
+            "monthly_coverage_evidence": evidence,
+            "fy_start": fy_start,
+            "fy_end": fy_end,
+        }
 
     def daily_evidence(year, equity_pct, debt_pct, money_market_pct):
         fy_start, fy_end = date(year, 4, 1), date(year + 1, 3, 31)
