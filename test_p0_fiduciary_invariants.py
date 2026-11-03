@@ -182,7 +182,9 @@ def test_p0_2_tax_shield_siphon_and_day_366():
         "lt_holding_months": 12
     }
 
-    fy_plans = plan_fy_tranches(plans, tax_rules, as_of, current_navs)
+    fy_plans = plan_fy_tranches(
+        plans, tax_rules, as_of, current_navs, prior_ltcg_this_fy=0.0
+    )
 
     # 1. FY 2026-27 (Year 1) must shelter EXACTLY up to ₹1,25,000 of LTCG
     y1_items = fy_plans.get(2026, [])
