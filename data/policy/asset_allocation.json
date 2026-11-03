@@ -294,5 +294,18 @@
     "requires_explicit_ips_authorization": true,
     "funding_rule": "Carve the satellite percentage out of the equity SIP budget before allocating the remainder across core sleeves. Never add it on top of core weights.",
     "no_candidate_rule": "If no separately verified thematic candidate passes, keep satellite at zero; do not automatically redirect its budget."
+  },
+  "starter_portfolio_routing": {
+    "classification": "RESEARCH_HEURISTIC",
+    "status": "PROVISIONAL",
+    "aum_threshold_inr": 500000,
+    "monthly_budget_threshold_inr": 15000,
+    "equity_sleeves_pct_of_equity_budget": {
+      "flexi_cap": 60,
+      "mid_small_cap": 40,
+      "large_cap": 0
+    },
+    "thematic_satellite_default_pct_of_equity": 0,
+    "rationale": "A simplified two-core-sleeve routing for smaller portfolios; review when AUM or monthly SIP exceeds either threshold. Not a statutory or universal rule."
   }
 }
