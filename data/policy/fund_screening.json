@@ -59,8 +59,8 @@
   "category_rules": {
     "thematic_sectoral_liquidation": {
       "condition": "category_is_thematic_or_sectoral",
-      "action": "IMMEDIATE_EXIT",
-      "rationale": "Thematic/Sectoral funds are not core holdings. They must be liquidated without seeking category-specific replacement.",
+      "action": "REVIEW_REQUIRED",
+      "rationale": "Thematic/sectoral classification alone is not a redemption instruction. Evaluate existing exposure, mandate, benchmark-relative evidence, valuation, overlap, tax lots and exit load. Do not force liquidation or automatically redirect proceeds; new SIP eligibility is assessed separately.",
       "rule_classification": "INVESTOR_POLICY"
     }
   },
@@ -80,7 +80,7 @@
     "required": true,
     "window_years": 3,
     "why": "Trailing returns are path dependent and flattering. A fund that fell 40% and rebounded 90% looks excellent on a trailing window. Rolling windows expose the actual hit rate.",
-    "preferred_min_hit_rate_pct": 70.0,
+    "preferred_min_hit_rate_pct": 70,
     "note": "Rolling windows are NOT published on a SEBI factsheet. If absent from the dataset, mark the field MISSING. Never substitute trailing returns for rolling returns."
   },
   "reject_rules": [
@@ -141,7 +141,7 @@
       "action": "FLAG",
       "thresholds": {
         "decent": 0.5,
-        "excellent": 1.0
+        "excellent": 1
       },
       "rule_classification": "RESEARCH_HEURISTIC"
     },
@@ -365,7 +365,7 @@
       "test": "aum_cr < 50.0",
       "action": "FLAG",
       "severity": "high",
-      "rationale": "Fund AUM is below institutional threshold (\u20b950 Cr for retail diversified equity / \u20b95 Cr statutory VR cut-off). High risk of expense bleed, illiquidity, and scheme wind-up.",
+      "rationale": "Fund AUM is below institutional threshold (₹50 Cr for retail diversified equity / ₹5 Cr statutory VR cut-off). High risk of expense bleed, illiquidity, and scheme wind-up.",
       "rule_classification": "RESEARCH_HEURISTIC"
     },
     {
@@ -467,14 +467,14 @@
     {
       "id": "SINGLE_THEME_CAP",
       "test": "single_thematic_or_sector_fund_weight_pct > 15",
-      "threshold_pct": 15.0,
+      "threshold_pct": 15,
       "action": "FLAG",
       "rationale": "Thematic and sector funds limit diversification and are cyclical. They are satellites, never core holdings."
     },
     {
       "id": "CORE_SATELLITE_RATIO",
       "test": "satellite_share_pct > 30",
-      "threshold_pct": 30.0,
+      "threshold_pct": 30,
       "action": "FLAG",
       "rationale": "Broad diversified funds should dominate the equity core."
     }
@@ -617,17 +617,17 @@
     "risk_free_pct": 6.5,
     "risk_free_basis": "assumed; must be replaced with a sourced rate before any figure derived from it is quoted to a client",
     "min_volatility_pct": 0.05,
-    "split_detection_threshold_pct": 50.0,
+    "split_detection_threshold_pct": 50,
     "split_ratios_recognised": [
-      2.0,
+      2,
       2.5,
-      5.0,
-      10.0,
-      20.0,
-      25.0,
-      50.0,
-      100.0,
-      1000.0
+      5,
+      10,
+      20,
+      25,
+      50,
+      100,
+      1000
     ]
   },
   "identity_resolution_policy": {
@@ -640,11 +640,11 @@
     "confidence_penalties": [
       {
         "min_age_days": 180,
-        "penalty_pts": 15.0
+        "penalty_pts": 15
       },
       {
         "min_age_days": 365,
-        "penalty_pts": 30.0
+        "penalty_pts": 30
       }
     ]
   },
@@ -693,16 +693,16 @@
     }
   },
   "concentration_bands": {
-    "diversified_min_effective_holdings": 10.0,
-    "moderately_concentrated_min_effective_holdings": 5.0
+    "diversified_min_effective_holdings": 10,
+    "moderately_concentrated_min_effective_holdings": 5
   },
   "anomaly_detection_thresholds": {
-    "performance_drop_pct": 15.0,
-    "performance_spike_pct": 20.0,
-    "allocation_change_pct": 10.0,
+    "performance_drop_pct": 15,
+    "performance_spike_pct": 20,
+    "allocation_change_pct": 10,
     "correlation_shift": 0.3,
-    "cash_flow_change_pct": 25.0,
-    "human_review_cash_flow_change_pct": 50.0
+    "cash_flow_change_pct": 25,
+    "human_review_cash_flow_change_pct": 50
   },
   "placeholder_detection": {
     "_note": "Market-standard anomaly rule: if a screening metric has identical values across >= 5 unrelated funds (different AMCs), flag as PROVISIONAL / possible placeholder. Requires independent verification before use in gating decisions. Aligned with Morningstar data-quality and Kuvera/ET Money anomaly checks.",
