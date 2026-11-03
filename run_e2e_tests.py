@@ -135,7 +135,7 @@ def main():
     print(f"\n{BLUE}{'='*50}{RESET}")
     
     if all_passed:
-        print(f"{GREEN}✅ ALL TESTS PASSED - SYSTEM READY FOR PRODUCTION{RESET}\n")
+        print(f"{GREEN}✅ ALL CHECKS PASSED - PRODUCTION RELEASE APPROVAL STILL REQUIRED{RESET}\n")
         return 0
     else:
         print(f"{RED}❌ SOME TESTS FAILED - REVIEW REQUIRED{RESET}\n")
