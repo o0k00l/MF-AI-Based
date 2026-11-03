@@ -1066,152 +1066,125 @@ def test_p0_13_statutory_tax_specified_fund_and_mandate_state():
     print("[PASS] P0.13 Date-Aware Specified-Fund / MLD Tax Classification Verified")
 
 
-def test_p0_14_cashflow_matched_tri_benchmark_engine():
+def test_p0_14_cashflow_matched_benchmark_requires_independent_nse_calendar(tmp_path):
     """
-    Verifies that TRI alpha is unavailable unless an independently maintained
-    NSE session calendar is supplied. The repository intentionally has no such
-    verified calendar file, so the calculation must fail closed.
+    A deterministic synthetic transaction ledger is sufficient to exercise the
+    fail-closed calendar gate. No personal transactions or CAS data are used.
     """
     from core.math_engine import calculate_cashflow_matched_benchmark_xirr
-    from pathlib import Path
-    import pytest
-
-    # Skip if transactions.json not available (requires processed CAS data)
-    tx_path = Path("data/lalit_portfolio/transactions.json")
-    if not tx_path.exists():
-        pytest.skip("transactions.json not available - requires processed CAS Excel data")
-
-    tri_path = Path("data/policy/benchmark_tri_series.json")
-
-    assert tri_path.exists(), "benchmark_tri_series.json must exist"
-
-    # No independently maintained NSE trading calendar is shipped with this repo.
-    # The calculation must fail closed instead of trusting benchmark-fixture metadata.
     from core.models import TriProvenanceError
+
+    tx_path = tmp_path / "synthetic_transactions.json"
+    tx_path.write_text(
+        json.dumps({
+            "transactions": [
+                {
+                    "scheme": "Synthetic Equity Fund Direct Growth",
+                    "date": "2026-10-02",
+                    "amount": 1000.0,
+                    "units": 10.0,
+                    "nav": 100.0,
+                    "type": "PURCHASE",
+                    "description": "Synthetic test purchase",
+                }
+            ]
+        }),
+        encoding="utf-8",
+    )
+    tri_path = Path("data/policy/benchmark_tri_series.json")
+    assert tri_path.is_file(), "The checked-in provisional TRI test fixture is required"
+
     with pytest.raises(TriProvenanceError) as exc_info:
         calculate_cashflow_matched_benchmark_xirr(
             transactions_path=tx_path,
+            as_of_date=date(2026, 10, 9),
             benchmark_key="NIFTY 500 TRI",
             benchmark_series_path=tri_path,
-            cas_current=5170911.38
+            cas_current=1010.0,
+            trading_calendar_path=tmp_path / "independent_nse_calendar_missing.json",
         )
     assert exc_info.value.validation_stage == "trading_calendar_missing"
     print("[PASS] P0.14 TRI refuses to calculate without an independent NSE session calendar")
 
-def test_p0_15_runtime_mandate_hold_enforcement():
+
+def test_p0_15_runtime_mandate_hold_enforcement_is_a_unit_invariant():
     """
-    Verifies that the client's HOLD mandate is an enforced runtime state:
-    - Ingests config.json and asserts mandate_state is HOLD_PENDING_TRI_VALIDATION
-    - Asserts is_execution_authorized is False
-    - Asserts deterministic SIP and lumpsum plans are non-actionable conditional scenarios
-    - Asserts that assert_mandate_execution_authorized strictly raises MandateHoldViolationError
+    Verify the execution guard directly; this invariant must not depend on a
+    private CAS statement or a particular client's current mandate file.
     """
-    from core.math_engine import aggregate_fiduciary_facts, assert_mandate_execution_authorized
-    from core.models import MandateExecutionState, MandateHoldViolationError
-    import pytest
+    from types import SimpleNamespace
+    from core.math_engine import assert_mandate_execution_authorized
+    from core.models import (
+        DeterministicLumpsumPlan,
+        DeterministicSIPPlan,
+        MandateExecutionState,
+        MandateHoldViolationError,
+    )
 
-    # Skip if CAS data not available (integration test requiring real statements)
-    if not (Path(__file__).parent / "data" / "lalit_portfolio").exists():
-        pytest.skip("CAS Excel statements not available - integration test skipped")
-
-    cas, metrics, config, aliases, _ = _get_portfolio_paths_or_skip()
-    facts = aggregate_fiduciary_facts(cas, metrics, config, aliases)
-
-    assert facts.mandate_state == MandateExecutionState.HOLD_PENDING_TRI_VALIDATION
-    assert facts.is_execution_authorized is False
-    assert facts.deterministic_sip_plan.execution_status == "ON_HOLD_PENDING_TRI_VALIDATION"
-    assert facts.deterministic_sip_plan.is_actionable_order is False
-    assert facts.deterministic_lumpsum_plan.is_actionable_order is False
-
-    # Hard invariant: any execution call must raise MandateHoldViolationError
+    held_facts = SimpleNamespace(
+        mandate_state=MandateExecutionState.HOLD_PENDING_TRI_VALIDATION,
+        is_execution_authorized=False,
+    )
     with pytest.raises(MandateHoldViolationError):
-        assert_mandate_execution_authorized(facts)
+        assert_mandate_execution_authorized(held_facts)
 
-    print("[PASS] P0.15 Runtime Mandate Hold Enforcement Invariant Verified")
+    sip_plan = DeterministicSIPPlan(total_monthly_budget_inr=10000.0)
+    assert sip_plan.mandate_state == MandateExecutionState.HOLD_PENDING_TRI_VALIDATION
+    assert sip_plan.is_execution_authorized is False
+    assert sip_plan.is_actionable_order is False
+
+    lumpsum_plan = DeterministicLumpsumPlan(
+        total_lumpsum_inr=10000.0,
+        is_big_ticket=False,
+        stp_duration_months=0,
+        immediate_amount_inr=0.0,
+        stp_total_amount_inr=0.0,
+        monthly_stp_total_inr=0.0,
+        parking_vehicle="NO_ACTION",
+        unallocated_amount_inr=10000.0,
+    )
+    assert lumpsum_plan.mandate_state == MandateExecutionState.HOLD_PENDING_TRI_VALIDATION
+    assert lumpsum_plan.is_execution_authorized is False
+    assert lumpsum_plan.is_actionable_order is False
+    print("[PASS] P0.15 Runtime Mandate Hold Enforcement Verified Without Client Data")
 
 
-def test_p0_16_tri_coverage_gate_rejects_inflated_metadata():
+def test_p0_16_tri_coverage_gate_uses_observed_sessions_not_metadata():
     """
-    Verifies that the TRI coverage gate rejects sparse data with inflated coverage_pct metadata.
-    This is a targeted test for the coverage gate enforcement (P0.16).
+    The coverage arithmetic is tested against a deterministic synthetic session
+    calendar. Editable coverage metadata is not an input to the calculation.
     """
-    from core.math_engine import calculate_cashflow_matched_benchmark_xirr
+    from core.math_engine import calculate_tri_calendar_coverage
     from core.models import TriProvenanceError
-    from pathlib import Path
-    import json
-    import tempfile
-    import os
 
-    # Skip if transactions.json not available (requires processed CAS data)
-    tx_path = Path("data/lalit_portfolio/transactions.json")
-    if not tx_path.exists():
-        pytest.skip("transactions.json not available - requires processed CAS Excel data")
+    calendar_start = date(2026, 1, 1)
+    synthetic_sessions = [calendar_start + timedelta(days=i) for i in range(100)]
+    sparse_observations = synthetic_sessions[:10]
 
-    tri_path = Path("data/policy/benchmark_tri_series_high_coverage.json")
-
-    # Create a sparse TRI fixture with inflated coverage_pct metadata
-    with open("data/policy/benchmark_tri_series_high_coverage.json", "r") as f:
-        sparse_tri = json.load(f)
-    full_calendar_sessions = sorted(sparse_tri["benchmarks"]["NIFTY 500 TRI"]["levels"].keys())
-
-    # Keep only 10 data points but claim 100% coverage in metadata
-    sparse_levels = dict(list(sparse_tri["benchmarks"]["NIFTY 500 TRI"]["levels"].items())[:10])
-    sparse_tri["benchmarks"]["NIFTY 500 TRI"]["levels"] = sparse_levels
-    sparse_tri["coverage"]["nifty_500_tri"]["provided_data_points"] = 10
-    sparse_tri["coverage"]["nifty_500_tri"]["coverage_pct"] = 100.0  # Inflated!
-    sparse_tri["coverage"]["nifty_500_tri"]["note"] = "Inflated metadata for testing"
-
-    # Write temporary sparse fixture
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
-        json.dump(sparse_tri, f)
-        sparse_tri_path = f.name
-
-    # Recompute checksum for the modified sparse fixture
-    import hashlib
-    with open(sparse_tri_path, 'r') as f:
-        sparse_data = json.load(f)
-    sparse_levels = sparse_data['benchmarks']['NIFTY 500 TRI']['levels']
-    sparse_checksum = hashlib.sha256(json.dumps(sparse_data['benchmarks']['NIFTY 500 TRI']['levels'], sort_keys=True, separators=(',', ':')).encode()).hexdigest()
-    sparse_data['provenance']['checksum_sha256_nifty_500_tri'] = sparse_checksum
-    with open(sparse_tri_path, 'w') as f:
-        json.dump(sparse_data, f)
-
-    # Build a separate synthetic calendar fixture from the complete test dataset, not the
-    # edited sparse benchmark levels or their editable coverage metadata.
-    calendar_sessions = full_calendar_sessions
-    sessions_sha256 = hashlib.sha256(json.dumps(calendar_sessions, separators=(",", ":")).encode()).hexdigest()
-    calendar_data = {
-        "exchange": "NSE",
-        "status": "VERIFIED",
-        "sessions": calendar_sessions,
-        "provenance": {
-            "source_url": "https://example.test/nse-calendar-fixture",
-            "source_document_sha256": "c" * 64,
-            "sessions_sha256": sessions_sha256,
-        },
-    }
-    calendar_path = Path(sparse_tri_path).with_name("nse_calendar.json")
-    calendar_path.write_text(json.dumps(calendar_data), encoding="utf-8")
-
-    try:
-        # This should raise TriProvenanceError because actual coverage (10/985 ~ 1%) 
-        # is below 95% even though metadata claims 100%
-        calculate_cashflow_matched_benchmark_xirr(
-            transactions_path=Path("data/lalit_portfolio/transactions.json"),
-            as_of_date=date(2026, 10, 5),
-            benchmark_key="NIFTY 500 TRI",
-            benchmark_series_path=Path(sparse_tri_path),
-            cas_current=5170911.38,
-            trading_calendar_path=calendar_path
+    with pytest.raises(TriProvenanceError) as exc_info:
+        calculate_tri_calendar_coverage(
+            observed_dates=sparse_observations,
+            calendar_sessions=synthetic_sessions,
+            coverage_start=synthetic_sessions[0],
+            coverage_end=synthetic_sessions[-1],
+            minimum_coverage_pct=95.0,
+            benchmark_key="SYNTHETIC TRI",
         )
-        assert False, "Should have raised TriProvenanceError for inflated metadata"
-    except TriProvenanceError as e:
-        err_msg = str(e).lower()
-        # Should fail either on coverage or date range - both indicate the sparse data is rejected
-        assert "coverage" in err_msg or "data span" in err_msg or "date range" in err_msg
-        # Actual coverage should be ~1%, not 100%
-        assert "100" not in str(e).lower() or "1.0" in str(e) or "1.0%" in str(e)
-    except Exception as e:
-        assert False, f"Expected TriProvenanceError, got {type(e).__name__}: {e}"
+    assert exc_info.value.validation_stage == "coverage_insufficient"
+    assert "10.00%" in str(exc_info.value)
 
-    print("[PASS] P0.16 TRI Coverage Gate Rejects Inflated Metadata Verified")
+    sufficiently_covered = calculate_tri_calendar_coverage(
+        observed_dates=synthetic_sessions[:95],
+        calendar_sessions=synthetic_sessions,
+        coverage_start=synthetic_sessions[0],
+        coverage_end=synthetic_sessions[-1],
+        minimum_coverage_pct=95.0,
+        benchmark_key="SYNTHETIC TRI",
+    )
+    assert sufficiently_covered == {
+        "expected_trading_days": 100,
+        "provided_data_points": 95,
+        "coverage_pct": 95.0,
+    }
+    print("[PASS] P0.16 TRI Coverage Gate Rejects Inflated or Sparse Coverage")
+
