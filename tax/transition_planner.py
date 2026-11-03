@@ -500,11 +500,10 @@ def plan_fy_tranches(
             continue
         
         # Classify fund for tax treatment
-        # Use first lot's holding as representative for classification
-        first_lot = plan.lots[0] if plan.lots else None
-        fund_tax_class = classify_fund_for_tax(first_lot, tax_rules) if first_lot else "equity_oriented"
-        
+        # Validate the requested gross amount before allocating any lot.
         target_sell_amount = float(plan.total_amount) if plan.total_amount is not None else float("inf")
+        if target_sell_amount < 0 or not (target_sell_amount == float("inf") or (target_sell_amount < float("inf"))):
+            raise ValueError(f"Invalid sale amount for {fund_id}: {plan.total_amount!r}")
         remaining_target = target_sell_amount
         
         # Sort lots strictly by FIFO (purchase_date)
@@ -512,6 +511,8 @@ def plan_fy_tranches(
         for lot in sorted_lots:
             if remaining_target <= 0.01:
                 break
+            if lot.units <= 0 or lot.cost < 0:
+                raise ValueError(f"Invalid lot units/cost for {fund_id}: units={lot.units}, cost={lot.cost}")
             lot_val = lot.units * current_nav
             units_to_sell = lot.units
             if lot_val > remaining_target:
@@ -531,7 +532,7 @@ def plan_fy_tranches(
                 "cost": cost_basis,
                 "units": units_to_sell,
                 "current_nav": current_nav,
-                "fund_tax_class": fund_tax_class,
+                "fund_tax_class": classify_fund_for_tax(lot, tax_rules),
             })
     # Separate loss lots vs gain lots
     loss_lots = [l for l in all_lots if l["gain"] <= 0]
