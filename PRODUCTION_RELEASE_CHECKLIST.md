@@ -18,7 +18,7 @@ A release is assessed against one exact commit SHA. Evidence from older commits,
 
 ## Gate 1 — Input integrity and client isolation
 
-- [ ] All client records live outside the Git working tree under `MF_CLIENT_DATA_DIR`.
+- [x] Advisor entry points require `MF_CLIENT_DATA_DIR`, reject repository-local client paths, and write generated reports beside the external client data.
 - [ ] CAS statements, transactions, scheme master records and factsheets have source, retrieval date, statement period, digest and reviewer metadata.
 - [ ] Duplicate folios, duplicate ISINs, unexplained transactions, missing scheme mappings and CAS reconciliation breaks fail closed.
 - [ ] Stale or incomplete data produces a structured unavailable / NO ACTION state.
@@ -27,7 +27,7 @@ A release is assessed against one exact commit SHA. Evidence from older commits,
 - [ ] Old clones, forks, Actions artifacts, caches, releases and PR refs have been reviewed; collaborator clones have been replaced.
 - [ ] Any committed credential has been rotated.
 
-**Current status:** Current-tree private JSON files have been removed and ignored. Git history purge and full artifact/fork review are not verified. See `SECURITY_DATA_HANDLING.md`.
+**Current status:** The current tree contains no client-specific data directory or portfolio records. Both advisor entry points now require an explicit external data directory, and generated outputs stay outside the repository. Historical Git objects, old clones, forks and retained artifacts have not been purged or independently reviewed. See `SECURITY_DATA_HANDLING.md`.
 
 ## Gate 2 — Candidate universe and recommendation integrity
 
@@ -83,8 +83,8 @@ A release is assessed against one exact commit SHA. Evidence from older commits,
 
 ## Gate 6 — Software quality and reproducibility
 
-- [x] Complete P0 invariant suite passes on the last fully validated code SHA (`18537c4`).
-- [x] Complete correctness regression suite passes on the last fully validated code SHA (`18537c4`).
+- [x] Complete P0 invariant suite passes on code SHA `0f1e1b9`.
+- [x] Complete correctness regression suite passes on code SHA `0f1e1b9`.
 - [ ] Property-based and boundary tests cover money, dates, XIRR, tax lots, coverage, duplicates and invalid inputs.
 - [x] Universal policy checks pass against central policy files, without duplicated hardcoded thresholds.
 - [x] The two current test skips are the documented private-CAS integration checks; they are isolated and skipped when client files are absent.
@@ -94,7 +94,7 @@ A release is assessed against one exact commit SHA. Evidence from older commits,
 - [ ] Static analysis, formatting, type checking, dependency vulnerability review and secret scanning pass.
 - [ ] Software bill of materials and release artifact digest are retained.
 
-**Current status:** Full CI passed on code SHA `18537c4` (120 passed, 2 private-CAS skips). The hash-locked install, `pip check` and `pip-audit` passed on dependency SHA `abb36d0`. The latest documentation/lock SHA must still complete CI before it can be treated as the release candidate. Independent SBOM, static-analysis, formatting/type-checking and secret-scan evidence remain outstanding.
+**Current status:** Full CI passed on SHA `0f1e1b9` (123 passed, 2 private-CAS integration skips). The same SHA passed hash-locked installation, `pip check` and `pip-audit`. Independent SBOM review, static analysis, formatting/type checking and secret-scan evidence remain outstanding.
 
 ## Gate 7 — GitHub release controls
 
