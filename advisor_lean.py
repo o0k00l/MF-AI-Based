@@ -64,7 +64,14 @@ def norm(s):
 
 cfg = jload(CLIENT/"config.json")
 metrics = {m["id"]: m for m in jload(CLIENT/"fund_metrics.json")["funds"]}
-aliases = {norm(n): fid for fid, names in jload(CLIENT/"fund_aliases.json")["aliases"].items() for n in names}
+aliases = {}
+for fid, names in jload(CLIENT/"fund_aliases.json")["aliases"].items():
+    for alias in names:
+        key = norm(alias)
+        existing = aliases.get(key)
+        if existing is not None and existing != fid:
+            raise ValueError(f"Ambiguous normalized scheme alias {alias!r}: {existing!r} vs {fid!r}")
+        aliases[key] = fid
 aa_policy = jload(POLICY/"asset_allocation.json")
 
 def match_scheme(scheme):
