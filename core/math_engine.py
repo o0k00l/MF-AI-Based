@@ -559,11 +559,46 @@ def calculate_cashflow_matched_benchmark_xirr(
             validation_stage="trading_calendar_order_invalid"
         )
 
-    observed_start, observed_end = sorted_dates[0], sorted_dates[-1]
-    expected_sessions = [d for d in calendar_sessions if observed_start <= d <= observed_end]
-    observed_sessions = set(sorted_dates)
+    # Coverage spans the actual investor cash-flow window through the requested
+    # terminal date, not merely the observed TRI start/end (which would let a
+    # truncated series report 100% coverage).
+    required_dates = []
+    for row_index, txn in enumerate(tx_data.get("transactions", [])):
+        try:
+            raw_amount = float(txn.get("amount", 0))
+            if raw_amount == 0:
+                continue
+            raw_date = txn.get("date")
+            if not raw_date:
+                raise ValueError("transaction date missing")
+            required_dates.append(datetime.strptime(str(raw_date)[:10], "%Y-%m-%d").date())
+        except (TypeError, ValueError) as exc:
+            raise TriProvenanceError(
+                f"Transaction row {row_index} cannot define the TRI coverage window: {exc}",
+                benchmark=benchmark_key,
+                validation_stage="transaction_date_invalid"
+            )
+    if not required_dates:
+        return {
+            "benchmark_name": b_info.get("name", benchmark_key),
+            "benchmark_matched_xirr_pct": None,
+            "alpha_pct": None,
+            "cashflows_count": 0,
+            "methodology": "Zero cashflows"
+        }
+    coverage_start = min(required_dates)
+    coverage_end = as_of_date or max(required_dates)
+    if coverage_start < calendar_sessions[0] or coverage_end > calendar_sessions[-1]:
+        raise TriProvenanceError(
+            "Independent NSE calendar does not cover the full investor cash-flow window.",
+            benchmark=benchmark_key,
+            validation_stage="trading_calendar_range_insufficient"
+        )
+    expected_sessions = [d for d in calendar_sessions if coverage_start <= d <= coverage_end]
     expected_session_set = set(expected_sessions)
-    non_session_points = sorted(observed_sessions - expected_session_set)
+    observed_sessions = set(sorted_dates)
+    all_calendar_sessions = set(calendar_sessions)
+    non_session_points = sorted(observed_sessions - all_calendar_sessions)
     if non_session_points:
         raise TriProvenanceError(
             f"TRI data contains dates that are not NSE trading sessions: {non_session_points[:5]}",
@@ -571,9 +606,9 @@ def calculate_cashflow_matched_benchmark_xirr(
             validation_stage="tri_dates_not_exchange_sessions"
         )
     expected_trading_days = len(expected_sessions)
-    provided_data_points = len(observed_sessions)
+    provided_data_points = len(observed_sessions & expected_session_set)
     actual_coverage_pct = (
-        len(observed_sessions & expected_session_set) / expected_trading_days * 100.0
+        provided_data_points / expected_trading_days * 100.0
         if expected_trading_days else 0.0
     )
     min_coverage_pct = 95.0
