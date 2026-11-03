@@ -1636,3 +1636,17 @@ def test_tax_planner_equity_classification_uses_at_least_65_percent():
     assert classify_fund_for_tax(lot, rules, sale_date=date(2026, 11, 3)) == "equity_oriented"
     lot.equity_pct = 64.99
     assert classify_fund_for_tax(lot, rules, sale_date=date(2026, 11, 3)) == "non_equity_oriented"
+
+
+def test_legacy_advisor_cli_import_is_rejected_before_client_data_loading():
+    import subprocess
+    import sys
+
+    completed = subprocess.run(
+        [sys.executable, "-c", "import advisor_lean"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode != 0
+    assert "legacy CLI" in completed.stderr
