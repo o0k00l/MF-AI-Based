@@ -11,6 +11,8 @@ Validates:
 """
 
 import sys
+import os
+import math
 import warnings
 
 # Suppress openpyxl UserWarning about default styles
@@ -87,12 +89,12 @@ for L in test_lumpsums:
 # =====================================================================
 print("\n>> [TEST 2] Universal 4-Slot Sizing Engine & Tiered Scaling:")
 
-# 2A: Established Client (Lalit - INR 1,00,000 / mo SIP, INR 51.7L AUM)
+# 2A: Established synthetic portfolio (INR 1,00,000 monthly budget, INR 50L AUM)
 established_plan = compute_deterministic_sip_blueprint(
     monthly_budget=100000.0,
     risk_tier="Tier 6 (Very High)",
     stability_buffer_pct=7.54,
-    client_aum=5170000.0,
+    client_aum=5000000.0,
     equity_sip_routing_override=True,
 )
 check("Established Plan Total Budget", established_plan.total_monthly_budget_inr == 100000.0)
@@ -126,59 +128,55 @@ check(
  )
 check("Zero Standalone Debt Drag", established_plan.debt_sip_pct == 0.0 and established_plan.equity_sip_pct == 100.0)
 
-cas_path = Path("data/lalit_portfolio/statements/cas_detailed_report_2026_10_09_174452.xlsx")
-metrics_path = Path("data/lalit_portfolio/fund_metrics.json")
-aliases_path = Path("data/lalit_portfolio/fund_aliases.json")
-config_path = Path("data/lalit_portfolio/config.json")
+# Optional client-specific checks run only when a caller explicitly supplies
+# a complete local data directory. No investor path, identifier or balance is
+# embedded in this repository or in the public validation scorecard.
+print("\\n>> [OPTIONAL] Private client data validation:")
+private_root_value = os.environ.get("MF_CLIENT_DATA_DIR")
+private_root = Path(private_root_value).expanduser().resolve() if private_root_value else None
 
-# =====================================================================
-# PRIVATE PORTFOLIO VALIDATION (requires local investor CAS inputs)
-if cas_path.is_file() and metrics_path.is_file() and aliases_path.is_file():
-    # =====================================================================
-    # TEST 3: Look-Through Stability Buffer Engine
-    # =====================================================================
-    print("\n>> [TEST 3] Look-Through Stability Buffer vs Category Labels:")
+if private_root and private_root.is_dir():
+    statement_dir = private_root / "statements"
+    cas_candidates = sorted(statement_dir.glob("*.xlsx")) if statement_dir.is_dir() else []
+    if not cas_candidates:
+        cas_candidates = sorted(private_root.glob("*.xlsx"))
+    metrics_path = private_root / "fund_metrics.json"
+    aliases_path = private_root / "fund_aliases.json"
+    config_path = private_root / "config.json"
 
-    holdings = load_holdings_from_cas_excel(cas_path, metrics_path, aliases_path)
-    check("Holdings Ingestion", len(holdings) == 23)
-
-    stability_buf = calculate_lookthrough_stability_buffer(
-        holdings=holdings,
-        bank_cash_inr=435000.0,
-        emergency_reserve_inr=115000.0,
-        target_debt_pct=5.0
-    )
-
-    check("Embedded Debt Detected", stability_buf.embedded_debt_inr > 200000.0, f"INR {stability_buf.embedded_debt_inr:,.2f} ({stability_buf.embedded_debt_pct}%)")
-    check("Embedded Cash Detected", stability_buf.embedded_cash_inr > 150000.0, f"INR {stability_buf.embedded_cash_inr:,.2f} ({stability_buf.embedded_cash_pct}%)")
-    check("Total Stability Cushion >= 7.0%", stability_buf.total_stability_buffer_pct >= 7.0, f"{stability_buf.total_stability_buffer_pct:.2f}%")
-    check("Tier 6 (5% Debt Ceiling) Organically Satisfied", stability_buf.meets_tier_target is True)
-
-    # =====================================================================
-    # TEST 4: 5-Theme Real-Time Look-Through Diagnostics
-    # =====================================================================
-    print("\n>> [TEST 4] 5-Theme Real-Time Look-Through Diagnostics:")
-
-    thematic_exposures = calculate_thematic_exposures(holdings, metrics_path, aliases_path)
-    check("All 5 Macro Themes Evaluated", len(thematic_exposures) == 5)
-
-    tmap = {t.theme_name: t for t in thematic_exposures}
-
-    # Defence: Should have ~6% dedicated (HDFC Defence + Motilal)
-    check("Defence Dedicated Fund Exposure", tmap["Defence Thematic"].dedicated_funds_pct >= 5.5, f"{tmap['Defence Thematic'].dedicated_funds_pct}%")
-
-    # Pharma: Should be flagged as NEGLECTED (lookthrough < 2%, dedicated == 0%)
-    check("Pharma & Healthcare Flagged Neglected", tmap["Pharma & Healthcare"].coverage_status == "NEGLECTED", f"Lookthrough: {tmap['Pharma & Healthcare'].look_through_stocks_pct}%")
-
-    # PSU / CPSE: Should have substantial look-through via bluechips
-    check("PSU & CPSE Look-Through Detected", tmap["PSU & CPSE Themes"].look_through_stocks_pct >= 5.0, f"{tmap['PSU & CPSE Themes'].look_through_stocks_pct}%")
-
-    # Power & Infra: Should have dedicated + lookthrough
-    check("Power & Infrastructure Detected", tmap["Power & Infrastructure"].look_through_stocks_pct >= 4.0, f"{tmap['Power & Infrastructure'].look_through_stocks_pct}%")
-
-
+    missing = [
+        str(p) for p in (metrics_path, aliases_path, config_path)
+        if not p.is_file()
+    ]
+    if not cas_candidates:
+        missing.append(str(statement_dir) + "/*.xlsx")
+    if missing:
+        print("  [SKIP] Private-data validation not run; missing: " + ", ".join(missing))
+    else:
+        cas_path = cas_candidates[-1]
+        facts = aggregate_fiduciary_facts(cas_path, metrics_path, config_path, aliases_path)
+        check("Private portfolio facts generated", facts is not None)
+        check("Private portfolio contains holdings", facts.holdings_count > 0)
+        check(
+            "Private portfolio valuation is finite and positive",
+            math.isfinite(float(facts.total_portfolio_value_inr)) and facts.total_portfolio_value_inr > 0,
+        )
+        check(
+            "Private portfolio invested value is finite and non-negative",
+            math.isfinite(float(facts.total_invested_value_inr)) and facts.total_invested_value_inr >= 0,
+        )
+        if facts.deterministic_sip_plan is not None:
+            check(
+                "Private SIP plan is non-actionable",
+                facts.deterministic_sip_plan.is_actionable_order is False,
+            )
+        if facts.deterministic_lumpsum_plan is not None:
+            check(
+                "Private lumpsum plan is non-actionable",
+                facts.deterministic_lumpsum_plan.is_actionable_order is False,
+            )
 else:
-    print("  [SKIP] Portfolio-specific validation requires the private Lalit CAS workbook and supporting metrics/config/aliases; no investor data is committed to CI.")
+    print("  [SKIP] Set MF_CLIENT_DATA_DIR to a complete local client-data directory to run optional private-data validation.")
 
 # =====================================================================
 # TEST 5: Fiduciary Selection & Policy Gates
@@ -186,7 +184,7 @@ else:
 print("\n>> [TEST 5] Fiduciary Selection & Policy Binary Gates:")
 
 # Gate 9: Thematic Cap Check
-check("Gate 9 Passes for 15% Satellite on Established", validate_thematic_satellite_cap(established_plan, client_aum=5170000.0, max_satellite_pct=15.0) is True)
+check("Gate 9 Passes for 15% Satellite on Established", validate_thematic_satellite_cap(established_plan, client_aum=5000000.0, max_satellite_pct=15.0) is True)
 
 # Gate 9 Violation Test: Starter investor (< INR 5L AUM) cannot hold thematic
 starter_with_thematic = DeterministicSIPPlan(
@@ -232,24 +230,8 @@ except ValueError:
     regular_gate_blocked = True
 check("Gate 10 Rejects Any Regular Plan in SIP Recommendations", regular_gate_blocked is True)
 
-# =====================================================================
-# TEST 6: End-to-End Client Payload & Deliverable Integrity
-# =====================================================================
-print("\n>> [TEST 6] End-to-End Client Payload & Deliverable Integrity:")
-
-config_path = Path("data/lalit_portfolio/config.json")
-if cas_path.is_file() and metrics_path.is_file() and config_path.is_file() and aliases_path.is_file():
-    facts = aggregate_fiduciary_facts(cas_path, metrics_path, config_path, aliases_path)
-
-    check("Payload Generated", facts is not None)
-    check("Client Name Reconciled", facts.client_name == "Lalit Saini")
-    check("Total Value Reconciled", abs(facts.total_portfolio_value_inr - 5170911.38) < 1.0)
-    check("Target SAA Aligned with Tier 6 Policy", facts.saa_drift.target_equity_pct == 95.0 and facts.saa_drift.target_debt_pct == 5.0)
-    check("Rebalance Required is False (Stability Satisfied)", facts.saa_drift.rebalance_required is False)
-
-
-else:
-    print("  [SKIP] Client payload reconciliation requires private CAS and client configuration inputs.")
+# Client-specific payload validation is performed in the optional block
+# above and only against an explicitly supplied local private dataset.
 
 # Verify generated deliverable files (only if outputs directory exists - skipped in clean checkout)
 outputs_dir = Path("outputs")
