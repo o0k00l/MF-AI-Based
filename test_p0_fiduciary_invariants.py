@@ -142,7 +142,7 @@ def test_p0_2_tax_shield_siphon_and_day_366():
         equity_pct_fy_start=2026,
         equity_pct_source_url="https://example.test/verified-monthly-disclosure",
         equity_pct_source_sha256="a" * 64,
-        equity_pct_source_verified=True,
+        equity_pct_source_reviewed=True,
     )
     lot2 = Lot(
         fund_id="ICICI Regular Fund",
@@ -157,7 +157,7 @@ def test_p0_2_tax_shield_siphon_and_day_366():
         equity_pct_fy_start=2026,
         equity_pct_source_url="https://example.test/verified-monthly-disclosure",
         equity_pct_source_sha256="b" * 64,
-        equity_pct_source_verified=True,
+        equity_pct_source_reviewed=True,
     )
     # Create 1 immature lot (< 365 days old: purchased 2026-05-01, as_of is 2026-10-09)
     # Holding days = ~161 days -> Immature!
@@ -939,7 +939,7 @@ def test_p0_13_statutory_tax_specified_fund_and_mandate_state():
             expected_months=tuple(row.month for row in rows),
             source_url="https://example.test/verified-monthly-calendar",
             source_document_sha256="e" * 64,
-            independently_verified=True,
+            reviewer_attested=True,
         )
         return {
             "monthly_snapshots": rows,
@@ -958,7 +958,7 @@ def test_p0_13_statutory_tax_specified_fund_and_mandate_state():
             expected_dates=tuple(row.date for row in rows),
             source_url="https://example.test/verified-calendar-fixture",
             source_document_sha256="d" * 64,
-            independently_verified=True,
+            reviewer_attested=True,
         )
         return rows, evidence
 
