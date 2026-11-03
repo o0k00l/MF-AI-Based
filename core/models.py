@@ -4,7 +4,7 @@ core/models.py — Pydantic V2 Data Contracts for Option B.
 from __future__ import annotations
 
 from typing import List, Dict, Optional, Any, Tuple
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from datetime import date
 from enum import Enum
 
@@ -35,6 +35,15 @@ class MandateExecutionState(str, Enum):
     CLIENT_APPROVED = "CLIENT_APPROVED_EXECUTION_READY"
     HOLD_PENDING_TRI_VALIDATION = "HOLD_PENDING_TRI_VALIDATION"
     FROZEN_PORTFOLIO_REVIEW = "FROZEN_PORTFOLIO_REVIEW_APRIL_2027" 
+
+def _validate_mandate_flags(state: MandateExecutionState, authorized: bool, actionable: bool = False) -> None:
+    state_value = state.value if isinstance(state, MandateExecutionState) else str(state)
+    approved_value = MandateExecutionState.CLIENT_APPROVED.value
+    if authorized is not True and actionable is True:
+        raise ValueError("An actionable order cannot exist without explicit execution authorization")
+    if authorized is True and state_value != approved_value:
+        raise ValueError("Execution authorization is valid only in CLIENT_APPROVED_EXECUTION_READY state")
+
 
 # New simplified 3+1 risk tier system
 class RiskTier(str, Enum):
@@ -179,6 +188,11 @@ class DeterministicSIPRecommendation(BaseModel):
 
 
 class DeterministicSIPPlan(BaseModel):
+    @model_validator(mode="after")
+    def validate_mandate_authorization(self):
+        _validate_mandate_flags(self.mandate_state, self.is_execution_authorized, self.is_actionable_order)
+        return self
+
     total_monthly_budget_inr: float
     equity_sip_pct: float = 100.0
     debt_sip_pct: float = 0.0
@@ -206,6 +220,11 @@ class LumpsumTrancheItem(BaseModel):
 
 
 class DeterministicLumpsumPlan(BaseModel):
+    @model_validator(mode="after")
+    def validate_mandate_authorization(self):
+        _validate_mandate_flags(self.mandate_state, self.is_execution_authorized, self.is_actionable_order)
+        return self
+
     total_lumpsum_inr: float
     is_big_ticket: bool
     stp_duration_months: int
@@ -228,6 +247,11 @@ class DeterministicLumpsumPlan(BaseModel):
 
 
 class FiduciaryFactsPayload(BaseModel):
+    @model_validator(mode="after")
+    def validate_mandate_authorization(self):
+        _validate_mandate_flags(self.mandate_state, self.is_execution_authorized)
+        return self
+
     client_name: str
     client_age: Optional[int] = None
     horizon_years: Optional[int] = None
