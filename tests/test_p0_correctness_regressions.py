@@ -16,6 +16,8 @@ from tax.transition_planner import Lot, FundSellPlan, plan_fy_tranches, classify
         ("Tier 4 (Moderately High)", 4),
         ("Tier 5 (High)", 5),
         ("Tier 6 (Very High)", 6),
+        ("Low to Moderate", 2),
+        ("Moderately High", 4),
         ("Very High", 6),
         ("Aggressive", 6),
     ],
@@ -268,3 +270,46 @@ def test_tax_planner_refuses_non_equity_tax_class_in_equity_exemption_path():
             as_of=date(2026, 11, 3),
             current_navs={"fund-x": 100.0},
         )
+
+
+@pytest.mark.parametrize(
+    "metrics",
+    [
+        {"top10_concentration_pct": float("nan")},
+        {"top10_concentration_pct": float("inf")},
+        {"downside_capture_ratio": float("nan"), "upside_capture_ratio": 100.0},
+        {"downside_capture_ratio": 100.0, "upside_capture_ratio": float("inf")},
+    ],
+)
+def test_eligibility_returns_fail_closed_for_non_finite_concentration_and_capture(metrics):
+    base = {
+        "fund_id": "fund-x",
+        "fund_name": "Example Equity Direct Plan",
+        "amc_name": "EXAMPLE AMC",
+        "allocation_pct": 0.0,
+        "aum_crore": 5000.0,
+        "category": "Large Cap",
+        "top10_concentration_pct": 30.0,
+        "single_sector_weight_pct": 20.0,
+        "sharpe_3y": 0.8,
+        "alpha_3y": 2.0,
+        "downside_capture_ratio": 80.0,
+        "upside_capture_ratio": 110.0,
+        "riskometer_score": 5,
+        "confidence_score": 0.95,
+        "data_complete": True,
+        "manager_tenure_years": 4.0,
+        "track_record_years": 5.0,
+        "mandate_suitable": True,
+        "aum_stable": True,
+        "is_direct": True,
+        "isin": "TEST-ISIN",
+    }
+    base.update(metrics)
+    holdings = [
+        {"amc_name": "EXAMPLE AMC", "current_value_inr": 200000.0},
+        {"amc_name": "OTHER AMC", "current_value_inr": 800000.0},
+    ]
+    result = check_eligibility_gates(base, portfolio_holdings=holdings)
+    assert result.passed is False
+    assert any("Gate 3" in failure or "Gate 5" in failure for failure in result.failed_gates)
