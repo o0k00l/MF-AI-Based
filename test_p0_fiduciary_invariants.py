@@ -1108,6 +1108,7 @@ def test_p0_16_tri_coverage_gate_rejects_inflated_metadata():
         # is below 95% even though metadata claims 100%
         calculate_cashflow_matched_benchmark_xirr(
             transactions_path=Path("data/lalit_portfolio/transactions.json"),
+            as_of_date=date(2026, 10, 5),
             benchmark_key="NIFTY 500 TRI",
             benchmark_series_path=Path(sparse_tri_path),
             cas_current=5170911.38,
