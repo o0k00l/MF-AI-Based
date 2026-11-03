@@ -25,6 +25,9 @@ jobs:
       - name: Run P0 Fiduciary Invariant Tests
         run: python -m pytest test_p0_fiduciary_invariants.py -v --tb=short
 
+      - name: Run P0 Correctness Regression Tests
+        run: python -m pytest tests/test_p0_correctness_regressions.py -v --tb=short
+
       - name: Run Universal Fiduciary Logic Validation
         run: python validate_final_logics.py
 
