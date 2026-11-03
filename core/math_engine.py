@@ -3181,6 +3181,24 @@ def qualifies_as_specified_mutual_fund_under_section_50AA(
             required_source="CAS transaction ledger or verified registrar transaction statement",
         )
 
+    if acquisition_date < date(2023, 4, 1):
+        return ClassificationResult(
+            qualifies=False,
+            provision="Section 48 (Grandfathered)",
+            effective_date=transfer_date,
+            threshold=0.0,
+            calculation_method="N/A",
+            source_data_status="complete",
+            reason=f"Units acquired {acquisition_date} before 1 April 2023 are outside Section 50AA unit scope",
+            equity_pct=equity_pct,
+            debt_and_money_market_pct=debt_and_money_market_pct,
+            acquisition_date=acquisition_date,
+            transfer_date=transfer_date,
+            is_fund_of_funds=is_fund_of_funds,
+            fof_debt_investing_pct=fof_debt_investing_pct,
+            is_mld=False,
+        )
+
     if not (snapshots and fy_start and fy_end):
         from core.models import InsufficientDataError
         raise InsufficientDataError(
@@ -3215,24 +3233,6 @@ def qualifies_as_specified_mutual_fund_under_section_50AA(
             required_source="Verified daily closing portfolio-composition series",
         )
     effective_equity = annual_average_equity
-
-    if acquisition_date < date(2023, 4, 1):
-        return ClassificationResult(
-            qualifies=False,
-            provision="Section 48 (Grandfathered)",
-            effective_date=transfer_date,
-            threshold=0.0,
-            calculation_method="N/A",
-            source_data_status="complete",
-            reason=f"Units acquired {acquisition_date} before 1 April 2023 are outside Section 50AA unit scope",
-            equity_pct=equity_pct,
-            debt_and_money_market_pct=debt_and_money_market_pct,
-            acquisition_date=acquisition_date,
-            transfer_date=transfer_date,
-            is_fund_of_funds=is_fund_of_funds,
-            fof_debt_investing_pct=fof_debt_investing_pct,
-            is_mld=False,
-        )
 
     qualifies = effective_equity <= 35.0
     return ClassificationResult(
