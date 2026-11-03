@@ -528,7 +528,7 @@ def classify_fund_for_tax(source_holding, tax_rules, sale_date=None):
     equity_threshold = float(tax_rules.get("classification_test", {}).get("equity_oriented_threshold_pct", 65.0))
     if not math.isfinite(equity_threshold) or equity_threshold != 65.0:
         raise ValueError("Section 198 statutory equity-oriented threshold must be 65%")
-    return "equity_oriented" if equity_pct >= equity_threshold else "non_equity_oriented"
+    return "equity_oriented" if equity_pct > equity_threshold else "non_equity_oriented"
 
 
 def get_tax_rates_for_sale(fund_tax_class, sale_date, tax_rules):
