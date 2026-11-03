@@ -300,15 +300,15 @@ print("\n>> [TEST 7] All 6 SEBI Regulatory Risk Tiers (Dynamic SIP & Lumpsum Sca
 
 tier_targets = [
     ("Tier 6 (Very High)", 100.0, 0.0),
-    ("Tier 5 (High)", 85.0, 15.0),
-    ("Tier 4 (Moderate High)", 70.0, 30.0),
-    ("Tier 3 (Moderate)", 50.0, 50.0),
-    ("Tier 2 (Low)", 20.0, 80.0),
+    ("Tier 5 (High)", 95.0, 5.0),
+    ("Tier 4 (Moderate High)", 85.0, 15.0),
+    ("Tier 3 (Moderate)", 60.0, 40.0),
+    ("Tier 2 (Low)", 30.0, 70.0),
     ("Tier 1 (Capital Preservation)", 0.0, 100.0)
 ]
 
 for t_name, exp_eq, exp_debt in tier_targets:
-    # 7A: SIP Dynamic Scaling (Testing Baseline Statutory SAA Splits)
+    # 7A: SIP Dynamic Scaling (Testing Policy-Defined Base New-SIP Splits)
     sip_tier = compute_deterministic_sip_blueprint(
         monthly_budget=50000.0,
         risk_tier=t_name,
