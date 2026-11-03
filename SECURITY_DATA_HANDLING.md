@@ -58,13 +58,22 @@ At the time of this document, `main` was not protected and had no required statu
 2. Create a branch ruleset targeting the exact branch name `main`.
 3. Require a pull request before merging, with at least one approval from a reviewer who did not author the change.
 4. Dismiss stale approvals when new commits are pushed.
-5. Require the GitHub Actions status check for the CI workflow's `test` job. Confirm the exact displayed check name in the latest successful workflow run before selecting it.
+5. Require these checks on pull requests (confirm the exact check names displayed by GitHub before saving the ruleset):
+   - `P0 / fiduciary-invariants`
+   - `P0 / correctness-regressions`
+   - `Policy / static validation`
+   - `Benchmark / fixture integrity (not alpha approval)`
+   - `Security / pip-audit`
+   - `Security / dependency-review`
+   The benchmark integrity check is not evidence that alpha is approved; the release tag workflow separately enforces the strict gate.
 6. Require conversation resolution.
 7. Block force pushes and branch deletion.
 8. Do not allow bypass for ordinary maintainers or the implementation author. Document any emergency administrator bypass and require an audit record.
 9. Require the production release checklist to be approved independently of the implementation author.
 
 A PR-based workflow is intended for future maintenance; it does not change the historical fact that earlier repairs were committed directly to `main`.
+
+The updated pull-request CI runs the two P0 suites independently, then runs policy/static validation and a TRI fixture integrity check. The security workflow audits dependencies on PR/push and weekly. Dependabot opens weekly dependency and GitHub Actions update PRs. The tag-triggered release-readiness workflow deliberately fails until a reviewed, hash-locked `requirements.lock` and authenticated daily TRI/calendar source evidence are supplied. These workflows do not configure branch protection by themselves.
 
 ## 4. Current code and data-handling rules
 
