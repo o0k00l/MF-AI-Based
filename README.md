@@ -32,16 +32,19 @@ A deterministic decision-support codebase for Indian mutual-fund portfolio analy
 
 The rules below are implementation policies or configurable heuristics, not universal financial laws or statutory requirements. They must be overridden where the investor's IPS, cash-flow needs, market conditions, verified tax facts or mandate requires it.
 
-### 1. Configurable Lumpsum Deployment Heuristic (20/80)
-A configurable starting point for phasing a lumpsum—not a guarantee against market timing or sequence-of-returns risk, and not suitable for every investor or market condition:
+### 1. Lumpsum Deployment — Fail-Closed Until Evidence Is Complete
 
-$$\text{Day 1 Immediate Core Equity Anchor} = 20\% \times \text{Lumpsum}$$
-$$\text{Tax-Shielded Arbitrage Parking Pool (@ ~6.8\% Yield)} = 80\% \times \text{Lumpsum}$$
-$$\text{Monthly Systematic Transfer (STP)} = \frac{80\% \times \text{Lumpsum}}{\text{STP Duration}}$$
+The engine does **not** apply a universal 20/80 split, fixed 50/35/15 equity routing, assumed 6.8% arbitrage yield, or estimated tax saving. Those hardcoded assumptions have been removed.
 
-* **Tax classification is conditional:** An arbitrage fund is not automatically an equity-oriented fund merely because it uses derivatives or is labelled arbitrage. Verify its statutory domestic-equity allocation and the applicable law for the actual sale date. Do not treat the parking vehicle as risk-free, guaranteed-yield or a guaranteed tax shelter. No fixed tax saving is claimed.
-* **Illustrative duration bands:** 6 months ($\le$ ₹5L), 9 months (₹5L–₹10L), 12 months (₹10L–₹25L), 18 months (> ₹25L). Confirm liquidity, exit loads, taxes and investor risk before applying.
-* **Multi-Slot SAA Preservation:** For big-ticket deployments ($\ge$ ₹5L), the 80% STP branches across Flexi (50%), Mid (35%), and Large (15%).
+A lumpsum plan remains NO ACTION and the full amount remains unallocated unless all of the following are supplied and validated:
+
+- Independently verified bank cash and emergency-reserve evidence.
+- Source-backed, eligible Direct-plan candidates for every required SAA sleeve.
+- An IPS-authorized thematic satellite allocation, if any.
+- A source-backed Direct arbitrage parking candidate with verified statutory tax classification.
+- An investor-authorized staging policy with explicit immediate-allocation percentage and STP duration.
+
+The current implementation validates these prerequisites but deliberately does not construct executable tranches. It returns the entire amount as unallocated until tranche construction and independent review are release-verified.
 
 ---
 
@@ -219,7 +222,7 @@ python advisor_lean.py
 Generated in `outputs/`:
 * `Portfolio_Health_Audit.md` & `.pdf` (Fee bleed, overlap, 5-theme diagnostics)
 * `Switch_and_Consolidation_Plan.md` & `.pdf` (3-phase tax-shielded switch schedule)
-* `Fresh_Money_Deployment_Plan.md` & `.pdf` (Deterministic 4-slot SIP & 20/80 lumpsum blueprint)
+* `Fresh_Money_Deployment_Plan.md` & `.pdf` (Deterministic 4-slot SIP and conditional lumpsum review framework)
 * `MFCentral_Action_Checklist.csv` (Tactical switch and folio consolidation checklist)
 
 ### 4. Personal Redemption Engine (CLI)
