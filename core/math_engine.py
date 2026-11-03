@@ -3377,7 +3377,7 @@ def classify_specified_mutual_fund(
         "is_specified_mutual_fund": is_specified_50aa or is_specified_76,
         "governing_statute": (
             "Section 48 (Grandfathered - pre April 2023 acquisition)"
-            if (acquisition_date is not None and acquisition_date < date(2023, 4, 1))
+            if (not is_mld and acquisition_date is not None and acquisition_date < date(2023, 4, 1))
             else (
                 "Section 76 (Income-tax Act 2025)"
                 if is_specified_76
