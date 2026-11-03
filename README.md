@@ -1,21 +1,21 @@
 # Fiduciary Mutual Funds Copilot (Autonomous Institutional Wealth Engine)
 
-A deterministic, conflict-free, fee-only fiduciary wealth management and portfolio decision-support engine for Indian mutual funds, engineered with **Zero-LLM Math**, governed by **The 5 Universal Invariants**, and executed via an **Autonomous Fiduciary Selection Engine**.
+A deterministic decision-support codebase for Indian mutual-fund portfolio analysis. Calculations and eligibility rules are implemented in code; outputs remain subject to source-data validation, statutory review, investor mandate and human approval. The repository does not execute trades.
 
 ---
 
-## 🏛️ System Status: Verification Phase — HOLD Mandate Active (v3.2)
+## System status: verification required — no client data is shipped
 
 | Module | Implementation Status | Mathematical Engine & Verification Evidence |
 | :--- | :--- | :--- |
-| **1. Ingestion & Reconciliation** | ✅ Verified (100% Match) | `parse_cas()`, `load_holdings_from_cas_excel()`. Exact reconciliation to CAS statement (`cas_detailed_report_2026_10_09_174452.xlsx`): Cost = ₹44,29,929.64, Valuation = ₹51,70,911.38, Gain = ₹7,40,981.74 across 23 active schemes in 15 unique folios (reconciled with 85 total CAS entries). |
-| **2. Portfolio Diagnostics** | ✅ Verified | `calculate_fee_bleed()` (₹40,970.52/yr leakage; ₹8.05L 10Y compounded loss), `calculate_weighted_lookthrough_overlap()`, `calculate_thematic_exposures()`, `calculate_lookthrough_stability_buffer()` (7.54% cushion). |
-| **3. Universal Suitability & SAA** | ⚠️ Logic tests pass; client release blocked | SAA targets, new-SIP routing and current portfolio exposures are separate quantities. Tier 6 SAA target is 95% equity / 5% debt; its new-SIP routing may be 100% equity only when the IPS override is explicit. No allocation is actionable while the client mandate is HOLD. |
-| **4. Autonomous Selection Engine** | ✅ Verified | 10 Binary Fiduciary Gates (fail-closed Gate 4 with `is_verified_passive_scheme`), Universal 4-Slot Passive Index Fallback, Normalized 6-Pillar Composite Scoring (0–100), Candidate-Specific Constituent Look-Through Overlap, Macro Look-Through Deficit Resolution. |
+| **1. Ingestion & Reconciliation** | Implemented; client verification required | CAS parsing and reconciliation functions exist. A successful reconciliation must be demonstrated against a locally supplied, current CAS statement; no client statement or client reconciliation values are included in this repository. |
+| **2. Portfolio Diagnostics** | Implemented; evidence-dependent | Fee, overlap, thematic exposure and stability-buffer calculations require current holdings, complete constituent data and dated source evidence. No client-specific result is asserted here. |
+| **3. Suitability & SAA** | Policy-driven; client release blocked | SAA targets, new-SIP routing and current portfolio exposures are separate quantities. The authoritative policy file governs profile targets. Client-specific routing requires a private IPS and verified exposure data. No allocation is actionable without explicit mandate authorization. |
+| **4. Candidate Selection** | Implemented; independent validation required | Eligibility gates, fallback logic, scoring and look-through functions exist. Their thresholds are research heuristics or investor policy unless explicitly identified otherwise; candidate completeness and source validity must be independently checked. |
 | **5. Statutory Tax Architecture** | ⚠️ Core regression suite passes; statutory release requires source review | Section 198 equity-oriented status uses the annual average of monthly averages of opening and closing figures (direct funds: >=65%; qualifying exchange-traded FoFs: >=90% in underlying fund units and >=90% underlying domestic equity). Original Section 50AA (through 31 Mar 2026) uses annual-average daily closing domestic-equity figures (<=35%). Section 76 (from 1 Apr 2026) uses annual-average daily closing debt/MM or FoF-unit figures. MLDs are a separate statutory inclusion. Acquisition date, transfer date and complete evidence coverage are mandatory where relevant. Legal interpretation must still be checked against the applicable Act, Rules and transaction facts before tax advice. |
-| **6. Mandate Runtime Control** | ✅ Verified (Hold Enforced + Propagated) | Runtime mandate governance: `MandateExecutionState.HOLD_PENDING_TRI_VALIDATION`, `is_execution_authorized = False`. Mandate state now rendered in ALL 3 deliverables with execution status interpretation. Deployment plans marked non-actionable; `assert_mandate_execution_authorized()` strictly blocks live trade execution. |
+| **6. Mandate Runtime Control** | Implemented; integration verification required | Runtime mandate state and execution guards exist. A client-specific HOLD state is loaded only from that client's private local configuration; it is not asserted as a universal default. |
 | **7. Reproducible Benchmark Engine** | ⚠️ Calculation tests pass; alpha release BLOCKED | Cash-flow-matched TRI calculation exists, but checked-in fixtures are monthly/interpolated and lack an authenticated historical NSE source document and independent exchange trading calendar. Therefore no benchmark alpha or fund-selection claim is release-eligible from these fixtures. Do not use the rounded sample XIRRs in this README as verified performance evidence. |
-| **8. Test Harness & Deliverables** | ⚠️ Automated checks pass with skipped private-data tests | Latest recorded GitHub Actions run: P0 invariant suite 13 passed / 3 skipped; P0 correctness regressions 73 passed; public logic scorecard 67/67. TRI fixture integrity checks pass, but TRI alpha release eligibility is BLOCKED. Private CAS reconciliation and end-to-end client release have not been verified in this public CI run. |
+| **8. Test Harness & Deliverables** | CI status must be checked live | Unit and regression tests cover selected invariants. Private-data integration tests are skipped when no local client dataset is supplied. A green CI run does not validate a particular client's holdings, tax facts, data provenance or recommendation. |
 
 ---
 
@@ -79,14 +79,14 @@ The SAA target, tolerance band and resulting new-SIP routing are distinct. The e
 D_{\text{base}}(T) & \text{if } S < \text{Threshold}(T) \quad (\text{Deficit Funded via Stability Vehicle})
 \end{cases}$$
 
-| SEBI Risk Tier | SAA Debt Target | SAA Eq Target | Tolerance | Threshold ($D_{\min}$) | Lalit's $S = 7.54\%$ | Resulting SIP Split | Stability Vehicle Assigned |
+| SEBI Risk Tier | SAA Debt Target | SAA Equity Target | Tolerance | Minimum debt threshold | Resulting SIP routing |
 |---|:---:|:---:|:---:|:---:|:---:|:---:|:---|
-| **Tier 6 (Very High)** | 5.0% | 95.0% | $\pm 5.0\%$ | **0.0%** | $7.54\% \ge 0.0\%$ | **100% Eq / 0% Debt** | None (Satisfied organically) |
-| **Tier 5 (High)** | 10.0% | 90.0% | $\pm 5.0\%$ | **5.0%** | $7.54\% \ge 5.0\%$ | **100% Eq / 0% Debt** | **None (Satisfied organically)** |
-| **Tier 4 (Mod. High)** | 25.0% | 75.0% | $\pm 5.0\%$ | **20.0%** | $7.54\% < 20.0\%$ | **85% Eq / 15% Debt** | Policy-defined new-SIP split; candidate evidence required |
-| **Tier 3 (Moderate)** | 30.0% | 70.0% | $\pm 5.0\%$ | **25.0%** | $7.54\% < 25.0\%$ | **60% Eq / 40% Debt** | Policy-defined new-SIP split; candidate evidence required |
-| **Tier 2 (Low to Mod.)**| 60.0% | 40.0% | $\pm 4.0\%$ | **56.0%** | $7.54\% < 56.0\%$ | **30% Eq / 70% Debt** | Policy-defined new-SIP split; candidate evidence required |
-| **Tier 1 (Capital Pres.)**| 80.0% | 20.0% | $\pm 3.0\%$ | **77.0%** | $7.54\% < 77.0\%$ | **0% Eq / 100% Debt** | Dynamic Short-Term Debt Direct (AAA/Sov) |
+| **Tier 6 (Very High)** | 5.0% | 95.0% | $\pm 5.0\%$ | 0.0% | Determined from current verified portfolio exposure and IPS; never inferred from SAA alone |
+| **Tier 5 (High)** | 10.0% | 90.0% | $\pm 5.0\%$ | 5.0% | Determined from current verified portfolio exposure and IPS |
+| **Tier 4 (Mod. High)** | 25.0% | 75.0% | $\pm 5.0\%$ | 20.0% | Policy-defined new-SIP routing; candidate evidence required |
+| **Tier 3 (Moderate)** | 30.0% | 70.0% | $\pm 5.0\%$ | 25.0% | Policy-defined new-SIP routing; candidate evidence required |
+| **Tier 2 (Low to Mod.)**| 60.0% | 40.0% | $\pm 4.0\%$ | 56.0% | Policy-defined new-SIP routing; candidate evidence required |
+| **Tier 1 (Capital Pres.)**| 80.0% | 20.0% | $\pm 3.0\%$ | 77.0% | Policy-defined new-SIP routing; candidate evidence required |
 
 ---
 
@@ -190,20 +190,19 @@ All recommendations are governed by persistent client mandate state loaded from 
 
 ## 📊 Cash-Flow-Matched Benchmark TRI Engine
 
-The platform eliminates static benchmark assumptions via `calculate_cashflow_matched_benchmark_xirr()`, matching **363 external cash flows** from `transactions.json` (SWITCH/STP netted to zero at portfolio level, DIVIDEND_REINVEST excluded) against official NSE Indices Total Return Index levels:
+The engine contains a cash-flow-matched TRI calculation. It must use an independently verified transaction ledger, official daily TRI observations and an independently sourced exchange-session calendar. Monthly or interpolated fixtures are not sufficient for a release-eligible alpha result.
 
 | Benchmark Series | ISIN | Accumulated Units | Terminal Valuation (₹) | Benchmark Matched XIRR | True Portfolio XIRR | True Alpha |
 | :--- | :--- | :---: | :---: | :---: | :---: | :---: |
-| **NIFTY 500 TRI** | `INF769K01EZ2` | 135.3810 | ₹51,58,015.68 | **19.35%** | **19.35%** | **+0.11%** (+11 bps) |
-| **NIFTY 50 TRI** | `INF769K01EY5` | 118.3785 | ₹48,77,194.38 | **13.34%** | **19.35%** | **+2.48%** (+248 bps) |
+| No client-specific XIRR, terminal value, alpha or cash-flow count is published in this repository. A result is publishable only with source files, reconciliation, date coverage and reproducible calculations.
 
-*Audit artifact:* `data/lalit_portfolio/benchmark_xirr.json` is currently empty in the repository; no detailed benchmark audit record is available here. Alpha remains blocked until daily, source-authenticated TRI observations and the independent NSE trading calendar are supplied.
+*Audit status:* client transaction ledgers and benchmark outputs are private local inputs. Benchmark alpha remains blocked until daily, source-authenticated TRI observations and an independent NSE trading calendar are supplied.
 
 ---
 
 ## 🚀 Quickstart & Verification
 
-### 1. Run Complete Invariant Test Suite (15/15 PASS)
+### 1. Run the invariant and regression suites
 ```bash
 python -m pytest test_p0_fiduciary_invariants.py -v
 ```
