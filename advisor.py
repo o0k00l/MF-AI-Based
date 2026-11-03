@@ -8,45 +8,33 @@ from pathlib import Path
 import os
 
 
-def discover_client_portfolios(base_dir: Path | None = None) -> dict[str, Path]:
-    if base_dir is None:
-        base_dir = Path(__file__).resolve().parent
-    data_dir = base_dir / "data"
-    portfolios = {}
-    if not data_dir.exists():
-        return portfolios
-    for p in sorted(data_dir.iterdir()):
-        if p.is_dir() and p.name not in ("policy", "cache", "__pycache__"):
-            if (p / "config.json").exists() or (p / "statements").exists() or list(p.glob("*.xlsx")):
-                portfolios[p.name] = p
-    return portfolios
-
-
 def get_default_paths(client_target: str | Path | None = None):
-    base = Path(__file__).resolve().parent
-    ports = discover_client_portfolios(base)
+    """Resolve an explicitly configured external client-data directory.
 
-    env_client_dir = os.environ.get("MF_CLIENT_DATA_DIR")
-    if client_target is None and env_client_dir:
+    The application never scans the repository for client folders and never
+    chooses a default investor. Generated reports stay beside the local data.
+    """
+    repo_root = Path(__file__).resolve().parent
+    if client_target is None:
+        env_client_dir = os.environ.get("MF_CLIENT_DATA_DIR")
+        if not env_client_dir:
+            raise FileNotFoundError(
+                "MF_CLIENT_DATA_DIR is required. Set it to a private directory outside the repository."
+            )
         client_path = Path(env_client_dir).expanduser().resolve()
-    elif client_target:
-        client_path = Path(client_target)
-        if not client_path.is_dir() and client_target in ports:
-            client_path = ports[client_target]
-        elif not client_path.is_dir() and (base / "data" / client_target).is_dir():
-            client_path = base / "data" / client_target
     else:
-        if "lalit_portfolio" in ports:
-            client_path = ports["lalit_portfolio"]
-        elif ports:
-            client_path = next(iter(ports.values()))
-        else:
-            client_path = base / "data" / "lalit_portfolio"
+        client_path = Path(client_target).expanduser().resolve()
 
-    if not client_path.exists():
+    try:
+        client_path.relative_to(repo_root)
+    except ValueError:
+        pass
+    else:
+        raise ValueError("Client data directory must be outside the Git repository")
+
+    if not client_path.is_dir():
         raise FileNotFoundError(f"Client portfolio directory not found: {client_path}")
 
-    # Look for statements in statements/ subdir or root of client dir
     stmts = sorted((client_path / "statements").glob("cas_detailed_report_*.xlsx"))
     if not stmts:
         stmts = sorted((client_path / "statements").glob("*.xlsx"))
@@ -54,7 +42,6 @@ def get_default_paths(client_target: str | Path | None = None):
         stmts = sorted(client_path.glob("cas_detailed_report_*.xlsx"))
     if not stmts:
         stmts = sorted(client_path.glob("*.xlsx"))
-
     if not stmts:
         raise FileNotFoundError(f"No CAS Excel statements found in {client_path}")
 
@@ -62,5 +49,5 @@ def get_default_paths(client_target: str | Path | None = None):
     metrics = client_path / "fund_metrics.json"
     config = client_path / "config.json"
     aliases = client_path / "fund_aliases.json"
-    outputs = base / "outputs"
+    outputs = client_path / "outputs"
     return cas, metrics, config, aliases, outputs
