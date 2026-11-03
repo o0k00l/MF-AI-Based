@@ -1280,3 +1280,18 @@ def test_section_198_fund_of_funds_requires_both_monthly_90_percent_limb_conditi
         fof_underlying_traded_on_recognised_exchange=True,
     )
     assert result.qualifies is expected
+
+
+def test_section_198_uses_average_of_monthly_opening_and_closing_figures():
+    from core.math_engine import MonthlyPortfolioSnapshot, compute_annual_average_monthly_opening_closing
+    from core.models import InsufficientDataError
+
+    fy_start, fy_end = date(2025, 4, 1), date(2026, 3, 31)
+    rows = []
+    for month in range(4, 13):
+        rows.append(MonthlyPortfolioSnapshot(date(2025, month, 1), 64.0, 66.0))
+    for month in range(1, 4):
+        rows.append(MonthlyPortfolioSnapshot(date(2026, month, 1), 64.0, 66.0))
+    assert compute_annual_average_monthly_opening_closing(rows, fy_start, fy_end) == pytest.approx(65.0)
+    with pytest.raises(InsufficientDataError, match="all 12 financial-year months"):
+        compute_annual_average_monthly_opening_closing(rows[:-1], fy_start, fy_end)
