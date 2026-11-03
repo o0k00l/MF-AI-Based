@@ -94,10 +94,15 @@ def _parse_date(s: str | date) -> date:
     raise ValueError(f"unparseable date: {s!r}")
 
 
-def load_transactions(transactions_path: Path) -> dict[str, list[Lot]]:
+def load_transactions(
+    transactions_path: Path,
+    equity_allocation_by_fund: dict[str, float] | None = None,
+) -> dict[str, list[Lot]]:
     """
     Load and parse transactions.json into per-fund lots, applying FIFO burn
-    to account for historical redemptions.
+    to account for historical redemptions. Optional equity allocation inputs
+    must come from a separately verified scheme master/factsheet, keyed by the
+    exact CAS scheme name; transaction rows may also carry equity_allocation_pct.
 
     Returns: fund_id -> list[Lot]  (only currently-held lots survive)
     """
@@ -121,7 +126,7 @@ def load_transactions(transactions_path: Path) -> dict[str, list[Lot]]:
             "units": Decimal(str(units)),
             "amount": float(amount),
             "nav": float(tx.get("nav", 0)) if tx.get("nav") else 0.0,
-            "equity_pct": tx.get("equity_allocation_pct"),
+            "equity_pct": tx.get("equity_allocation_pct", (equity_allocation_by_fund or {}).get(scheme)),
             "description": tx.get("description", ""),
         })
 
