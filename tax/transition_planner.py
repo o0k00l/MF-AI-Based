@@ -186,7 +186,9 @@ def load_transactions(
             if row["type"] in purchase_types:
                 if row["units"] <= 0 or row["amount"] <= 0:
                     raise ValueError(f"Purchase row for {fund_id} has non-positive amount/units")
-                if row["nav"] <= 0:
+                if not math.isfinite(row["nav"]) or row["nav"] < 0:
+                    raise ValueError(f"Purchase row for {fund_id} has invalid NAV")
+                if row["nav"] == 0:
                     row["nav"] = row["amount"] / float(row["units"])
             elif row["type"] in redemption_types:
                 if row["units"] >= 0 or row["amount"] >= 0:
