@@ -590,7 +590,7 @@ def calculate_cashflow_matched_benchmark_xirr(
     coverage_end = as_of_date or max(required_dates)
     if coverage_start < calendar_sessions[0] or coverage_end > calendar_sessions[-1]:
         raise TriProvenanceError(
-            "Independent NSE calendar does not cover the full investor cash-flow window.",
+            "Independent NSE calendar date range does not cover the full investor cash-flow window.",
             benchmark=benchmark_key,
             validation_stage="trading_calendar_range_insufficient"
         )
