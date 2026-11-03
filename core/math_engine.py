@@ -2351,13 +2351,31 @@ def _load_tax_rules(tax_rules_path: Optional[Path] = None) -> dict:
 
 
 def _classify_fund_for_tax(source_holding: HoldingItem, tax_rules: dict) -> str:
-    """Classify fund into tax category based on equity allocation."""
-    equity_pct = getattr(source_holding, 'equity_pct', 0)
-    equity_threshold = tax_rules.get("classification_test", {}).get("equity_oriented_threshold_pct", 65.0)
-    if equity_pct >= equity_threshold:
+    """Classify equity-oriented units only; fail closed for missing/non-equity inputs.
+
+    This legacy helper is intentionally not a complete tax classifier. It must
+    never turn a missing or non-equity percentage into an equity-oriented result.
+    """
+    import math
+
+    equity_pct = getattr(source_holding, "equity_pct", None)
+    if equity_pct is None or isinstance(equity_pct, bool):
+        raise ValueError("Verified annual-average equity allocation is required for tax classification")
+    try:
+        equity_pct = float(equity_pct)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Equity allocation must be numeric") from exc
+    if not math.isfinite(equity_pct) or not 0.0 <= equity_pct <= 100.0:
+        raise ValueError("Equity allocation must be finite and between 0 and 100")
+
+    equity_threshold = float(tax_rules.get("classification_test", {}).get("equity_oriented_threshold_pct", 65.0))
+    if not math.isfinite(equity_threshold) or equity_threshold != 65.0:
+        raise ValueError("Section 198 statutory equity-oriented threshold must be 65%")
+    if equity_pct > equity_threshold:
         return "equity_oriented"
-    # Could add more classifications here for debt, gold, international, etc.
-    return "equity_oriented"  # Default to equity for safety
+    raise NotImplementedError(
+        "Non-equity tax classification is not implemented in this legacy helper; refusing to infer a tax category."
+    )
 
 
 def calculate_switch_cost_analysis(
@@ -3125,7 +3143,7 @@ def qualifies_as_equity_oriented_under_section_198(
     """
     Section 198(8): equity-oriented fund qualification.
 
-    Direct fund: at least 65% in domestic listed equity.
+    Direct fund: more than 65% in domestic listed equity.
     Qualifying fund-of-funds: at least 90% in units of another qualifying
     exchange-traded fund, whose own allocation is at least 90% domestic equity.
     Both tests use the annual average of monthly averages of opening and closing
@@ -3179,10 +3197,10 @@ def qualifies_as_equity_oriented_under_section_198(
         effective_pct = compute_annual_average_monthly_opening_closing(
             monthly_snapshots, fy_start, fy_end, "equity_pct"
         )
-        qualifies = effective_pct >= 65.0
+        qualifies = effective_pct > 65.0
         threshold = 65.0
         method = "annual_average_monthly_opening_closing"
-        reason = f"Annual-average monthly opening/closing domestic equity is {effective_pct:.2f}% {'meets' if qualifies else 'below'} 65%"
+        reason = f"Annual-average monthly opening/closing domestic equity is {effective_pct:.2f}% {'exceeds' if qualifies else 'does not exceed'} 65%"
 
     return ClassificationResult(
         qualifies=qualifies,
