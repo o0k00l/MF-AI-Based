@@ -1025,7 +1025,6 @@ def test_p0_14_cashflow_matched_tri_benchmark_engine():
     # Monthly with daily interpolation. It is not an independently sourced daily TRI.
     print("[PASS] P0.14 TRI rejects the monthly/interpolated fixture rather than publishing false daily alpha")
 
-    print(f"[PASS] P0.14 Cash-Flow Matched TRI Benchmark Engine Verified (Nifty 500 TRI: {audit_500['benchmark_matched_xirr_pct']}%, Nifty 50 TRI: {audit_50['benchmark_matched_xirr_pct']}%)")
 
 def test_p0_15_runtime_mandate_hold_enforcement():
     """
