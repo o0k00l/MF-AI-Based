@@ -931,31 +931,60 @@ def test_p0_13_statutory_tax_specified_fund_and_mandate_state():
     )
     from datetime import date
     import pytest
+    from core.math_engine import MonthlyPortfolioSnapshot, DailyPortfolioSnapshot, DailySnapshotCoverageEvidence
+    from datetime import timedelta
+
+    def monthly_args(year, equity_pct):
+        fy_start, fy_end = date(year, 4, 1), date(year + 1, 3, 31)
+        rows = []
+        for month in range(4, 13):
+            rows.append(MonthlyPortfolioSnapshot(date(year, month, 1), equity_pct, equity_pct))
+        for month in range(1, 4):
+            rows.append(MonthlyPortfolioSnapshot(date(year + 1, month, 1), equity_pct, equity_pct))
+        return {"monthly_snapshots": rows, "fy_start": fy_start, "fy_end": fy_end}
+
+    def daily_evidence(year, equity_pct, debt_pct, money_market_pct):
+        fy_start, fy_end = date(year, 4, 1), date(year + 1, 3, 31)
+        rows, current = [], fy_start
+        while current <= fy_end:
+            rows.append(DailyPortfolioSnapshot(current, equity_pct, debt_pct, money_market_pct))
+            current += timedelta(days=1)
+        evidence = DailySnapshotCoverageEvidence(
+            expected_dates=tuple(row.date for row in rows),
+            source_url="https://example.test/verified-calendar-fixture",
+            source_document_sha256="d" * 64,
+            independently_verified=True,
+        )
+        return rows, evidence
 
     # 1. Inclusive equity-oriented threshold (separate from specified-fund tests).
     res_eq_exact_65 = classify_specified_mutual_fund(
         "Equity", equity_pct=65.0, debt_and_money_market_pct=35.0,
-        acquisition_date=date(2024, 4, 1), transfer_date=date(2025, 1, 15)
+        acquisition_date=date(2024, 4, 1), transfer_date=date(2025, 1, 15),
+        **monthly_args(2024, 65.0)
     )
     assert res_eq_exact_65["is_equity_oriented"] is True
 
     res_eq_above_65 = classify_specified_mutual_fund(
         "Equity", equity_pct=65.01, debt_and_money_market_pct=34.99,
-        acquisition_date=date(2024, 4, 1), transfer_date=date(2025, 1, 15)
+        acquisition_date=date(2024, 4, 1), transfer_date=date(2025, 1, 15),
+        **monthly_args(2024, 65.01)
     )
     assert res_eq_above_65["is_equity_oriented"] is True
 
     # 2. Arbitrage fund classification uses the equity-oriented threshold only.
     res_arb_qualifying = classify_specified_mutual_fund(
         "Arbitrage", equity_pct=68.0, debt_and_money_market_pct=32.0,
-        acquisition_date=date(2024, 4, 1), transfer_date=date(2025, 1, 15)
+        acquisition_date=date(2024, 4, 1), transfer_date=date(2025, 1, 15),
+        **monthly_args(2024, 68.0)
     )
     assert res_arb_qualifying["is_equity_oriented"] is True
     assert res_arb_qualifying["tax_treatment"] == "EQUITY_ORIENTED_CONCESSIONAL"
 
     res_arb_under = classify_specified_mutual_fund(
         "Arbitrage", equity_pct=64.0, debt_and_money_market_pct=36.0,
-        acquisition_date=date(2024, 4, 1), transfer_date=date(2025, 1, 15)
+        acquisition_date=date(2024, 4, 1), transfer_date=date(2025, 1, 15),
+        **monthly_args(2024, 64.0)
     )
     assert res_arb_under["is_equity_oriented"] is False
 
@@ -963,7 +992,8 @@ def test_p0_13_statutory_tax_specified_fund_and_mandate_state():
     res_debt_old = classify_specified_mutual_fund(
         "Debt", equity_pct=10.0, debt_and_money_market_pct=90.0,
         is_fund_of_funds=False, fof_debt_investing_pct=None,
-        acquisition_date=date(2022, 11, 20), transfer_date=date(2026, 1, 15)
+        acquisition_date=date(2022, 11, 20), transfer_date=date(2026, 1, 15),
+        **monthly_args(2025, 10.0)
     )
     assert res_debt_old["is_specified_mutual_fund"] is False
     assert res_debt_old["specified_50AA"]["provision"] == "Section 48 (Grandfathered)"
@@ -971,10 +1001,13 @@ def test_p0_13_statutory_tax_specified_fund_and_mandate_state():
 
     # 4. FY 2025-26 remains under the original <=35% domestic-equity test.
     # The debt/MM replacement test does NOT apply until 1 April 2026.
+    daily_50aa, evidence_50aa = daily_evidence(2025, 35.0, 60.0, 5.0)
     res_debt_50aa = classify_specified_mutual_fund(
-        "Debt", equity_pct=35.0, debt_and_money_market_pct=60.0,
+        "Debt", equity_pct=35.0, debt_and_money_market_pct=65.0,
         is_fund_of_funds=False, fof_debt_investing_pct=None,
-        acquisition_date=date(2023, 6, 15), transfer_date=date(2026, 3, 31)
+        acquisition_date=date(2023, 6, 15), transfer_date=date(2026, 3, 31),
+        snapshots=daily_50aa, snapshot_coverage_evidence=evidence_50aa,
+        **monthly_args(2025, 35.0)
     )
     assert res_debt_50aa["is_specified_mutual_fund"] is True
     assert res_debt_50aa["specified_50AA"]["qualifies"] is True
@@ -986,7 +1019,8 @@ def test_p0_13_statutory_tax_specified_fund_and_mandate_state():
         classify_specified_mutual_fund(
             "Debt", equity_pct=10.0, debt_and_money_market_pct=90.0,
             is_fund_of_funds=False, fof_debt_investing_pct=None,
-            acquisition_date=date(2023, 6, 15), transfer_date=date(2026, 5, 1)
+            acquisition_date=date(2023, 6, 15), transfer_date=date(2026, 5, 1),
+            **monthly_args(2026, 10.0)
         )
 
     # 6. MLD inclusion is independent of the mutual-fund unit acquisition-date gate.
