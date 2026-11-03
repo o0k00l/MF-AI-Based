@@ -1,6 +1,8 @@
 """
 core/models.py — Pydantic V2 Data Contracts for Option B.
 """
+from __future__ import annotations
+
 from typing import List, Dict, Optional, Any, Tuple
 from pydantic import BaseModel, Field
 from datetime import date
