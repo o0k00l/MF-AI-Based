@@ -809,8 +809,9 @@ def build_health_prompt(f):
     return f"""Generate Portfolio Health & Commission Audit for {f['client']}.
 
 FACTS:
+- Benchmark policy: never estimate or substitute benchmark returns; alpha is blocked until authenticated daily TRI and an independent exchange-session calendar are verified.
 - Portfolio: Rs{f['total_value']:,.0f} | Invested: Rs{f['invested']:,.0f} | Gain: Rs{f['gain']:,.0f} | Funds: {f['n_funds']}
-- Portfolio XIRR: {f['xirr_pct']*100:.2f}% | Benchmark: {f['benchmark_xirr_pct']*100:.2f}% | Alpha: {f['alpha_pct']:+.2f}%
+- Portfolio XIRR: {portfolio_xirr_text} | Benchmark TRI XIRR: {benchmark_xirr_text} | Alpha: {alpha_text}
 - Regular Plans: {f['fee_bleed']['n_funds']} funds, Rs{f['fee_bleed']['regular_value']:,.0f}
 - Annual Commission Drag: Rs{f['fee_bleed']['annual_bleed']:,.0f}/yr (Rs{f['fee_bleed']['annual_low']:,.0f}-Rs{f['fee_bleed']['annual_high']:,.0f} band)
 - 10Y Compounded Loss @12%: Rs{f['fee_bleed']['annual_bleed']*((1.12**10-1)/0.12):,.0f}
@@ -840,6 +841,7 @@ def build_switch_prompt(f):
     return f"""Generate Fund-by-Fund Switch & Consolidation Plan for {f['client']}.
 
 FACTS:
+- Benchmark policy: never estimate or substitute benchmark returns; alpha is blocked until authenticated daily TRI and an independent exchange-session calendar are verified.
 - Regular Plans to Switch: {f['fee_bleed']['n_funds']} funds, Rs{f['fee_bleed']['regular_value']:,.0f} | Annual Savings: Rs{f['fee_bleed']['annual_bleed']:,.0f}
 - Multi-Cap Crowding: {list(mc.keys())} = Rs{f['overlap']['total']:,.0f} | Avg Overlap: {f['overlap']['avg_overlap']}%
 - TAX REALITY: Under Sec 47/112A, a Switch from Regular to Direct is legally a REDEMPTION that triggers Capital Gains Tax and Exit Loads! NEVER switch all funds blindly in Week 1.
@@ -889,6 +891,7 @@ def build_cash_prompt(f):
     return f"""Generate Fresh Money Deployment Plan (SIP & Lumpsum) for {f['client']}.
 
 FACTS:
+- Benchmark policy: never estimate or substitute benchmark returns; alpha is blocked until authenticated daily TRI and an independent exchange-session calendar are verified.
 - Fresh Lumpsum Capital Budget: Rs{lumpsum_amt:,.0f} (Strategy: Staggered STP over 3-6 months @ ~6.8% liquid parking yield vs Immediate Tactical)
 - Monthly SIP Budget: Rs{f['sip_budget']:,.0f}
 - SAA Gap: Equity {f['saa']['current']['large']+f['saa']['current']['mid_small']:.1f}% vs Target {f['saa']['target']['large']+f['saa']['target']['mid_small']:.0f}% | Debt {f['saa']['current']['debt']:.1f}% vs Target {f['saa']['target']['debt']:.0f}%
