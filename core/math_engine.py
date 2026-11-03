@@ -2672,46 +2672,32 @@ def calculate_thematic_exposures(
 
 
 def _parse_sebi_risk_tier(risk_tier: str) -> int:
-    """Safely parses SEBI risk tier string to numeric tier (1-6).
-    
-    Maps textual risk tier descriptions to numeric 1-6 scale:
-    - Tier 1 (Capital Preservation) -> 1
-    - Tier 2 (Low) -> 2
-    - Tier 3 (Moderate) -> 3
-    - Tier 4 (Moderately High) -> 4
-    - Tier 5 (High) -> 5
-    - Tier 6 (Very High / Aggressive) -> 6
-    - Any custom format or unrecognized -> 6 (default to most aggressive)
-    """
-    tier_str = str(risk_tier).lower()
-    
-    # Check for Tier 1 (Capital Preservation)
-    if ("tier 1" in tier_str or "preservation" in tier_str or 
-        "capital preservation" in tier_str or "very low" in tier_str):
+    """Parse an explicit SEBI riskometer tier; reject ambiguous/unknown labels."""
+    import re
+
+    tier_str = str(risk_tier or "").strip().casefold()
+    if not tier_str:
+        raise ValueError("Risk tier is required")
+    match = re.search(r"\\btier\\s*([1-6])\\b", tier_str)
+    if match:
+        return int(match.group(1))
+    if "capital preservation" in tier_str or "very low" in tier_str or tier_str == "preservation":
         return 1
-    
-    # Check for Tier 2 (Low)
-    if ("tier 2" in tier_str or ("low" in tier_str and "moderate" not in tier_str)):
+    if "low to moderate" in tier_str or tier_str == "low moderate":
         return 2
-    
-    # Check for Tier 3 (Moderate)
-    if ("tier 3" in tier_str or ("moderate" in tier_str and "high" not in tier_str)):
-        return 3
-    
-    # Check for Tier 4 (Moderately High)
-    if ("tier 4" in tier_str or "moderately high" in tier_str):
+    if "moderately high" in tier_str:
         return 4
-    
-    # Check for Tier 5 (High)
-    if ("tier 5" in tier_str or ("high" in tier_str and "very" not in tier_str)):
-        return 5
-    
-    # Check for Tier 6 (Very High / Aggressive)
-    if ("tier 6" in tier_str or "very high" in tier_str or "aggressive" in tier_str):
+    if "very high" in tier_str or "aggressive" in tier_str:
         return 6
-    
-    # Default to Tier 6 (most aggressive) if no clear match
-    return 6
+    if tier_str == "low":
+        return 2
+    if tier_str == "moderate":
+        return 3
+    if tier_str == "high":
+        return 5
+    raise ValueError(f"Unrecognized SEBI risk tier: {risk_tier!r}")
+
+
 
 def find_client_direct_folio(holdings: Optional[List[HoldingItem]], category_keyword: str) -> Tuple[Optional[str], Optional[str]]:
     """
@@ -3929,7 +3915,23 @@ def compute_deterministic_sip_blueprint(
     Scales across Starter (< INR 5L AUM) vs Established (> INR 25L AUM) portfolios.
     Reuses existing client Direct folios dynamically; NEVER hardcodes folios.
     """
-    b = float(monthly_budget)
+    import math
+    try:
+        b = float(monthly_budget)
+        aum_value = float(client_aum)
+        stability_value = None if stability_buffer_pct is None else float(stability_buffer_pct)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("SIP budget, client AUM and stability buffer must be numeric") from exc
+    if not math.isfinite(b) or b < 0:
+        raise ValueError("Monthly SIP budget must be finite and non-negative")
+    if not math.isfinite(aum_value) or aum_value < 0:
+        raise ValueError("Client AUM must be finite and non-negative")
+    if stability_value is not None and (
+        not math.isfinite(stability_value) or not 0.0 <= stability_value <= 100.0
+    ):
+        raise ValueError("Stability buffer percentage must be finite and between 0 and 100")
+    stability_buffer_pct = stability_value
+    client_aum = aum_value
     is_starter = (client_aum > 0 and client_aum < 500000.0) or (b < 15000.0)
 
     # Dynamic Folio Discovery
