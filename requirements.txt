@@ -23,12 +23,13 @@ streamlit==1.65.0             # Interactive advisory wizard and client inspectio
 # --- AI Providers & Qualitative Verification ---
 google-genai==1.5.0           # Google Gemini API SDK for qualitative research
 openai>=3.0.0                 # Requesty.ai (primary) and OpenRouter (fallback) client
-requests==2.32.3              # HTTP communication with mfapi.in and external endpoints
-python-dotenv==1.0.1          # Secure environment variable loading from .env
+requests==2.33.0              # HTTP communication with mfapi.in and external endpoints
+python-dotenv==1.2.2          # Secure environment variable loading from .env
 
 # --- Report Formatting & Artifact Export ---
 markdown==3.11                # Markdown rendering for client restructuring reports
-xhtml2pdf==0.2.15             # HTML-to-PDF compilation for client report export
+reportlab>=4.4.0             # A4 PDF report generation using safe Platypus flowables
+Pillow==13.0.0               # Patched image dependency used by the dashboard
 
 # --- API Layer (Milestone 2) ---
 fastapi>=0.115.0              # REST API framework
@@ -38,10 +39,9 @@ sqlalchemy[asyncio]>=2.0.0    # Async ORM for DB access
 redis>=5.0.0                  # Redis client (NAV cache, sessions)
 confluent-kafka>=2.3.0        # Kafka producer/consumer (async events)
 pydantic>=2.5.0               # Data validation (engine models)
-python-jose[cryptography]>=3.3.0  # JWT token handling
 
 # --- Testing & Release Gates ---
-pytest==8.3.3                 # Authoritative test runner
+pytest==9.0.3                 # Patched test runner
 pytest-timeout==2.4.0         # Per-test timeout limit enforcement
 pytest-mock==3.12.0           # Unit test fixture mocking
 hypothesis==6.92.0            # Property-based invariant testing
