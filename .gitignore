@@ -34,7 +34,10 @@ cache/
 free_models_cache.json
 narrative_cache.json
 
-# Project-specific: Sensitive client financial statements (CAS/CGS Excel files)
+# Project-specific: Private client data — never commit
+/data/private/
+/data/lalit_portfolio/*.json
+/data/lalit_portfolio/statements/
 data/*/statements/
 *.xlsx
 *.xls
