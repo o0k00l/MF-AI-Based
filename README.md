@@ -46,7 +46,7 @@ $$\text{Monthly Systematic Transfer (STP)} = \frac{80\% \times \text{Lumpsum}}{\
 ---
 
 ### 2. Core Equity Routing and Optional Satellite
-The three core sleeves below are normalized to **100% of the core equity budget**: Flexi-cap 26.3%, mid-cap 52.6%, and large-cap 21.1%. They sum to 100%. Thematic/sectoral exposure is **not a fourth default core slot** and is not added on top of this 100%. Any separately authorized thematic satellite must be funded by reducing the core equity budget first, must have a separately stated portfolio-level cap, and must pass its own look-through and valuation gates. When no thematic candidate passes, its allocation is 0% and no automatic redistribution is permitted.
+For Tier 6 / Very High, the three core sleeves below are normalized to **100% of the core equity budget**: Flexi-cap 26.3%, mid-cap 52.6%, and large-cap 21.1%. They sum to 100%. Other risk tiers derive their core-sleeve proportions from the authoritative SAA policy file. Thematic/sectoral exposure is **not a fourth default core slot** and is not added on top of this 100%. Any separately authorized thematic satellite must be funded by reducing the core equity budget first, must have a separately stated portfolio-level cap, and must pass its own look-through and valuation gates. When no thematic candidate passes, its allocation is 0% and no automatic redistribution is permitted.
 *(Starter Rule: For portfolios < ₹5L AUM or monthly budget < ₹15,000, Slot 4 and Slot 3 are set to 0.0% to prevent micro-fragmentation; equity capital consolidates into a 2-fund engine: 60% Core Flexi-Cap / 40% Mid-Cap Alpha).*
 
 ---
