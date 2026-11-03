@@ -92,7 +92,7 @@ The precise values and boundaries are maintained in `data/policy/asset_allocatio
 
 The code keeps equity-oriented classification separate from specified-mutual-fund and market-linked-debenture classification. Effective date, acquisition date, transfer date, scheme structure and the legally prescribed observation method all matter.
 
-The automated tests use synthetic fixtures to exercise calculations and boundaries. Synthetic fixtures do not prove that a statutory interpretation is legally correct or that a real scheme qualifies. Obtain current legal review and independently authenticated scheme-composition evidence before any tax treatment is relied upon.
+The automated tests use synthetic fixtures to exercise calculations and boundaries. Synthetic fixtures do not prove that a statutory interpretation is legally correct or that a real scheme qualifies. Current monthly/daily coverage objects are reviewer-attested diagnostics, not source authentication; their classification status remains provisional. Obtain current legal review and independently authenticated scheme-composition evidence before any tax treatment is relied upon.
 
 The equity-only transition planner does not currently provide a complete tax engine for every non-equity asset class. It must refuse unsupported classifications rather than applying equity exemption assumptions.
 
