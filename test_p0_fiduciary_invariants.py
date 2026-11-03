@@ -81,23 +81,23 @@ def test_p0_1_universal_4_slot_sizing_invariant():
     if plan_t6.unallocated_budget_inr > 0:
         assert all(it.monthly_inr == 0 for it in plan_t6.items)
 
-    # Tier 5: 85% Equity / 15% Debt (Established >= 5L) — policy-driven from high saa_targets
+    # Tier 5: 95% Equity / 5% Debt base SIP (stability buffer 3% is below 5% threshold)
     plan_t5 = compute_deterministic_sip_blueprint(
         monthly_budget=budget,
         risk_tier="Tier 5 (High)",
         stability_buffer_pct=3.0,
         client_aum=5000000.0
     )
-    assert plan_t5.equity_sip_pct == 85.0
-    assert plan_t5.debt_sip_pct == 15.0
+    assert plan_t5.equity_sip_pct == 95.0
+    assert plan_t5.debt_sip_pct == 5.0
     roles5 = {item.category_role: item for item in plan_t5.items}
     # Policy: high saa_targets: flexi=20, mid=25, small=20, large=25 (sum=90)
-    # Weights: flexi=20/90=18.9%, mid+small=45/90=42.5%, large=25/90=23.6%, thematic=0%
-    assert roles5["Core Flexi-Cap Compounder"].allocation_pct == 18.9
-    assert roles5["Mid-Cap Alpha Engine"].allocation_pct == 42.5
-    assert roles5["Large-Cap Bluechip Anchor"].allocation_pct == 23.6
+    # Weights: flexi=20/90, mid+small=45/90, large=25/90 of 95% equity SIP; thematic=0%
+    assert roles5["Core Flexi-Cap Compounder"].allocation_pct == 21.1
+    assert roles5["Mid-Cap Alpha Engine"].allocation_pct == 47.5
+    assert roles5["Large-Cap Bluechip Anchor"].allocation_pct == 26.4
     assert roles5["Tactical Thematic Satellite"].allocation_pct == 0.0
-    assert roles5["High-Grade Debt Cushion"].allocation_pct == 15.0
+    assert roles5["High-Grade Debt Cushion"].allocation_pct == 5.0
     assert sum(it.monthly_inr for it in plan_t5.items) + plan_t5.unallocated_budget_inr == budget
     if plan_t5.unallocated_budget_inr > 0:
         assert all(it.monthly_inr == 0 for it in plan_t5.items)
