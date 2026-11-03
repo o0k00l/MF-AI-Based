@@ -115,7 +115,13 @@ def load_transactions(
     Returns: fund_id -> list[Lot]  (only currently-held lots survive)
     """
     data = json.loads(transactions_path.read_text(encoding="utf-8"))
-    evidence_root_path = Path(evidence_root or transactions_path.parent).expanduser().resolve()
+    # An evidence root is an explicit trust boundary. Do not infer it from
+    # the transaction file's parent directory.
+    evidence_root_path = (
+        Path(evidence_root).expanduser().resolve(strict=True)
+        if evidence_root is not None
+        else None
+    )
 
     # First pass: collect all transactions per fund (both purchases and redemptions)
     transactions_by_fund: dict[str, list[dict]] = defaultdict(list)
@@ -336,7 +342,7 @@ def load_transactions(
                     equity_pct_source_sha256=p.get("equity_pct_source_sha256"),
                     equity_pct_source_reviewed=p.get("equity_pct_source_reviewed", False),
                     equity_pct_source_file=p.get("equity_pct_source_file"),
-                    equity_pct_evidence_root=str(evidence_root_path),
+                    equity_pct_evidence_root=str(evidence_root_path) if evidence_root_path is not None else None,
                 ))
 
     return lots_by_fund
