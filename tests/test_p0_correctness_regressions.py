@@ -89,6 +89,11 @@ def test_tax_planner_allocates_each_lot_only_once():
         cost=500,
         source="cas",
         equity_pct=100.0,
+        equity_pct_method="annual_average_monthly_opening_closing",
+        equity_pct_fy_start=2026,
+        equity_pct_source_url="https://example.test/monthly-portfolio-disclosure",
+        equity_pct_source_sha256="e" * 64,
+        equity_pct_source_verified=True,
     )
     plan = FundSellPlan(fund_id="fund-x", total_amount=1000.0, lots=[lot])
     tax_rules = {
