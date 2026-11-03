@@ -958,32 +958,40 @@ def test_p0_13_statutory_tax_specified_fund_and_mandate_state():
         return rows, evidence
 
     # 1. Inclusive equity-oriented threshold (separate from specified-fund tests).
+    daily_eq65, evidence_eq65 = daily_evidence(2024, 65.0, 35.0, 0.0)
     res_eq_exact_65 = classify_specified_mutual_fund(
         "Equity", equity_pct=65.0, debt_and_money_market_pct=35.0,
         acquisition_date=date(2024, 4, 1), transfer_date=date(2025, 1, 15),
+        snapshots=daily_eq65, snapshot_coverage_evidence=evidence_eq65,
         **monthly_args(2024, 65.0)
     )
     assert res_eq_exact_65["is_equity_oriented"] is True
 
+    daily_eq6501, evidence_eq6501 = daily_evidence(2024, 65.01, 34.99, 0.0)
     res_eq_above_65 = classify_specified_mutual_fund(
         "Equity", equity_pct=65.01, debt_and_money_market_pct=34.99,
         acquisition_date=date(2024, 4, 1), transfer_date=date(2025, 1, 15),
+        snapshots=daily_eq6501, snapshot_coverage_evidence=evidence_eq6501,
         **monthly_args(2024, 65.01)
     )
     assert res_eq_above_65["is_equity_oriented"] is True
 
     # 2. Arbitrage fund classification uses the equity-oriented threshold only.
+    daily_arb68, evidence_arb68 = daily_evidence(2024, 68.0, 32.0, 0.0)
     res_arb_qualifying = classify_specified_mutual_fund(
         "Arbitrage", equity_pct=68.0, debt_and_money_market_pct=32.0,
         acquisition_date=date(2024, 4, 1), transfer_date=date(2025, 1, 15),
+        snapshots=daily_arb68, snapshot_coverage_evidence=evidence_arb68,
         **monthly_args(2024, 68.0)
     )
     assert res_arb_qualifying["is_equity_oriented"] is True
     assert res_arb_qualifying["tax_treatment"] == "EQUITY_ORIENTED_CONCESSIONAL"
 
+    daily_arb64, evidence_arb64 = daily_evidence(2024, 64.0, 36.0, 0.0)
     res_arb_under = classify_specified_mutual_fund(
         "Arbitrage", equity_pct=64.0, debt_and_money_market_pct=36.0,
         acquisition_date=date(2024, 4, 1), transfer_date=date(2025, 1, 15),
+        snapshots=daily_arb64, snapshot_coverage_evidence=evidence_arb64,
         **monthly_args(2024, 64.0)
     )
     assert res_arb_under["is_equity_oriented"] is False
