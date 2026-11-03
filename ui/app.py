@@ -72,6 +72,18 @@ tot_val = facts.total_portfolio_value_inr
 tot_inv = facts.total_invested_value_inr
 tot_gain = facts.total_unrealized_gain_inr
 
+# A HOLD mandate is a runtime safety state, not a cosmetic portfolio note.
+# Keep it visible before any planning or portfolio action tabs are rendered.
+if not facts.is_execution_authorized:
+    hold_reasons = getattr(facts, "mandate_hold_reasons", None) or []
+    st.error(
+        "⛔ EXECUTION HOLD — No SIP, lumpsum, switch, or redemption instruction "
+        "is authorized. All calculations shown below are informational scenarios only."
+    )
+    if hold_reasons:
+        for reason in hold_reasons:
+            st.caption(f"• {reason}")
+
 # Minimal Styling
 st.markdown("""
 <style>
@@ -118,7 +130,8 @@ with col_head2:
         "Investor SAA Risk Profile:",
         options=list(risk_options.keys()),
         format_func=lambda k: risk_options[k],
-        index=0,
+        index=(list(risk_options.keys()).index(facts.risk_tier_name)
+               if facts.risk_tier_name in risk_options else 0),
         help="Strategic Asset Allocation profile per SEBI (Investment Advisers) Regulations."
     )
 
@@ -182,7 +195,7 @@ with tab_switch:
     st.info(
         f"💡 Switching your {f1.regular_funds_count} Regular plans to Direct saves **₹{f1.annual_bleed_inr:,.0f} every year** in distributor commissions. "
         f"Over 10 years at 12% CAGR, this preserves **₹{f1.ten_year_compounded_loss_inr:,.0f}** in wealth. "
-        f"Under our 3-Phase Fiduciary Roadmap, mature lots are switched under the **₹1.25 Lakh Section 112A tax exemption with ₹0 exit loads**."
+        "Tax treatment, holding period, and exit load must be verified separately for every lot before any switch. No exemption or zero-exit-load outcome is assumed."
     )
 
     csv_file = Path("outputs/MFCentral_Action_Checklist.csv")
@@ -240,9 +253,61 @@ with tab_switch:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# TAB 2: FRESH MONEY (SIP & LUMPSUM) — UNIVERSAL 4-SLOT ENGINE
+# TAB 2: PERSONAL REDEMPTION PLANNER
+with tab_redeem:
+    if not facts.is_execution_authorized:
+        st.error(
+            "Redemption planning is disabled while the investor mandate is on HOLD. "
+            "No redemption shortlist or execution instruction is generated."
+        )
+    else:
+        st.info(
+            "Any redemption output is a planning estimate only. Confirm CAS lots, "
+            "exit loads, tax treatment, and adviser approval before execution."
+        )
+        requested_redemption = st.number_input(
+            "Requested gross redemption amount (₹):", min_value=0, value=0, step=10000
+        )
+        if st.button("Calculate redemption scenario", disabled=requested_redemption <= 0):
+            cas_path, _, _, _, _ = get_default_paths(selected_client_key)
+            transactions_path = cas_path.parent.parent / "transactions.json"
+            if not transactions_path.exists():
+                transactions_path = cas_path.parent / "transactions.json"
+            if not transactions_path.exists():
+                st.error(
+                    "Redemption scenario unavailable: transaction-lot history is missing. "
+                    "The planner will not assume that holdings are mature or exit-load-free."
+                )
+            else:
+                redemption_plan = compute_personal_redemption_plan(
+                    requested_amount=float(requested_redemption),
+                    holdings=facts.holdings,
+                    transactions_path=transactions_path,
+                    is_net_cash=False,
+                )
+                st.write(f"Ticket category: **{redemption_plan.ticket_category}**")
+                st.write(f"Gross redemption estimate: **₹{redemption_plan.total_gross_redeemed_inr:,.2f}**")
+                st.write(f"Estimated exit load: **₹{redemption_plan.total_exit_load_inr:,.2f}**")
+                st.dataframe([
+                    {
+                        "Scheme": tranche.scheme_name,
+                        "Gross amount (₹)": tranche.gross_amount_inr,
+                        "Priority": str(tranche.priority_tier),
+                        "Rationale": tranche.fiduciary_reason,
+                    }
+                    for tranche in redemption_plan.tranches
+                ], hide_index=True, width="stretch")
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# TAB 3: FRESH MONEY (SIP & LUMPSUM) — UNIVERSAL 4-SLOT ENGINE
 # ═══════════════════════════════════════════════════════════════════════
 with tab_fresh:
+    if not facts.is_execution_authorized:
+        st.warning(
+            "HOLD is active. The SIP and lumpsum outputs on this tab are conditional "
+            "planning scenarios only; do not create or modify mandates from them."
+        )
     b1, b2 = st.columns(2)
     with b1:
         sip_input = st.number_input(
