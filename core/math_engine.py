@@ -2850,6 +2850,61 @@ class DailyPortfolioSnapshot:
     money_market_pct: float
 
 
+@dataclass(frozen=True)
+class DailySnapshotCoverageEvidence:
+    """Auditable expected-date coverage evidence for a statutory daily series."""
+    expected_dates: Tuple[date, ...]
+    source_url: str
+    source_document_sha256: str
+    independently_verified: bool
+
+
+def validate_daily_snapshot_coverage(
+    snapshots: List[DailyPortfolioSnapshot],
+    fy_start: date,
+    fy_end: date,
+    evidence: Optional[DailySnapshotCoverageEvidence],
+) -> None:
+    """Require exact equality between observed dates and a provenance-backed expected-date calendar."""
+    import re
+    from core.models import InsufficientDataError
+
+    if not isinstance(evidence, DailySnapshotCoverageEvidence):
+        raise InsufficientDataError(
+            "Section 76 requires explicit expected-date coverage evidence, not a caller-supplied boolean.",
+            missing_data="DailySnapshotCoverageEvidence",
+            required_source="Verified expected observation calendar with source URL and SHA-256",
+        )
+    if evidence.independently_verified is not True:
+        raise InsufficientDataError(
+            "Daily snapshot calendar evidence is not independently verified.",
+            missing_data="independent calendar verification",
+            required_source="Independently verified expected observation calendar",
+        )
+    if not isinstance(evidence.source_url, str) or not evidence.source_url.startswith("https://"):
+        raise ValueError("Daily snapshot calendar source_url must be an HTTPS URL")
+    if not isinstance(evidence.source_document_sha256, str) or not re.fullmatch(r"[0-9a-fA-F]{64}", evidence.source_document_sha256):
+        raise ValueError("Daily snapshot calendar source_document_sha256 must be a 64-character SHA-256 hex digest")
+    expected = list(evidence.expected_dates)
+    if not expected or any(not isinstance(d, date) for d in expected):
+        raise ValueError("Expected snapshot dates must be a non-empty sequence of dates")
+    if expected != sorted(set(expected)):
+        raise ValueError("Expected snapshot dates must be sorted and unique")
+    if any(d < fy_start or d > fy_end for d in expected):
+        raise ValueError("Expected snapshot dates must all fall within the relevant financial year")
+    observed = [s.date for s in snapshots if fy_start <= s.date <= fy_end]
+    if len(observed) != len(set(observed)):
+        raise ValueError("Observed daily portfolio snapshots contain duplicate dates")
+    if set(observed) != set(expected):
+        missing = sorted(set(expected) - set(observed))
+        unexpected = sorted(set(observed) - set(expected))
+        raise InsufficientDataError(
+            "Section 76 daily snapshot dates do not exactly match the verified expected-date calendar.",
+            missing_data=f"missing_dates={missing[:10]}, unexpected_dates={unexpected[:10]}",
+            required_source="Complete daily closing portfolio series aligned to the independently verified expected-date calendar",
+        )
+
+
 def compute_annual_average_daily_closing(
     snapshots: List[DailyPortfolioSnapshot],
     fy_start: date,
@@ -3094,7 +3149,7 @@ def qualifies_as_specified_mutual_fund_under_section_76(
     snapshots: Optional[List[DailyPortfolioSnapshot]] = None,
     fy_start: Optional[date] = None,
     fy_end: Optional[date] = None,
-    daily_snapshot_coverage_verified: bool = False,
+    snapshot_coverage_evidence: Optional[DailySnapshotCoverageEvidence] = None,
 ) -> ClassificationResult:
     """
     Section 76 (Income-tax Act, 2025), applicable from 1 April 2026.
@@ -3213,13 +3268,7 @@ def qualifies_as_specified_mutual_fund_under_section_76(
             missing_data=f"expected {financial_year_start} through {financial_year_end}",
             required_source="Verified financial-year daily closing portfolio-composition series",
         )
-    if not daily_snapshot_coverage_verified:
-        from core.models import InsufficientDataError
-        raise InsufficientDataError(
-            "Section 76 daily snapshot coverage has not been independently verified; incomplete samples cannot establish the statutory annual average.",
-            missing_data="independent daily snapshot coverage verification",
-            required_source="Verified trading-session calendar and complete daily closing portfolio-composition series",
-        )
+    validate_daily_snapshot_coverage(snapshots, fy_start, fy_end, snapshot_coverage_evidence)
 
     avg_debt = compute_annual_average_daily_closing(snapshots, fy_start, fy_end, "debt_pct")
     avg_mm = compute_annual_average_daily_closing(snapshots, fy_start, fy_end, "money_market_pct")
@@ -3265,7 +3314,7 @@ def classify_specified_mutual_fund(
     fy_start: Optional[date] = None,
     fy_end: Optional[date] = None,
     is_mld: bool = False,
-    daily_snapshot_coverage_verified: bool = False,
+    snapshot_coverage_evidence: Optional[DailySnapshotCoverageEvidence] = None,
     # Aliases for backward-compatibility
     purchase_date: Optional[date] = None,
 ) -> dict:
@@ -3309,7 +3358,7 @@ def classify_specified_mutual_fund(
         snapshots=snapshots,
         fy_start=fy_start,
         fy_end=fy_end,
-        daily_snapshot_coverage_verified=daily_snapshot_coverage_verified,
+        snapshot_coverage_evidence=snapshot_coverage_evidence,
     )
     
     is_equity_oriented = equity_result.qualifies
