@@ -1434,8 +1434,25 @@ def test_starter_routing_thresholds_and_weights_are_policy_driven():
 
 
 def test_candidate_ingestion_never_hardcodes_direct_plan_status(tmp_path):
+    import hashlib
     import json
+    from datetime import date
     from core.eligibility import load_candidate_universe, check_eligibility_gates
+
+    source_file = tmp_path / "direct-plan-source.txt"
+    source_bytes = b"Synthetic test-only scheme master record: Synthetic Flexi Cap Growth; Plan=Direct"
+    source_file.write_bytes(source_bytes)
+    source_hash = hashlib.sha256(source_bytes).hexdigest()
+    direct_evidence = {
+        "source_file": source_file.name,
+        "source_document_sha256": source_hash,
+        "source_url": "https://example.test/synthetic-scheme-master",
+        "source_type": "AMFI_SCHEME_MASTER",
+        "reviewer_attested": True,
+        "reviewed_at": date.today().isoformat(),
+        "scheme_name": "Synthetic Flexi Cap Growth",
+        "plan": "Direct",
+    }
 
     metrics_path = tmp_path / "fund_metrics.json"
     metrics_path.write_text(json.dumps({"funds": [
@@ -1449,7 +1466,7 @@ def test_candidate_ingestion_never_hardcodes_direct_plan_status(tmp_path):
             "name": "Synthetic Flexi Cap Growth",
             "category": "Flexi Cap Equity",
             "is_direct": True,
-            "plan": "Direct",
+            "direct_plan_evidence": direct_evidence,
         },
         {
             "id": "synthetic-source-classified-regular",
@@ -1463,14 +1480,30 @@ def test_candidate_ingestion_never_hardcodes_direct_plan_status(tmp_path):
     candidates = {c["fund_id"]: c for c in load_candidate_universe(metrics_path)}
     assert candidates["synthetic-direct-label-only"]["is_direct"] is None
     assert candidates["synthetic-source-classified-direct"]["is_direct"] is True
+    assert candidates["synthetic-source-classified-direct"]["direct_plan_evidence_status"] == "REVIEWER_ATTESTED_HASH_MATCH"
     assert candidates["synthetic-source-classified-regular"]["is_direct"] is False
 
     missing_source_gate = check_eligibility_gates(candidates["synthetic-direct-label-only"], [])
     assert missing_source_gate.direct_plan_gate is False
-    assert any("explicit Direct-plan source classification" in item for item in missing_source_gate.failed_gates)
+    assert any("reviewer-attested source document" in item for item in missing_source_gate.failed_gates)
 
     direct_source_gate = check_eligibility_gates(candidates["synthetic-source-classified-direct"], [])
     assert direct_source_gate.direct_plan_gate is True
+
+    # A stale digest or modified local source document must downgrade the plan
+    # classification to unavailable, never leave an old True value in place.
+    direct_evidence["source_document_sha256"] = "0" * 64
+    metrics_path.write_text(json.dumps({"funds": [{
+        "id": "synthetic-source-hash-mismatch",
+        "name": "Synthetic Flexi Cap Growth",
+        "category": "Flexi Cap Equity",
+        "is_direct": True,
+        "direct_plan_evidence": direct_evidence,
+    }]}), encoding="utf-8")
+    mismatched = load_candidate_universe(metrics_path)[0]
+    assert mismatched["is_direct"] is None
+    assert mismatched["direct_plan_evidence_status"] == "INVALID"
+
 
 
 def test_selector_does_not_select_candidate_using_direct_name_suffix_only():
