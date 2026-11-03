@@ -639,7 +639,9 @@ def plan_fy_tranches(
         Uses exit_load_schedules from tax_rules for category-specific rates and thresholds.
         Falls back to heuristic classification if tax_rules not provided.
         """
-        sale_date = date(fy_start, 4, 1)
+        # For the current FY use the actual planning date; future FY tranches
+        # use the first day of that FY as a conservative scheduled sale date.
+        sale_date = as_of if fy_start == current_fy_start else date(fy_start, 4, 1)
         holding_days = (sale_date - lot.purchase_date).days
         
         # Use tax_rules exit_load_schedules if available
