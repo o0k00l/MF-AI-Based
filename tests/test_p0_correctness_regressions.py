@@ -998,6 +998,7 @@ def test_section_50aa_original_equity_test_applies_through_fy_2025_26():
     )
     assert result["specified_50AA"]["qualifies"] is True
     assert result["specified_50AA"]["threshold"] == 35.0
+    assert result["specified_50AA"]["source_data_status"] == "PROVISIONAL_DAILY_COVERAGE_RECONCILED"
     assert result["tax_treatment"] == "SECTION_50AA_DEEMED_STCG"
 
     not_qualifying = classify_specified_mutual_fund(
@@ -1093,6 +1094,7 @@ def test_section_76_strict_debt_plus_money_market_boundary(debt_pct, money_marke
     )
     assert result["specified_76"]["effective_debt_pct"] == pytest.approx(debt_pct + money_market_pct)
     assert result["specified_76"]["qualifies"] is expected
+    assert result["specified_76"]["source_data_status"] == "PROVISIONAL_DAILY_COVERAGE_RECONCILED"
     assert result["tax_treatment"] == (
         "SECTION_76_DEEMED_STCG" if expected else "HYBRID_UNLISTED_OR_NORMAL"
     )
@@ -1341,6 +1343,7 @@ def test_section_198_fund_of_funds_requires_both_monthly_90_percent_limb_conditi
         fof_underlying_traded_on_recognised_exchange=True,
     )
     assert result.qualifies is expected
+    assert result.source_data_status == "PROVISIONAL_MONTHLY_COVERAGE_RECONCILED"
 
 
 def test_section_198_uses_average_of_monthly_opening_and_closing_figures():
