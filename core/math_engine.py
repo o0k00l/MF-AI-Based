@@ -4376,7 +4376,22 @@ def compute_deterministic_sip_blueprint(
         raise ValueError("A positive thematic satellite allocation requires explicit IPS authorization")
     if not isinstance(thematic_satellite_authorized, bool):
         raise ValueError("thematic_satellite_authorized must be a boolean")
-    is_starter = (client_aum > 0 and client_aum < 500000.0) or (b < 15000.0)
+    try:
+        starter_policy = allocation_policy["starter_portfolio_routing"]
+        starter_aum_threshold = float(starter_policy["aum_threshold_inr"])
+        starter_budget_threshold = float(starter_policy["monthly_budget_threshold_inr"])
+        starter_weights = starter_policy["equity_sleeves_pct_of_equity_budget"]
+        starter_flexi_weight = float(starter_weights["flexi_cap"])
+        starter_mid_weight = float(starter_weights["mid_small_cap"])
+        starter_large_weight = float(starter_weights["large_cap"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError("Starter portfolio routing policy is missing or invalid") from exc
+    starter_values = (starter_aum_threshold, starter_budget_threshold, starter_flexi_weight, starter_mid_weight, starter_large_weight)
+    if any(not math.isfinite(v) or v < 0.0 for v in starter_values):
+        raise ValueError("Starter portfolio thresholds and weights must be finite and non-negative")
+    if abs(starter_flexi_weight + starter_mid_weight + starter_large_weight - 100.0) > 0.01:
+        raise ValueError("Starter portfolio equity sleeve weights must sum to 100%")
+    is_starter = client_aum < starter_aum_threshold or b < starter_budget_threshold
 
     # Dynamic Folio Discovery
     # Resolved dynamically through select_autonomous_blueprint_funds below
@@ -4439,23 +4454,55 @@ def compute_deterministic_sip_blueprint(
         )
 
     if is_starter:
-        # Starter Portfolio (< INR 5L AUM): 2 Core Funds
+        # Starter routing is a provisional research heuristic defined in policy.
         if target_eq > 0:
-            flexi_pct = round(target_eq * 0.60, 1)
-            mid_pct = round(target_eq * 0.40, 1)
+            thematic_pct = round(target_eq * satellite_pct / 100.0, 1)
+            core_equity_pct = target_eq - thematic_pct
+            flexi_pct = round(core_equity_pct * starter_flexi_weight / 100.0, 1)
+            mid_pct = round(core_equity_pct * starter_mid_weight / 100.0, 1)
+            large_pct = round(core_equity_pct * starter_large_weight / 100.0, 1)
+            diff = round(core_equity_pct - flexi_pct - mid_pct - large_pct, 1)
+            flexi_pct = round(flexi_pct + diff, 1)
             _append_flexi_sip_items(flexi_pct)
-            items.append(
-                DeterministicSIPRecommendation(
-                    category_role="Mid-Cap Alpha Engine",
-                    scheme_name=mid_scheme,
-                    folio_target=mid_target_folio,
-                    monthly_inr=round(b * (mid_pct / 100.0), 2),
-                    allocation_pct=mid_pct,
-                    rational_code="ALPHA_ENGINE",
-                    fiduciary_rationale=mid_default_rat,
-                    is_direct=mid_info.get("is_direct")
+            if mid_pct > 0:
+                items.append(
+                    DeterministicSIPRecommendation(
+                        category_role="Mid-Cap Alpha Engine",
+                        scheme_name=mid_scheme,
+                        folio_target=mid_target_folio,
+                        monthly_inr=round(b * (mid_pct / 100.0), 2),
+                        allocation_pct=mid_pct,
+                        rational_code="ALPHA_ENGINE",
+                        fiduciary_rationale=mid_default_rat,
+                        is_direct=mid_info.get("is_direct")
+                    )
                 )
-            )
+            if large_pct > 0:
+                items.append(
+                    DeterministicSIPRecommendation(
+                        category_role="Large-Cap Bluechip Anchor",
+                        scheme_name=large_scheme,
+                        folio_target=large_target_folio,
+                        monthly_inr=round(b * (large_pct / 100.0), 2),
+                        allocation_pct=large_pct,
+                        rational_code="BLUECHIP_ANCHOR",
+                        fiduciary_rationale=large_default_rat,
+                        is_direct=large_info.get("is_direct")
+                    )
+                )
+            if thematic_pct > 0:
+                items.append(
+                    DeterministicSIPRecommendation(
+                        category_role="Tactical Thematic Satellite",
+                        scheme_name=pharma_scheme,
+                        folio_target=direct_pharma_folio,
+                        monthly_inr=round(b * (thematic_pct / 100.0), 2),
+                        allocation_pct=thematic_pct,
+                        rational_code="TACTICAL_SATELLITE",
+                        fiduciary_rationale=pharma_rat,
+                        is_direct=thematic_info.get("is_direct")
+                    )
+                )
         if target_debt > 0:
             items.append(
                 DeterministicSIPRecommendation(
@@ -4465,7 +4512,8 @@ def compute_deterministic_sip_blueprint(
                     monthly_inr=round(b * (target_debt / 100.0), 2),
                     allocation_pct=target_debt,
                     rational_code="DEBT_ANCHOR",
-                    fiduciary_rationale="Preserves capital stability and fulfills SAA fixed income target."
+                    fiduciary_rationale="Preserves capital stability and fulfills SAA fixed income target.",
+                    is_direct=debt_info.get("is_direct"),
                 )
             )
     else:
