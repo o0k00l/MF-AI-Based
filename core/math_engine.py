@@ -404,7 +404,7 @@ def calculate_cashflow_matched_benchmark_xirr(
     Cash-flow-matched Total Return Index (TRI) benchmark performance calculation.
     Replaces static benchmark approximations with an institutional unit-acquisition model:
     - Every transaction date in transactions.json purchases/redeems hypothetical units in the benchmark TRI.
-    - Linear interpolation is applied between official trading day index levels.
+    - Non-trading-day cash flows use the preceding available NSE session close; no synthetic interpolation.
     - Terminal valuation of accumulated benchmark units is evaluated as of as_of_date.
     - Benchmark XIRR and True Portfolio Alpha are deterministically solved.
     
@@ -617,7 +617,7 @@ def calculate_cashflow_matched_benchmark_xirr(
         raise TriProvenanceError(
             f"TRI coverage {effective_coverage_pct:.2f}% below minimum {min_coverage_pct:.1f}% "
             f"for {benchmark_key}. Independent NSE calendar expects {expected_trading_days} sessions "
-            f"between {observed_start} and {observed_end}; observed {provided_data_points}.",
+            f"between {coverage_start} and {coverage_end}; observed {provided_data_points}.",
             benchmark=benchmark_key,
             validation_stage="coverage_insufficient"
         )
@@ -632,19 +632,23 @@ def calculate_cashflow_matched_benchmark_xirr(
             date_gaps.append({"from": str(d0), "to": str(d1), "gap_days": gap_days})
 
     def get_tri(d: date) -> float:
-        """Get TRI value with linear interpolation; forward-fill at boundaries."""
-        if d <= sorted_dates[0]:
-            return levels[str(sorted_dates[0])]
-        if d >= sorted_dates[-1]:
-            return levels[str(sorted_dates[-1])]
-        for i in range(len(sorted_dates) - 1):
-            d0, d1 = sorted_dates[i], sorted_dates[i + 1]
-            if d0 <= d <= d1:
-                ratio = (d - d0).days / (d1 - d0).days
-                v0 = levels[str(d0)]
-                v1 = levels[str(d1)]
-                return v0 + ratio * (v1 - v0)
-        return levels[str(sorted_dates[-1])]
+        """Return the exact session close or prior session close for non-trading dates."""
+        if d < sorted_dates[0] or d > sorted_dates[-1]:
+            raise TriProvenanceError(
+                f"Requested TRI date {d} falls outside the observed series.",
+                benchmark=benchmark_key,
+                validation_stage="tri_date_out_of_range"
+            )
+        if d in levels:
+            return float(levels[str(d)])
+        prior_dates = [session for session in sorted_dates if session < d]
+        if not prior_dates:
+            raise TriProvenanceError(
+                f"No preceding NSE session exists for {d}.",
+                benchmark=benchmark_key,
+                validation_stage="tri_prior_session_missing"
+            )
+        return float(levels[str(prior_dates[-1])])
 
     cashflows = []
     txn_dates = []
