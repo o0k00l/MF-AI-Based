@@ -3438,6 +3438,7 @@ def classify_specified_mutual_fund(
     transfer_date: Optional[date] = None,
     as_of: Optional[date] = None,
     snapshots: Optional[List[DailyPortfolioSnapshot]] = None,
+    monthly_snapshots: Optional[List[MonthlyPortfolioSnapshot]] = None,
     fy_start: Optional[date] = None,
     fy_end: Optional[date] = None,
     is_mld: bool = False,
@@ -3455,12 +3456,25 @@ def classify_specified_mutual_fund(
     if as_of is None:
         as_of = date.today()
     
-    equity_result = qualifies_as_equity_oriented_under_section_198(
-        equity_pct=equity_pct,
-        snapshots=snapshots,
-        fy_start=fy_start,
-        fy_end=fy_end
-    )
+    if is_mld:
+        equity_result = ClassificationResult(
+            qualifies=False,
+            provision="Market-Linked Debenture (not an equity-oriented fund)",
+            effective_date=transfer_date,
+            threshold=65.0,
+            calculation_method="not_applicable",
+            source_data_status="not_applicable",
+            reason="Market-linked debenture is classified under its separate statutory inclusion, not as an equity-oriented mutual fund",
+            is_mld=True,
+        )
+    else:
+        equity_result = qualifies_as_equity_oriented_under_section_198(
+            equity_pct=equity_pct,
+            monthly_snapshots=monthly_snapshots,
+            fy_start=fy_start,
+            fy_end=fy_end,
+            is_fund_of_funds=is_fund_of_funds,
+        )
     
     section_50aa_result = qualifies_as_specified_mutual_fund_under_section_50AA(
         equity_pct=equity_pct,
@@ -3473,6 +3487,7 @@ def classify_specified_mutual_fund(
         fy_start=fy_start,
         fy_end=fy_end,
         is_mld=is_mld,
+        snapshot_coverage_evidence=snapshot_coverage_evidence,
     )
     
     section_76_result = qualifies_as_specified_mutual_fund_under_section_76(
