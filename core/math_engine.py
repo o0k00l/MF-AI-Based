@@ -4155,6 +4155,8 @@ def compute_deterministic_lumpsum_blueprint(
     risk_tier: str = "Tier 6 (Very High)",
     stability_buffer_pct: Optional[float] = None,
     thematic_deficit_theme: str = "Pharma",
+    thematic_satellite_authorized: bool = False,
+    thematic_satellite_pct_of_equity: float = 0.0,
 ) -> DeterministicLumpsumPlan:
     """
     Computes institutional lumpsum deployment strategy tailored across all SEBI risk tiers,
@@ -4162,6 +4164,19 @@ def compute_deterministic_lumpsum_blueprint(
     tax-shielded arbitrage parking, and bank cash reality verification.
     """
     L = float(lumpsum_amount)
+    import math as _math
+    if not isinstance(thematic_satellite_authorized, bool):
+        raise ValueError("thematic_satellite_authorized must be a boolean")
+    try:
+        satellite_pct = float(thematic_satellite_pct_of_equity)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("thematic_satellite_pct_of_equity must be numeric") from exc
+    if not _math.isfinite(satellite_pct) or not 0.0 <= satellite_pct <= 15.0:
+        raise ValueError("thematic satellite percentage must be finite and between 0 and 15")
+    if satellite_pct > 0.0 and not thematic_satellite_authorized:
+        raise ValueError("thematic satellite allocation requires explicit IPS authorization")
+    if not thematic_satellite_authorized:
+        satellite_pct = 0.0
     deployable_surplus = max(0.0, bank_cash_total - emergency_reserve)
     if bank_cash_total > 0:
         cash_ok = deployable_surplus >= L
