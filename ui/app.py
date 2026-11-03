@@ -344,22 +344,31 @@ with tab_fresh:
 
     st.markdown("### 1. Deterministic Direct SIP Blueprint")
     if sip_plan.debt_sip_pct > 0:
-        st.caption(f"🎯 **{selected_tier} SAA Mandate:** {sip_plan.equity_sip_pct:.0f}% Equity Compounding / {sip_plan.debt_sip_pct:.0f}% High-Grade Fixed Income Cushion across {len(sip_plan.items)} Direct Schemes.")
+        st.caption(f"🎯 **{selected_tier} SAA Target:** {sip_plan.equity_sip_pct:.0f}% Equity / {sip_plan.debt_sip_pct:.0f}% High-Grade Fixed Income. Actual deployment remains subject to verified Direct-plan eligibility.")
     else:
-        st.caption(f"🎯 **100% Equity Compounding Mandate:** Zero standalone debt drag ({stab_pct:.2f}% look-through stability buffer satisfies Tier 6 debt target).")
+        st.caption(f"🎯 **100% Equity SAA Target:** Zero standalone debt drag ({stab_pct:.2f}% look-through stability buffer satisfies Tier 6 debt target). Actual deployment remains subject to verified Direct-plan eligibility.")
 
-    # SIP KPI Summary Cards
+    # SIP budget accounting distinguishes requested capital from deployable recommendations.
+    allocated_sip = sum(item.monthly_inr for item in sip_plan.items)
+    verified_direct_slots = sum(
+        1 for item in sip_plan.items
+        if item.monthly_inr > 0 and item.is_direct is True
+    )
+    if sip_plan.unallocated_budget_inr > 0:
+        st.warning(
+            f"NO ACTION: ₹{sip_plan.unallocated_budget_inr:,.0f} per month remains unallocated. "
+            "At least one required slot lacks verified Direct-plan eligibility; the full SIP budget "
+            "has been withheld and was not redistributed."
+        )
     sip_c1, sip_c2, sip_c3, sip_c4 = st.columns(4)
     with sip_c1:
-        st.metric("Total Monthly SIP", f"₹{sip_plan.total_monthly_budget_inr:,.0f} / mo")
+        st.metric("Requested Monthly Budget", f"₹{sip_plan.total_monthly_budget_inr:,.0f} / mo")
     with sip_c2:
-        eq_sip_amt = sum(x.monthly_inr for x in sip_plan.items if "debt" not in x.category_role.lower() and "preservation" not in x.category_role.lower())
-        st.metric("Equity SIP Sleeve", f"₹{eq_sip_amt:,.0f} / mo", f"{sip_plan.equity_sip_pct:.0f}% Allocation")
+        st.metric("Actually Allocated", f"₹{allocated_sip:,.0f} / mo")
     with sip_c3:
-        debt_sip_amt = sum(x.monthly_inr for x in sip_plan.items if "debt" in x.category_role.lower() or "preservation" in x.category_role.lower())
-        st.metric("Debt Anchor Sleeve", f"₹{debt_sip_amt:,.0f} / mo", f"{sip_plan.debt_sip_pct:.0f}% Fixed Income")
+        st.metric("Unallocated Budget", f"₹{sip_plan.unallocated_budget_inr:,.0f} / mo")
     with sip_c4:
-        st.metric("Direct Funds Count", f"{len(sip_plan.items)} Funds", "100% Direct Plans")
+        st.metric("Verified Direct SIP Slots", f"{verified_direct_slots} Active")
 
     sip_rows = []
     for item in sip_plan.items:
