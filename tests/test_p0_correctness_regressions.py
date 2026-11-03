@@ -1268,7 +1268,9 @@ def test_standalone_advisor_saa_profiles_reconcile_to_central_policy():
     from pathlib import Path
 
     root = Path(__file__).resolve().parents[1]
-    source = ast.parse((root / "advisor_lean.py").read_text())
+    # The public compatibility module must remain import-safe; policy
+    # reconciliation belongs to the isolated legacy implementation.
+    source = ast.parse((root / "legacy" / "advisor_lean_cli.py").read_text())
     profile_node = next(
         node.value for node in source.body
         if isinstance(node, ast.Assign)
