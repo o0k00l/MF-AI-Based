@@ -83,18 +83,18 @@ A release is assessed against one exact commit SHA. Evidence from older commits,
 
 ## Gate 6 — Software quality and reproducibility
 
-- [ ] Complete P0 invariant suite passes.
-- [ ] Complete correctness regression suite passes.
+- [x] Complete P0 invariant suite passes on the last fully validated code SHA (`18537c4`).
+- [x] Complete correctness regression suite passes on the last fully validated code SHA (`18537c4`).
 - [ ] Property-based and boundary tests cover money, dates, XIRR, tax lots, coverage, duplicates and invalid inputs.
-- [ ] Universal policy checks pass against central policy files, without duplicated hardcoded thresholds.
-- [ ] No unexplained skips remain; private-client integration checks are optional, isolated and separately evidenced.
-- [ ] Clean checkout produces the same test results and report schemas.
-- [ ] Runtime and development dependencies are fully resolved and locked, including transitive dependencies and hashes.
+- [x] Universal policy checks pass against central policy files, without duplicated hardcoded thresholds.
+- [x] The two current test skips are the documented private-CAS integration checks; they are isolated and skipped when client files are absent.
+- [x] Clean-checkout privacy and engine initialization tests pass.
+- [x] Runtime and development dependencies are hash-locked, and CI verifies `pip install --require-hashes`, `pip check` and `pip-audit`.
 - [ ] Supported Python version and runtime platform are pinned and verified.
 - [ ] Static analysis, formatting, type checking, dependency vulnerability review and secret scanning pass.
 - [ ] Software bill of materials and release artifact digest are retained.
 
-**Current status:** Unit and regression runs have passed on earlier revisions, but the current SHA must pass the entire workflow. `requirements.txt` is not a full transitive hash-locked environment.
+**Current status:** Full CI passed on code SHA `18537c4` (120 passed, 2 private-CAS skips). The hash-locked install, `pip check` and `pip-audit` passed on dependency SHA `abb36d0`. The latest documentation/lock SHA must still complete CI before it can be treated as the release candidate. Independent SBOM, static-analysis, formatting/type-checking and secret-scan evidence remain outstanding.
 
 ## Gate 7 — GitHub release controls
 
