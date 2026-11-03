@@ -4096,7 +4096,8 @@ def select_autonomous_blueprint_funds(
     return blueprint
 def calculate_universal_tier_split(
     tier_num: int,
-    stability_buffer_pct: Optional[float] = None
+    stability_buffer_pct: Optional[float] = None,
+    equity_sip_routing_override: bool = False,
 ) -> Tuple[float, float]:
     """
     Return the policy-defined new-SIP equity/debt split for a risk tier.
@@ -4138,6 +4139,7 @@ def calculate_universal_tier_split(
         tolerance = float(profile["tolerance_band_pct"])
         equity_sip = float(sip["equity_pct"])
         debt_sip = float(sip["debt_pct"])
+        requires_ips_authorization = bool(sip.get("requires_explicit_ips_authorization", False))
     except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
         raise ValueError(f"Invalid allocation policy for SEBI risk tier {tier_num}") from exc
 
@@ -4151,8 +4153,18 @@ def calculate_universal_tier_split(
     if abs(equity_sip + debt_sip - 100.0) > 0.01:
         raise ValueError("Policy new-SIP equity and debt percentages must sum to 100%")
 
+    if not isinstance(equity_sip_routing_override, bool):
+        raise ValueError("equity_sip_routing_override must be a boolean")
+
+    if requires_ips_authorization and not equity_sip_routing_override:
+        # Strategic allocation is the default until the IPS authorizes the
+        # higher-risk new-SIP routing.
+        return 100.0 - debt_target, debt_target
+    if requires_ips_authorization and equity_sip_routing_override:
+        return equity_sip, debt_sip
+
     stability_threshold = max(0.0, debt_target - tolerance)
-    if stability is not None and stability >= stability_threshold:
+    if stability_threshold > 0.0 and stability is not None and stability >= stability_threshold:
         return 100.0, 0.0
     return equity_sip, debt_sip
 
@@ -4171,6 +4183,7 @@ def compute_deterministic_lumpsum_blueprint(
     bank_cash_verified: bool = False,
     staging_policy: Optional[Dict[str, Any]] = None,
     parking_candidate: Optional[Dict[str, Any]] = None,
+    equity_sip_routing_override: bool = False,
 ) -> DeterministicLumpsumPlan:
     """
     Fail-closed lumpsum planning.
@@ -4221,7 +4234,9 @@ def compute_deterministic_lumpsum_blueprint(
         thematic_satellite_authorized=thematic_satellite_authorized,
         thematic_satellite_pct_of_equity=satellite_pct,
     )
-    equity_pct, debt_pct = calculate_universal_tier_split(tier_num, stability_buffer_pct)
+    equity_pct, debt_pct = calculate_universal_tier_split(
+        tier_num, stability_buffer_pct, equity_sip_routing_override=equity_sip_routing_override
+    )
     required_slots = []
     if equity_pct > 0:
         required_slots.extend([
@@ -4313,6 +4328,7 @@ def compute_deterministic_sip_blueprint(
     thematic_satellite_pct_of_equity: float = 0.0,
     thematic_satellite_authorized: bool = False,
     candidate_universe: Optional[List[Dict[str, Any]]] = None,
+    equity_sip_routing_override: bool = False,
 ) -> DeterministicSIPPlan:
     """
     Computes deterministic SIP blueprint dynamically tailored across all SEBI risk tiers
@@ -4367,7 +4383,9 @@ def compute_deterministic_sip_blueprint(
 
     # 1. Target Asset Allocation by Risk Level
     tier_num = _parse_sebi_risk_tier(risk_tier)
-    target_eq, target_debt = calculate_universal_tier_split(tier_num, stability_buffer_pct)
+    target_eq, target_debt = calculate_universal_tier_split(
+        tier_num, stability_buffer_pct, equity_sip_routing_override=equity_sip_routing_override
+    )
 
     items = []
 
