@@ -50,7 +50,8 @@ def verify_fixture(path: Path) -> list[str]:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
-        return [f"{path.relative_to(ROOT)}: unable to read valid JSON: {exc}"]
+        return [f"{label}: unable to read valid JSON: {exc}"]
+    label = label if path.is_relative_to(ROOT) else path
     provenance = data.get("provenance", {})
     coverage = data.get("coverage", {})
     benchmarks = data.get("benchmarks", {})
@@ -62,46 +63,46 @@ def verify_fixture(path: Path) -> list[str]:
     for index_name, coverage_key, checksum_key in specs:
         levels = benchmarks.get(index_name, {}).get("levels", {})
         if not isinstance(levels, dict) or not levels:
-            failures.append(f"{path.relative_to(ROOT)}: {index_name}: levels must be a non-empty date/value object")
+            failures.append(f"{label}: {index_name}: levels must be a non-empty date/value object")
             continue
         expected = str(provenance.get(checksum_key, ""))
         computed = _canonical_sha256(levels)
         if len(expected) != 64 or computed.lower() != expected.lower():
             failures.append(
-                f"{path.relative_to(ROOT)}: {index_name}: checksum missing/mismatched; "
+                f"{label}: {index_name}: checksum missing/mismatched; "
                 f"expected={expected or '<missing>'}; computed={computed}"
             )
         for observation_date, raw_value in levels.items():
             try:
                 parsed_date = date.fromisoformat(observation_date)
             except (TypeError, ValueError):
-                failures.append(f"{path.relative_to(ROOT)}: {index_name}: invalid ISO date key {observation_date!r}")
+                failures.append(f"{label}: {index_name}: invalid ISO date key {observation_date!r}")
                 break
             if parsed_date.isoformat() != observation_date:
-                failures.append(f"{path.relative_to(ROOT)}: {index_name}: non-canonical date key {observation_date!r}")
+                failures.append(f"{label}: {index_name}: non-canonical date key {observation_date!r}")
                 break
             if isinstance(raw_value, bool):
-                failures.append(f"{path.relative_to(ROOT)}: {index_name}: boolean TRI level at {observation_date}")
+                failures.append(f"{label}: {index_name}: boolean TRI level at {observation_date}")
                 break
             try:
                 number = float(raw_value)
             except (TypeError, ValueError):
-                failures.append(f"{path.relative_to(ROOT)}: {index_name}: non-numeric TRI level at {observation_date}")
+                failures.append(f"{label}: {index_name}: non-numeric TRI level at {observation_date}")
                 break
             if not math.isfinite(number) or number <= 0:
-                failures.append(f"{path.relative_to(ROOT)}: {index_name}: invalid TRI level at {observation_date}")
+                failures.append(f"{label}: {index_name}: invalid TRI level at {observation_date}")
                 break
         dates = list(levels)
         if dates != sorted(dates) or len(dates) != len(set(dates)):
-            failures.append(f"{path.relative_to(ROOT)}: {index_name}: dates must be sorted and unique")
+            failures.append(f"{label}: {index_name}: dates must be sorted and unique")
         declared_count = coverage.get(coverage_key, {}).get("provided_data_points")
         if isinstance(declared_count, bool) or declared_count != len(levels):
             failures.append(
-                f"{path.relative_to(ROOT)}: {index_name}: declared point count {declared_count!r} "
+                f"{label}: {index_name}: declared point count {declared_count!r} "
                 f"does not match observed count {len(levels)}"
             )
         if not failures:
-            print(f"{path.relative_to(ROOT)}: {index_name}: integrity checks passed ({len(levels)} observations)")
+            print(f"{label}: {index_name}: integrity checks passed ({len(levels)} observations)")
     return failures
 
 def _is_approved_official_url(value: object) -> bool:
