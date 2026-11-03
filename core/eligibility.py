@@ -690,10 +690,24 @@ def load_candidate_universe(
         riskometer_raw = m.get("riskometer_score")
         is_passive_raw = m.get("is_passive")
         provenance_raw = m.get("_provenance")
+        fund_name = m.get("name", m.get("scheme_name", m.get("id", "")))
+        evidence_context = {
+            "direct_plan_evidence": m.get("direct_plan_evidence"),
+            "_evidence_root": str(Path(metrics_path).resolve().parent),
+            "fund_name": fund_name,
+        }
+        direct_evidence_status = _reviewed_direct_plan_evidence_status(evidence_context)
+        source_direct_flag = m.get("is_direct")
+        if source_direct_flag is False:
+            direct_flag = False
+        elif source_direct_flag is True and direct_evidence_status == "REVIEWER_ATTESTED_HASH_MATCH":
+            direct_flag = True
+        else:
+            direct_flag = None
 
         cand = {
             "fund_id": m.get("id", ""),
-            "fund_name": m.get("name", m.get("scheme_name", m.get("id", ""))),
+            "fund_name": fund_name,
             "aum_crore": float(aum_crore) if aum_crore is not None else None,
             "aum_stable": m.get("aum_stable"),  # None if missing — gate will fail closed
             "category": m.get("category", m.get("cat", "")),
@@ -719,25 +733,8 @@ def load_candidate_universe(
             # to be present locally, hash-matched and reviewer-attested.
             "direct_plan_evidence": m.get("direct_plan_evidence"),
             "_evidence_root": str(Path(metrics_path).resolve().parent),
-            "direct_plan_evidence_status": _reviewed_direct_plan_evidence_status({
-                "direct_plan_evidence": m.get("direct_plan_evidence"),
-                "_evidence_root": str(Path(metrics_path).resolve().parent),
-                "fund_name": m.get("name", m.get("scheme_name", m.get("id", ""))),
-            }),
-            "is_direct": (
-                False
-                if m.get("is_direct") is False
-                else (
-                    True
-                    if m.get("is_direct") is True
-                    and _reviewed_direct_plan_evidence_status({
-                        "direct_plan_evidence": m.get("direct_plan_evidence"),
-                        "_evidence_root": str(Path(metrics_path).resolve().parent),
-                        "fund_name": m.get("name", m.get("scheme_name", m.get("id", ""))),
-                    }) == "REVIEWER_ATTESTED_HASH_MATCH"
-                    else None
-                )
-            ),
+            "direct_plan_evidence_status": direct_evidence_status,
+            "is_direct": direct_flag,
             "plan": (
                 m.get("direct_plan_evidence", {}).get("plan", "")
                 if isinstance(m.get("direct_plan_evidence"), dict)
