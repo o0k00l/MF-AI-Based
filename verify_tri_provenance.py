@@ -1,58 +1,65 @@
 #!/usr/bin/env python3
-"""verify_tri_provenance.py - TRI fixture checksum and provenance verification."""
+"""Verify TRI file integrity without conflating checksums with source authenticity."""
 
-import json
 import hashlib
+import json
 import sys
+from pathlib import Path
+
 
 def main():
     print("=" * 70)
-    print("TRI FIXTURE PROVENANCE VERIFICATION")
+    print("TRI FIXTURE INTEGRITY / RELEASE-ELIGIBILITY CHECK")
     print("=" * 70)
 
-    with open('data/policy/benchmark_tri_series_high_coverage.json') as f:
-        data = json.load(f)
+    path = Path("data/policy/benchmark_tri_series_high_coverage.json")
+    with path.open(encoding="utf-8") as handle:
+        data = json.load(handle)
 
-    # Verify status
-    status = data.get('status')
-    print(f"\nTRI Fixture Status: {status}")
-    if status != 'VALIDATED — coverage above 95% minimum; passes TriProvenanceError coverage gate':
-        print("ERROR: TRI fixture status is not VALIDATED")
-        sys.exit(1)
-
-    # Verify coverage
-    nifty_500_points = data['coverage']['nifty_500_tri']['provided_data_points']
-    nifty_50_points = data['coverage']['nifty_50_tri']['provided_data_points']
-    nifty_500_coverage = data['coverage']['nifty_500_tri']['coverage_pct']
-    nifty_50_coverage = data['coverage']['nifty_50_tri']['coverage_pct']
-
-    print(f"Nifty 500 TRI points: {nifty_500_points}")
-    print(f"Nifty 50 TRI points: {nifty_50_points}")
-    print(f"Nifty 500 TRI coverage: {nifty_500_coverage}%")
-    print(f"Nifty 50 TRI coverage: {nifty_50_coverage}%")
-
-    if nifty_500_coverage < 95 or nifty_50_coverage < 95:
-        print("ERROR: Coverage below 95% threshold")
-        sys.exit(1)
-
-    # Verify checksums
-    print("\nVerifying checksums...")
-    for idx in ['NIFTY 500 TRI', 'NIFTY 50 TRI']:
-        levels = data['benchmarks'][idx]['levels']
-        computed = hashlib.sha256(json.dumps(levels, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
-        expected = data['provenance']['checksum_sha256_nifty_500_tri' if '500' in idx else 'checksum_sha256_nifty_50_tri']
-        if computed == expected:
-            print(f"{idx}: checksum VERIFIED")
+    provenance = data.get("provenance", {})
+    failures = []
+    for index_name, checksum_key in (
+        ("NIFTY 500 TRI", "checksum_sha256_nifty_500_tri"),
+        ("NIFTY 50 TRI", "checksum_sha256_nifty_50_tri"),
+    ):
+        levels = data.get("benchmarks", {}).get(index_name, {}).get("levels", {})
+        expected = str(provenance.get(checksum_key, ""))
+        computed = hashlib.sha256(
+            json.dumps(levels, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+        if not levels or computed != expected:
+            failures.append(f"{index_name}: levels checksum missing/mismatched")
         else:
-            print(f"ERROR: Checksum mismatch for {idx}")
-            print(f"  Expected: {expected}")
-            print(f"  Computed: {computed}")
-            sys.exit(1)
+            print(f"{index_name}: levels checksum matches ({len(levels)} observations)")
 
-    print("\nAll checksums VERIFIED")
-    print("=" * 70)
-    print("TRI PROVENANCE VERIFICATION PASSED")
-    print("=" * 70)
+    frequency = str(provenance.get("frequency", "")).strip().lower()
+    historical_url = str(provenance.get("historical_source_url", "") or "")
+    source_sha256 = str(provenance.get("source_document_sha256", "") or "")
+    calendar_path = Path("data/policy/nse_trading_calendar.json")
+    release_blockers = []
+    if not frequency.startswith("daily"):
+        release_blockers.append(f"series frequency is declared {provenance.get('frequency')!r}, not Daily")
+    if not historical_url.startswith("https://") or len(source_sha256) != 64:
+        release_blockers.append("historical TRI source document URL/SHA256 is not supplied")
+    if not calendar_path.exists():
+        release_blockers.append("independent NSE trading calendar file is absent")
 
-if __name__ == '__main__':
+    if failures:
+        print("\nINTEGRITY FAILURE:")
+        for failure in failures:
+            print(f"- {failure}")
+        sys.exit(1)
+
+    print("\nLevels-file integrity: PASS")
+    if release_blockers:
+        print("TRI alpha release eligibility: BLOCKED")
+        for blocker in release_blockers:
+            print(f"- {blocker}")
+        print("A matching levels checksum proves file integrity only; it does not prove source authenticity or exchange-calendar coverage.")
+        return
+
+    print("TRI alpha release eligibility: METADATA PRESENT — source authenticity still requires human verification")
+
+
+if __name__ == "__main__":
     main()
