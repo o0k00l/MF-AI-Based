@@ -10,7 +10,9 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import sys
+from datetime import date
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -44,28 +46,63 @@ def _safe_repo_file(relative: object, description: str) -> tuple[Path | None, st
 
 
 def verify_fixture(path: Path) -> list[str]:
+    """Verify fixture structure, observation values, declared counts and checksums."""
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         return [f"{path.relative_to(ROOT)}: unable to read valid JSON: {exc}"]
     provenance = data.get("provenance", {})
-    failures = []
-    for index_name, checksum_key in (
-        ("NIFTY 500 TRI", "checksum_sha256_nifty_500_tri"),
-        ("NIFTY 50 TRI", "checksum_sha256_nifty_50_tri"),
-    ):
-        levels = data.get("benchmarks", {}).get(index_name, {}).get("levels", {})
+    coverage = data.get("coverage", {})
+    benchmarks = data.get("benchmarks", {})
+    failures: list[str] = []
+    specs = (
+        ("NIFTY 500 TRI", "nifty_500_tri", "checksum_sha256_nifty_500_tri"),
+        ("NIFTY 50 TRI", "nifty_50_tri", "checksum_sha256_nifty_50_tri"),
+    )
+    for index_name, coverage_key, checksum_key in specs:
+        levels = benchmarks.get(index_name, {}).get("levels", {})
+        if not isinstance(levels, dict) or not levels:
+            failures.append(f"{path.relative_to(ROOT)}: {index_name}: levels must be a non-empty date/value object")
+            continue
         expected = str(provenance.get(checksum_key, ""))
         computed = _canonical_sha256(levels)
-        if not levels or computed != expected:
+        if len(expected) != 64 or computed.lower() != expected.lower():
             failures.append(
                 f"{path.relative_to(ROOT)}: {index_name}: checksum missing/mismatched; "
                 f"expected={expected or '<missing>'}; computed={computed}"
             )
-        else:
-            print(f"{path.relative_to(ROOT)}: {index_name}: levels checksum matches ({len(levels)} observations)")
+        for observation_date, raw_value in levels.items():
+            try:
+                parsed_date = date.fromisoformat(observation_date)
+            except (TypeError, ValueError):
+                failures.append(f"{path.relative_to(ROOT)}: {index_name}: invalid ISO date key {observation_date!r}")
+                break
+            if parsed_date.isoformat() != observation_date:
+                failures.append(f"{path.relative_to(ROOT)}: {index_name}: non-canonical date key {observation_date!r}")
+                break
+            if isinstance(raw_value, bool):
+                failures.append(f"{path.relative_to(ROOT)}: {index_name}: boolean TRI level at {observation_date}")
+                break
+            try:
+                number = float(raw_value)
+            except (TypeError, ValueError):
+                failures.append(f"{path.relative_to(ROOT)}: {index_name}: non-numeric TRI level at {observation_date}")
+                break
+            if not math.isfinite(number) or number <= 0:
+                failures.append(f"{path.relative_to(ROOT)}: {index_name}: invalid TRI level at {observation_date}")
+                break
+        dates = list(levels)
+        if dates != sorted(dates) or len(dates) != len(set(dates)):
+            failures.append(f"{path.relative_to(ROOT)}: {index_name}: dates must be sorted and unique")
+        declared_count = coverage.get(coverage_key, {}).get("provided_data_points")
+        if isinstance(declared_count, bool) or declared_count != len(levels):
+            failures.append(
+                f"{path.relative_to(ROOT)}: {index_name}: declared point count {declared_count!r} "
+                f"does not match observed count {len(levels)}"
+            )
+        if not failures:
+            print(f"{path.relative_to(ROOT)}: {index_name}: integrity checks passed ({len(levels)} observations)")
     return failures
-
 
 def _is_approved_official_url(value: object) -> bool:
     parsed = urlparse(value if isinstance(value, str) else "")
