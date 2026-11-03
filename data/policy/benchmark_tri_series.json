@@ -28,13 +28,13 @@
   "coverage": {
     "nifty_500_tri": {
       "expected_trading_days": null,
-      "provided_data_points": 75,
+      "provided_data_points": 48,
       "coverage_pct": null,
       "note": "Observation count is not a market-session coverage measure. Source authenticity and daily completeness are unverified."
     },
     "nifty_50_tri": {
       "expected_trading_days": null,
-      "provided_data_points": 22,
+      "provided_data_points": 17,
       "coverage_pct": null,
       "note": "Observation count is not a market-session coverage measure. Source authenticity and daily completeness are unverified."
     }
