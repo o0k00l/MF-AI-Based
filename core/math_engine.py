@@ -3083,6 +3083,7 @@ def qualifies_as_specified_mutual_fund_under_section_50AA(
     fy_start: date | None = None,
     fy_end: date | None = None,
     is_mld: bool = False,
+    snapshot_coverage_evidence: Optional[DailySnapshotCoverageEvidence] = None,
 ) -> ClassificationResult:
     """
     Section 50AA (Income-tax Act, 1961), applicable to transfers from
@@ -3160,6 +3161,41 @@ def qualifies_as_specified_mutual_fund_under_section_50AA(
             required_source="CAS transaction ledger or verified registrar transaction statement",
         )
 
+    if not (snapshots and fy_start and fy_end):
+        from core.models import InsufficientDataError
+        raise InsufficientDataError(
+            "Original Section 50AA classification requires annual-average daily closing equity observations.",
+            missing_data="daily domestic-equity portfolio-composition snapshots and financial-year boundaries",
+            required_source="Verified daily closing portfolio disclosures and complete expected-date coverage",
+        )
+    if fy_start != date(transfer_date.year if transfer_date.month >= 4 else transfer_date.year - 1, 4, 1):
+        from core.models import InsufficientDataError
+        raise InsufficientDataError(
+            "Section 50AA snapshots must cover the financial year in which the transfer occurs.",
+            missing_data="financial-year-aligned daily snapshots",
+            required_source="Verified daily closing portfolio-composition series",
+        )
+    expected_fy_end = date(fy_start.year + 1, 3, 31)
+    if fy_end != expected_fy_end:
+        from core.models import InsufficientDataError
+        raise InsufficientDataError(
+            "Section 50AA snapshots must end on 31 March of the transfer financial year.",
+            missing_data="complete financial-year daily snapshots",
+            required_source="Verified daily closing portfolio-composition series",
+        )
+    validate_daily_snapshot_coverage(snapshots, fy_start, fy_end, snapshot_coverage_evidence)
+    annual_average_equity = compute_annual_average_daily_closing(
+        snapshots, fy_start, fy_end, "equity_pct"
+    )
+    if annual_average_equity is None:
+        from core.models import InsufficientDataError
+        raise InsufficientDataError(
+            "Section 50AA annual-average daily closing equity could not be computed.",
+            missing_data="valid daily domestic-equity observations",
+            required_source="Verified daily closing portfolio-composition series",
+        )
+    effective_equity = annual_average_equity
+
     if acquisition_date < date(2023, 4, 1):
         return ClassificationResult(
             qualifies=False,
@@ -3178,23 +3214,16 @@ def qualifies_as_specified_mutual_fund_under_section_50AA(
             is_mld=False,
         )
 
-    try:
-        effective_equity = float(equity_pct)
-    except (TypeError, ValueError) as exc:
-        raise ValueError("Section 50AA domestic-equity percentage must be numeric") from exc
-    if not math.isfinite(effective_equity) or not 0.0 <= effective_equity <= 100.0:
-        raise ValueError("Section 50AA domestic-equity percentage must be finite and between 0 and 100")
-
     qualifies = effective_equity <= 35.0
     return ClassificationResult(
         qualifies=qualifies,
         provision="Section 50AA",
         effective_date=transfer_date,
         threshold=35.0,
-        calculation_method="original_domestic_equity_threshold",
-        source_data_status="complete",
+        calculation_method="annual_average_daily_closing_domestic_equity",
+        source_data_status="verified_daily_coverage",
         reason=(
-            f"Domestic equity {effective_equity:.2f}% "
+            f"Annual-average daily closing domestic equity {effective_equity:.2f}% "
             f"{'<= 35% (specified mutual fund)' if qualifies else '> 35% (not specified)'} "
             "under the original Section 50AA definition applicable through 31 March 2026"
         ),
