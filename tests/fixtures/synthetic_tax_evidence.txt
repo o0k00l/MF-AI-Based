@@ -1,0 +1,3 @@
+SYNTHETIC TEST FIXTURE ONLY
+This file is not an AMC factsheet, scheme portfolio disclosure, or statutory evidence.
+It exists solely to test SHA-256 verification of local source bytes.
