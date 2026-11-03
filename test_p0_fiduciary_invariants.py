@@ -318,11 +318,18 @@ def test_p0_3_all_10_binary_eligibility_gates():
     print("[PASS] P0.3 All 10 Binary Eligibility Gates Verified")
 
 
-def test_p0_4_candidate_universe_and_no_action_branch():
-    """Verifies candidate universe ingestion and that the NO ACTION branch is properly triggered."""
-    metrics_path = Path("data/lalit_portfolio/fund_metrics.json")
+def test_p0_4_candidate_universe_and_no_action_branch(tmp_path):
+    """Verifies candidate universe ingestion from a synthetic fixture and NO ACTION branch."""
+    metrics_path = tmp_path / "fund_metrics.json"
+    metrics_path.write_text(json.dumps({"funds": [
+        {"id": "synthetic-core-1", "name": "Synthetic Core Direct", "category": "Large Cap",
+         "aum_crore": 5000, "aum_stable": True, "return_1y": 12.0, "return_3y": 14.0,
+         "return_6m": 6.0, "alpha_3y": 2.0, "sharpe_3y": 1.0, "ter_direct_pct": 0.5,
+         "manager_tenure_years": 5.0, "track_record_years": 10.0}
+    ]}), encoding="utf-8")
     candidates = load_candidate_universe(metrics_path)
-    assert len(candidates) > 0, "Candidate universe should load funds from metrics"
+    assert len(candidates) == 1
+    assert candidates[0]["fund_id"] == "synthetic-core-1"
 
     # Test NO ACTION triggered when no candidate offers improvement
     no_act = evaluate_no_action(
@@ -431,40 +438,48 @@ def test_p0_5_fiduciary_personal_redemption_engine():
 
 
 
-def test_p0_6_multi_horizon_selection_and_peer_evaluation():
+def test_p0_6_multi_horizon_selection_and_peer_evaluation(tmp_path):
     """
-    Verifies that the autonomous fund selection engine incorporates multi-horizon metrics
-    (1-year return, 6-month trend, 3-year CAGR, Sharpe, TER) and dynamically selects the
-    top-performing candidate while rejecting underperforming peers.
-    Specifically tests Healthcare / Pharma peer selection across ICICI, Mirae, Tata, and Nippon.
+    Verifies multi-horizon scoring on synthetic Healthcare/Pharma peer data.
+    No real-client fund metrics are required by this unit test.
     """
     from core.math_engine import compute_multi_horizon_fiduciary_score, select_autonomous_blueprint_funds
-    from core.eligibility import load_candidate_universe
 
-    metrics_path = Path("data/lalit_portfolio/fund_metrics.json")
+    metrics_path = tmp_path / "fund_metrics.json"
+    def peer(fid, name, ret_1y, ret_6m, ret_3y, alpha, sharpe, ter, downside, upside):
+        return {
+            "id": fid, "name": name, "category": "Thematic", "aum_crore": 5000,
+            "aum_stable": True, "top10_concentration_pct": 45.0,
+            "single_sector_weight_pct": 30.0, "sharpe_3y": sharpe, "sharpe_1y": sharpe,
+            "alpha_3y": alpha, "return_1y": ret_1y, "return_6m": ret_6m,
+            "return_3y": ret_3y, "ter_direct_pct": ter, "downside_capture_ratio": downside,
+            "upside_capture_ratio": upside, "riskometer_score": 6,
+            "manager_tenure_years": 5.0, "track_record_years": 10.0,
+            "composite_score": 70.0, "mandate_suitable": True, "data_complete": True,
+            "is_passive": False,
+        }
+    metrics_path.write_text(json.dumps({"funds": [
+        peer("SYNTH-HEALTH-A", "Synthetic Health A Direct", 49.4, 22.0, 24.0, 10.0, 1.4, 0.89, 85.0, 125.0),
+        peer("SYNTH-HEALTH-B", "Synthetic Health B Direct", 45.0, 18.0, 22.0, 8.0, 1.2, 0.90, 88.0, 120.0),
+        peer("SYNTH-HEALTH-C", "Synthetic Health C Direct", 40.0, 14.0, 18.0, 5.0, 1.0, 0.95, 92.0, 115.0),
+        peer("SYNTH-HEALTH-D", "Synthetic Health D Direct", 35.2, 10.0, 15.0, 2.0, 0.8, 0.99, 98.0, 105.0),
+    ]}), encoding="utf-8")
     candidates = load_candidate_universe(metrics_path)
+    pharma_cands = {item["fund_id"]: item for item in candidates}
+    assert len(pharma_cands) == 4
 
-    pharma_cands = {c["fund_id"]: c for c in candidates if "health" in c["fund_name"].lower() or "pharma" in c["fund_name"].lower()}
-    assert "ICICI Healthcare Direct" in pharma_cands, "ICICI Healthcare must be in candidate universe"
-    assert "Mirae Healthcare Direct" in pharma_cands, "Mirae Healthcare must be in candidate universe"
-    assert "Tata Pharma Direct" in pharma_cands, "Tata Pharma must be in candidate universe"
-    assert "Nippon Pharma Direct" in pharma_cands, "Nippon Pharma must be in candidate universe"
+    best = pharma_cands["SYNTH-HEALTH-A"]
+    second = pharma_cands["SYNTH-HEALTH-B"]
+    worst = pharma_cands["SYNTH-HEALTH-D"]
+    score_best = compute_multi_horizon_fiduciary_score(best)
+    score_second = compute_multi_horizon_fiduciary_score(second)
+    score_worst = compute_multi_horizon_fiduciary_score(worst)
+    assert score_best > score_worst
+    assert score_second > score_worst
+    assert best["return_1y"] > worst["return_1y"]
+    assert best["ter_direct_pct"] < worst["ter_direct_pct"]
 
-    icici = pharma_cands["ICICI Healthcare Direct"]
-    mirae = pharma_cands["Mirae Healthcare Direct"]
-    nippon = pharma_cands["Nippon Pharma Direct"]
-
-    score_icici = compute_multi_horizon_fiduciary_score(icici)
-    score_mirae = compute_multi_horizon_fiduciary_score(mirae)
-    score_nippon = compute_multi_horizon_fiduciary_score(nippon)
-
-    # ICICI and Mirae decisively outperform Nippon on multi-horizon quantitative metrics
-    assert score_icici > score_nippon, f"ICICI ({score_icici}) must outperform Nippon ({score_nippon})"
-    assert score_mirae > score_nippon, f"Mirae ({score_mirae}) must outperform Nippon ({score_nippon})"
-    assert icici["return_1y"] > nippon["return_1y"], "ICICI 1Y return (49.4%) exceeds Nippon (35.2%)"
-    assert icici["ter_direct_pct"] < nippon["ter_direct_pct"], "ICICI Direct TER (0.89%) lower than Nippon (0.99%)"
-
-    # Verify blueprint selection dynamically routes to the highest multi-horizon scorer (ICICI)
+    # Without verified client-specific candidates, the tactical slot must remain NO_ACTION.
     slots = select_autonomous_blueprint_funds(holdings=[], client_risk_tier=6, thematic_deficit_theme="Pharma")
     slot4 = slots["Slot 4: Tactical Thematic Satellite"]
     assert "NO_ACTION" in slot4["scheme"], f"Missing fiduciary metadata must fail closed, got {slot4['scheme']}"
