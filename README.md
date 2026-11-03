@@ -104,6 +104,8 @@ A matching checksum verifies the integrity of a local file against its stated ch
 
 ## Production release gates
 
+The detailed, auditable release criteria are maintained in [PRODUCTION_RELEASE_CHECKLIST.md](PRODUCTION_RELEASE_CHECKLIST.md). Client-data exposure and GitHub branch-control remediation are documented in [SECURITY_DATA_HANDLING.md](SECURITY_DATA_HANDLING.md).
+
 Production approval requires all of the following against one exact release commit:
 
 1. All P0 and correctness regression suites pass, with no unexplained skips.
