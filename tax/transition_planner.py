@@ -357,47 +357,23 @@ def _find_matching_folios_for_fund(
     available_lots_keys: set[str],
     aliases: dict[str, list[str]]
 ) -> list[str]:
+    """Resolve folios only through exact IDs or exact normalized aliases."""
     import re
-    # 1. Exact map lookup
-    matching = [folio for folio, fid in folio_to_fund_id.items() if fid == fund_id]
-    valid_matching = [f for f in matching if f in available_lots_keys]
-    if valid_matching:
-        return valid_matching
 
-    # 2. Direct key in available_lots_keys
+    def normalize(value: str) -> str:
+        return re.sub(r"[^a-z0-9]", "", str(value or "").casefold())
+
+    direct = [folio for folio, mapped_id in folio_to_fund_id.items() if mapped_id == fund_id and folio in available_lots_keys]
+    if direct:
+        return sorted(set(direct))
     if fund_id in available_lots_keys:
         return [fund_id]
 
-    # 3. Alias lookup
-    fund_aliases = aliases.get(fund_id, [])
-    for alias in fund_aliases:
-        alias_clean = alias.strip().lower()
-        for k in available_lots_keys:
-            if alias_clean in k.lower() or k.lower() in alias_clean:
-                return [k]
-        for folio, fid in folio_to_fund_id.items():
-            if alias_clean in folio.lower() or folio.lower() in alias_clean:
-                if folio in available_lots_keys:
-                    return [folio]
-
-    # 4. Token-based / Levenshtein / substring fallback
-    stop = {"fund", "plan", "growth", "direct", "regular", "option", "mutual", "scheme", "index"}
-    fid_tokens = {w.lower() for w in re.split(r"\W+", fund_id) if w and w.lower() not in stop}
-    
-    if fid_tokens:
-        best_key = None
-        best_overlap = 0
-        for k in available_lots_keys:
-            k_tokens = {w.lower() for w in re.split(r"\W+", k) if w and w.lower() not in stop}
-            overlap = len(fid_tokens & k_tokens)
-            if overlap > best_overlap:
-                best_overlap = overlap
-                best_key = k
-        if best_key and best_overlap >= min(2, len(fid_tokens)):
-            return [best_key]
-
-    return matching
-
+    alias_keys = {normalize(alias) for alias in aliases.get(fund_id, []) if normalize(alias)}
+    matches = [folio for folio in available_lots_keys if normalize(folio) in alias_keys]
+    if matches:
+        return sorted(set(matches))
+    return []
 
 def match_lots_to_manifest(
     manifest_sells: list[dict],
@@ -414,33 +390,46 @@ def match_lots_to_manifest(
     Supports alias lookup, token-sort similarity, and rebranded scheme resolution
     (GAP-206) so rebranded/renamed holdings are never orphaned.
     """
+    import math
+
     plans: dict[str, FundSellPlan] = {}
     aliases = _load_fund_aliases()
     available_lots_keys = set(lots_by_folio.keys())
-    
+
     for sell in manifest_sells:
-        fund_id = sell.get("fund_id", "")
-        amount = float(sell.get("amount", 0))
-        if amount <= 0:
-            continue
-        
-        # Robust multi-level lookup
+        fund_id = str(sell.get("fund_id", "") or "").strip()
+        if not fund_id:
+            raise ValueError("Manifest SELL row is missing fund_id")
+        try:
+            amount = float(sell.get("amount"))
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"Manifest SELL amount is invalid for {fund_id}") from exc
+        if not math.isfinite(amount) or amount <= 0:
+            raise ValueError(f"Manifest SELL amount must be finite and positive for {fund_id}")
+
         matching_folios = _find_matching_folios_for_fund(
             fund_id, folio_to_fund_id, available_lots_keys, aliases
         )
-        
+        if not matching_folios:
+            raise ValueError(
+                f"No exact folio/alias match for manifest SELL fund {fund_id!r}; refusing fuzzy matching or silent omission."
+            )
+
         plan = FundSellPlan(fund_id=fund_id, total_amount=amount)
-        
+        seen_lots = set()
         for folio in matching_folios:
-            if folio in lots_by_folio:
-                for lot in lots_by_folio[folio]:
-                    # Tag the lot with the correct fund_id
-                    lot.fund_id = fund_id
-                    plan.add_lot(lot)
-        
-        if plan.lots:
-            plans[fund_id] = plan
-    
+            for lot in lots_by_folio[folio]:
+                identity = (folio, lot.purchase_date, lot.units, lot.cost)
+                if identity in seen_lots:
+                    continue
+                seen_lots.add(identity)
+                lot.fund_id = fund_id
+                plan.add_lot(lot)
+
+        if not plan.lots:
+            raise ValueError(f"Exact folio match for {fund_id!r} contains no verified tax lots")
+        plans[fund_id] = plan
+
     return plans
 
 
