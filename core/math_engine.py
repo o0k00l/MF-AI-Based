@@ -595,8 +595,14 @@ def calculate_cashflow_matched_benchmark_xirr(
         try:
             txn_date = datetime.strptime(d_str[:10], "%Y-%m-%d").date()
             amount = float(txn.get("amount", 0))
-            txn_type = txn.get("type", "").upper()
-            desc = txn.get("description", "").lower()
+            txn_type = str(txn.get("type", "")).upper().strip()
+            allowed_types = {
+                "PURCHASE", "SIP", "REDEMPTION", "SWP", "DIVIDEND",
+                "DIVIDEND_REINVEST", "SWITCH_IN", "SWITCH_OUT", "STP_IN", "STP_OUT",
+            }
+            if txn_type not in allowed_types:
+                raise ValueError(f"unsupported transaction type {txn_type!r}")
+            desc = str(txn.get("description", "")).lower()
             folio = txn.get("folio", "") or txn.get("folio_number", "") or ""
             scheme = txn.get("scheme", "") or txn.get("fund", "") or ""
             if amount == 0:
@@ -606,7 +612,8 @@ def calculate_cashflow_matched_benchmark_xirr(
             
             # SWITCH/STP: internal portfolio transfers — net to zero
             if txn_type in ("SWITCH_IN", "SWITCH_OUT", "STP_IN", "STP_OUT"):
-                key = (txn_date, abs(amount), folio, scheme)
+                # Pair both legs across source/target schemes; scheme names differ by design.
+                key = (txn_date, abs(amount), folio)
                 if key not in switch_stp_by_key:
                     switch_stp_by_key[key] = {"in": 0.0, "out": 0.0}
                 if txn_type in ("SWITCH_IN", "STP_IN"):
