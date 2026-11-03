@@ -44,14 +44,17 @@ def cas_data_available():
     return len(cas_files) > 0
 
 
-# Helper function to safely get CAS paths (for tests that require real data)
-def get_cas_paths_or_skip():
-    """Get CAS data paths or raise pytest skip if not available."""
+def _get_portfolio_paths_or_skip():
+    """Return local portfolio paths or skip tests requiring private CAS data."""
     from advisor import get_default_paths
+
     try:
         return get_default_paths()
-    except FileNotFoundError as e:
-        pytest.skip(str(e))
+    except FileNotFoundError as exc:
+        pytest.skip(
+            "Requires a local private CAS Excel statement; no investor data is "
+            f"committed to CI ({exc})"
+        )
 
 
 def test_p0_1_universal_4_slot_sizing_invariant():
@@ -344,7 +347,7 @@ def test_p0_5_fiduciary_personal_redemption_engine():
     if not (Path(__file__).parent / "data" / "lalit_portfolio").exists():
         pytest.skip("CAS Excel statements not available - integration test skipped")
 
-    cas, metrics, config, aliases, _ = get_cas_paths_or_skip()
+    cas, metrics, config, aliases, _ = _get_portfolio_paths_or_skip()
     facts = aggregate_fiduciary_facts(cas, metrics, config, aliases)
     tx_path = cas.parent.parent / "transactions.json"
     if not tx_path.exists():
@@ -832,7 +835,7 @@ def test_p0_11_candidate_specific_lookthrough_overlap():
     if not (Path(__file__).parent / "data" / "lalit_portfolio").exists():
         pytest.skip("CAS Excel statements not available - integration test skipped")
 
-    cas, metrics_p, config, aliases, _ = get_cas_paths_or_skip()
+    cas, metrics_p, config, aliases, _ = _get_portfolio_paths_or_skip()
     facts = aggregate_fiduciary_facts(cas, metrics_p, config, aliases)
 
     with open(metrics_p, "r", encoding="utf-8") as f:
@@ -1045,7 +1048,7 @@ def test_p0_15_runtime_mandate_hold_enforcement():
     if not (Path(__file__).parent / "data" / "lalit_portfolio").exists():
         pytest.skip("CAS Excel statements not available - integration test skipped")
 
-    cas, metrics, config, aliases, _ = get_cas_paths_or_skip()
+    cas, metrics, config, aliases, _ = _get_portfolio_paths_or_skip()
     facts = aggregate_fiduciary_facts(cas, metrics, config, aliases)
 
     assert facts.mandate_state == MandateExecutionState.HOLD_PENDING_TRI_VALIDATION
