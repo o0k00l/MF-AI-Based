@@ -1,8 +1,10 @@
 # ==============================================================================
 # Fiduciary Recommendation Engine - Unified Python Dependencies
 # ==============================================================================
-# Authoritative runtime and test dependencies for the Fiduciary Engine.
-# Versions are pinned to verified working baselines.
+# Human-maintained dependency input constraints for development and CI.
+# This is NOT a complete lockfile: several direct and transitive versions are open.
+# Production release must use a reviewed, hash-locked requirements.lock generated
+# using the procedure in DEPENDENCY_LOCKING.md.
 # ==============================================================================
 
 # --- Core Data Ingestion & CAS Statement Parsers ---
