@@ -91,7 +91,7 @@ A release is assessed against one exact commit SHA. Evidence from older commits,
 - [ ] Clean checkout produces the same test results and report schemas.
 - [ ] Runtime and development dependencies are fully resolved and locked, including transitive dependencies and hashes. `requirements.txt` is only an input constraints file; production installs must use a reviewed `requirements.lock` with hashes.
 - [ ] Supported Python version and runtime platform are pinned and verified.
-- [ ] Static analysis, formatting, type checking, dependency vulnerability review and secret scanning pass.
+- [ ] Static analysis, formatting, type checking, dependency vulnerability review (`pip-audit`), secret scanning and an independent SBOM review pass. GitHub Dependency Review is currently unsupported until repository security settings are enabled.
 - [ ] Software bill of materials and release artifact digest are retained.
 
 **Current status:** The CI workflow is being split so independent suites report separately. No current-branch workflow result has yet been used to approve this release. `requirements.lock` is not yet present; the tag release workflow intentionally refuses to proceed without it.
