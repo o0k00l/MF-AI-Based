@@ -229,6 +229,7 @@ class DeterministicLumpsumPlan(BaseModel):
         return self
 
     total_lumpsum_inr: float
+    unallocated_amount_inr: float = 0.0
     is_big_ticket: bool
     stp_duration_months: int
     immediate_amount_inr: float
