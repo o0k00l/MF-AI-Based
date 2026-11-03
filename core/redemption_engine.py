@@ -34,7 +34,7 @@ from core.models import (
     RedemptionTrancheItem,
     PersonalRedemptionPlan,
 )
-from tax.transition_planner import load_transactions, Lot
+from tax.transition_planner import load_transactions, Lot, load_tax_rules
 
 
 def classify_holding_liquidation_priority(
@@ -187,11 +187,34 @@ def compute_personal_redemption_plan(
     holdings: List[HoldingItem],
     transactions_path: Optional[Path] = None,
     is_net_cash: bool = False,
-    ltcg_exemption_remaining: float = 125000.0,
+    ltcg_exemption_remaining: Optional[float] = None,
     as_of_date: Optional[date] = None,
     client_risk_tier_num: int = 6,
     fund_metrics_dict: Optional[Dict[str, Any]] = None,
+    tax_rules_path: Optional[Path] = None,
 ) -> PersonalRedemptionPlan:
+    # Defensive guard for empty holdings
+    if not holdings:
+        return PersonalRedemptionPlan(
+            requested_amount_inr=round(requested_amount, 2),
+            ticket_category="NO_HOLDINGS",
+            ticket_rationale="No holdings provided for redemption planning.",
+            is_net_cash_target=is_net_cash,
+            total_gross_redeemed_inr=0.0,
+            total_exit_load_inr=0.0,
+            total_realized_gain_loss_inr=0.0,
+            total_stcg_tax_inr=0.0,
+            total_ltcg_tax_inr=0.0,
+            total_tax_sheltered_under_112a_inr=0.0,
+            total_net_tax_inr=0.0,
+            total_net_cash_inr=0.0,
+            total_annual_commission_saved_inr=0.0,
+            funds_liquidated_count=0,
+            full_folio_exits_count=0,
+            tranches=[],
+            execution_steps=["No holdings available for redemption."],
+            fiduciary_safeguards=["Redemption planner requires holdings data."],
+        )
     """
     Computes an optimal, deterministic Personal Cash Redemption Plan:
     - 4-Tier Liquidation Waterfall
@@ -203,6 +226,22 @@ def compute_personal_redemption_plan(
     """
     if requested_amount <= 0:
         raise ValueError(f"Requested redemption amount must be positive. Received: {requested_amount}")
+
+    # Load tax rules from policy
+    tax_rules = {}
+    if tax_rules_path and tax_rules_path.exists():
+        tax_rules = load_tax_rules(tax_rules_path)
+    
+    # Extract tax parameters from policy (with fallbacks)
+    ltcg_rate = tax_rules.get("ltcg_rate", 0.125)
+    stcg_rate = tax_rules.get("stcg_rate", 0.20)
+    ltcg_exemption = tax_rules.get("ltcg_exemption", 125000.0)
+    cess_rate = tax_rules.get("cess", {}).get("health_education_cess_pct", 4.0) / 100.0
+    cess_multiplier = 1.0 + cess_rate
+    exit_load_pct = tax_rules.get("exit_load_pct", 1.0)
+
+    # Use provided exemption or fall back to tax rules
+    current_ltcg_exemption = ltcg_exemption_remaining if ltcg_exemption_remaining is not None else ltcg_exemption
 
     eval_date = as_of_date or date.today()
 
@@ -288,7 +327,6 @@ def compute_personal_redemption_plan(
     # If is_net_cash is requested, we track net cash realized and adjust
     tranches: List[RedemptionTrancheItem] = []
     remaining_cash_needed = requested_amount
-    current_ltcg_exemption = ltcg_exemption_remaining
     accumulated_loss_pool = 0.0
 
     total_gross = 0.0
@@ -325,8 +363,8 @@ def compute_personal_redemption_plan(
             if gain_ratio <= 0 or current_ltcg_exemption >= (mat_val - mat_cost):
                 gross_take = min(mat_val, remaining_cash_needed)
             else:
-                # Taxable at 12.5%
-                tax_drag_rate = 0.125 * gain_ratio
+                # Taxable at LTCG rate with cess
+                tax_drag_rate = ltcg_rate * cess_multiplier * gain_ratio
                 gross_needed = remaining_cash_needed / (1.0 - tax_drag_rate) if tax_drag_rate < 0.99 else remaining_cash_needed
                 gross_take = min(mat_val, gross_needed)
 
@@ -353,11 +391,12 @@ def compute_personal_redemption_plan(
             accumulated_loss_pool -= offset
             gain_after_loss = gain - offset
 
-            # Apply Section 112A ₹1.25L annual exemption
+            # Apply Section 112A LTCG annual exemption
             sheltered = min(current_ltcg_exemption, gain_after_loss)
             current_ltcg_exemption -= sheltered
             taxable_ltcg = gain_after_loss - sheltered
-            ltcg_tax = taxable_ltcg * 0.125
+            ltcg_tax = taxable_ltcg * ltcg_rate * cess_multiplier
+            # Mature lots are always long-term (>365 days), so no STCG
 
         net_tax = stcg_tax + ltcg_tax
         net_cash = gross_amount - exit_load - net_tax

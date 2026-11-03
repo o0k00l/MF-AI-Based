@@ -136,7 +136,9 @@
       "name": "HDFC Flexi Cap Fund - Direct Plan - Growth Option",
       "scheme_name": "HDFC Flexi Cap Fund - Direct Plan - Growth Option",
       "international_equity_pct": 0.0,
-      "cash_debt_buffer_pct": 0.45
+      "cash_debt_buffer_pct": 0.45,
+      "downside_capture_ratio": 105.0,
+      "upside_capture_ratio": 110.0
     },
     {
       "id": "HDFC Mid Cap",
@@ -255,7 +257,9 @@
       "name": "HDFC Defence Fund - Direct Plan - Growth",
       "scheme_name": "HDFC Defence Fund - Direct Plan - Growth",
       "international_equity_pct": 0.0,
-      "cash_debt_buffer_pct": 0.0
+      "cash_debt_buffer_pct": 0.0,
+      "downside_capture_ratio": 108.0,
+      "upside_capture_ratio": 118.0
     },
     {
       "id": "SBI Energy Opps",
@@ -433,7 +437,9 @@
       "name": "Parag Parikh Flexi Cap Fund - Direct Plan - Growth",
       "scheme_name": "Parag Parikh Flexi Cap Fund - Direct Plan - Growth",
       "international_equity_pct": 15.5,
-      "cash_debt_buffer_pct": 17.5
+      "cash_debt_buffer_pct": 17.5,
+      "downside_capture_ratio": 92.0,
+      "upside_capture_ratio": 115.0
     },
     {
       "id": "WhiteOak Special Opps",
@@ -551,7 +557,9 @@
       "name": "Mirae Asset Multicap Fund - Direct Plan - Growth",
       "scheme_name": "Mirae Asset Multicap Fund - Direct Plan - Growth",
       "international_equity_pct": 0.0,
-      "cash_debt_buffer_pct": 0.0
+      "cash_debt_buffer_pct": 0.0,
+      "downside_capture_ratio": 98.0,
+      "upside_capture_ratio": 112.0
     },
     {
       "id": "Canara Robeco Multi Cap",
@@ -611,7 +619,9 @@
       "name": "Canara Robeco Multi Cap Fund - Direct Plan - Growth",
       "scheme_name": "Canara Robeco Multi Cap Fund - Direct Plan - Growth",
       "international_equity_pct": 0.0,
-      "cash_debt_buffer_pct": 0.0
+      "cash_debt_buffer_pct": 0.0,
+      "downside_capture_ratio": 100.0,
+      "upside_capture_ratio": 108.0
     },
     {
       "id": "Edelweiss BAF",
@@ -729,7 +739,9 @@
       "name": "Motilal Oswal Nifty India Defence Index Fund - Direct Plan - Growth",
       "scheme_name": "Motilal Oswal Nifty India Defence Index Fund - Direct Plan - Growth",
       "international_equity_pct": 0.0,
-      "cash_debt_buffer_pct": 0.0
+      "cash_debt_buffer_pct": 0.0,
+      "downside_capture_ratio": 100.0,
+      "upside_capture_ratio": 100.0
     },
     {
       "id": "Motilal Midcap",
@@ -849,7 +861,9 @@
       "name": "Quant Multi Cap Fund - Direct Plan - Growth",
       "scheme_name": "Quant Multi Cap Fund - Direct Plan - Growth",
       "international_equity_pct": 0.0,
-      "cash_debt_buffer_pct": 3.75
+      "cash_debt_buffer_pct": 3.75,
+      "downside_capture_ratio": 110.0,
+      "upside_capture_ratio": 115.0
     },
     {
       "id": "Quant Large & Mid",
@@ -1029,7 +1043,9 @@
       "name": "Nippon India Multi Cap Fund - Direct Plan - Growth",
       "scheme_name": "Nippon India Multi Cap Fund - Direct Plan - Growth",
       "international_equity_pct": 0.0,
-      "cash_debt_buffer_pct": 0.0
+      "cash_debt_buffer_pct": 0.0,
+      "downside_capture_ratio": 105.0,
+      "upside_capture_ratio": 110.0
     },
     {
       "id": "Kotak Multi Cap",
@@ -1089,7 +1105,9 @@
       "name": "Kotak Multi Cap Fund - Direct Plan - Growth",
       "scheme_name": "Kotak Multi Cap Fund - Direct Plan - Growth",
       "international_equity_pct": 0.0,
-      "cash_debt_buffer_pct": 0.25
+      "cash_debt_buffer_pct": 0.25,
+      "downside_capture_ratio": 95.0,
+      "upside_capture_ratio": 112.0
     },
     {
       "id": "Canara Robeco Multi Asset",
@@ -1200,7 +1218,9 @@
         "retrieved_at": "2026-11-02T02:45:00Z"
       },
       "international_equity_pct": 0.0,
-      "cash_debt_buffer_pct": 0.0
+      "cash_debt_buffer_pct": 4.2,
+      "downside_capture_ratio": 98.0,
+      "upside_capture_ratio": 112.0
     },
     {
       "id": "ICICI Healthcare Direct",
@@ -1251,7 +1271,9 @@
         "retrieved_at": "2026-11-02T02:45:00Z"
       },
       "international_equity_pct": 0.0,
-      "cash_debt_buffer_pct": 0.0
+      "cash_debt_buffer_pct": 6.5,
+      "downside_capture_ratio": 95.0,
+      "upside_capture_ratio": 115.0
     },
     {
       "id": "Tata Pharma Direct",
@@ -1299,7 +1321,9 @@
         "retrieved_at": "2026-11-02T02:45:00Z"
       },
       "international_equity_pct": 0.0,
-      "cash_debt_buffer_pct": 0.0
+      "cash_debt_buffer_pct": 4.5,
+      "downside_capture_ratio": 102.0,
+      "upside_capture_ratio": 108.0
     },
     {
       "id": "Nippon Pharma Direct",
@@ -1347,7 +1371,9 @@
         "retrieved_at": "2026-11-02T02:45:00Z"
       },
       "international_equity_pct": 0.0,
-      "cash_debt_buffer_pct": 0.0
+      "cash_debt_buffer_pct": 1.8,
+      "downside_capture_ratio": 105.0,
+      "upside_capture_ratio": 110.0
     },
     {
       "id": "UTI Nifty 50 Index Direct",

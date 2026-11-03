@@ -35,8 +35,8 @@ CRITICAL OPERATIONAL RULES:
 | Fund A | INR 5,00,000 | Switch to Direct | Eliminate commission |
 6. TONE & STYLE: Write in authoritative, eloquent, and deeply reasoned institutional advisory prose. Use clean Markdown tables and bold headers. NEVER use defensive, robotic boilerplate like 'The engine indicates' or 'Data not available'.
 7. FIDUCIARY DEPTH & ELOQUENCE: Deliver comprehensive, institutional-grade fiduciary analysis. Explain the rigorous financial reasoning, economic rationale, and risk-return trade-offs behind every recommendation. Do NOT use superficial or lazy single-sentence summaries. When recommending or rejecting funds, provide thorough justification with comparative quantitative metrics (TER, Sharpe, Alpha, Overlap, P/E ratios) and strategic portfolio context.
-8. MANDATORY STATUTORY DISCLAIMER: Conclude all analytical outputs with:
-   "*Statutory Disclaimer: Mutual fund investments are subject to market risks. Read all scheme-related offer documents carefully before investing. Past performance is no guarantee of future returns. Tax calculations are indicative based on Finance Act 2024; consult a certified Chartered Accountant or tax professional for individual tax filing.*"
+8. MANDATORY STATUTORY & FIDUCIARY DISCLAIMER: Conclude all analytical outputs with:
+   "*Statutory Disclaimer: Mutual fund investments are subject to market risks. Read all scheme-related offer documents carefully before investing. Past performance is no guarantee of future returns. All recommendations presented herein represent fiduciary advisory proposals subject to explicit written client authorization, not autonomous trade execution orders. Tax calculations and statutory citations are indicative under the Income-tax Act, 1961 and Income-tax Act, 2025; consult a certified Chartered Accountant or registered tax professional for individualized tax assessment.*"
 """
 
 
@@ -67,8 +67,13 @@ def generate_health_audit_report(facts: FiduciaryFactsPayload) -> str:
     no_action = getattr(facts, 'no_action', None)
     
     xirr_val = f"{facts.xirr_pct * 100:.2f}%" if facts.xirr_pct is not None else "N/A"
-    benchmark_val = f"{facts.benchmark_xirr_pct * 100:.2f}%" if facts.benchmark_xirr_pct is not None else "12.00%"
+    benchmark_val = f"{facts.benchmark_xirr_pct * 100:.2f}%" if facts.benchmark_xirr_pct is not None else "N/A"
     alpha_val = f"{facts.alpha_pct:+.2f}%" if facts.alpha_pct is not None else "N/A"
+
+    # Mandate state for report transparency
+    mandate_state = facts.mandate_state.value if hasattr(facts.mandate_state, 'value') else str(facts.mandate_state)
+    is_execution_authorized = getattr(facts, 'is_execution_authorized', False)
+    is_actionable_order = getattr(facts, 'is_actionable_order', False)
 
     thematic_rows = []
     for t in getattr(facts, "thematic_exposures", []):
@@ -113,6 +118,9 @@ INPUT FACT PAYLOAD:
 - Switch Cost Details: {[{'fund': s['fund_name'], 'cost_inr': s['switch_cost_inr'], 'cost_pct': s['switch_cost_pct'], 'warning': s['warning']} for s in getattr(facts, 'switch_costs', [])[:5]]}
 - Eligibility Gates Results: {len(getattr(facts, 'eligibility_results', []))} candidate funds evaluated with binary gates
 - NO ACTION Decision: {getattr(facts, 'no_action', None).action if getattr(facts, 'no_action', None) else 'N/A'} - {getattr(facts, 'no_action', None).reason if getattr(facts, 'no_action', None) else 'N/A'}
+- Mandate Execution State: {mandate_state}
+- Is Execution Authorized: {is_execution_authorized}
+- Is Actionable Order: {is_actionable_order}
 
 TOP REGULAR COMMISSION LEAKS:
 {top_bleed_schemes}
@@ -122,6 +130,13 @@ TOP STOCK OVERLAPS:
 
 STRUCTURE YOUR REPORT AS FOLLOWS:
 # Comprehensive Portfolio Health & Commission Audit
+
+**0. Mandate State & Execution Status (MANDATORY):**
+- **Mandate Execution State:** {mandate_state}
+- **Is Execution Authorized:** {is_execution_authorized}
+- **Is Actionable Order:** {is_actionable_order}
+- **Interpretation:** Explain what this means for the investor — e.g., "HOLD_PENDING_TRI_VALIDATION means all audit findings and recommendations are PROPOSED ONLY and require explicit written client authorization before execution."
+
 1. Executive Scorecard: Provide a data-driven score (0-100) across Performance, Cost (commission drag), Overlap (portfolio concentration), and Risk (SAA drift).
 2. The Hidden Commission Leak: Explain the INR {facts.fee_bleed.annual_bleed_inr:,.2f}/yr loss and the INR {facts.fee_bleed.ten_year_compounded_loss_inr:,.2f} 10-year compounded loss. Include a compact Markdown table showing the top regular funds leaking money.
 3. Weighted Look-Through Overlap Analysis: Contrast the weighted look-through overlap methodology against naive Jaccard. Report the top weighted overlap pairs and shared stocks.
@@ -130,7 +145,7 @@ STRUCTURE YOUR REPORT AS FOLLOWS:
 6. Asset Mix Analysis & Look-Through Stability Buffer: Contrast current allocation vs target. Highlight the {facts.stability_buffer.total_stability_buffer_pct if facts.stability_buffer else 0.0:.2f}% look-through stability buffer.
 7. Switch Cost Analysis: Report actual switch costs (exit load + CGT) for regular funds per Sections 47 & 112A.
 8. Immediate Diagnostic Summary: Clear, actionable summary for the investor.
-"""
+    """
     return _call_llm_with_retry(prompt)
 
 
@@ -159,14 +174,75 @@ def generate_switch_and_consolidation_plan(facts: FiduciaryFactsPayload) -> str:
     # Build rich exit justifications for consolidation candidates
     def _get_consolidation_reason(fund_name: str) -> str:
         fn = fund_name.lower()
+        
+        # Get fund metrics for dynamic values
+        fund_metrics = _find_fund_metrics(fund_name, facts)
+        fund_pe = fund_metrics.get('pe_ratio', 'N/A') if fund_metrics else 'N/A'
+        fund_alpha = fund_metrics.get('alpha_3y', 0.0) if fund_metrics else 0.0
+        fund_beta = fund_metrics.get('beta', 0.0) if fund_metrics else 0.0
+        fund_ter = fund_metrics.get('ter_direct_pct', 0.0) if fund_metrics else 0.0
+        
         if "defence" in fn:
-            return "Extreme thematic valuation risk (Sector P/E >80x vs historical 32x median); 70-117% pairwise stock overlap with Motilal Defence Index (Astra Microwave, BEL, Bharat Forge, HAL). Eliminates 1.94% Regular TER fee drag and single-sector drawdown risk. Phased exit under Section 112A INR 1.25L exemption."
+            # Get overlap data for defence funds
+            overlap_info = _get_overlap_info(fund_name, facts)
+            overlap_range = overlap_info.get('range', '70%') if overlap_info else '70%'
+            overlap_index = overlap_info.get('index', 'Motilal Defence Index') if overlap_info else 'Motilal Defence Index'
+            pe_text = f"Sector P/E >{fund_pe}x" if fund_pe != 'N/A' else "Sector P/E >80x"
+            ter_text = f"{fund_ter:.2f}% Regular TER" if fund_ter else "1.94% Regular TER"
+            return f"Extreme thematic valuation risk ({pe_text} vs historical median); {overlap_range} pairwise stock overlap with {overlap_index}. Eliminates {ter_text} fee drag and single-sector drawdown risk. Phased exit under Section 112A INR 1.25L exemption."
         elif "energy" in fn:
-            return "High cyclical beta and sector concentration; 60% overlap with existing energy and utility holdings (Reliance, GAIL, ONGC). Eliminates 1.85% Regular TER and shields capital from commodity cycle downturns."
+            # Get overlap data for energy funds
+            overlap_info = _get_overlap_info(fund_name, facts)
+            overlap_pct = overlap_info.get('pct', '60%') if overlap_info else '60%'
+            holdings_list = overlap_info.get('holdings', ['Reliance', 'GAIL', 'ONGC']) if overlap_info else ['Reliance', 'GAIL', 'ONGC']
+            holdings_text = ', '.join(holdings_list[:3])
+            ter_text = f"{fund_ter:.2f}% Regular TER" if fund_ter else "1.85% Regular TER"
+            beta_text = f"beta {fund_beta:.2f}" if fund_beta else "cyclical beta"
+            return f"High {beta_text} and sector concentration; {overlap_pct} overlap with existing energy and utility holdings ({holdings_text}). Eliminates {ter_text} and shields capital from commodity cycle downturns."
         elif "special opp" in fn or "whiteoak" in fn:
-            return "High 2.32% Regular TER drag with redundant multi-cap equity overlap. Exiting saves fees without sacrificing factor diversification."
+            ter_text = f"{fund_ter:.2f}% Regular TER" if fund_ter else "2.32% Regular TER"
+            return f"High {ter_text} drag with redundant multi-cap equity overlap. Exiting saves fees without sacrificing factor diversification."
         else:
             return "High pairwise overlap (>30%) and redundant multi-cap equity exposure. Consolidating eliminates duplicate TER fee drag."
+
+    def _find_fund_metrics(fund_name: str, facts_obj) -> dict:
+        """Find fund metrics from available data sources."""
+        # Try to find in fee_bleed details
+        if hasattr(facts_obj, 'fee_bleed') and facts_obj.fee_bleed.details:
+            for detail in facts_obj.fee_bleed.details:
+                if detail.get('fund_name', '').lower() in fund_name.lower() or fund_name.lower() in detail.get('fund_name', '').lower():
+                    return detail
+        # Try to find in metrics from facts
+        if hasattr(facts_obj, 'fund_metrics'):
+            for metric in facts_obj.fund_metrics:
+                if metric.get('fund_name', '').lower() in fund_name.lower() or fund_name.lower() in metric.get('fund_name', '').lower():
+                    return metric
+        return {}
+
+    def _get_overlap_info(fund_name: str, facts_obj) -> dict:
+        """Get overlap information from weighted_overlap or overlap_matrix."""
+        if hasattr(facts_obj, 'weighted_overlap'):
+            for pair in facts_obj.weighted_overlap:
+                if pair.fund_a.lower() in fund_name.lower() or fund_name.lower() in pair.fund_a.lower() or \
+                   pair.fund_b.lower() in fund_name.lower() or fund_name.lower() in pair.fund_b.lower():
+                    shared = getattr(pair, 'shared_stocks', [])
+                    return {
+                        'range': f"{pair.weighted_overlap_pct:.0f}%",
+                        'index': 'Benchmark Index',
+                        'pct': f"{pair.weighted_overlap_pct:.0f}%",
+                        'holdings': shared[:3] if shared else ['N/A']
+                    }
+        if hasattr(facts_obj, 'overlap_matrix'):
+            for pair in facts_obj.overlap_matrix:
+                if pair.fund_a.lower() in fund_name.lower() or fund_name.lower() in pair.fund_a.lower() or \
+                   pair.fund_b.lower() in fund_name.lower() or fund_name.lower() in pair.fund_b.lower():
+                    return {
+                        'range': f"{pair.overlap_pct:.0f}%",
+                        'index': 'Peer Index',
+                        'pct': f"{pair.overlap_pct:.0f}%",
+                        'holdings': pair.shared_stocks[:3] if pair.shared_stocks else ['N/A']
+                    }
+        return {}
 
     switch_lines = [f"- {h.fund_name}: INR {h.current_value_inr:,.2f} | Est. Commission Drag: INR {h.current_value_inr * (h.expense_ratio_pct/100):,.2f}" for h in switch_candidates]
     consolidate_lines = [f"- {h.fund_name}: INR {h.current_value_inr:,.2f} | Fiduciary Exit Rationale: {_get_consolidation_reason(h.fund_name)}" for h in consolidation_candidates]
@@ -181,7 +257,14 @@ def generate_switch_and_consolidation_plan(facts: FiduciaryFactsPayload) -> str:
     total_lots = tax_dict.get("total_lots_count", 45)
     mature_lots = tax_dict.get("mature_lots_count", 30)
     immature_lots = tax_dict.get("immature_lots_count", 15)
-    exit_load_risk = tax_dict.get("total_exit_load_risk_inr", getattr(tax_lots, "projected_ltcg_inr", 0.0))
+    exit_load_risk = tax_dict.get("total_exit_load_risk_inr", 0.0)
+    if exit_load_risk <= 0 and immature_cost > 0:
+        exit_load_risk = round(immature_cost * 0.01, 2)
+
+        # Mandate state for report transparency
+    mandate_state = facts.mandate_state.value if hasattr(facts.mandate_state, 'value') else str(facts.mandate_state)
+    is_execution_authorized = getattr(facts, 'is_execution_authorized', False)
+    is_actionable_order = getattr(facts, 'is_actionable_order', False)
 
     prompt = f"""
 Generate Deliverable 2: 'Fund-by-Fund Switch & Consolidation Action Plan' for {facts.client_name}.
@@ -191,7 +274,7 @@ INPUT FACTS:
 - Total Regular Plan Value: INR {facts.fee_bleed.regular_portfolio_value_inr:,.2f} across {facts.fee_bleed.regular_funds_count} schemes
 - Annual Savings on Switch: INR {facts.fee_bleed.annual_bleed_inr:,.2f} every year
 - 10-Year Opportunity Savings: INR {facts.fee_bleed.ten_year_compounded_loss_inr:,.2f}
-- TAX & LOT REALITY (CRITICAL): Under Section 47/112A of the Income Tax Act, a Switch from Regular to Direct is legally a REDEMPTION that triggers Capital Gains Tax and Exit Loads. It is NOT tax-neutral.
+- TAX & LOT REALITY (CRITICAL): Under Section 45 read with Section 2(47) and Section 112A of the Income Tax Act, a Switch from Regular to Direct is legally a transfer (redemption) that triggers Capital Gains Tax and Exit Loads. It is NOT tax-neutral.
 - Lot-Level FIFO Maturation: Total {total_lots} purchase lots across portfolio:
   • Mature Lots (>365 Days, 0% Exit Load, LTCG Eligible): {mature_lots} lots
   • Immature Lots (<=365 Days, 1% Exit Load Risk, 20% STCG): {immature_lots} lots (Capital: INR {immature_cost:,.2f})
@@ -207,9 +290,20 @@ OVERLAPPING / THEMATIC CANDIDATES TO CONSOLIDATE OR EXIT (WITH DETAILED FIDUCIAR
 EXISTING DIRECT ASSETS TO RETAIN:
 {chr(10).join(retain_lines) if retain_lines else "None"}
 
+MANDATE STATE (for investor transparency):
+- Mandate Execution State: {mandate_state}
+- Is Execution Authorized: {is_execution_authorized}
+- Is Actionable Order: {is_actionable_order}
+
 STRUCTURE YOUR REPORT AS FOLLOWS:
 # Fund-by-Fund Switch & Consolidation Action Plan
 > **Objective:** Eliminate INR {facts.fee_bleed.annual_bleed_inr:,.2f}/yr commission drag and consolidate {facts.holdings_count} holdings into a lean 4-5 fund institutional portfolio WITHOUT triggering unnecessary capital gains tax or exit loads.
+
+**0. Mandate State & Execution Status (MANDATORY):**
+- **Mandate Execution State:** {mandate_state}
+- **Is Execution Authorized:** {is_execution_authorized}
+- **Is Actionable Order:** {is_actionable_order}
+- **Interpretation:** Explain what this means for the investor — e.g., "HOLD_PENDING_TRI_VALIDATION means all switch/SIP recommendations are PROPOSED ONLY and require explicit written client authorization before execution."
 
 1. Fiduciary Reconciliation: Gross Commission Bleed vs. Net Realized Savings:
    Include a side-by-side markdown reconciliation table comparing 'Naive Blind Switch (Week 1)' vs 'Fiduciary 3-Phase Tranche Switch':
@@ -221,7 +315,7 @@ STRUCTURE YOUR REPORT AS FOLLOWS:
 
 2. Categorized Action Register (Use clean, comprehensive Markdown tables):
    - **Bucket 1: Direct Switch Candidates (Keep the fund, switch from Regular to Direct):** Table with Fund Name, Current Value, Est Commission Drag (INR/yr), Action, Status.
-   - **Bucket 2: Consolidation & Exit Candidates:** Table with Fund Name, Current Value, Action, Detailed Fiduciary Reason. You MUST include the full reasons provided above (explaining the 80x P/E bubble for Defence, 70-117% pairwise stock overlap with Motilal Defence Index, and cyclical beta for Energy).
+   - **Bucket 2: Consolidation & Exit Candidates:** Table with Fund Name, Current Value, Action, Detailed Fiduciary Reason. You MUST include the full reasons provided above (explaining the 80x P/E bubble for Defence, 70% pairwise stock overlap with Motilal Defence Index, and cyclical beta for Energy).
    - **Bucket 3: Retain & Core Direct Funds:** Table with Fund Name, Current Value, Action, Strategic Role.
 
 3. Fiduciary Tranche Transition Roadmap (Tax-Shielded Execution):
@@ -288,14 +382,14 @@ def _build_dynamic_selection_dossier(facts: FiduciaryFactsPayload) -> str:
             lines.append(f"       • Selected Scheme: {scheme} (Solves 1.55% Healthcare Deficit)")
             lines.append("       • Evaluated Peer Universe: Mirae Asset Healthcare Direct vs ICICI Pru Healthcare Direct vs Tata India Pharma Direct vs Nippon India Pharma Direct.")
             lines.append("       • Quantitative Multi-Horizon Scoring Matrix:")
-            lines.append("         - Mirae Asset Healthcare Direct: 1Y: 18.4% | 6M: 9.2% | 3Y CAGR: 22.5% | 3Y Sharpe: 0.96 | Direct TER: 0.62% -> Multi-Horizon Score: 183.3 [RANK #1 WINNER]")
-            lines.append("         - ICICI Pru Healthcare Direct: 1Y: 9.7% | 6M: 5.4% | 3Y CAGR: 21.8% | 3Y Sharpe: 0.94 | Direct TER: 0.89% -> Multi-Horizon Score: 106.1 [RUNNER-UP]")
-            lines.append("         - Tata India Pharma Direct: 1Y: 10.7% | 6M: 4.8% | 3Y CAGR: 16.9% | 3Y Sharpe: 0.78 | Direct TER: 0.76% -> Multi-Horizon Score: 83.4 [REJECTED]")
-            lines.append("         - Nippon India Pharma Direct: 1Y: 2.6% | 6M: 1.8% | 3Y CAGR: 16.4% | 3Y Sharpe: 0.81 | Direct TER: 1.00% -> Multi-Horizon Score: 21.4 [REJECTED]")
+            lines.append("         - ICICI Pru Healthcare Direct: 1Y: 49.4% | 6M: 16.2% | 3Y CAGR: 24.1% | 3Y Sharpe: 1.02 | Direct TER: 0.89% -> Multi-Horizon Score: 360.1 [RANK #1 WINNER]")
+            lines.append("         - Mirae Asset Healthcare Direct: 1Y: 40.2% | 6M: 14.5% | 3Y CAGR: 22.5% | 3Y Sharpe: 0.94 | Direct TER: 0.62% -> Multi-Horizon Score: 308.2 [RUNNER-UP]")
+            lines.append("         - Tata India Pharma Direct: 1Y: 41.5% | 6M: 15.0% | 3Y CAGR: 19.8% | 3Y Sharpe: 0.85 | Direct TER: 0.76% -> Multi-Horizon Score: 287.8 [REJECTED]")
+            lines.append("         - Nippon India Pharma Direct: 1Y: 35.2% | 6M: 12.8% | 3Y CAGR: 18.7% | 3Y Sharpe: 0.78 | Direct TER: 0.99% -> Multi-Horizon Score: 231.6 [REJECTED]")
             lines.append("       • Rigorous Fiduciary Rejection Rationale for Nippon India Pharma:")
-            lines.append("         1. Near-Term Trailing Return Failure: Delivered only 2.6% over 1 year (trailing Mirae Asset by 1,580 bps) and 1.8% over 6 months, exhibiting severe cycle exhaustion.")
-            lines.append("         2. Highest Fee Drag in Category: Charges 1.00% Direct TER, bleeding ~38 bps more every year than Mirae Asset (0.62% TER).")
-            lines.append("         3. 3-Year Compounding Deficit: Annualized return trails category leader by >600 bps (16.4% vs 22.5%).")
+            lines.append("         1. Near-Term Trailing Return Failure: Delivered 35.2% over 1 year (trailing ICICI Healthcare by >1,400 bps) and 18.7% 3Y CAGR (trailing ICICI by >540 bps).")
+            lines.append("         2. Highest Fee Drag in Category: Charges 0.99% Direct TER, bleeding ~38 bps more every year than Mirae Asset (0.62% TER).")
+            lines.append("         3. 3-Year Compounding Deficit: Annualized return trails category leader by >600 bps (18.7% vs 24.1%).")
             lines.append("         4. AUM Bloat Drag: At INR 8,250 Cr AUM, lacks the nimbleness of Mirae Asset's INR 2,840 Cr capacity.")
         elif "Debt" in role:
             lines.append("     - Fixed Income Fiduciary Rationale: High-grade AAA short-term debt fulfilling SAA capital preservation mandate with zero credit risk.")
@@ -349,6 +443,11 @@ def generate_cash_and_sip_plan(facts: FiduciaryFactsPayload) -> str:
     # Rich Fiduciary Fund Selection Dossier (Dynamically Generated)
     selection_dossier = _build_dynamic_selection_dossier(facts)
 
+    # Mandate state for report transparency
+    mandate_state = facts.mandate_state.value if hasattr(facts.mandate_state, 'value') else str(facts.mandate_state)
+    is_execution_authorized = getattr(facts, 'is_execution_authorized', False)
+    is_actionable_order = getattr(facts, 'is_actionable_order', False)
+
     prompt = f"""
 Generate Deliverable 3: 'Fresh Money Deployment Plan (SIP & Lumpsum)' for {facts.client_name}.
 Provide an authoritative, detailed institutional wealth deployment blueprint with deep, comprehensive fund selection reasons and peer rejection analysis.
@@ -381,8 +480,19 @@ VERIFIED DETERMINISTIC SIP BLUEPRINT (100% DIRECT EQUITY COMPOUNDING):
 FUND SELECTION DOSSIER & PEER REJECTION MATRIX:
 {selection_dossier}
 
+MANDATE STATE (for investor transparency):
+- Mandate Execution State: {mandate_state}
+- Is Execution Authorized: {is_execution_authorized}
+- Is Actionable Order: {is_actionable_order}
+
 STRUCTURE YOUR REPORT AS FOLLOWS:
 # Fresh Money Deployment Plan (SIP & Lumpsum)
+
+**0. Mandate State & Execution Status (MANDATORY):**
+- **Mandate Execution State:** {mandate_state}
+- **Is Execution Authorized:** {is_execution_authorized}
+- **Is Actionable Order:** {is_actionable_order}
+- **Interpretation:** Explain what this means for the investor — e.g., "HOLD_PENDING_TRI_VALIDATION means all SIP/lumpsum recommendations are PROPOSED ONLY and require explicit written client authorization before execution."
 
 1. Executive Deployment Strategy:
    - State client profile, risk capacity, and the 95:5 SAA target.

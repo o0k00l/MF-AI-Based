@@ -54,5 +54,15 @@
   "_synthesized": false,
   "_synthesized_at": "2026-10-30T14:04:21.044258",
   "_notice": "Auto-synthesized by engine/client_intake.py (GAP-108). SAA derived dynamically via compute_saa() from statement transactions. \u26a0\ufe0f DEFAULTS USED: age=35, horizon=10, risk=moderate, tax=30%. Adviser MUST review and customize the IPS profile before proceeding.",
-  "risk_tier": "Tier 6 (Very High)"
+  "risk_tier": "Tier 6 (Very High)",
+  "mandate": {
+    "mandate_state": "HOLD_PENDING_TRI_VALIDATION",
+    "is_execution_authorized": false,
+    "hold_reasons": [
+      "Existing holdings retained; zero forced redemptions",
+      "Redemptions frozen pending April 2027 review",
+      "New core SIP deployment on hold pending benchmark TRI and look-through validation"
+    ],
+    "review_date": "2027-04-01"
+  }
 }

@@ -27,6 +27,13 @@ class AssetClass(str, Enum):
     OTHER = "Other"
     DEBT_LIQUID = "Debt_Liquid"  # For liquid/debt funds (added to support transition planner)
 
+
+class MandateExecutionState(str, Enum):
+    ADVISORY_PROPOSAL = "ADVISORY_PROPOSAL_PENDING_WRITTEN_CLIENT_AUTHORIZATION"
+    CLIENT_APPROVED = "CLIENT_APPROVED_EXECUTION_READY"
+    HOLD_PENDING_TRI_VALIDATION = "HOLD_PENDING_TRI_VALIDATION"
+    FROZEN_PORTFOLIO_REVIEW = "FROZEN_PORTFOLIO_REVIEW_APRIL_2027" 
+
 # New simplified 3+1 risk tier system
 class RiskTier(str, Enum):
     CONSERVATIVE = "Conservative"
@@ -174,6 +181,14 @@ class DeterministicSIPPlan(BaseModel):
     equity_sip_pct: float = 100.0
     debt_sip_pct: float = 0.0
     items: List[DeterministicSIPRecommendation] = Field(default_factory=list)
+    mandate_state: MandateExecutionState = MandateExecutionState.HOLD_PENDING_TRI_VALIDATION
+    is_execution_authorized: bool = False
+    is_actionable_order: bool = False
+    execution_status: str = "ON_HOLD_PENDING_TRI_VALIDATION"
+    enforcement_notice: str = (
+        "MANDATE ENFORCEMENT: Live SIP fresh-money deployment is strictly ON HOLD pending "
+        "benchmark TRI and constituent look-through validation. Orders are non-actionable conditional scenarios."
+    )
 
 
 class LumpsumTrancheItem(BaseModel):
@@ -200,6 +215,14 @@ class DeterministicLumpsumPlan(BaseModel):
     cash_validation_passed: bool = True
     cash_validation_message: str = ""
     tranches: List[LumpsumTrancheItem] = Field(default_factory=list)
+    mandate_state: MandateExecutionState = MandateExecutionState.HOLD_PENDING_TRI_VALIDATION
+    is_execution_authorized: bool = False
+    is_actionable_order: bool = False
+    execution_status: str = "ON_HOLD_PENDING_TRI_VALIDATION"
+    enforcement_notice: str = (
+        "MANDATE ENFORCEMENT: Lumpsum parking deployment is strictly ON HOLD pending "
+        "April 2027 review. Orders are non-actionable conditional scenarios."
+    )
 
 
 class FiduciaryFactsPayload(BaseModel):
@@ -228,6 +251,13 @@ class FiduciaryFactsPayload(BaseModel):
     alpha_pct: Optional[float] = None
     tax_lots_summary: Optional[TaxLedger] = None
     weak_funds_flagged: List[Dict[str, Any]] = Field(default_factory=list)
+    mandate_state: MandateExecutionState = MandateExecutionState.ADVISORY_PROPOSAL
+    is_execution_authorized: bool = False
+    authorization_disclaimer: str = (
+        "MANDATE NOTICE: This report constitutes a fiduciary wealth advisory proposal. "
+        "Autonomous trade execution is strictly disabled. Execution requires formal, "
+        "signed written client authorization and explicit mandate consent."
+    )
     holdings: List[HoldingItem] = Field(default_factory=list)
     stability_buffer: Optional[LookThroughStabilityBuffer] = None
     thematic_exposures: List[ThematicExposureItem] = Field(default_factory=list)
@@ -251,6 +281,14 @@ class TaxLot(BaseModel):
     cost_basis: float
     holding_days: int
     is_long_term: bool
+    folio_name: str = "UNKNOWN"
+
+    def is_long_term_given(self, as_of_date, lt_holding_months: int = 12) -> bool:
+        """Check if the lot is long-term as of the given date based on holding period."""
+        from datetime import date
+        purchase = date.fromisoformat(self.purchase_date)
+        holding_days = (as_of_date - purchase).days
+        return holding_days >= lt_holding_months * 30
 
 
 class TaxLotSummary(BaseModel):
@@ -421,3 +459,27 @@ class PersonalRedemptionPlan(BaseModel):
     tranches: List[RedemptionTrancheItem] = Field(default_factory=list)
     execution_steps: List[str] = Field(default_factory=list)
     fiduciary_safeguards: List[str] = Field(default_factory=list)
+
+
+class MandateHoldViolationError(RuntimeError):
+    """Raised when an attempt is made to execute transactions or generate actionable orders under an active HOLD mandate."""
+    pass
+
+
+class InsufficientDataError(RuntimeError):
+    """Raised when required financial data is missing and the engine must fail safe per Zero Hardcoding & Zero Fabrication Mandate.
+    
+    In fiduciary financial engineering: Explicit Safe Failure >> Fabricated / Hardcoded Fallbacks
+    """
+    def __init__(self, message: str, missing_data: str = "", required_source: str = ""):
+        self.missing_data = missing_data
+        self.required_source = required_source
+        super().__init__(message)
+
+
+class TriProvenanceError(RuntimeError):
+    """Raised when benchmark TRI series provenance validation fails (checksum, coverage, missing-date policy)."""
+    def __init__(self, message: str, benchmark: str = "", validation_stage: str = ""):
+        self.benchmark = benchmark
+        self.validation_stage = validation_stage
+        super().__init__(message)

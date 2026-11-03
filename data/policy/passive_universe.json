@@ -1,0 +1,32 @@
+{
+  "_notice": "Passive fund universe mapping. Add new index funds here as they launch. Key = taxonomy category, Value = list of fund search terms.",
+  "_source": "AMFI / NSE / BSE index fund listings",
+  "passive_universe": {
+    "Large Cap Equity": [
+      "Nifty 50 Index",
+      "Sensex Index",
+      "Nifty 100 Index"
+    ],
+    "Mid Cap Equity": [
+      "Nifty Midcap 150 Index",
+      "Nifty Mid Small Cap 400 Index"
+    ],
+    "Flexi Cap Equity": [
+      "Nifty 500 Index",
+      "Nifty Total Market Index"
+    ],
+    "Debt Funds": [
+      "Nifty 10 Year Benchmark G-Sec Index",
+      "Nifty 5 Year Benchmark G-Sec Index",
+      "CRISIL IBX Gilt Index"
+    ],
+    "Healthcare Thematic": [
+      "Nifty Healthcare Index",
+      "S&P BSE Healthcare Index"
+    ],
+    "Defensive Thematic": [
+      "Nifty Infrastructure Index",
+      "Nifty PSU Bank Index"
+    ]
+  }
+}

@@ -46,6 +46,23 @@ class Lot:
             anniversary = date(self.purchase_date.year + 1, 2, 28)
         return as_of > anniversary
 
+    def is_long_term_given(self, as_of_date, lt_holding_months: int = 12) -> bool:
+        """Alias matching TaxLot.is_long_term_given() API.
+        Returns True if holding period exceeds calendar anniversary date.
+        Per tax rules: LTCG requires holding period > 12 months (strictly >, not >=)."""
+        try:
+            # Calculate the anniversary date (12 months from purchase)
+            anniversary_year = self.purchase_date.year + lt_holding_months // 12
+            anniversary_month = self.purchase_date.month + (lt_holding_months % 12)
+            if anniversary_month > 12:
+                anniversary_year += 1
+                anniversary_month -= 12
+            anniversary = date(anniversary_year, anniversary_month, self.purchase_date.day)
+        except ValueError:
+            # Handle Feb 29 on non-leap years
+            anniversary = date(anniversary_year, 2, 28)
+        return as_of_date > anniversary
+
 
 @dataclass
 class FundSellPlan:
@@ -239,26 +256,51 @@ def load_manifest(manifest_path: Path) -> list[dict]:
 
 def load_tax_rules(tax_rules_path: Path) -> dict:
     """Load equity tax parameters from tax_rules_india.json.
-    
+
     Converts the new nested schema to the flat format expected by
     plan_fy_tranches and generate_transition_plan_md.
+
+    Enforces 180-day freshness rule per engine_requirements.
     """
     data = json.loads(tax_rules_path.read_text(encoding="utf-8"))
+
+    # --- Freshness check (180-day rule) ---
+    as_of_str = data.get("as_of")
+    if as_of_str:
+        try:
+            as_of_date = datetime.strptime(as_of_str, "%Y-%m-%d").date()
+            days_old = (date.today() - as_of_date).days
+            if days_old > 180:
+                raise ValueError(
+                    f"Tax rules stale: as_of={as_of_str} ({days_old} days old). "
+                    f"Engine requirement: refuse if > 180 days old. Update tax_rules.json."
+                )
+        except ValueError:
+            # Re-raise if it's our freshness error, otherwise wrap parse error
+            raise
+        except Exception as e:
+            raise ValueError(f"Failed to parse tax_rules as_of date: {as_of_str}") from e
+    else:
+        raise ValueError("Tax rules missing required 'as_of' date field. Cannot enforce freshness.")
+
     eq = data.get("classes", {}).get("equity_oriented", {})
     lt = eq.get("long_term", {})
     st = eq.get("short_term", {})
-    
+
     # Extract exit load from exit_load_schedules
     exit_load_schedules = data.get("exit_load_schedules", {})
     equity_exit_load = exit_load_schedules.get("equity_oriented", {})
     exit_load_pct = equity_exit_load.get("rate_pct", 1.0)
-    
+
     return {
         "ltcg_rate": lt.get("rate_pct", 12.5) / 100.0,
         "stcg_rate": st.get("rate_pct", 20.0) / 100.0,
         "ltcg_exemption": lt.get("exemption_limit_inr", 125000),
         "lt_holding_months": lt.get("holding_period_months_gt", 12),
         "exit_load_pct": exit_load_pct,
+        "exit_load_schedules": data.get("exit_load_schedules", {}),
+        "classes": data.get("classes", {}),
+        "as_of": data.get("as_of"),
     }
 def _load_fund_aliases() -> dict[str, list[str]]:
     alias_file = Path(__file__).resolve().parent.parent / ".agents" / "knowledge" / "global_fund_aliases.json"
@@ -368,11 +410,65 @@ def match_lots_to_manifest(
 def estimate_current_value(plan: FundSellPlan, current_nav: float) -> float:
     """Estimate current value of all lots in the plan."""
     return plan.total_units() * current_nav
+
+def classify_fund_for_tax(source_holding, tax_rules):
+    """
+    Classify fund into tax category using tax_rules.json classification_test.
+    Returns the tax category key for the fund.
+    """
+    equity_pct = getattr(source_holding, 'equity_pct', 0)
+    equity_threshold = tax_rules.get("classification_test", {}).get("equity_oriented_threshold_pct", 65.0)
+    if equity_pct >= equity_threshold:  # INCLUSIVE >= per CBDT clarification
+        return "equity_oriented"
+    return "non_equity_oriented"  # Fixed: was incorrectly returning "equity_oriented" for both branches
+
+
+def get_tax_rates_for_sale(fund_tax_class, sale_date, tax_rules):
+    """
+    Get applicable tax rates for a sale based on fund classification and sale date.
+    Returns (stcg_rate, ltcg_rate, ltcg_exemption, cess_rate, exit_load_schedule, holding_period_months).
+    """
+    cutoff_date = date(2026, 4, 1)
+    is_new_regime = sale_date >= cutoff_date
+    classes = tax_rules.get("classes", {})
+    
+    if fund_tax_class == "equity_oriented":
+        eq_class = classes.get("equity_oriented", {})
+        lt = eq_class.get("long_term", {})
+        st = eq_class.get("short_term", {})
+        ltcg_rate = lt.get("rate_pct", 12.5) / 100.0
+        stcg_rate = st.get("rate_pct", 20.0) / 100.0
+        ltcg_exemption = lt.get("exemption_limit_inr", 125000)
+        holding_months = lt.get("holding_period_months_gt", 12)
+        exit_load_schedule = tax_rules.get("exit_load_schedules", {}).get("equity_oriented", {})
+        cess_rate = tax_rules.get("cess", {}).get("health_education_cess_pct", 4.0) / 100.0
+        return {
+            "stcg_rate": stcg_rate,
+            "ltcg_rate": ltcg_rate,
+            "ltcg_exemption": ltcg_exemption,
+            "cess_rate": cess_rate,
+            "exit_load_schedule": exit_load_schedule,
+            "holding_months": holding_months,
+            "regime": "new" if is_new_regime else "old",
+        }
+    
+    return {
+        "stcg_rate": 0.20,
+        "ltcg_rate": 0.125,
+        "ltcg_exemption": 125000,
+        "cess_rate": 0.04,
+        "exit_load_schedule": {"threshold_days": 365, "rate_pct": 1.0},
+        "holding_months": 12,
+        "regime": "new" if is_new_regime else "old",
+    }
+
+
 def plan_fy_tranches(
     plans: dict[str, FundSellPlan],
     tax_rules: dict,
     as_of: date,
     current_navs: dict[str, float],
+    prior_ltcg_this_fy: float = 0.0,
 ) -> dict[int, list[dict]]:
     """
     Plan SELL tranches across financial years to maximize LTCG exemption.
@@ -385,15 +481,58 @@ def plan_fy_tranches(
     5. Continue across FYs until all SELL amounts are allocated
     
     Returns: fy_start_year -> list of {fund_id, lot, amount, gain_type, gain_amount, tax}
+
+    Args:
+        prior_ltcg_this_fy: LTCG already realized in the current FY from OTHER sources
+            (other sell plans, direct equity, other MFs). Reduces the exemption headroom
+            available. Default 0.0 (full ₹1.25L assumed available — conservative
+            when called in isolation; pass actual realized gains for accuracy).
     """
-    exemption = tax_rules["ltcg_exemption"]
-    ltcg_rate = tax_rules["ltcg_rate"]
-    stcg_rate = tax_rules["stcg_rate"]
-    
+    _raw_exemption = tax_rules["ltcg_exemption"]
+    exemption = max(0.0, _raw_exemption - float(prior_ltcg_this_fy))
     exit_load_pct = tax_rules.get("exit_load_pct", 1.0)
     # Collect lots up to plan.total_amount per fund using strict FIFO
     all_lots = []
     
+    for fund_id, plan in plans.items():
+        current_nav = current_navs.get(fund_id, 0.0)
+        if current_nav <= 0:
+            continue
+        
+        # Classify fund for tax treatment
+        # Use first lot's holding as representative for classification
+        first_lot = plan.lots[0] if plan.lots else None
+        fund_tax_class = classify_fund_for_tax(first_lot, tax_rules) if first_lot else "equity_oriented"
+        
+        target_sell_amount = float(plan.total_amount) if plan.total_amount is not None else float("inf")
+        remaining_target = target_sell_amount
+        
+        # Sort lots strictly by FIFO (purchase_date)
+        sorted_lots = sorted(plan.lots, key=lambda l: (l.purchase_date, l.folio_name))
+        for lot in sorted_lots:
+            if remaining_target <= 0.01:
+                break
+            lot_val = lot.units * current_nav
+            units_to_sell = lot.units
+            if lot_val > remaining_target:
+                units_to_sell = remaining_target / current_nav
+                lot_val = remaining_target
+            remaining_target -= lot_val
+            
+            is_lt = lot.is_long_term_given(as_of, tax_rules.get("lt_holding_months", 12))
+            cost_basis = (units_to_sell / lot.units) * lot.cost if lot.units > 0 else 0.0
+            lot_gain = lot_val - cost_basis
+            
+            all_lots.append({
+                "fund_id": fund_id,
+                "lot": lot,
+                "type": "LT" if is_lt else "ST",
+                "gain": lot_gain,
+                "cost": cost_basis,
+                "units": units_to_sell,
+                "current_nav": current_nav,
+                "fund_tax_class": fund_tax_class,
+            })
     for fund_id, plan in plans.items():
         current_nav = current_navs.get(fund_id, 0.0)
         if current_nav <= 0:
@@ -414,7 +553,7 @@ def plan_fy_tranches(
                 lot_val = remaining_target
             remaining_target -= lot_val
 
-            is_lt = lot.is_long_term(as_of, tax_rules.get("lt_holding_months", 12))
+            is_lt = lot.is_long_term_given(as_of, tax_rules.get("lt_holding_months", 12))
             cost_basis = (units_to_sell / lot.units) * lot.cost if lot.units > 0 else 0.0
             lot_gain = lot_val - cost_basis
 
@@ -437,17 +576,67 @@ def plan_fy_tranches(
     fy_plans: dict[int, list[dict]] = defaultdict(list)
     current_fy_start = as_of.year if as_of.month >= 4 else as_of.year - 1
     
-    def calculate_exit_load(lot, units_sold, fy_start, current_nav, exit_load_pct, fund_id=""):
-        """Calculate category-aware exit load based on holding period and fund category."""
+    def calculate_exit_load(lot, units_sold, fy_start, current_nav, exit_load_pct, fund_id="", tax_rules=None):
+        """Calculate category-aware exit load based on holding period and fund category.
+        
+        Uses exit_load_schedules from tax_rules for category-specific rates and thresholds.
+        Falls back to heuristic classification if tax_rules not provided.
+        """
         sale_date = date(fy_start, 4, 1)
         holding_days = (sale_date - lot.purchase_date).days
-        f_lower = str(fund_id).lower()
-        if any(k in f_lower for k in ("liquid", "overnight")):
-            exit_load_rate = 0.0070 if holding_days < 7 else 0.0
-        elif any(k in f_lower for k in ("short term", "debt", "money market", "banking & psu", "arbitrage")):
-            exit_load_rate = 0.25 if holding_days < 30 else 0.0
+        
+        # Use tax_rules exit_load_schedules if available
+        if tax_rules and "exit_load_schedules" in tax_rules:
+            schedules = tax_rules["exit_load_schedules"]
+            f_lower = str(fund_id).lower()
+            
+            # Check each schedule for match
+            for category, schedule in schedules.items():
+                threshold_days = schedule.get("threshold_days", 0)
+                rate_pct = schedule.get("rate_pct", 0.0)
+                
+                # Match categories by keyword
+                if category == "equity_oriented":
+                    # Default equity: 365 days, 1% exit load
+                    if holding_days < threshold_days:
+                        exit_load_rate = rate_pct
+                    else:
+                        exit_load_rate = 0.0
+                    break
+                elif category in ("debt_short_term", "debt", "money market", "banking & psu"):
+                    if any(k in f_lower for k in ("short term", "debt", "money market", "banking & psu")):
+                        if holding_days < threshold_days:
+                            exit_load_rate = rate_pct
+                        else:
+                            exit_load_rate = 0.0
+                        break
+                elif category == "debt_liquid":
+                    if any(k in f_lower for k in ("liquid", "overnight")):
+                        if holding_days < threshold_days:
+                            exit_load_rate = rate_pct
+                        else:
+                            exit_load_rate = 0.0
+                        break
+                elif category == "arbitrage":
+                    if "arbitrage" in f_lower:
+                        if holding_days < threshold_days:
+                            exit_load_rate = rate_pct
+                        else:
+                            exit_load_rate = 0.0
+                        break
+            else:
+                # No matching schedule found, use default equity
+                exit_load_rate = exit_load_pct if holding_days < 365 else 0.0
         else:
-            exit_load_rate = exit_load_pct if holding_days < 365 else 0.0
+            # Fallback to heuristic classification
+            f_lower = str(fund_id).lower()
+            if any(k in f_lower for k in ("liquid", "overnight")):
+                exit_load_rate = 0.0070 if holding_days < 7 else 0.0
+            elif any(k in f_lower for k in ("short term", "debt", "money market", "banking & psu", "arbitrage")):
+                exit_load_rate = 0.25 if holding_days < 30 else 0.0
+            else:
+                exit_load_rate = exit_load_pct if holding_days < 365 else 0.0
+        
         sale_value = units_sold * current_nav
         exit_load_amount = sale_value * exit_load_rate / 100.0
         net_amount = sale_value - exit_load_amount
@@ -456,7 +645,7 @@ def plan_fy_tranches(
     # 1. Harvest loss lots in Year 1 first for Section 70 offsetting
     for lot_info in loss_lots:
         exit_load_amount, net_amount, holding_days = calculate_exit_load(
-            lot_info["lot"], lot_info["units"], current_fy_start, lot_info["current_nav"], exit_load_pct, lot_info.get("fund_id", "")
+            lot_info["lot"], lot_info["units"], current_fy_start, lot_info["current_nav"], exit_load_pct, lot_info.get("fund_id", ""), tax_rules
         )
         fy_plans[current_fy_start].append({
             "fund_id": lot_info["fund_id"],
@@ -499,11 +688,29 @@ def plan_fy_tranches(
             "type": "LT"  # Converted to LTCG at Day 366
         })
 
-    # Sort lots by (available_date, descending gain)
-    scheduled_gain_lots.sort(key=lambda x: (x["available_date"], -x["gain"]))
+    # Sort lots by (target_fy_start, deferred_first, available_date, descending gain)
+    # This ensures deferred lots get priority within their target FY
+    def _sort_key(lot_info):
+        avail_date = lot_info["available_date"]
+        target_fy = avail_date.year if avail_date.month >= 4 else avail_date.year - 1
+        deferred_first = 0 if lot_info.get("deferred", False) else 1
+        return (target_fy, deferred_first, lot_info["available_date"], -lot_info["gain"])
+    
+    scheduled_gain_lots.sort(key=_sort_key)
 
-    # Track exemption capacity used per FY
+    # Reserve exemption capacity for deferred lots in their target FY
+    # This prevents mature lots from consuming exemption needed by deferred lots
+    deferred_reserved = defaultdict(float)
+    for lot_info in scheduled_gain_lots:
+        if lot_info.get("deferred", False):
+            avail_date = lot_info["available_date"]
+            target_fy = avail_date.year if avail_date.month >= 4 else avail_date.year - 1
+            deferred_reserved[target_fy] += lot_info["gain"]
+
+    # Track exemption capacity used per FY (for mature lots)
     fy_sheltered_ltcg = defaultdict(float)
+    # Track reserved capacity used by deferred lots
+    fy_reserved_used = defaultdict(float)
 
     for lot_info in scheduled_gain_lots:
         gain = lot_info["gain"]
@@ -513,9 +720,37 @@ def plan_fy_tranches(
         avail_date = lot_info["available_date"]
         target_fy_start = avail_date.year if avail_date.month >= 4 else avail_date.year - 1
         fy_ptr = max(current_fy_start, target_fy_start)
-
+        
+        # Get tax rates for this specific fund and sale date
+        fund_tax_class = lot_info.get("fund_tax_class")
+        if fund_tax_class is None:
+            # Fallback: classify on the fly using the lot's fund_id
+            fund_tax_class = classify_fund_for_tax(lot_info["lot"], tax_rules)
+        
+        sale_date = date(fy_ptr, 4, 1)  # Approximate sale date as start of FY
+        tax_rates = get_tax_rates_for_sale(fund_tax_class, sale_date, tax_rules)
+        ltcg_rate = tax_rates["ltcg_rate"]
+        stcg_rate = tax_rates["stcg_rate"]
+        exemption = tax_rates["ltcg_exemption"]
+        cess_rate = tax_rates["cess_rate"]
+        
         while lot_units > 0.0001:
-            rem_in_fy = max(0.0, exemption - fy_sheltered_ltcg[fy_ptr])
+            is_deferred = lot_info.get("deferred", False)
+            avail_date = lot_info["available_date"]
+            target_fy = avail_date.year if avail_date.month >= 4 else avail_date.year - 1
+            
+            if is_deferred:
+                # Deferred lots use their reserved capacity
+                reserved = deferred_reserved.get(target_fy, 0)
+                used_reserved = fy_reserved_used.get(fy_ptr, 0)
+                rem_in_fy = max(0.0, reserved - used_reserved)
+            else:
+                # Mature lots use non-reserved capacity
+                reserved = deferred_reserved.get(fy_ptr, 0)
+                available = exemption - reserved
+                used = fy_sheltered_ltcg[fy_ptr]
+                rem_in_fy = max(0.0, available - used)
+            
             if rem_in_fy <= 1.0:
                 fy_ptr += 1
                 continue
@@ -523,21 +758,21 @@ def plan_fy_tranches(
             units_to_sell = lot_units
             if lot_gain_per_unit > 0:
                 units_to_sell = min(lot_units, rem_in_fy / lot_gain_per_unit)
-
+            
             if (lot_units - units_to_sell) < 0.001:
                 units_to_sell = lot_units
-
+            
             sold_gain = units_to_sell * lot_gain_per_unit
-
+            
             # At fy_ptr (or Day 366), holding period >= 366 days -> exit load = 0.0%
             exit_load_amount = 0.0
             sale_value = units_to_sell * current_nav
             net_amount = sale_value
-
+            
             sheltered = min(sold_gain, rem_in_fy)
             taxable = max(0.0, sold_gain - sheltered)
-            tax_est = taxable * ltcg_rate
-
+            tax_est = taxable * ltcg_rate * (1 + cess_rate)
+            
             fy_plans[fy_ptr].append({
                 "fund_id": lot_info["fund_id"],
                 "lot": lot_info["lot"],
@@ -553,8 +788,11 @@ def plan_fy_tranches(
                 "net_amount": net_amount,
                 "held_to_day_366": lot_info["deferred"]
             })
-
-            fy_sheltered_ltcg[fy_ptr] += sheltered
+            
+            if is_deferred:
+                fy_reserved_used[fy_ptr] += sheltered
+            else:
+                fy_sheltered_ltcg[fy_ptr] += sheltered
             lot_units -= units_to_sell
 
     first_fy = as_of.year if as_of.month >= 4 else as_of.year - 1

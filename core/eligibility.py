@@ -3,10 +3,41 @@ core/eligibility.py — Module 4: Hard Binary Selection Gates & NO ACTION Engine
 Implements the 10 Binary Fiduciary Gates and the Mandatory NO ACTION decision branch.
 """
 from __future__ import annotations
+import math
 import json
 from pathlib import Path
 from typing import List, Dict, Any, Optional
-from core.models import EligibilityGateResult, NOActionResult
+from core.models import EligibilityGateResult, NOActionResult, RiskTier
+
+
+def _risk_tier_to_int(tier: Any) -> int:
+    """Convert RiskTier enum or string to legacy 1-6 integer scale."""
+    if isinstance(tier, int):
+        return tier
+    if isinstance(tier, RiskTier):
+        if tier == RiskTier.CUSTOM:
+            raise ValueError("RiskTier.CUSTOM cannot be mapped to a legacy 1-6 tier. Provide a custom allocation via get_target_allocation with custom_target.")
+        mapping = {
+            RiskTier.CONSERVATIVE: 2,  # Tier 2 (Low)
+            RiskTier.MODERATE: 4,      # Tier 4 (Moderate High)
+            RiskTier.AGGRESSIVE: 6,    # Tier 6 (Very High)
+        }
+        return mapping.get(tier, 6)
+    # Try to parse string like "Tier 6 (Very High)"
+    tier_str = str(tier).lower()
+    if "tier 1" in tier_str or "preservation" in tier_str:
+        return 1
+    if "tier 2" in tier_str or "low" in tier_str:
+        return 2
+    if "tier 3" in tier_str or "moderate" in tier_str:
+        return 3
+    if "tier 4" in tier_str or "moderately high" in tier_str:
+        return 4
+    if "tier 5" in tier_str or "high" in tier_str:
+        return 5
+    if "tier 6" in tier_str or "very high" in tier_str or "aggressive" in tier_str:
+        return 6
+    return 6
 
 
 CATEGORY_AUM_CAPS = {
@@ -114,39 +145,104 @@ def check_eligibility_gates(
         failed.append(f"Gate 3 [Sector Concentration]: Sector weight {sector_conc:.1f}% > {max_sector_concentration_pct:.1f}%")
     details["sector_concentration_pct"] = sector_conc
 
-    # --- Gate 4: Risk-Adjusted Sharpe & Alpha Gate ---
+    # --- Gate 4: Risk-Adjusted Sharpe & Alpha Gate (STRICTLY FAIL-CLOSED) ---
+    from core.fund_classifier import is_verified_passive_scheme
+    from core.models import InsufficientDataError
     sharpe = fund_data.get("sharpe_3y", fund_data.get("sharpe", None))
     alpha = fund_data.get("alpha_3y", fund_data.get("alpha", None))
-    sharpe_ok = True
-    if sharpe is not None and float(sharpe) < min_sharpe:
-        sharpe_ok = False
-        failed.append(f"Gate 4 [Sharpe Ratio]: 3Y Sharpe {float(sharpe):.2f} < {min_sharpe:.2f}")
+    f_name = fund_data.get("fund_name", fund_data.get("name", ""))
+    try:
+        is_passive_cand = is_verified_passive_scheme(fund_data, fund_name=f_name, category=category)
+    except InsufficientDataError as e:
+        # Gate 4: Passive scheme verification failed due to missing scheme master
+        # This is a hard fail for Gate 4 exemption — active fund criteria must be met
+        failed.append(f"Gate 4 [Passive Verification]: {e}")
+        is_passive_cand = False
 
-    alpha_ok = True
-    if alpha is not None and float(alpha) < 0.0:
-        alpha_ok = False
-        failed.append(f"Gate 4 [Alpha Drag]: Negative 3Y Jensen's Alpha {float(alpha):.2f}% vs TRI Benchmark")
+    sharpe_ok = False
+    if is_passive_cand:
+        sharpe_ok = True
+    elif sharpe is None:
+        failed.append("Gate 4 [Sharpe Ratio Missing]: 3Y Sharpe ratio is missing (fail-closed)")
+    elif isinstance(sharpe, bool):
+        failed.append(f"Gate 4 [Sharpe Malformed]: Boolean value '{sharpe}' is not a numeric Sharpe ratio (fail-closed)")
+    elif isinstance(sharpe, str) and not sharpe.strip():
+        failed.append("Gate 4 [Sharpe Malformed]: Empty Sharpe ratio string (fail-closed)")
+    else:
+        try:
+            s_val = float(sharpe)
+            if math.isnan(s_val) or math.isinf(s_val):
+                failed.append("Gate 4 [Sharpe Non-Finite]: 3Y Sharpe ratio is NaN/Infinity (fail-closed)")
+            elif s_val < min_sharpe:
+                failed.append(f"Gate 4 [Sharpe Ratio]: 3Y Sharpe {s_val:.2f} < {min_sharpe:.2f}")
+            else:
+                sharpe_ok = True
+        except (ValueError, TypeError):
+            failed.append(f"Gate 4 [Sharpe Malformed]: Invalid Sharpe ratio value '{sharpe}' (fail-closed)")
+
+    alpha_ok = False
+    if is_passive_cand:
+        alpha_ok = True
+    elif alpha is None:
+        failed.append("Gate 4 [Alpha Drag Missing]: 3Y Jensen's Alpha is missing (fail-closed)")
+    elif isinstance(alpha, bool):
+        failed.append(f"Gate 4 [Alpha Malformed]: Boolean value '{alpha}' is not a numeric Alpha (fail-closed)")
+    elif isinstance(alpha, str) and not alpha.strip():
+        failed.append("Gate 4 [Alpha Malformed]: Empty Alpha string (fail-closed)")
+    else:
+        try:
+            a_val = float(alpha)
+            if math.isnan(a_val) or math.isinf(a_val):
+                failed.append("Gate 4 [Alpha Non-Finite]: 3Y Jensen's Alpha is NaN/Infinity (fail-closed)")
+            elif a_val <= 0.0:
+                failed.append(f"Gate 4 [Alpha Drag]: Non-positive 3Y Jensen's Alpha {a_val:.2f}% vs TRI Benchmark (active funds require > 0.0% to justify active fee drag)")
+            else:
+                alpha_ok = True
+        except (ValueError, TypeError):
+            failed.append(f"Gate 4 [Alpha Malformed]: Invalid Alpha value '{alpha}' (fail-closed)")
 
     sharpe_alpha_ok = sharpe_ok and alpha_ok
     details["sharpe"] = sharpe
     details["alpha"] = alpha
 
     # --- Gate 5: Downside Capture Ratio Gate ---
-    downside_capture = fund_data.get("downside_capture_ratio", fund_data.get("downside_capture", None))
-    upside_capture = fund_data.get("upside_capture_ratio", fund_data.get("upside_capture", None))
-    downside_ok = True
-    if downside_capture is not None and float(downside_capture) > 100.0:
-        if upside_capture is not None and float(upside_capture) < float(downside_capture):
+    # Gate 5: Capture Ratio Asymmetry Gate (renamed from Downside Capture Ratio Gate)
+    # Requires genuine capture ratio data - no mock defaults
+    # Passive/index funds are exempt (by definition track index with 100/100 capture)
+    downside_capture = fund_data.get("downside_capture_ratio", fund_data.get("downside_capture"))
+    upside_capture = fund_data.get("upside_capture_ratio", fund_data.get("upside_capture"))
+    
+    if is_passive_cand:
+        # Passive funds track index - capture ratios are 100/100 by definition
+        downside_capture = 100.0
+        upside_capture = 100.0
+        downside_ok = True
+    elif downside_capture is None or upside_capture is None:
+        # Fail explicitly if capture ratio data is missing (Zero Mock Defaults mandate)
+        failed.append("Gate 5 [Capture Ratio Asymmetry]: Missing downside/upside capture ratio data in fund_metrics.json — required for fiduciary assessment")
+        downside_ok = False
+    else:
+        downside_capture = float(downside_capture)
+        upside_capture = float(upside_capture)
+        downside_ok = True
+        # Capture Ratio Asymmetry Gate: Fund fails if downside capture > 100% AND upside < downside
+        if downside_capture > 100.0 and upside_capture < downside_capture:
             downside_ok = False
-            failed.append(f"Gate 5 [Inverted Capture]: Downside capture {float(downside_capture):.1f}% > Upside {float(upside_capture):.1f}%")
+            failed.append(f"Gate 5 [Inverted Capture Asymmetry]: Downside capture {downside_capture:.1f}% > 100% AND Upside {upside_capture:.1f}% < Downside {downside_capture:.1f}%")
+    
     details["downside_capture"] = downside_capture
+    details["upside_capture"] = upside_capture
 
     # --- Gate 6: Mandate Suitability Gate ---
     riskometer_score = int(fund_data.get("riskometer_score", 6))
     mandate_ok = fund_data.get("mandate_suitable", True)
-    if riskometer_score > client_risk_tier_num:
+    # Convert client_risk_tier_num to int (handles RiskTier enum, string, or int)
+    client_tier_int = _risk_tier_to_int(client_risk_tier_num)
+    
+    # Passive/index funds are exempt from riskometer breach (broad market tracking = diversified risk)
+    if not is_passive_cand and riskometer_score > client_tier_int:
         mandate_ok = False
-        failed.append(f"Gate 6 [Riskometer Breach]: Fund riskometer score {riskometer_score} exceeds client risk tier {client_risk_tier_num}")
+        failed.append(f"Gate 6 [Riskometer Breach]: Fund riskometer score {riskometer_score} exceeds client risk tier {client_tier_int}")
 
     is_thematic = any(kw in category.lower() or kw in fund_name.lower() for kw in ("thematic", "sectoral", "defence", "energy", "pharma", "tech"))
     if is_starter and is_thematic:
@@ -164,10 +260,21 @@ def check_eligibility_gates(
     details["confidence_score"] = confidence_score
 
     # --- Gate 8: Manager Tenure & Process Continuity Gate ---
-    tenure = float(fund_data.get("manager_tenure_years", fund_data.get("tenure", 5.0)) or 0.0)
-    tenure_ok = tenure >= min_manager_tenure_years
+    # Evaluates scheme operational history (>= 3.0 yrs) and manager continuity (tenure >= min_manager_tenure_years, default 2.0 yrs).
+    # Process-driven index and arbitrage funds are exempted from individual manager tenure.
+    tenure = float(fund_data.get("manager_tenure_years", fund_data.get("tenure", 3.0)) or 0.0)
+    scheme_track_record = float(fund_data.get("track_record_years", fund_data.get("track_record", 5.0)) or 5.0)
+    is_process_driven = bool(fund_data.get("is_process_driven", False) or "index" in category.lower() or "arbitrage" in category.lower())
+
+    track_ok = scheme_track_record >= 3.0
+    tenure_ok = (tenure >= min_manager_tenure_years) or is_process_driven
+
+    if not track_ok:
+        failed.append(f"Gate 8 [Track Record]: Scheme operational history {scheme_track_record:.1f} yrs < 3.0 yrs minimum")
     if not tenure_ok:
-        failed.append(f"Gate 8 [Manager Tenure]: Tenure {tenure:.1f} yrs < {min_manager_tenure_years:.1f} yrs minimum")
+        failed.append(f"Gate 8 [Manager Tenure]: Current manager tenure {tenure:.1f} yrs < {min_manager_tenure_years:.1f} yrs minimum without process-driven exemption")
+
+    details["scheme_track_record_years"] = scheme_track_record
     details["manager_tenure_years"] = tenure
 
     # --- Gate 9: Thematic Satellite Cap Gate ---
@@ -333,14 +440,15 @@ def load_candidate_universe(
             "return_3y": float(m.get("return_3y", m.get("ret_3y", 0.0)) or 0.0),
             "ter_direct_pct": float(m.get("ter_direct_pct", m.get("er", 0.75)) or 0.75),
             "er": float(m.get("er", m.get("ter_direct_pct", 0.75)) or 0.75),
-            "downside_capture_ratio": float(m.get("downside_capture_ratio", 90.0) or 90.0),
-            "upside_capture_ratio": float(m.get("upside_capture_ratio", 105.0) or 105.0),
+            "downside_capture_ratio": m.get("downside_capture_ratio", m.get("downside_capture")),
+            "upside_capture_ratio": m.get("upside_capture_ratio", m.get("upside_capture")),
             "riskometer_score": int(m.get("riskometer_score", 6)),
             "mandate_suitable": True,
             "data_complete": True,
             "manager_tenure_years": float(m.get("manager_tenure_years", 5.0) or 5.0),
             "composite_score": float(m.get("composite_score", 65.0) or 65.0),
             "is_direct": True,
+            "is_passive": m.get("is_passive", False),
             "_provenance": m.get("_provenance", {}),
             "eligibility": {}
         }

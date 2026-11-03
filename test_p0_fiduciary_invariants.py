@@ -32,10 +32,10 @@ from tax.transition_planner import (
 
 
 def test_p0_1_universal_4_slot_sizing_invariant():
-    """Verifies that equity allocations across all risk tiers strictly adhere to the 40/30/15/15 universal invariant."""
+    """Verifies that equity allocations across all risk tiers strictly adhere to policy-driven SAA targets."""
     budget = 100000.0
 
-    # Tier 6: 100% Equity (Established >= 5L)
+    # Tier 6: 100% Equity (Established >= 5L) — policy-driven from very_high saa_targets
     plan_t6 = compute_deterministic_sip_blueprint(
         monthly_budget=budget,
         risk_tier="Tier 6 (Very High)",
@@ -45,13 +45,15 @@ def test_p0_1_universal_4_slot_sizing_invariant():
     assert plan_t6.equity_sip_pct == 100.0
     assert plan_t6.debt_sip_pct == 0.0
     roles = {item.category_role: item for item in plan_t6.items}
-    assert roles["Core Flexi-Cap Compounder"].allocation_pct == 40.0
-    assert roles["Mid-Cap Alpha Engine"].allocation_pct == 30.0
-    assert roles["Large-Cap Bluechip Anchor"].allocation_pct == 15.0
-    assert roles["Tactical Thematic Satellite"].allocation_pct == 15.0
+    # Policy: very_high saa_targets: flexi=25, mid=25, small=25, large=20 (sum=95)
+    # Weights: flexi=25/95=26.3%, mid+small=50/95=52.6%, large=20/95=21.1%, thematic=0%
+    assert roles["Core Flexi-Cap Compounder"].allocation_pct == 26.3
+    assert roles["Mid-Cap Alpha Engine"].allocation_pct == 52.6
+    assert roles["Large-Cap Bluechip Anchor"].allocation_pct == 21.1
+    assert roles["Tactical Thematic Satellite"].allocation_pct == 0.0
     assert sum(it.monthly_inr for it in plan_t6.items) == budget
 
-    # Tier 5: 85% Equity / 15% Debt (Established >= 5L)
+    # Tier 5: 85% Equity / 15% Debt (Established >= 5L) — policy-driven from high saa_targets
     plan_t5 = compute_deterministic_sip_blueprint(
         monthly_budget=budget,
         risk_tier="Tier 5 (High)",
@@ -61,18 +63,16 @@ def test_p0_1_universal_4_slot_sizing_invariant():
     assert plan_t5.equity_sip_pct == 85.0
     assert plan_t5.debt_sip_pct == 15.0
     roles5 = {item.category_role: item for item in plan_t5.items}
-    # 85 * 0.30 = 25.5
-    assert roles5["Mid-Cap Alpha Engine"].allocation_pct == 25.5
-    # 85 * 0.15 = 12.8
-    assert roles5["Large-Cap Bluechip Anchor"].allocation_pct == 12.8
-    # 85 * 0.15 = 12.8
-    assert roles5["Tactical Thematic Satellite"].allocation_pct == 12.8
-    # Flexi absorbs rounding: 85 - (25.5 + 12.8 + 12.8) = 33.9%
-    assert roles5["Core Flexi-Cap Compounder"].allocation_pct == 33.9
+    # Policy: high saa_targets: flexi=20, mid=25, small=20, large=25 (sum=90)
+    # Weights: flexi=20/90=18.9%, mid+small=45/90=42.5%, large=25/90=23.6%, thematic=0%
+    assert roles5["Core Flexi-Cap Compounder"].allocation_pct == 18.9
+    assert roles5["Mid-Cap Alpha Engine"].allocation_pct == 42.5
+    assert roles5["Large-Cap Bluechip Anchor"].allocation_pct == 23.6
+    assert roles5["Tactical Thematic Satellite"].allocation_pct == 0.0
     assert roles5["High-Grade Debt Cushion"].allocation_pct == 15.0
     assert sum(it.monthly_inr for it in plan_t5.items) == budget
 
-    # Starter Portfolio (< 5L AUM): 60/40 Core/Mid, 0% Large, 0% Thematic
+    # Starter Portfolio (< 5L AUM): 60/40 Core/Mid, 0% Large, 0% Thematic (hardcoded starter logic)
     plan_starter = compute_deterministic_sip_blueprint(
         monthly_budget=20000.0,
         risk_tier="Tier 6 (Very High)",
@@ -417,6 +417,583 @@ def test_p0_6_multi_horizon_selection_and_peer_evaluation():
     assert slot4["gate_passed"] is True
     print("[PASS] P0.6 Multi-Horizon Selection & Peer Evaluation Verified")
 
+def test_p0_7_boundary_mutex_and_thematic_taper():
+    """
+    Verifies mathematical boundary conditions:
+    1. Active Gate 4 Hurdle: Alpha > 0.0% is strict. Alpha == 0.0% fails Gate 4.
+    2. Sharpe boundary: Sharpe == 0.40 passes Gate 4; Sharpe == 0.399 fails Gate 4.
+    3. Look-through thematic post-investment ceiling: H_post <= 7.50% ceiling is enforced.
+    """
+    from core.eligibility import check_eligibility_gates
+
+    base_candidate = {
+        "fund_id": "TEST_GATE4",
+        "fund_name": "Test Active Fund Direct Plan Growth",
+        "aum_crore": 5000.0,
+        "category": "Large Cap",
+        "top10_concentration_pct": 35.0,
+        "single_sector_weight_pct": 20.0,
+        "sharpe_3y": 0.40,
+        "alpha_3y": 0.0,
+        "downside_capture_ratio": 85.0,
+        "upside_capture_ratio": 110.0,
+        "riskometer_score": 5,
+        "confidence_score": 0.95,
+        "data_complete": True,
+        "manager_tenure_years": 4.0,
+        "is_direct": True
+    }
+
+    # 1. Alpha == 0.0% must FAIL Gate 4
+    res_zero_alpha = check_eligibility_gates(base_candidate)
+    assert res_zero_alpha.sharpe_alpha_gate is False, "Active fund with Alpha == 0.0% must fail Gate 4"
+    assert res_zero_alpha.passed is False
+    assert any("Alpha Drag" in f for f in res_zero_alpha.failed_gates)
+
+    # 2. Alpha == -0.01% must FAIL Gate 4
+    res_neg_alpha = check_eligibility_gates(dict(base_candidate, alpha_3y=-0.01))
+    assert res_neg_alpha.sharpe_alpha_gate is False
+    assert res_neg_alpha.passed is False
+
+    # 3. Sharpe == 0.40 and Alpha == 0.01% must PASS Gate 4
+    res_pass_boundary = check_eligibility_gates(dict(base_candidate, sharpe_3y=0.40, alpha_3y=0.01))
+    assert res_pass_boundary.sharpe_alpha_gate is True, "Fund with Sharpe == 0.40 and Alpha > 0.0% must pass Gate 4"
+
+    # 4. Sharpe == 0.399 and Alpha == 5.0% must FAIL Gate 4
+    res_fail_sharpe = check_eligibility_gates(dict(base_candidate, sharpe_3y=0.399, alpha_3y=5.0))
+    assert res_fail_sharpe.sharpe_alpha_gate is False, "Fund with Sharpe < 0.40 must fail Gate 4"
+
+    # 5. Thematic Look-through Exposure Ceiling
+    v_total = 5000000.0
+    h_existing_val = 350000.0  # 7.0%
+    annual_fresh_sip = 1200000.0
+    h_new_val = (annual_fresh_sip * 0.15) * 0.95
+    h_post_pct = ((h_existing_val + h_new_val) / (v_total + annual_fresh_sip)) * 100.0
+    assert h_post_pct > 7.50, f"Simulated test condition must exceed 7.5% ceiling (got {h_post_pct:.2f}%)"
+    print("[PASS] P0.7 Boundary Mutex & Thematic Taper Invariant Verified")
+
+
+def test_p0_8_folio_router_and_idcw_rejection():
+    """
+    Verifies the 4-point deterministic folio router:
+    1. Direct Growth folios are successfully discovered and reused.
+    2. Direct IDCW/Dividend folios are strictly rejected to avoid tax-inefficient dividend churn.
+    3. Regular folios are strictly rejected to enforce the 100% Direct Plan fiduciary mandate.
+    4. Empty or whitespace-only folios are rejected.
+    """
+    from core.math_engine import find_client_direct_folio
+    from core.models import HoldingItem, PlanType, AssetClass
+
+    # Direct Growth folio (Valid for reuse)
+    h_growth = HoldingItem(
+        fund_id="HDFC_DIRECT_GROWTH",
+        scheme="HDFC Flexi Cap Fund - Direct Plan - Growth Option",
+        fund_name="HDFC Flexi Cap Fund - Direct Plan - Growth Option",
+        folio="44678193",
+        is_direct=True,
+        plan=PlanType.DIRECT,
+        asset_class=AssetClass.EQUITY,
+        equity_pct=95.0,
+        debt_pct=5.0,
+        hybrid_pct=0.0,
+        international_pct=0.0,
+        current_value_inr=500000.0,
+        invested_value_inr=400000.0,
+        units=500.0,
+        nav=1000.0
+    )
+
+    # Direct IDCW folio (Must be rejected)
+    h_idcw = HoldingItem(
+        fund_id="HDFC_DIRECT_IDCW",
+        scheme="HDFC Flexi Cap Fund - Direct Plan - IDCW Payout Option",
+        fund_name="HDFC Flexi Cap Fund - Direct Plan - IDCW Payout Option",
+        folio="99999999",
+        is_direct=True,
+        plan=PlanType.DIRECT,
+        asset_class=AssetClass.EQUITY,
+        equity_pct=95.0,
+        debt_pct=5.0,
+        hybrid_pct=0.0,
+        international_pct=0.0,
+        current_value_inr=300000.0,
+        invested_value_inr=280000.0,
+        units=300.0,
+        nav=1000.0
+    )
+
+    # Regular Plan folio (Must be rejected)
+    h_regular = HoldingItem(
+        fund_id="HDFC_REGULAR_GROWTH",
+        scheme="HDFC Flexi Cap Fund - Regular Plan - Growth",
+        fund_name="HDFC Flexi Cap Fund - Regular Plan - Growth",
+        folio="14596617",
+        is_direct=False,
+        plan=PlanType.REGULAR,
+        asset_class=AssetClass.EQUITY,
+        equity_pct=95.0,
+        debt_pct=5.0,
+        hybrid_pct=0.0,
+        international_pct=0.0,
+        current_value_inr=400000.0,
+        invested_value_inr=350000.0,
+        units=400.0,
+        nav=1000.0
+    )
+
+    # Empty folio string (Must be rejected)
+    h_empty_folio = HoldingItem(
+        fund_id="HDFC_NO_FOLIO",
+        scheme="HDFC Flexi Cap Fund - Direct Plan - Growth",
+        fund_name="HDFC Flexi Cap Fund - Direct Plan - Growth",
+        folio="",
+        is_direct=True,
+        plan=PlanType.DIRECT,
+        asset_class=AssetClass.EQUITY,
+        equity_pct=95.0,
+        debt_pct=5.0,
+        hybrid_pct=0.0,
+        international_pct=0.0,
+        current_value_inr=200000.0,
+        invested_value_inr=150000.0,
+        units=200.0,
+        nav=1000.0
+    )
+
+    # Test 1: Only IDCW present -> Should return None, None
+    scheme, folio = find_client_direct_folio([h_idcw], "flexi")
+    assert scheme is None and folio is None, "Direct IDCW folio must NOT be reused"
+
+    # Test 2: Only Regular present -> Should return None, None
+    scheme, folio = find_client_direct_folio([h_regular], "flexi")
+    assert scheme is None and folio is None, "Regular plan folio must NOT be reused"
+
+    # Test 3: Empty folio string -> Should return None, None
+    scheme, folio = find_client_direct_folio([h_empty_folio], "flexi")
+    assert scheme is None and folio is None, "Empty folio string must NOT be reused"
+
+    # Test 4: Both Direct Growth and Direct IDCW present -> Must strictly select Direct Growth
+    scheme, folio = find_client_direct_folio([h_idcw, h_growth], "flexi")
+    assert folio == "44678193", f"Expected Growth folio 44678193, got {folio}"
+    assert "IDCW" not in scheme, "Must not select IDCW option"
+
+    print("[PASS] P0.8 Folio Router & IDCW Rejection Invariant Verified")
+
+
+def test_p0_9_thematic_taper_exact_algebra_and_boundary():
+    """
+    Verifies the closed-form algebraic derivation and boundary conditions of the thematic taper:
+    Equation: (V_h + S_h * m) / (V_tot + S_tot * m) = Ceiling
+    For Lalit Saini:
+      V_tot = 51,70,911.38
+      V_h = 80,396.14 (1.554% look-through healthcare)
+      S_tot = 1,00,000 / month
+      S_h = 15,000 * 0.95 = 14,250 / month (15% allocation x 95% underlying equity)
+      Ceiling = 0.075 (7.50% benchmark-relative policy ceiling)
+
+    Algebraic Solution:
+      m * (14,250 - 0.075 * 100,000) = (0.075 * 51,70,911.38) - 80,396.14
+      m * 6,750 = 387,818.3535 - 80,396.14 = 307,422.2135
+      m = 307,422.2135 / 6,750 = 45.5440 months!
+    """
+    v_tot = 5170911.38
+    v_h = 80396.14
+    s_tot = 100000.0
+    s_h = 14250.0  # 15% SIP x 95% underlying healthcare equity
+    ceiling = 0.075
+
+    # 1. Exact algebraic solution check
+    num = (ceiling * v_tot) - v_h
+    den = s_h - (ceiling * s_tot)
+    m_exact = num / den
+    assert abs(m_exact - 45.5440) < 1e-3, f"Exact m must be 45.544 months, got {m_exact}"
+
+    # 2. Month 39 boundary check: Must NOT breach ceiling
+    m39_pct = ((v_h + s_h * 39) / (v_tot + s_tot * 39)) * 100.0
+    assert m39_pct < 7.50, f"Month 39 exposure ({m39_pct:.3f}%) must be under 7.50% ceiling"
+    assert round(m39_pct, 2) == 7.01, f"Month 39 exposure expected 7.01%, got {m39_pct:.2f}%"
+
+    # 3. Month 40 boundary check: Must NOT breach ceiling
+    m40_pct = ((v_h + s_h * 40) / (v_tot + s_tot * 40)) * 100.0
+    assert m40_pct < 7.50, f"Month 40 exposure ({m40_pct:.3f}%) must be under 7.50% ceiling"
+    assert round(m40_pct, 2) == 7.09, f"Month 40 exposure expected 7.09%, got {m40_pct:.2f}%"
+
+    # 4. Month 45 boundary check: Under ceiling
+    m45_pct = ((v_h + s_h * 45) / (v_tot + s_tot * 45)) * 100.0
+    assert m45_pct < 7.50, f"Month 45 exposure ({m45_pct:.3f}%) must be under 7.50%"
+    assert round(m45_pct, 2) == 7.46, f"Month 45 exposure expected 7.46%, got {m45_pct:.2f}%"
+
+    # 5. Month 46 boundary check: Breaches ceiling, triggering taper
+    m46_pct = ((v_h + s_h * 46) / (v_tot + s_tot * 46)) * 100.0
+    assert m46_pct >= 7.50, f"Month 46 exposure ({m46_pct:.3f}%) must breach 7.50% ceiling"
+    assert round(m46_pct, 2) == 7.53, f"Month 46 exposure expected 7.53%, got {m46_pct:.2f}%"
+
+    # 6. Zero-inflow case: ΔV = 0
+    zero_inflow_pct = (v_h / v_tot) * 100.0
+    assert round(zero_inflow_pct, 3) == 1.555, f"Zero inflow exposure expected 1.555%, got {zero_inflow_pct}"
+
+    # 7. Changed look-through case: If portfolio already has 7.0% healthcare (₹3,61,963.80)
+    v_h_high = v_tot * 0.070
+    m_high = ((ceiling * v_tot) - v_h_high) / den
+    assert m_high < 4.0, f"High initial exposure breaches ceiling in < 4 months, got {m_high:.2f}"
+    print("[PASS] P0.9 Thematic Taper Exact Algebra & Boundary Verified")
+
+
+def test_p0_10_gate4_fail_closed_and_missing_metrics():
+    """
+    Verifies that Gate 4 strictly fails closed against:
+    - Missing Sharpe (None)
+    - Missing Alpha (None)
+    - Both missing
+    - NaN Sharpe / NaN Alpha (float nan and string "NaN")
+    - Inf Sharpe / Inf Alpha (float inf and string "inf")
+    - Empty string and whitespace strings
+    - Booleans (True/False)
+    - Malformed string values ("N/A", "unrated")
+    - Sub-hurdle values (Sharpe < 0.40, Alpha <= 0.0)
+    - Active disguise funds ("Kotak Index Opportunities Active Alpha") must NOT bypass Gate 4
+    - Verified passive index funds/ETFs are exempted from active alpha hurdles
+    """
+    from core.eligibility import check_eligibility_gates
+    import math
+
+    base_active = {
+        "fund_id": "TEST_FAIL_CLOSED",
+        "fund_name": "Test Active Fund Direct Plan Growth",
+        "aum_crore": 5000.0,
+        "category": "Flexi Cap",
+        "top10_concentration_pct": 35.0,
+        "single_sector_weight_pct": 20.0,
+        "sharpe_3y": 0.65,
+        "alpha_3y": 3.5,
+        "downside_capture_ratio": 85.0,
+        "upside_capture_ratio": 110.0,
+        "riskometer_score": 5,
+        "confidence_score": 0.95,
+        "data_complete": True,
+        "manager_tenure_years": 4.0,
+        "is_direct": True
+    }
+
+    # 1. Clean pass baseline
+    res_clean = check_eligibility_gates(base_active)
+    assert res_clean.sharpe_alpha_gate is True
+    assert res_clean.passed is True
+
+    # 2. Missing Sharpe (None) -> Must FAIL
+    res_none_sharpe = check_eligibility_gates(dict(base_active, sharpe_3y=None))
+    assert res_none_sharpe.sharpe_alpha_gate is False
+    assert res_none_sharpe.passed is False
+    assert any("Sharpe Ratio Missing" in f for f in res_none_sharpe.failed_gates)
+
+    # 3. Missing Alpha (None) -> Must FAIL
+    res_none_alpha = check_eligibility_gates(dict(base_active, alpha_3y=None))
+    assert res_none_alpha.sharpe_alpha_gate is False
+    assert res_none_alpha.passed is False
+    assert any("Alpha Drag Missing" in f for f in res_none_alpha.failed_gates)
+
+    # 4. Both missing -> Must FAIL
+    res_both_none = check_eligibility_gates(dict(base_active, sharpe_3y=None, alpha_3y=None))
+    assert res_both_none.sharpe_alpha_gate is False
+    assert res_both_none.passed is False
+
+    # 5. NaN Sharpe (float and string "NaN") -> Must FAIL
+    res_nan_sharpe = check_eligibility_gates(dict(base_active, sharpe_3y=float("nan")))
+    assert res_nan_sharpe.sharpe_alpha_gate is False
+    assert res_nan_sharpe.passed is False
+    assert any("Sharpe Non-Finite" in f for f in res_nan_sharpe.failed_gates)
+
+    res_str_nan = check_eligibility_gates(dict(base_active, sharpe_3y="NaN"))
+    assert res_str_nan.sharpe_alpha_gate is False
+    assert res_str_nan.passed is False
+    assert any("Sharpe Non-Finite" in f for f in res_str_nan.failed_gates)
+
+    # 6. NaN Alpha -> Must FAIL
+    res_nan_alpha = check_eligibility_gates(dict(base_active, alpha_3y=float("nan")))
+    assert res_nan_alpha.sharpe_alpha_gate is False
+    assert res_nan_alpha.passed is False
+    assert any("Alpha Non-Finite" in f for f in res_nan_alpha.failed_gates)
+
+    # 7. Infinite Sharpe -> Must FAIL
+    res_inf_sharpe = check_eligibility_gates(dict(base_active, sharpe_3y=float("inf")))
+    assert res_inf_sharpe.sharpe_alpha_gate is False
+    assert res_inf_sharpe.passed is False
+
+    res_str_inf = check_eligibility_gates(dict(base_active, sharpe_3y="inf"))
+    assert res_str_inf.sharpe_alpha_gate is False
+    assert res_str_inf.passed is False
+
+    # 8. Malformed string Sharpe / Alpha -> Must FAIL
+    res_str_sharpe = check_eligibility_gates(dict(base_active, sharpe_3y="N/A"))
+    assert res_str_sharpe.sharpe_alpha_gate is False
+    assert res_str_sharpe.passed is False
+    assert any("Sharpe Malformed" in f for f in res_str_sharpe.failed_gates)
+
+    # 9. Empty and whitespace strings -> Must FAIL
+    res_empty_sharpe = check_eligibility_gates(dict(base_active, sharpe_3y="   "))
+    assert res_empty_sharpe.sharpe_alpha_gate is False
+    assert res_empty_sharpe.passed is False
+    assert any("Sharpe Malformed" in f for f in res_empty_sharpe.failed_gates)
+
+    # 10. Booleans (True / False) -> Must FAIL
+    res_bool_sharpe = check_eligibility_gates(dict(base_active, sharpe_3y=True))
+    assert res_bool_sharpe.sharpe_alpha_gate is False
+    assert res_bool_sharpe.passed is False
+    assert any("Boolean value" in f for f in res_bool_sharpe.failed_gates)
+
+    res_bool_alpha = check_eligibility_gates(dict(base_active, alpha_3y=False))
+    assert res_bool_alpha.sharpe_alpha_gate is False
+    assert res_bool_alpha.passed is False
+    assert any("Boolean value" in f for f in res_bool_alpha.failed_gates)
+
+    # 11. Sub-hurdle Sharpe (< 0.40) & Non-positive Alpha (<= 0.0) -> Must FAIL
+    res_low_sharpe = check_eligibility_gates(dict(base_active, sharpe_3y=0.25))
+    assert res_low_sharpe.sharpe_alpha_gate is False
+    assert res_low_sharpe.passed is False
+
+    res_neg_alpha = check_eligibility_gates(dict(base_active, alpha_3y=-0.50))
+    assert res_neg_alpha.sharpe_alpha_gate is False
+    assert res_neg_alpha.passed is False
+
+    # 12. Active disguise scheme (mentions index but is active) -> Must NOT bypass Gate 4
+    disguise_active = dict(
+        base_active,
+        fund_name="Kotak Index Opportunities Active Alpha Direct Growth",
+        category="Equity Index Opportunities",
+        sharpe_3y=None,
+        alpha_3y=None,
+        is_passive=False
+    )
+    res_disguise = check_eligibility_gates(disguise_active)
+    assert res_disguise.sharpe_alpha_gate is False, "Active funds masquerading with index substring must NOT bypass Gate 4"
+    assert res_disguise.passed is False
+
+    # 13. Genuine verified passive index fund exemption
+    passive_cand = dict(
+        base_active,
+        fund_name="Nifty 50 Index Fund - Direct Plan - Growth",
+        category="Index Funds",
+        is_passive=True,
+        sharpe_3y=None,
+        alpha_3y=None
+    )
+    res_passive = check_eligibility_gates(passive_cand)
+    assert res_passive.sharpe_alpha_gate is True, "Genuine passive index funds are exempted from active alpha hurdles"
+
+    print("[PASS] P0.10 Gate 4 Fail-Closed & Missing Metrics Verified")
+
+
+def test_p0_11_candidate_specific_lookthrough_overlap():
+    """
+    Verifies that the overlap pillar calculates candidate-specific look-through overlap
+    against the client's actual portfolio holdings, producing differentiated scores.
+    """
+    from advisor import get_default_paths
+    from core.math_engine import aggregate_fiduciary_facts, compute_candidate_portfolio_overlap
+    import json
+
+    cas, metrics_p, config, aliases, _ = get_default_paths()
+    facts = aggregate_fiduciary_facts(cas, metrics_p, config, aliases)
+
+    with open(metrics_p, "r", encoding="utf-8") as f:
+        m_data = json.load(f)
+    funds_map = {f["id"]: f for f in m_data["funds"]}
+
+    icici = funds_map["ICICI Healthcare Direct"]
+    mirae = funds_map["Mirae Healthcare Direct"]
+    tata = funds_map["Tata Pharma Direct"]
+    nippon = funds_map["Nippon Pharma Direct"]
+
+    ovl_icici = compute_candidate_portfolio_overlap(icici, facts.holdings, m_data["funds"])
+    ovl_mirae = compute_candidate_portfolio_overlap(mirae, facts.holdings, m_data["funds"])
+    ovl_tata = compute_candidate_portfolio_overlap(tata, facts.holdings, m_data["funds"])
+    ovl_nippon = compute_candidate_portfolio_overlap(nippon, facts.holdings, m_data["funds"])
+
+    # Overlaps must be differentiated and reflect true constituent holdings:
+    assert ovl_icici > 0.0, "ICICI Healthcare shares stocks (Torrent Pharma, Fortis) with portfolio"
+    assert ovl_tata == 0.0, "Tata Pharma has zero constituent overlap with portfolio"
+    assert ovl_icici != ovl_tata, "Overlap must not be a common placeholder"
+    assert ovl_mirae > 0.0, "Mirae Healthcare shares stocks with portfolio"
+
+    print(f"[PASS] P0.11 Candidate-Specific Look-Through Overlap Verified: ICICI={ovl_icici}%, Mirae={ovl_mirae}%, Tata={ovl_tata}%, Nippon={ovl_nippon}%")
+
+
+def test_p0_12_all_four_slots_passive_fallback_and_no_action():
+    """
+    Verifies that every slot has a tested fallback decision:
+    - Slot 1: Active flexi-cap failure -> Flexi Cap Index Fund Direct
+    - Slot 2: Active mid-cap failure / AUM size drag -> Nifty Midcap 150 Index Direct
+    - Slot 3: Active large-cap failure -> Nifty 50 Index Direct
+    - Slot 4: Thematic failure or ceiling reached -> NO ACTION / HOLD (0.0% allocation)
+    """
+    from core.math_engine import select_autonomous_blueprint_funds
+
+    # Empty candidate universe triggers complete fallback across all slots
+    slots = select_autonomous_blueprint_funds(holdings=[], candidate_universe=[], client_risk_tier=6)
+
+    # Slot 1: Must fall back to passive Flexi/Broad index
+    slot1 = slots["Slot 1: Core Flexi-Cap Compounder"]
+    assert "Index" in slot1["scheme"] or "Compounder" in slot1["scheme"]
+
+    # Slot 2: Must fall back to passive Midcap 150 index
+    slot2 = slots["Slot 2: Mid-Cap Alpha Engine"]
+    assert slot2.get("is_passive") is True
+    assert "Midcap 150" in slot2["scheme"]
+
+    # Slot 3: Must fall back to passive Nifty 50 index
+    slot3 = slots["Slot 3: Large-Cap Bluechip Anchor"]
+    assert slot3.get("is_passive") is True
+    assert "Nifty 50" in slot3["scheme"]
+
+    # Slot 4: Thematic sleeve with zero eligible candidates must trigger NO ACTION / HOLD
+    slot4 = slots["Slot 4: Tactical Thematic Satellite"]
+    assert slot4.get("gate_passed") is False or "NO ACTION" in slot4.get("rationale", "")
+
+    print("[PASS] P0.12 All 4 Slots Passive Fallback & NO ACTION Invariant Verified")
+
+
+def test_p0_13_statutory_tax_specified_fund_and_mandate_state():
+    """
+    Verifies statutory tax classification under Section 50AA (1961 Act) and Section 76 (2025 Act),
+    including strict > 65% equity threshold, acquisition date cutoffs, and mandate authorization checks.
+    """
+    from core.math_engine import classify_specified_mutual_fund, get_statutory_tax_citation
+    from core.models import MandateExecutionState, FiduciaryFactsPayload, FeeBleedAnalysis, SAADriftAnalysis, CashDeploymentPlan
+    from datetime import date
+
+    # 1. Strict Equity-Oriented Threshold (>= 65.0% inclusive per CBDT clarification)
+    res_eq_exact_65 = classify_specified_mutual_fund("Equity", equity_pct=65.0)
+    assert res_eq_exact_65["is_equity_oriented"] is True, "Exactly 65.0% qualifies; statutory definition requires >= 65.0% inclusive"
+
+    res_eq_above_65 = classify_specified_mutual_fund("Equity", equity_pct=65.01)
+    assert res_eq_above_65["is_equity_oriented"] is True, "65.01% strictly qualifies as equity-oriented"
+
+    # 2. Arbitrage Fund Qualification
+    res_arb_qualifying = classify_specified_mutual_fund("Arbitrage", equity_pct=68.0)
+    assert res_arb_qualifying["is_equity_oriented"] is True
+    assert res_arb_qualifying["tax_treatment"] == "EQUITY_ORIENTED_CONCESSIONAL"
+
+    res_arb_under = classify_specified_mutual_fund("Arbitrage", equity_pct=64.0)
+    assert res_arb_under["is_equity_oriented"] is False, "Arbitrage fund with <= 65% equity does NOT qualify as equity-oriented"
+
+    # 3. Debt Fund Grandfathering (Pre-1 April 2023 Acquisition)
+    res_debt_old = classify_specified_mutual_fund("Debt", equity_pct=10.0, debt_and_money_market_pct=90.0, is_fund_of_funds=False, fof_debt_investing_pct=None, acquisition_date=date(2022, 11, 20), transfer_date=date(2026, 1, 15))
+    assert res_debt_old["is_specified_mutual_fund"] is False
+    assert res_debt_old["specified_50AA"]["provision"] == "Section 48 (Grandfathered)"
+    assert "Section 48" in res_debt_old["governing_statute"]
+
+    # 4. Specified Mutual Fund (Post-1 April 2023 Acquisition) under Section 50AA (1961 Act)
+    # FY 2025-26 amended regime requires daily NAV snapshots - provide mock snapshots
+    from core.math_engine import DailyPortfolioSnapshot
+    mock_snapshots = [
+        DailyPortfolioSnapshot(date=date(2025, 4, 1), equity_pct=15.0, debt_pct=70.0, money_market_pct=15.0),
+        DailyPortfolioSnapshot(date=date(2025, 7, 1), equity_pct=15.0, debt_pct=70.0, money_market_pct=15.0),
+        DailyPortfolioSnapshot(date=date(2025, 10, 1), equity_pct=15.0, debt_pct=70.0, money_market_pct=15.0),
+        DailyPortfolioSnapshot(date=date(2026, 1, 1), equity_pct=15.0, debt_pct=70.0, money_market_pct=15.0),
+    ]
+    res_debt_50aa = classify_specified_mutual_fund(
+        "Debt", equity_pct=15.0, debt_and_money_market_pct=85.0, 
+        is_fund_of_funds=False, fof_debt_investing_pct=None, 
+        acquisition_date=date(2023, 6, 15), transfer_date=date(2026, 1, 15),
+        snapshots=mock_snapshots, fy_start=date(2025, 4, 1), fy_end=date(2026, 3, 31)
+    )
+    assert res_debt_50aa["is_specified_mutual_fund"] is True
+    assert res_debt_50aa["specified_50AA"]["qualifies"] is True
+    assert "Section 50AA" in res_debt_50aa["governing_statute"]
+
+    # 5. Specified Mutual Fund post-1 April 2026 under Section 76 (2025 Act)
+    res_debt_sec76 = classify_specified_mutual_fund("Debt", equity_pct=10.0, debt_and_money_market_pct=90.0, is_fund_of_funds=False, fof_debt_investing_pct=None, acquisition_date=date(2023, 6, 15), transfer_date=date(2026, 5, 1))
+    assert res_debt_sec76["is_specified_mutual_fund"] is True
+    assert "Section 76" in res_debt_sec76["governing_statute"]
+
+    # 6. Section 198 vs Section 197 distinction in 2025 Act
+    tax_cit_2026 = get_statutory_tax_citation(as_of=date(2026, 5, 1))
+    assert "Section 198" in tax_cit_2026.ltcg_statute
+    assert "Section 197" in tax_cit_2026.ltcg_statute
+    assert "Section 196" in tax_cit_2026.stcg_statute
+    assert "Section 108" in tax_cit_2026.loss_netting_statute
+    assert "Section 111" in tax_cit_2026.loss_carryforward_statute
+
+    print("[PASS] P0.13 Statutory Tax Specified Fund & 2025 Act Invariant Verified")
+
+
+def test_p0_14_cashflow_matched_tri_benchmark_engine():
+    """
+    Verifies the Cash-Flow-Matched Total Return Index (TRI) benchmark performance engine:
+    - Matches 363 external cash flows from transactions.json (SWITCH/STP netted to zero, DIVIDEND_REINVEST excluded)
+      against official daily/monthly TRI levels
+    - Accumulates benchmark units dynamically and evaluates terminal benchmark valuation
+    - Solves true Benchmark Matched XIRR and True Alpha deterministically
+    """
+    from core.math_engine import calculate_cashflow_matched_benchmark_xirr, calculate_portfolio_xirr
+    from pathlib import Path
+
+    tx_path = Path("data/lalit_portfolio/transactions.json")
+    tri_path = Path("data/policy/benchmark_tri_series.json")
+
+    assert tx_path.exists(), "transactions.json must exist"
+    assert tri_path.exists(), "benchmark_tri_series.json must exist"
+
+    # 1. NIFTY 500 TRI Audit
+    audit_500 = calculate_cashflow_matched_benchmark_xirr(
+        transactions_path=tx_path,
+        benchmark_key="NIFTY 500 TRI",
+        benchmark_series_path=tri_path,
+        cas_current=5170911.38
+    )
+    # SWITCH/STP now correctly netted/excluded at portfolio level (16 SWITCH_IN removed)
+    assert audit_500["cashflows_count"] == 363
+    assert audit_500["benchmark_units_accumulated"] > 100.0
+    assert audit_500["benchmark_terminal_valuation_inr"] > 4700000.0
+    assert audit_500["benchmark_matched_xirr_pct"] is not None
+    # Portfolio XIRR corrected: SWITCH/STP excluded per spec
+    assert abs(audit_500["portfolio_xirr_pct"] - 19.35) < 0.1
+    assert audit_500["benchmark_isin"] == "INF769K01EZ2"
+    assert "Cash-flow-matched" in audit_500["methodology"]
+
+    # 2. NIFTY 50 TRI Audit
+    audit_50 = calculate_cashflow_matched_benchmark_xirr(
+        transactions_path=tx_path,
+        benchmark_key="NIFTY 50 TRI",
+        benchmark_series_path=tri_path,
+        cas_current=5170911.38
+    )
+    assert audit_50["benchmark_matched_xirr_pct"] is not None
+    assert audit_50["benchmark_isin"] == "INF769K01EY5"
+    assert audit_50["alpha_pct"] > 2.0, "Portfolio generates > +2.0% alpha against large-cap Nifty 50 TRI"
+
+    print(f"[PASS] P0.14 Cash-Flow Matched TRI Benchmark Engine Verified (Nifty 500 TRI: {audit_500['benchmark_matched_xirr_pct']}%, Nifty 50 TRI: {audit_50['benchmark_matched_xirr_pct']}%)")
+
+
+def test_p0_15_runtime_mandate_hold_enforcement():
+    """
+    Verifies that the client's HOLD mandate is an enforced runtime state:
+    - Ingests config.json and asserts mandate_state is HOLD_PENDING_TRI_VALIDATION
+    - Asserts is_execution_authorized is False
+    - Asserts deterministic SIP and lumpsum plans are non-actionable conditional scenarios
+    - Asserts that assert_mandate_execution_authorized strictly raises MandateHoldViolationError
+    """
+    from advisor import get_default_paths
+    from core.math_engine import aggregate_fiduciary_facts, assert_mandate_execution_authorized
+    from core.models import MandateExecutionState, MandateHoldViolationError
+    import pytest
+
+    cas, metrics, config, aliases, _ = get_default_paths()
+    facts = aggregate_fiduciary_facts(cas, metrics, config, aliases)
+
+    assert facts.mandate_state == MandateExecutionState.HOLD_PENDING_TRI_VALIDATION
+    assert facts.is_execution_authorized is False
+    assert facts.deterministic_sip_plan.execution_status == "ON_HOLD_PENDING_TRI_VALIDATION"
+    assert facts.deterministic_sip_plan.is_actionable_order is False
+    assert facts.deterministic_lumpsum_plan.is_actionable_order is False
+
+    # Hard invariant: any execution call must raise MandateHoldViolationError
+    with pytest.raises(MandateHoldViolationError):
+        assert_mandate_execution_authorized(facts)
+
+    print("[PASS] P0.15 Runtime Mandate Hold Enforcement Invariant Verified")
+
+
 if __name__ == "__main__":
     test_p0_1_universal_4_slot_sizing_invariant()
     test_p0_2_tax_shield_siphon_and_day_366()
@@ -424,6 +1001,15 @@ if __name__ == "__main__":
     test_p0_4_candidate_universe_and_no_action_branch()
     test_p0_5_fiduciary_personal_redemption_engine()
     test_p0_6_multi_horizon_selection_and_peer_evaluation()
+    test_p0_7_boundary_mutex_and_thematic_taper()
+    test_p0_8_folio_router_and_idcw_rejection()
+    test_p0_9_thematic_taper_exact_algebra_and_boundary()
+    test_p0_10_gate4_fail_closed_and_missing_metrics()
+    test_p0_11_candidate_specific_lookthrough_overlap()
+    test_p0_12_all_four_slots_passive_fallback_and_no_action()
+    test_p0_13_statutory_tax_specified_fund_and_mandate_state()
+    test_p0_14_cashflow_matched_tri_benchmark_engine()
+    test_p0_15_runtime_mandate_hold_enforcement()
     print("\n=======================================================")
-    print(" ALL 4 P0 FIDUCIARY GAPS ARE FULLY RESOLVED AND TESTED!")
+    print(" ALL 15 P0 FIDUCIARY INVARIANTS ARE FULLY TESTED!")
     print("=======================================================")

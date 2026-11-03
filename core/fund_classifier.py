@@ -1,0 +1,239 @@
+"""
+core/fund_classifier.py - Standardized SEBI Mutual Fund Classifier & Passive Alternatives.
+"""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Dict, List, Any, Optional
+
+
+def _load_passive_universe() -> Dict[str, List[str]]:
+    """Load passive fund universe from policy configuration."""
+    policy_path = Path(__file__).resolve().parents[1] / "data" / "policy" / "passive_universe.json"
+    if policy_path.exists():
+        try:
+            with open(policy_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            return data.get("passive_universe", {})
+        except (json.JSONDecodeError, KeyError):
+            pass
+    return {}
+
+
+def _load_scheme_master() -> Optional[Dict[str, Any]]:
+    """
+    Load Scheme Master (ISIN → benchmark index → mandate) from policy configuration.
+    
+    This is the authoritative source for Gate 4 passive scheme verification.
+    Returns None if not available (triggers InsufficientDataError in verification).
+    """
+    policy_path = Path(__file__).resolve().parents[1] / "data" / "policy" / "scheme_master.json"
+    if policy_path.exists():
+        try:
+            with open(policy_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            return data.get("scheme_master", {})
+        except (json.JSONDecodeError, KeyError):
+            pass
+    return None
+
+
+def is_verified_passive_scheme(
+    fund_data: Optional[Dict[str, Any]] = None,
+    fund_name: str = "",
+    category: str = "",
+    scheme_master: Optional[Dict[str, Any]] = None
+) -> bool:
+    """
+    Strict, non-sloppy verification of passive index fund or ETF product structure.
+    Rejects active thematic, flexi, or debt funds that happen to mention 'index' in their prose.
+    
+    GATE 4 REQUIREMENT: Scheme master (ISIN → benchmark index → mandate) required for release gate.
+    If scheme_master is not provided and not loadable, raises InsufficientDataError.
+    
+    Verification hierarchy:
+    1. Scheme Master lookup by ISIN (authoritative, if available)
+    2. Explicit metadata 'is_passive' is True, OR
+    3. SEBI category is strictly an index/ETF category, OR
+    4. Scheme name explicitly ends with / contains designated passive product structures
+       AND does NOT contain active descriptors like 'Index Opportunities', 'Enhanced Index', 'Index Advantage', 'Active'.
+    """
+    from core.models import InsufficientDataError
+    
+    if fund_data is None:
+        fund_data = {}
+
+    # Try to load scheme master if not provided
+    if scheme_master is None:
+        scheme_master = _load_scheme_master()
+    
+    # GATE 4: Scheme master is REQUIRED for passive scheme verification
+    # If unavailable, fail safe — do NOT fall back to heuristics for Gate 4
+    isin = fund_data.get("isin", "") or fund_data.get("ISIN", "")
+    if isin and scheme_master:
+        # Authoritative lookup by ISIN
+        scheme_info = scheme_master.get(isin)
+        if scheme_info:
+            is_passive = scheme_info.get("is_passive", False)
+            benchmark_index = scheme_info.get("benchmark_index", "")
+            mandate = scheme_info.get("mandate", "")
+            if is_passive:
+                return True
+            # If ISIN found but not passive, explicitly return False (not heuristic)
+            return False
+    
+    # If no scheme master available and ISIN was provided but not found, fail safe
+    if isin and (scheme_master is None or isin not in scheme_master):
+        raise InsufficientDataError(
+            f"Scheme Master required for Gate 4 passive verification of ISIN '{isin}'. "
+            "ISIN not found in scheme_master.json or scheme master unavailable. "
+            "Cannot verify passive status via heuristics for Gate 4 release gate.",
+            missing_data=f"scheme_master entry for ISIN {isin}",
+            required_source="SEBI/AMFI Scheme Master (ISIN → benchmark index → mandate mapping)"
+        )
+
+    name = (fund_name or fund_data.get("fund_name", "") or fund_data.get("name", "")).strip()
+    cat = (category or fund_data.get("category", "") or "").strip()
+    name_lower = name.lower()
+    cat_lower = cat.lower()
+
+    # Active disguise keywords that disqualify pure passive exemption
+    disqualifying_active_keywords = ["opportunities", "enhanced", "advantage", "active alpha", "active"]
+    if any(k in name_lower for k in disqualifying_active_keywords):
+        return False
+
+    # Check 1: Explicit boolean flag (must be strictly True, not truthy string or int)
+    if fund_data.get("is_passive") is True:
+        return True
+
+    # Check 2: Exact SEBI Category designation
+    sebi_passive_categories = [
+        "index funds", "exchange traded funds (etfs)", "etf", "etfs",
+        "equity index fund", "index: large cap", "index: mid cap",
+        "index: small cap", "index: flexi cap", "index: broad"
+    ]
+    if any(cat_lower == sc or cat_lower.startswith("index: ") or cat_lower.startswith("etf: ") for sc in sebi_passive_categories):
+        return True
+
+    # Check 3: Verified Scheme Name Structure
+    passive_name_tokens = ["index fund", " etf", "-etf", "(etf)", "index direct", "nifty 50 index", "nifty midcap 150 index"]
+    if any(token in name_lower for token in passive_name_tokens):
+        return True
+
+    return False
+
+
+FUND_CATEGORY_TAXONOMY = {
+    "Large Cap Equity": [
+        "large cap", "large & mid cap", "large and mid cap", "large cap bluechip",
+        "bluechip", "top 100", "nifty 50", "nifty 100", "sensex"
+    ],
+    "Mid Cap Equity": [
+        "mid cap", "mid-cap", "midcap", "mid & small cap", "nifty midcap 150", "emerging equity"
+    ],
+    "Flexi Cap Equity": [
+        "flexi cap", "flexi-cap", "flexicap", "multi cap", "multi-cap", "multicap", "focused"
+    ],
+    "Hybrid Equity": [
+        "hybrid", "balanced advantage", "hybrid: daa", "dynamic asset allocation", "equity savings", "multi asset"
+    ],
+    "Healthcare Thematic": [
+        "healthcare", "pharma", "pharmaceutical", "health fund", "pharma fund"
+    ],
+    "Defensive Thematic": [
+        "defence", "defense", "energy", "power", "infrastructure", "psu", "commodities", "natural resources"
+    ],
+    "Debt Funds": [
+        "debt", "short duration", "short term", "banking & psu debt", "liquid", "overnight", "money market", "arbitrage"
+    ],
+    "Index Funds": [
+        "index", "etf", "nifty 50 index", "nifty midcap index"
+    ]
+}
+
+
+def classify_fund_category(fund_name: str, fund_category: str = "", fund_data: Optional[Dict[str, Any]] = None) -> str:
+    """
+    Classify fund into standardized SEBI categories based on scheme name and category attributes.
+    Checks both category string and scheme name with strict priority.
+    """
+    if not fund_name and not fund_category:
+        return "Unknown"
+
+    name_lower = (fund_name or "").lower()
+    cat_lower = (fund_category or "").lower()
+    combined = f"{name_lower} {cat_lower}"
+
+    # 1. Dedicated Sector / Thematic Check
+    for kw in FUND_CATEGORY_TAXONOMY["Healthcare Thematic"]:
+        if kw in combined:
+            return "Healthcare Thematic"
+
+    for kw in FUND_CATEGORY_TAXONOMY["Defensive Thematic"]:
+        if kw in combined:
+            return "Defensive Thematic"
+
+    # 2. Hybrid / Balanced Advantage Check
+    for kw in FUND_CATEGORY_TAXONOMY["Hybrid Equity"]:
+        if kw in combined:
+            return "Hybrid Equity"
+
+    # 3. Debt / Arbitrage Check
+    for kw in FUND_CATEGORY_TAXONOMY["Debt Funds"]:
+        if kw in combined:
+            return "Debt Funds"
+
+    # 4. Large Cap Check
+    for kw in FUND_CATEGORY_TAXONOMY["Large Cap Equity"]:
+        if kw in combined:
+            return "Large Cap Equity"
+
+    # 5. Mid Cap Check (before Flexi/Multi)
+    for kw in FUND_CATEGORY_TAXONOMY["Mid Cap Equity"]:
+        if kw in combined:
+            return "Mid Cap Equity"
+
+    # 6. Flexi / Multi Cap Check
+    for kw in FUND_CATEGORY_TAXONOMY["Flexi Cap Equity"]:
+        if kw in combined:
+            return "Flexi Cap Equity"
+
+    # 7. Index Funds Check
+    for kw in FUND_CATEGORY_TAXONOMY["Index Funds"]:
+        if kw in combined:
+            return "Index Funds"
+
+    return "Other"
+
+
+def get_fund_passive_alternatives(category: str) -> List[str]:
+    """Retrieve verified institutional passive index alternatives for a category."""
+    universe = _load_passive_universe()
+    if category in universe:
+        return universe[category]
+
+    defaults = {
+        "Large Cap Equity": ["Nifty 50 Index Fund - Direct Plan - Growth"],
+        "Mid Cap Equity": ["Nifty Midcap 150 Index Fund - Direct Plan - Growth"],
+        "Flexi Cap Equity": ["Nifty 500 Index Fund - Direct Plan - Growth"],
+        "Debt Funds": ["Nifty 1D Rate Index Liquid Direct Plan"]
+    }
+    return defaults.get(category, [])
+
+
+def detect_fund_theme(fund_name: str, category: str = "") -> Optional[str]:
+    """Detect macro theme label if applicable."""
+    combined = f"{fund_name} {category}".lower()
+    if any(k in combined for k in ("pharma", "healthcare", "health")):
+        return "Healthcare"
+    if any(k in combined for k in ("defence", "defense")):
+        return "Defence"
+    if any(k in combined for k in ("energy", "power", "infra")):
+        return "Power/Energy"
+    if any(k in combined for k in ("psu", "cpse")):
+        return "PSU"
+    if any(k in combined for k in ("commodity", "commodities", "metal", "mining")):
+        return "Commodities"
+    return None

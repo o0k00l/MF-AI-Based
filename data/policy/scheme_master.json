@@ -1,0 +1,40 @@
+{
+  "_notice": "Scheme Master (ISIN → benchmark index → mandate) for Gate 4 passive scheme verification.",
+  "_source": "SEBI / AMFI Official Scheme Master Data",
+  "_retrieval_date": "2026-10-09",
+  "status": "SAMPLE — populate with full SEBI/AMFI scheme master for production use",
+  "scheme_master": {
+    "INF769K01EZ2": {
+      "isin": "INF769K01EZ2",
+      "scheme_name": "Nippon India ETF Nifty 500",
+      "benchmark_index": "NIFTY 500 TRI",
+      "is_passive": true,
+      "mandate": "Index Fund - Broad Market",
+      "amc": "Nippon India Mutual Fund"
+    },
+    "INF769K01EY5": {
+      "isin": "INF769K01EY5",
+      "scheme_name": "Nippon India ETF Nifty 50",
+      "benchmark_index": "NIFTY 50 TRI",
+      "is_passive": true,
+      "mandate": "Index Fund - Large Cap",
+      "amc": "Nippon India Mutual Fund"
+    },
+    "INF204K01Z85": {
+      "isin": "INF204K01Z85",
+      "scheme_name": "Nippon India Nifty 50 Index Fund - Direct Plan",
+      "benchmark_index": "NIFTY 50 TRI",
+      "is_passive": true,
+      "mandate": "Index Fund - Large Cap",
+      "amc": "Nippon India Mutual Fund"
+    },
+    "INF204K01W62": {
+      "isin": "INF204K01W62",
+      "scheme_name": "Nippon India Nifty 500 Index Fund - Direct Plan",
+      "benchmark_index": "NIFTY 500 TRI",
+      "is_passive": true,
+      "mandate": "Index Fund - Broad Market",
+      "amc": "Nippon India Mutual Fund"
+    }
+  }
+}
