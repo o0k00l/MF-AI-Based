@@ -1300,3 +1300,27 @@ def test_section_198_uses_average_of_monthly_opening_and_closing_figures():
     assert compute_annual_average_monthly_opening_closing(rows, fy_start, fy_end) == pytest.approx(65.0)
     with pytest.raises(InsufficientDataError, match="all 12 financial-year months"):
         compute_annual_average_monthly_opening_closing(rows[:-1], fy_start, fy_end)
+
+
+def test_tax_planner_rejects_point_in_time_or_stale_equity_allocation_evidence():
+    lot = Lot(
+        fund_id="fund-x",
+        folio_name="folio-1",
+        purchase_date=date(2024, 1, 1),
+        units=10,
+        nav=50,
+        cost=500,
+        source="cas",
+        equity_pct=70.0,
+    )
+    rules = {"classification_test": {"equity_oriented_threshold_pct": 65.0}}
+    with pytest.raises(ValueError, match="annual-average monthly opening/closing"):
+        classify_fund_for_tax(lot, rules, sale_date=date(2026, 11, 3))
+
+    lot.equity_pct_method = "annual_average_monthly_opening_closing"
+    lot.equity_pct_fy_start = 2025
+    lot.equity_pct_source_url = "https://example.test/disclosure"
+    lot.equity_pct_source_sha256 = "f" * 64
+    lot.equity_pct_source_verified = True
+    with pytest.raises(ValueError, match="requires FY starting 2026"):
+        classify_fund_for_tax(lot, rules, sale_date=date(2026, 11, 3))
