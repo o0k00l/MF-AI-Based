@@ -3816,7 +3816,15 @@ def select_autonomous_blueprint_funds(
     if candidate_universe is None:
         client_data_dir = os.environ.get("MF_CLIENT_DATA_DIR")
         if client_data_dir:
-            metrics_path = Path(client_data_dir).expanduser().resolve() / "fund_metrics.json"
+            client_root = Path(client_data_dir).expanduser().resolve()
+            repository_root = Path(__file__).resolve().parents[1]
+            try:
+                client_root.relative_to(repository_root)
+            except ValueError:
+                pass
+            else:
+                raise ValueError("MF_CLIENT_DATA_DIR must be outside the Git repository")
+            metrics_path = client_root / "fund_metrics.json"
             if not metrics_path.is_file():
                 raise FileNotFoundError(f"MF_CLIENT_DATA_DIR is set but fund_metrics.json is missing: {metrics_path}")
             candidate_universe = load_candidate_universe(metrics_path)
