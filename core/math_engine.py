@@ -3732,8 +3732,18 @@ def select_autonomous_blueprint_funds(
         tier_int = enum_to_int.get(client_risk_tier.value, 6)
 
     if candidate_universe is None:
-        metrics_path = _Path(__file__).resolve().parents[1] / "data" / "lalit_portfolio" / "fund_metrics.json"
-        candidate_universe = load_candidate_universe(metrics_path) if metrics_path.exists() else []
+        import os as _os
+        client_data_dir = _os.environ.get("MF_CLIENT_DATA_DIR")
+        if client_data_dir:
+            metrics_path = _Path(client_data_dir).expanduser().resolve() / "fund_metrics.json"
+            if not metrics_path.is_file():
+                raise FileNotFoundError(
+                    f"MF_CLIENT_DATA_DIR is set but fund_metrics.json is missing: {metrics_path}"
+                )
+            candidate_universe = load_candidate_universe(metrics_path)
+        else:
+            # No client-specific candidate universe is committed to the repository.
+            candidate_universe = []
 
     policy_path = _Path(__file__).resolve().parents[1] / "data" / "policy" / "asset_allocation.json"
     if not policy_path.is_file():
@@ -4157,230 +4167,139 @@ def compute_deterministic_lumpsum_blueprint(
     thematic_deficit_theme: str = "Pharma",
     thematic_satellite_authorized: bool = False,
     thematic_satellite_pct_of_equity: float = 0.0,
+    candidate_universe: Optional[List[Dict[str, Any]]] = None,
+    bank_cash_verified: bool = False,
+    staging_policy: Optional[Dict[str, Any]] = None,
+    parking_candidate: Optional[Dict[str, Any]] = None,
 ) -> DeterministicLumpsumPlan:
     """
-    Computes institutional lumpsum deployment strategy tailored across all SEBI risk tiers,
-    with dynamic duration staggering, multi-slot SAA preservation for large amounts (>= INR 5 Lakhs),
-    tax-shielded arbitrage parking, and bank cash reality verification.
+    Fail-closed lumpsum planning.
+
+    No tranche, parking vehicle or tax-saving estimate is created until the
+    inputs and staging methodology have source-backed validation. This prevents
+    defaulting to named funds, assumed yields, universal 20/80 deployment or
+    a hardcoded multi-slot STP split.
     """
-    import math as _math
+    import math
+    import re
+
     try:
-        L = float(lumpsum_amount)
-        bank_cash = float(bank_cash_total)
+        amount = float(lumpsum_amount)
+        cash_total = float(bank_cash_total)
         reserve = float(emergency_reserve)
         satellite_pct = float(thematic_satellite_pct_of_equity)
     except (TypeError, ValueError) as exc:
-        raise ValueError("Lumpsum, bank cash, reserve and thematic allocation must be numeric") from exc
-    if any(not _math.isfinite(v) or v < 0.0 for v in (L, bank_cash, reserve)):
-        raise ValueError("Lumpsum, bank cash and emergency reserve must be finite and non-negative")
+        raise ValueError("Lumpsum, bank-cash, reserve and thematic inputs must be numeric") from exc
+    if not math.isfinite(amount) or amount < 0:
+        raise ValueError("Lumpsum amount must be finite and non-negative")
+    if not math.isfinite(cash_total) or cash_total < 0:
+        raise ValueError("Bank cash must be finite and non-negative")
+    if not math.isfinite(reserve) or reserve < 0 or reserve > cash_total:
+        raise ValueError("Emergency reserve must be finite, non-negative and no greater than bank cash")
+    if not isinstance(bank_cash_verified, bool):
+        raise ValueError("bank_cash_verified must be a boolean")
     if not isinstance(thematic_satellite_authorized, bool):
         raise ValueError("thematic_satellite_authorized must be a boolean")
-    if not _math.isfinite(satellite_pct) or not 0.0 <= satellite_pct <= 15.0:
-        raise ValueError("thematic satellite percentage must be finite and between 0 and 15")
-    if satellite_pct > 0.0 and not thematic_satellite_authorized:
-        raise ValueError("thematic satellite allocation requires explicit IPS authorization")
-    if not thematic_satellite_authorized:
-        satellite_pct = 0.0
-    deployable_surplus = max(0.0, bank_cash - reserve)
-    cash_ok = bank_cash > 0.0 and deployable_surplus >= L
-    if bank_cash <= 0.0:
-        msg = "NO ACTION: verified bank cash data was not supplied; no lumpsum deployment is permitted."
-    elif not cash_ok:
-        msg = f"NO ACTION: proposed lumpsum INR {L:,.2f} exceeds deployable surplus INR {deployable_surplus:,.2f}."
-    else:
-        msg = f"Bank cash verification passed: deployable surplus INR {deployable_surplus:,.2f} covers proposed lumpsum INR {L:,.2f}."
-    if not cash_ok:
-        return DeterministicLumpsumPlan(
-            total_lumpsum_inr=L,
-            unallocated_amount_inr=L,
-            is_big_ticket=False,
-            stp_duration_months=0,
-            immediate_amount_inr=0.0,
-            stp_total_amount_inr=0.0,
-            monthly_stp_total_inr=0.0,
-            parking_vehicle="N/A — cash validation failed",
-            tax_savings_vs_debt_fund_inr=0.0,
-            cash_validation_passed=False,
-            cash_validation_message=msg,
-            tranches=[],
-        )
+    if not math.isfinite(satellite_pct) or not 0.0 <= satellite_pct <= 15.0:
+        raise ValueError("Thematic satellite percentage must be finite and between 0 and 15")
+    if satellite_pct > 0 and not thematic_satellite_authorized:
+        raise ValueError("A positive thematic satellite allocation requires explicit IPS authorization")
 
-    # 1. Asset Class SAA Target based on Risk Tier
+    deployable = cash_total - reserve
+    reasons: List[str] = []
+    if not bank_cash_verified:
+        reasons.append("bank cash and emergency reserve are not independently verified")
+    if deployable < amount:
+        reasons.append("verified deployable surplus does not cover the requested lumpsum")
+
     tier_num = _parse_sebi_risk_tier(risk_tier)
-
-    # Autonomously resolve reusable direct folios and schemes via the 5-step engine
     slots = select_autonomous_blueprint_funds(
         holdings=holdings,
+        candidate_universe=candidate_universe,
         client_risk_tier=tier_num,
         thematic_deficit_theme=thematic_deficit_theme,
         thematic_satellite_authorized=thematic_satellite_authorized,
         thematic_satellite_pct_of_equity=satellite_pct,
     )
-    flexi_info = slots["Slot 1: Core Flexi-Cap Compounder"]
-    mid_info = slots["Slot 2: Mid-Cap Alpha Engine"]
-    large_info = slots["Slot 3: Large-Cap Bluechip Anchor"]
-    thematic_info = slots["Slot 4: Tactical Thematic Satellite"]
-    debt_info = slots.get("High-Grade Debt Anchor", {})
+    equity_pct, debt_pct = calculate_universal_tier_split(tier_num, stability_buffer_pct)
+    required_slots = []
+    if equity_pct > 0:
+        required_slots.extend([
+            "Slot 1: Core Flexi-Cap Compounder",
+            "Slot 2: Mid-Cap Alpha Engine",
+            "Slot 3: Large-Cap Bluechip Anchor",
+        ])
+        if thematic_satellite_authorized and satellite_pct > 0:
+            required_slots.append("Slot 4: Tactical Thematic Satellite")
+    if debt_pct > 0:
+        required_slots.append("High-Grade Debt Anchor")
 
-    direct_large_folio = large_info["folio"]
-    direct_mid_folio = mid_info["folio"]
-    direct_flexi_folio = flexi_info["folio"]
-    direct_debt_folio = debt_info.get("folio")
-    eq_target_pct, debt_target_pct = calculate_universal_tier_split(tier_num, stability_buffer_pct)
-    debt_amount = round(L * (debt_target_pct / 100.0), 2)
-    eq_amount = round(L * (eq_target_pct / 100.0), 2)
+    for slot_name in required_slots:
+        slot = slots.get(slot_name) or {}
+        scheme = slot.get("scheme") or slot.get("fund_name")
+        if (
+            not isinstance(scheme, str)
+            or not scheme.strip()
+            or scheme.strip().upper().startswith("NO_ACTION")
+            or slot.get("is_direct") is not True
+            or slot.get("gate_passed") is not True
+        ):
+            reasons.append(f"{slot_name} lacks a verified Direct-plan candidate passing every eligibility gate")
 
-    # 2. Equity Horizon Staggering Logic based on Size (Sequence of Returns Risk Mitigation)
-    if eq_amount <= 250000.0:
-        stp_months = 6
-    elif eq_amount <= 1000000.0:
-        stp_months = 6 if eq_amount <= 500000.0 else 9
-    elif eq_amount <= 2500000.0:
-        stp_months = 12
+    # A parking vehicle must be a candidate in the supplied universe, not a
+    # hardcoded brand or an inferred tax category.
+    parking = parking_candidate if isinstance(parking_candidate, dict) else {}
+    parking_id = parking.get("fund_id")
+    candidates_by_id = {
+        str(item.get("fund_id")): item
+        for item in (candidate_universe or [])
+        if isinstance(item, dict) and item.get("fund_id") is not None
+    }
+    parking_source = candidates_by_id.get(str(parking_id)) if parking_id is not None else None
+    provenance = parking.get("_provenance") or (parking_source or {}).get("_provenance") or {}
+    source_hash = provenance.get("source_document_sha256")
+    source_url = provenance.get("source_url")
+    if equity_pct > 0 and not (
+        parking_source is not None
+        and isinstance(parking.get("scheme_name") or parking_source.get("fund_name"), str)
+        and parking.get("is_direct") is True
+        and parking.get("category") == "Arbitrage"
+        and parking.get("classification_status") == "VERIFIED"
+        and isinstance(source_url, str) and source_url.startswith("https://")
+        and isinstance(source_hash, str) and re.fullmatch(r"[0-9a-fA-F]{64}", source_hash)
+    ):
+        reasons.append("A source-backed Direct arbitrage parking candidate with verified tax classification is missing")
+
+    if not isinstance(staging_policy, dict):
+        reasons.append("an investor-authorized staging policy is missing")
     else:
-        stp_months = 12 if eq_amount <= 5000000.0 else 18
+        try:
+            immediate_pct = float(staging_policy["immediate_equity_pct"])
+            stp_months = int(staging_policy["stp_months"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError("Staging policy requires immediate_equity_pct and stp_months") from exc
+        if not math.isfinite(immediate_pct) or not 0.0 <= immediate_pct <= 100.0:
+            raise ValueError("immediate_equity_pct must be finite and between 0 and 100")
+        if stp_months < 1 or stp_months > 36:
+            raise ValueError("stp_months must be between 1 and 36")
 
-    # 3. Parking Vehicle & Tax Arbitrage (Section 50AA Debt vs Section 112A/111A Equity Arbitrage)
-    # Always use Equity Arbitrage for amounts >= 500,000 (tax efficiency advantage)
-    # For smaller amounts, use Liquid Fund to maintain flexibility and lower minimum investment
-    is_big = eq_amount >= 500000.0
-    parking_vehicle = "Equity Arbitrage Fund - Direct Plan (e.g. ICICI Pru / Kotak Arbitrage)" if is_big else "Liquid Fund / Arbitrage Fund - Direct Plan"
-
-    # Tax savings calculation on parked capital at ~6.8% yield (31.2% slab debt vs 20% equity STCG)
-    annual_yield = 0.068
-    stp_total = round(eq_amount * 0.80, 2) if eq_amount > 0 else 0.0
-    immediate_eq = round(eq_amount * 0.20, 2) if eq_amount > 0 else 0.0
-    monthly_stp_total = round(stp_total / stp_months, 2) if stp_months > 0 else 0.0
-
-    parking_interest_est = stp_total * annual_yield * (stp_months / 24.0)
-    tax_debt_slab = parking_interest_est * 0.312
-    tax_arbitrage_equity = parking_interest_est * 0.20
-    tax_savings_inr = max(0.0, round(tax_debt_slab - tax_arbitrage_equity, 2)) if is_big else 0.0
-
-    # 4. Tranche Construction
-    tranches = []
-
-    # A. Debt Tranche (Day 1 upfront)
-    if debt_amount > 0:
-        debt_scheme_name = debt_info.get("scheme", "ICICI Prudential Short Term Fund - Direct Plan - Growth")
-        tranches.append(
-            LumpsumTrancheItem(
-                role="High-Grade Debt Cushion (Day 1 Upfront)",
-                scheme_name=debt_scheme_name,
-                folio_target=direct_debt_folio,
-                amount_inr=debt_amount,
-                allocation_pct=debt_target_pct,
-                timing="Immediate (Day 1)",
-                source_vehicle="Bank Deployable Surplus",
-                fiduciary_rationale="High-grade debt has zero equity bubble risk; builds required safety cushion upfront."
-            )
+    if not reasons:
+        reasons.append(
+            "tranche construction is not release-verified; retain the entire amount as unallocated pending independent review"
         )
-
-    # B. Equity Tranches (Autonomously Selected)
-    if eq_amount > 0:
-        flexi_info = slots["Slot 1: Core Flexi-Cap Compounder"]
-        mid_info = slots["Slot 2: Mid-Cap Alpha Engine"]
-        large_info = slots["Slot 3: Large-Cap Bluechip Anchor"]
-
-        flexi_s = flexi_info.get("scheme") or flexi_info.get("fund_name") or "NO_ACTION: No eligible fund selected"
-        flexi_f = flexi_info.get("folio")
-        flexi_r = flexi_info.get("rationale", "NO_ACTION: No eligible fund selected for Slot 1.")
-        mid_s = mid_info.get("scheme") or mid_info.get("fund_name") or "NO_ACTION: No eligible fund selected"
-        mid_f = mid_info.get("folio")
-        mid_r = mid_info.get("rationale", "NO_ACTION: No eligible fund selected for Slot 2.")
-        large_s = large_info.get("scheme") or large_info.get("fund_name") or "NO_ACTION: No eligible fund selected"
-        large_f = large_info.get("folio")
-        large_r = large_info.get("rationale", "NO_ACTION: No eligible fund selected for Slot 3.")
-
-        # Day 1 Large-Cap Anchor
-        imm_pct = round((immediate_eq / L) * 100.0, 1)
-        tranches.append(
-            LumpsumTrancheItem(
-                role="Day-1 Large-Cap Anchor",
-                scheme_name=large_s,
-                folio_target=large_f,
-                amount_inr=immediate_eq,
-                allocation_pct=imm_pct,
-                timing="Immediate (Day 1)",
-                source_vehicle="Bank Deployable Surplus",
-                fiduciary_rationale=large_r
-            )
-        )
-
-        if not is_big:
-            # Single destination STP
-            stp_pct = round((stp_total / L) * 100.0, 1)
-            tranches.append(
-                LumpsumTrancheItem(
-                    role="Core Flexi-Cap Compounder",
-                    scheme_name=flexi_s,
-                    folio_target=flexi_f,
-                    amount_inr=stp_total,
-                    monthly_inr=monthly_stp_total,
-                    allocation_pct=stp_pct,
-                    timing=f"{stp_months}-Month STP (INR {monthly_stp_total:,.0f}/mo)",
-                    source_vehicle=parking_vehicle,
-                    fiduciary_rationale=flexi_r
-                )
-            )
-        else:
-            # Multi-slot STP for big-ticket lumpsums (Flexi 50%, Mid 35%, Large 15%)
-            flexi_stp = round(stp_total * 0.50, 2)
-            mid_stp = round(stp_total * 0.35, 2)
-            large_stp = round(stp_total * 0.15, 2)
-
-            tranches.append(
-                LumpsumTrancheItem(
-                    role="Core Flexi-Cap Compounder (STP Leg 1)",
-                    scheme_name=flexi_s,
-                    folio_target=flexi_f,
-                    amount_inr=flexi_stp,
-                    monthly_inr=round(flexi_stp / stp_months, 2),
-                    allocation_pct=round((flexi_stp / L) * 100.0, 1),
-                    timing=f"{stp_months}-Month STP (INR {round(flexi_stp / stp_months, 2):,.0f}/mo)",
-                    source_vehicle=parking_vehicle,
-                    fiduciary_rationale=flexi_r
-                )
-            )
-            tranches.append(
-                LumpsumTrancheItem(
-                    role="Mid-Cap Alpha Engine (STP Leg 2)",
-                    scheme_name=mid_s,
-                    folio_target=mid_f,
-                    amount_inr=mid_stp,
-                    monthly_inr=round(mid_stp / stp_months, 2),
-                    allocation_pct=round((mid_stp / L) * 100.0, 1),
-                    timing=f"{stp_months}-Month STP (INR {round(mid_stp / stp_months, 2):,.0f}/mo)",
-                    source_vehicle=parking_vehicle,
-                    fiduciary_rationale=mid_r
-                )
-            )
-            tranches.append(
-                LumpsumTrancheItem(
-                    role="Large-Cap Bluechip Anchor (STP Leg 3)",
-                    scheme_name=large_s,
-                    folio_target=large_f,
-                    amount_inr=large_stp,
-                    monthly_inr=round(large_stp / stp_months, 2),
-                    allocation_pct=round((large_stp / L) * 100.0, 1),
-                    timing=f"{stp_months}-Month STP (INR {round(large_stp / stp_months, 2):,.0f}/mo)",
-                    source_vehicle=parking_vehicle,
-                    fiduciary_rationale=large_r
-                )
-            )
-
     return DeterministicLumpsumPlan(
-        total_lumpsum_inr=L,
-        is_big_ticket=is_big,
-        stp_duration_months=stp_months if eq_amount > 0 else 0,
-        immediate_amount_inr=immediate_eq + debt_amount,
-        stp_total_amount_inr=stp_total,
-        monthly_stp_total_inr=monthly_stp_total,
-        parking_vehicle=parking_vehicle if eq_amount > 0 else "N/A",
-        tax_savings_vs_debt_fund_inr=tax_savings_inr,
-        cash_validation_passed=cash_ok,
-        cash_validation_message=msg,
-        tranches=tranches
+        total_lumpsum_inr=amount,
+        unallocated_amount_inr=amount,
+        is_big_ticket=amount >= 500000.0,
+        stp_duration_months=0,
+        immediate_amount_inr=0.0,
+        stp_total_amount_inr=0.0,
+        monthly_stp_total_inr=0.0,
+        parking_vehicle="NO_ACTION",
+        tax_savings_vs_debt_fund_inr=0.0,
+        cash_validation_passed=bank_cash_verified and deployable >= amount,
+        cash_validation_message="NO ACTION: " + "; ".join(reasons),
+        tranches=[],
     )
 
 
@@ -4393,6 +4312,7 @@ def compute_deterministic_sip_blueprint(
     thematic_deficit_theme: str = "Pharma",
     thematic_satellite_pct_of_equity: float = 0.0,
     thematic_satellite_authorized: bool = False,
+    candidate_universe: Optional[List[Dict[str, Any]]] = None,
 ) -> DeterministicSIPPlan:
     """
     Computes deterministic SIP blueprint dynamically tailored across all SEBI risk tiers
@@ -4454,8 +4374,11 @@ def compute_deterministic_sip_blueprint(
     # Autonomous Fiduciary Slot Selection (Zero Hardcoded Brands)
     slots = select_autonomous_blueprint_funds(
         holdings=holdings,
+        candidate_universe=candidate_universe,
         client_risk_tier=tier_num,
-        thematic_deficit_theme=thematic_deficit_theme
+        thematic_deficit_theme=thematic_deficit_theme,
+        thematic_satellite_authorized=thematic_satellite_authorized,
+        thematic_satellite_pct_of_equity=satellite_pct,
     )
     flexi_info = slots["Slot 1: Core Flexi-Cap Compounder"]
     mid_info = slots["Slot 2: Mid-Cap Alpha Engine"]
