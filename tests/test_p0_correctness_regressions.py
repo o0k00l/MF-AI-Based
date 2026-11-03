@@ -595,3 +595,20 @@ def test_runtime_execution_requires_explicit_client_approved_state():
         mandate_state=MandateExecutionState.CLIENT_APPROVED,
         is_execution_authorized=True,
     ))
+
+
+@pytest.mark.parametrize(
+    "transaction",
+    [
+        {"scheme": "Example Fund", "date": "2024-01-01", "amount": 100.0, "units": 1.0, "nav": 100.0, "type": "UNKNOWN"},
+        {"scheme": "Example Fund", "date": "2024-01-01", "amount": 100.0, "units": 0.0, "nav": 100.0, "type": "PURCHASE"},
+    ],
+)
+def test_transition_fifo_loader_rejects_unknown_or_incomplete_transaction_rows(tmp_path, transaction):
+    import json
+    from tax.transition_planner import load_transactions
+
+    path = tmp_path / "transactions.json"
+    path.write_text(json.dumps({"transactions": [transaction]}), encoding="utf-8")
+    with pytest.raises(ValueError):
+        load_transactions(path)
