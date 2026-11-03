@@ -36,7 +36,7 @@ class Lot:
     equity_pct_fy_start: int | None = None
     equity_pct_source_url: str | None = None
     equity_pct_source_sha256: str | None = None
-    equity_pct_source_verified: bool = False
+    equity_pct_source_reviewed: bool = False
 
     def holding_days(self, as_of: date) -> int:
         return (as_of - self.purchase_date).days
@@ -159,14 +159,14 @@ def load_transactions(
             equity_pct_fy_start = allocation_record.get("financial_year_start")
             equity_pct_source_url = allocation_record.get("source_url")
             equity_pct_source_sha256 = allocation_record.get("source_document_sha256")
-            equity_pct_source_verified = allocation_record.get("independently_verified", False)
+            equity_pct_source_reviewed = allocation_record.get("independently_verified", False)
         else:
             equity_pct = tx.get("equity_allocation_pct", allocation_record)
             equity_pct_method = tx.get("equity_allocation_method")
             equity_pct_fy_start = tx.get("equity_allocation_fy_start")
             equity_pct_source_url = tx.get("equity_allocation_source_url")
             equity_pct_source_sha256 = tx.get("equity_allocation_source_sha256")
-            equity_pct_source_verified = tx.get("equity_allocation_source_verified", False)
+            equity_pct_source_reviewed = tx.get("equity_allocation_source_verified", False)
         transactions_by_fund[scheme].append({
             "date": dt,
             "units": Decimal(str(units)),
@@ -178,7 +178,7 @@ def load_transactions(
             "equity_pct_fy_start": equity_pct_fy_start,
             "equity_pct_source_url": equity_pct_source_url,
             "equity_pct_source_sha256": equity_pct_source_sha256,
-            "equity_pct_source_verified": equity_pct_source_verified,
+            "equity_pct_source_reviewed": equity_pct_source_reviewed,
             "description": tx.get("description", ""),
         })
 
@@ -321,7 +321,7 @@ def load_transactions(
                     equity_pct_fy_start=p.get("equity_pct_fy_start"),
                     equity_pct_source_url=p.get("equity_pct_source_url"),
                     equity_pct_source_sha256=p.get("equity_pct_source_sha256"),
-                    equity_pct_source_verified=p.get("equity_pct_source_verified", False),
+                    equity_pct_source_reviewed=p.get("equity_pct_source_reviewed", False),
                 ))
 
     return lots_by_fund
@@ -485,7 +485,9 @@ def classify_fund_for_tax(source_holding, tax_rules, sale_date=None):
     """
     Classify only from a provenance-backed Section 198 annual-average monthly
     opening/closing calculation for the financial year of the intended sale.
-    Point-in-time scheme allocation percentages are not accepted.
+    Point-in-time scheme allocation percentages are not accepted. The
+    reviewer-attested source fields are not cryptographic source authentication;
+    this result remains provisional and requires independent adviser sign-off.
     """
     import math
     import re
@@ -503,8 +505,8 @@ def classify_fund_for_tax(source_holding, tax_rules, sale_date=None):
     method = getattr(source_holding, "equity_pct_method", None)
     if method != "annual_average_monthly_opening_closing":
         raise ValueError("equity allocation must use the Section 198 annual-average monthly opening/closing method")
-    if getattr(source_holding, "equity_pct_source_verified", False) is not True:
-        raise ValueError("Section 198 equity-allocation source must be independently verified")
+    if getattr(source_holding, "equity_pct_source_reviewed", False) is not True:
+        raise ValueError("Section 198 equity-allocation source must be explicitly reviewed by an adviser")
     source_url = getattr(source_holding, "equity_pct_source_url", None)
     if not isinstance(source_url, str) or not source_url.startswith("https://"):
         raise ValueError("Section 198 equity-allocation source URL must be HTTPS")
