@@ -2858,7 +2858,7 @@ class MonthlySnapshotCoverageEvidence:
     expected_months: Tuple[date, ...]
     source_url: str
     source_document_sha256: str
-    independently_verified: bool
+    reviewer_attested: bool
 
 
 def validate_monthly_snapshot_coverage(
@@ -2876,7 +2876,7 @@ def validate_monthly_snapshot_coverage(
             missing_data="MonthlySnapshotCoverageEvidence",
             required_source="Verified monthly disclosure calendar with source URL and SHA-256",
         )
-    if evidence.independently_verified is not True:
+    if evidence.reviewer_attested is not True:
         raise InsufficientDataError(
             "Section 198 monthly disclosure calendar is not independently verified.",
             missing_data="independent monthly coverage verification",
@@ -2967,7 +2967,7 @@ class DailySnapshotCoverageEvidence:
     expected_dates: Tuple[date, ...]
     source_url: str
     source_document_sha256: str
-    independently_verified: bool
+    reviewer_attested: bool
 
 
 def validate_daily_snapshot_coverage(
@@ -2986,7 +2986,7 @@ def validate_daily_snapshot_coverage(
             missing_data="DailySnapshotCoverageEvidence",
             required_source="Verified expected observation calendar with source URL and SHA-256",
         )
-    if evidence.independently_verified is not True:
+    if evidence.reviewer_attested is not True:
         raise InsufficientDataError(
             "Daily snapshot calendar evidence is not independently verified.",
             missing_data="independent calendar verification",
@@ -3104,7 +3104,7 @@ def qualifies_as_equity_oriented_under_section_198(
                 effective_date=fy_end,
                 threshold=65.0,
                 calculation_method="not_qualifying_non_exchange_traded_fof",
-                source_data_status="verified_structure",
+                source_data_status="PROVISIONAL_STRUCTURE_REVIEW",
                 reason="The 90%/90% fund-of-funds limb requires the underlying fund to be traded on a recognised stock exchange",
                 equity_pct=0.0,
                 is_fund_of_funds=True,
@@ -3138,7 +3138,7 @@ def qualifies_as_equity_oriented_under_section_198(
         effective_date=fy_end,
         threshold=threshold,
         calculation_method=method,
-        source_data_status="complete_12_monthly_observations",
+        source_data_status="PROVISIONAL_MONTHLY_COVERAGE_RECONCILED",
         reason=reason,
         equity_pct=effective_pct,
     )
@@ -3294,7 +3294,7 @@ def qualifies_as_specified_mutual_fund_under_section_50AA(
         effective_date=transfer_date,
         threshold=35.0,
         calculation_method="annual_average_daily_closing_domestic_equity",
-        source_data_status="verified_daily_coverage",
+        source_data_status="PROVISIONAL_DAILY_COVERAGE_RECONCILED",
         reason=(
             f"Annual-average daily closing domestic equity {effective_equity:.2f}% "
             f"{'<= 35% (specified mutual fund)' if qualifies else '> 35% (not specified)'} "
@@ -3441,7 +3441,7 @@ def qualifies_as_specified_mutual_fund_under_section_76(
             effective_date=transfer_date,
             threshold=65.0,
             calculation_method="annual_average_daily_closing_fof_allocation",
-            source_data_status="verified_daily_coverage",
+            source_data_status="PROVISIONAL_DAILY_COVERAGE_RECONCILED",
             reason=f"Annual-average daily closing FoF allocation to specified mutual funds is {fof_pct:.2f}% {'>= 65%' if qualifies else '< 65%'}",
             debt_and_money_market_pct=debt_and_money_market_pct,
             acquisition_date=acquisition_date,
@@ -3487,7 +3487,7 @@ def qualifies_as_specified_mutual_fund_under_section_76(
         effective_date=transfer_date,
         threshold=65.0,
         calculation_method="annual_average_daily_closing",
-        source_data_status="verified_daily_coverage",
+        source_data_status="PROVISIONAL_DAILY_COVERAGE_RECONCILED",
         reason=(
             f"Annual-average daily closing debt plus money-market allocation is {effective_debt:.2f}% "
             f"{'> 65%' if qualifies else '<= 65%'} under Section 76"
