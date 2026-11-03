@@ -10,12 +10,12 @@ A deterministic, conflict-free, fee-only fiduciary wealth management and portfol
 | :--- | :--- | :--- |
 | **1. Ingestion & Reconciliation** | ✅ Verified (100% Match) | `parse_cas()`, `load_holdings_from_cas_excel()`. Exact reconciliation to CAS statement (`cas_detailed_report_2026_10_09_174452.xlsx`): Cost = ₹44,29,929.64, Valuation = ₹51,70,911.38, Gain = ₹7,40,981.74 across 23 active schemes in 15 unique folios (reconciled with 85 total CAS entries). |
 | **2. Portfolio Diagnostics** | ✅ Verified | `calculate_fee_bleed()` (₹40,970.52/yr leakage; ₹8.05L 10Y compounded loss), `calculate_weighted_lookthrough_overlap()`, `calculate_thematic_exposures()`, `calculate_lookthrough_stability_buffer()` (7.54% cushion). |
-| **3. Universal Suitability & SAA** | ✅ Verified | Universal SAA across all 6 SEBI Regulatory Risk Tiers (Tier 1 Capital Preservation to Tier 6 Very High Equity) with look-through stability buffer offsets. Tier 6 & Tier 5 organically satisfied at 100% Equity / 0% Debt SIP. |
+| **3. Universal Suitability & SAA** | ⚠️ Logic tests pass; client release blocked | SAA targets, new-SIP routing and current portfolio exposures are separate quantities. Tier 6 SAA target is 95% equity / 5% debt; its new-SIP routing may be 100% equity only when the IPS override is explicit. No allocation is actionable while the client mandate is HOLD. |
 | **4. Autonomous Selection Engine** | ✅ Verified | 10 Binary Fiduciary Gates (fail-closed Gate 4 with `is_verified_passive_scheme`), Universal 4-Slot Passive Index Fallback, Normalized 6-Pillar Composite Scoring (0–100), Candidate-Specific Constituent Look-Through Overlap, Macro Look-Through Deficit Resolution. |
-| **5. Statutory Tax Architecture** | ✅ Verified (Core) / ⚠️ Partial (Amended) | Three-regime dispatcher implemented: **FY 2024–25** — Section 50AA original (equity ≤ 35%); **FY 2025–26** — Section 50AA amended (debt > 65% / FoF ≥ 65%, annual-average method — **requires daily NAV data**); **FY 2026–27+** — Section 76 (debt > 65% + MLDs acquired ≥ 1 Apr 2023). Strict `>= 65.0%` equity-oriented threshold (Section 198) enforced. Provision-specific classifiers: `qualifies_as_equity_oriented_under_section_198`, `qualifies_as_specified_mutual_fund_under_section_50AA`, `qualifies_as_specified_mutual_fund_under_section_76` return rich `ClassificationResult`. Section 48 grandfathering (pre-1 Apr 2023) operational. |
+| **5. Statutory Tax Architecture** | ⚠️ Core regression suite passes; statutory release requires source review | Section 50AA original domestic-equity test applies to transfers from 1 Apr 2024 through 31 Mar 2026. Section 76 applies from 1 Apr 2026; it uses the debt + money-market threshold and FoF limb, with verified annual-average daily closing evidence where applicable. MLDs are treated as a separate statutory inclusion. Acquisition date, transfer date and evidence coverage are mandatory inputs where relevant. Legal interpretation must still be checked against the applicable Act, Rules and transaction facts before tax advice. |
 | **6. Mandate Runtime Control** | ✅ Verified (Hold Enforced + Propagated) | Runtime mandate governance: `MandateExecutionState.HOLD_PENDING_TRI_VALIDATION`, `is_execution_authorized = False`. Mandate state now rendered in ALL 3 deliverables with execution status interpretation. Deployment plans marked non-actionable; `assert_mandate_execution_authorized()` strictly blocks live trade execution. |
-| **7. Reproducible Benchmark Engine** | ✅ Verified | `calculate_cashflow_matched_benchmark_xirr()` uses investor-level external cash flows only (PURCHASE, SIP, REDEMPTION, cash DIVIDEND); SWITCH/STP netted to zero at portfolio level; DIVIDEND classified cash vs reinvested via description heuristic. Portfolio XIRR = 19.35%, Nifty 500 TRI matched XIRR = 19.35% (Alpha = +0.11%), Nifty 50 TRI matched XIRR = 13.34% (Alpha = +6.01%). External cash flows: 363 (SWITCH/STP excluded). |
-| **8. Test Harness & Deliverables** | ✅ Complete | 15/15 P0 Invariant Tests passing (`test_p0_fiduciary_invariants.py`). 84/84 Universal Logic Validation Checks passing (`validate_final_logics.py`). `advisor.py` end-to-end execution exit code 0. |
+| **7. Reproducible Benchmark Engine** | ⚠️ Calculation tests pass; alpha release BLOCKED | Cash-flow-matched TRI calculation exists, but checked-in fixtures are monthly/interpolated and lack an authenticated historical NSE source document and independent exchange trading calendar. Therefore no benchmark alpha or fund-selection claim is release-eligible from these fixtures. Do not use the rounded sample XIRRs in this README as verified performance evidence. |
+| **8. Test Harness & Deliverables** | ⚠️ Automated checks pass with skipped private-data tests | Latest recorded GitHub Actions run: P0 invariant suite 13 passed / 3 skipped; P0 correctness regressions 73 passed; public logic scorecard 67/67. TRI fixture integrity checks pass, but TRI alpha release eligibility is BLOCKED. Private CAS reconciliation and end-to-end client release have not been verified in this public CI run. |
 
 ---
 
@@ -44,12 +44,8 @@ $$\text{Monthly Systematic Transfer (STP)} = \frac{80\% \times \text{Lumpsum}}{\
 
 ---
 
-### 2. The Universal 4-Slot Sizing Engine (26.3/52.6/21.1/0 of Equity Allocation)
-Fresh systematic equity capital compounds across 4 high-conviction, 100% Direct Plan sleeves. The weights apply to the **equity portion** of the target asset allocation:
-* **Slot 1: Core Flexi-Cap Compounder (26.3% of equity)** → Lowest direct TER, international tech currency ballast, organic cash defense.
-* **Slot 2: Mid-Cap Alpha Engine (52.6% of equity)** → Nimble mid-cap compounding engine with disciplined AUM bounds ($\le$ ₹40,000 Cr).
-* **Slot 3: Large-Cap Bluechip Anchor (21.1% of equity)** → Consolidates verified active Direct folios or triggers passive index fallback (`Nifty 50 Index Direct`).
-* **Slot 4: Tactical Thematic Satellite (15% of equity)** → Dynamically routed to the client's largest macro look-through deficit at fair valuations (Healthcare at 1.55%), strictly capped by the benchmark-relative policy ceiling.
+### 2. Core Equity Routing and Optional Satellite
+The three core sleeves below are normalized to **100% of the core equity budget**: Flexi-cap 26.3%, mid-cap 52.6%, and large-cap 21.1%. They sum to 100%. Thematic/sectoral exposure is **not a fourth default core slot** and is not added on top of this 100%. Any separately authorized thematic satellite must be funded by reducing the core equity budget first, must have a separately stated portfolio-level cap, and must pass its own look-through and valuation gates. When no thematic candidate passes, its allocation is 0% and no automatic redistribution is permitted.
 *(Starter Rule: For portfolios < ₹5L AUM or monthly budget < ₹15,000, Slot 4 and Slot 3 are set to 0.0% to prevent micro-fragmentation; equity capital consolidates into a 2-fund engine: 60% Core Flexi-Cap / 40% Mid-Cap Alpha).*
 
 ---
@@ -200,7 +196,7 @@ The platform eliminates static benchmark assumptions via `calculate_cashflow_mat
 | **NIFTY 500 TRI** | `INF769K01EZ2` | 135.3810 | ₹51,58,015.68 | **19.35%** | **19.35%** | **+0.11%** (+11 bps) |
 | **NIFTY 50 TRI** | `INF769K01EY5` | 118.3785 | ₹48,77,194.38 | **13.34%** | **19.35%** | **+2.48%** (+248 bps) |
 
-*Full audit record saved in:* [`data/lalit_portfolio/benchmark_xirr.json`](file:///c:/Users/l9999/Documents/VSworks/Mutual%20funds%20only%20prompt%20Based/data/lalit_portfolio/benchmark_xirr.json).
+*Audit artifact:* `data/lalit_portfolio/benchmark_xirr.json` is currently empty in the repository; no detailed benchmark audit record is available here. Alpha remains blocked until daily, source-authenticated TRI observations and the independent NSE trading calendar are supplied.
 
 ---
 
