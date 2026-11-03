@@ -59,10 +59,10 @@ def _risk_tier_to_int(tier: Any) -> int:
         return 4
     if tier_str in {"high", "5_high"} or tier_str.endswith("_high"):
         return 5
-    if "moderate" in tier_str:
-        return 3
     if "low to moderate" in tier_str:
         return 2
+    if "moderate" in tier_str:
+        return 3
     if tier_str in {"low", "preservation"}:
         return 1
     raise ValueError(f"Unrecognized risk tier: {tier!r}")
