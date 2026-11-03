@@ -3779,8 +3779,8 @@ def select_autonomous_blueprint_funds(
         satellite_pct = float(thematic_satellite_pct_of_equity)
     except (TypeError, ValueError) as exc:
         raise ValueError("thematic_satellite_pct_of_equity must be numeric") from exc
-    if not math.isfinite(satellite_pct) or not 0.0 <= satellite_pct <= 15.0:
-        raise ValueError("thematic satellite percentage must be finite and between 0 and 15")
+    if not math.isfinite(satellite_pct) or not 0.0 <= satellite_pct <= 100.0:
+        raise ValueError("thematic satellite percentage must be finite and between 0 and 100")
     if satellite_pct > 0.0 and not thematic_satellite_authorized:
         raise ValueError("A positive thematic satellite allocation requires explicit IPS authorization")
     if not thematic_satellite_authorized:
@@ -3828,8 +3828,8 @@ def select_autonomous_blueprint_funds(
         raise ValueError("SAA equity and debt targets must sum to 100%")
     if satellite_pct > satellite_cap:
         raise ValueError(f"Thematic satellite percentage exceeds the central policy cap of {satellite_cap:g}%")
-    if satellite_policy.get("enabled_by_default") is not False and not isinstance(satellite_policy.get("enabled_by_default"), bool):
-        raise ValueError("Thematic satellite enabled_by_default policy must be boolean")
+    if satellite_policy.get("enabled_by_default") is not False:
+        raise ValueError("Thematic satellite must remain disabled by default in central policy")
     if satellite_pct > 0.0 and satellite_policy.get("requires_explicit_ips_authorization") is not True:
         raise ValueError("Central policy does not authorize a thematic satellite override")
 
