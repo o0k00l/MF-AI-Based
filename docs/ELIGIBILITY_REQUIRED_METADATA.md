@@ -28,6 +28,8 @@ All numeric inputs must be finite. Percentages must be within 0–100 unless a f
 
 The equity-oriented tax transition planner requires verified scheme-level `equity_allocation_pct` (0–100). It may be passed through `load_transactions(..., equity_allocation_by_fund=...)` keyed by exact CAS scheme name, or carried on a transaction row. Do not infer the value from the scheme name.
 
+The `plan_fy_tranches()` API also requires an explicit, verified `prior_ltcg_this_fy` value. Pass zero only after confirming that no eligible LTCG has already been realized during the current financial year. The planner no longer assumes the full exemption is available when this information is missing.
+
 Non-equity/debt tax treatment is intentionally unsupported by the equity exemption planner until acquisition-date regime, instrument classification and investor-slab inputs are supplied.
 
 ## Current repository data limitation
