@@ -1090,6 +1090,9 @@ def test_standalone_advisor_saa_profiles_reconcile_to_central_policy():
         }
         assert {k: profile[k] for k in expected} == expected
         assert sum(expected.values()) == 100
+        assert policy["behavioral_risk_profiles"][policy_key]["max_equity_pct"] == (
+            targets["large_cap_pct"] + targets["mid_cap_pct"] + targets["small_cap_pct"] + targets["flexi_multi_cap_pct"]
+        )
     compute_saa = next(
         node for node in source.body
         if isinstance(node, ast.FunctionDef) and node.name == "compute_saa"
