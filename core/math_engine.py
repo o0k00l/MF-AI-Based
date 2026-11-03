@@ -61,7 +61,7 @@ def get_statutory_tax_citation(as_of: Optional[date] = None) -> StatutoryTaxCita
             transfer_statute="Section 45 equivalent / Transfer Definition (Mutual fund unit switch treated as taxable transfer)",
             ltcg_statute="Section 198 (Special provision for long-term capital gains on qualifying equity-oriented mutual funds; distinct from Section 197 general LTCG)",
             stcg_statute="Section 196 (Short-term capital gains on qualifying equity assets)",
-            debt_fund_statute="Section 76 (Special computation for specified mutual funds investing <= 35% in domestic equity and acquired on/after 1 April 2023; taxed at slab rates)",
+            debt_fund_statute="Section 76 (from 1 April 2026: specified mutual fund units acquired on/after 1 April 2023 where >65% of total proceeds are invested in debt and money-market instruments, or a fund of funds investing >=65% in units of such funds; also includes market-linked debentures; apply statutory annual-average-of-daily-closing test)",
             loss_netting_statute="Section 108 (Current-year intra-head capital loss set-off) & Section 109 (Inter-head restrictions)",
             loss_carryforward_statute="Section 111 (Carry forward and set-off of capital losses up to 8 assessment years)"
         )
@@ -2930,126 +2930,131 @@ def qualifies_as_specified_mutual_fund_under_section_50AA(
     transfer_date: date,
     snapshots: list | None = None,
     fy_start: date | None = None,
-    fy_end: date | None = None
-) -> object:
-    from datetime import date
-    # Acquisition date gate
-    if acquisition_date and acquisition_date < date(2023, 4, 1):
-        return type('ClassificationResult', (), {
-            'qualifies': False,
-            'provision': 'Section 48 (Grandfathered)',
-            'effective_date': transfer_date,
-            'threshold': 0.0,
-            'calculation_method': 'N/A',
-            'source_data_status': 'complete',
-            'reason': f'Units acquired {acquisition_date} before 1 April 2023 - grandfathered under Section 48',
-            'equity_pct': equity_pct,
-            'debt_and_money_market_pct': debt_and_money_market_pct,
-            'acquisition_date': acquisition_date,
-            'transfer_date': transfer_date,
-            'is_fund_of_funds': is_fund_of_funds,
-            'fof_debt_investing_pct': fof_debt_investing_pct
-        })()
-    
-    is_fy_2024_25 = transfer_date < date(2025, 4, 1)
-    is_fy_2025_26 = transfer_date >= date(2025, 4, 1) and transfer_date < date(2026, 4, 1)
-    is_fy_2026_27_onwards = transfer_date >= date(2026, 4, 1)
-    
-    if is_fy_2026_27_onwards:
-        return type('ClassificationResult', (), {
-            'qualifies': False,
-            'provision': 'Section 50AA (Not Applicable - Section 76 governs)',
-            'effective_date': transfer_date,
-            'threshold': 0.0,
-            'calculation_method': 'N/A',
-            'source_data_status': 'complete',
-            'reason': f'Transfer date {transfer_date} on/after 1 April 2026 - Section 76 (2025 Act) governs instead',
-            'equity_pct': equity_pct,
-            'debt_and_money_market_pct': debt_and_money_market_pct,
-            'acquisition_date': acquisition_date,
-            'transfer_date': transfer_date,
-            'is_fund_of_funds': is_fund_of_funds,
-            'fof_debt_investing_pct': fof_debt_investing_pct
-        })()
-    
-    effective_equity = equity_pct
-    effective_debt_mm = debt_and_money_market_pct
-    method = 'annual_average_monthly'
-    
-    # Section 50AA Amended (FY 2025-26): DAILY NAV DATA SOURCE IS MANDATORY
-    # Per documentation: "annual-average-of-daily-closing-figures requires daily NAV data source (G1/G6)"
-    # Safe-failure: explicit InsufficientDataError instead of silent fallback
-    if is_fy_2025_26:
-        if not (snapshots and fy_start and fy_end):
-            from core.models import InsufficientDataError
-            raise InsufficientDataError(
-                "Section 50AA Amended (FY 2025-26) requires daily NAV data source (snapshots) "
-                "for annual-average-of-daily-closing-figures calculation. "
-                "Point-in-time equity% is NOT compliant with amended regime.",
-                missing_data="daily NAV snapshots (DailyPortfolioSnapshot list with equity_pct, debt_pct, money_market_pct)",
-                required_source="G1/G6 daily NAV data feed (NSE/AMFI) or fund fact sheet daily series"
-            )
-    
-    if snapshots and fy_start and fy_end:
-        try:
-            from core.math_engine import compute_annual_average_daily_closing
-            avg_equity = compute_annual_average_daily_closing(snapshots, fy_start, fy_end, 'equity_pct')
-            avg_debt = compute_annual_average_daily_closing(snapshots, fy_start, fy_end, 'debt_pct')
-            avg_mm = compute_annual_average_daily_closing(snapshots, fy_start, fy_end, 'money_market_pct')
-            if avg_equity is not None:
-                effective_equity = avg_equity
-            if avg_debt is not None and avg_mm is not None:
-                effective_debt_mm = avg_debt + avg_mm
-            method = 'annual_average_daily'
-        except Exception as e:
-            # For FY 2025-26, this is a hard failure (caught above)
-            # For FY 2024-25, log and fall back
-            if is_fy_2024_25:
-                pass
-            else:
-                raise
-    
-    if is_fy_2024_25:
-        qualifies = float(effective_equity) <= 35.0
-        threshold = 35.0
-        reason = f'Equity {effective_equity:.2f}% {"<= 35%" if qualifies else "> 35%"} (FY 2024-25 original regime)'
-    elif is_fy_2025_26:
-        is_debt_dominated = float(effective_debt_mm) > 65.0
-        is_qualifying_fof = (
-            is_fund_of_funds and
-            fof_debt_investing_pct is not None and
-            float(fof_debt_investing_pct) >= 65.0
+    fy_end: date | None = None,
+    is_mld: bool = False,
+) -> ClassificationResult:
+    """
+    Section 50AA (Income-tax Act, 1961), applicable to transfers from
+    1 April 2024 through 31 March 2026.
+
+    For ordinary mutual-fund units, the original definition uses the
+    not-more-than-35% domestic-equity test for units acquired on/after
+    1 April 2023. Market-linked debentures are separately included,
+    irrespective of their acquisition date. The amended debt/MM and
+    fund-of-funds definition takes effect only from 1 April 2026 under
+    the successor Section 76 regime.
+    """
+    effective_from = date(2024, 4, 1)
+    successor_from = date(2026, 4, 1)
+
+    if transfer_date < effective_from:
+        return ClassificationResult(
+            qualifies=False,
+            provision="Section 50AA (Not Applicable)",
+            effective_date=transfer_date,
+            threshold=35.0,
+            calculation_method="N/A",
+            source_data_status="complete",
+            reason="Section 50AA applies to transfers on or after 1 April 2024",
+            equity_pct=equity_pct,
+            debt_and_money_market_pct=debt_and_money_market_pct,
+            acquisition_date=acquisition_date,
+            transfer_date=transfer_date,
+            is_fund_of_funds=is_fund_of_funds,
+            fof_debt_investing_pct=fof_debt_investing_pct,
+            is_mld=is_mld,
         )
-        qualifies = is_debt_dominated or is_qualifying_fof
-        threshold = 65.0
-        if is_debt_dominated and is_qualifying_fof:
-            reason = f'Debt+MM {effective_debt_mm:.2f}% > 65%, FoF debt {fof_debt_investing_pct:.2f}% >= 65% (FY 2025-26 amended regime)'
-        elif is_debt_dominated:
-            reason = f'Debt+MM {effective_debt_mm:.2f}% > 65% (FY 2025-26 amended regime)'
-        elif is_qualifying_fof:
-            reason = f'FoF debt {fof_debt_investing_pct:.2f}% >= 65% (FY 2025-26 amended regime)'
-        else:
-            reason = f'Debt+MM {effective_debt_mm:.2f}% <= 65%, FoF debt {fof_debt_investing_pct:.2f}% < 65% (FY 2025-26 amended regime)'
-    else:
-        qualifies = False
-        threshold = 0.0
-        reason = 'Unknown regime'
-    
-    return type('ClassificationResult', (), {
-        'qualifies': qualifies,
-        'provision': 'Section 50AA',
-        'effective_date': transfer_date,
-        'threshold': threshold,
-        'calculation_method': method,
-        'source_data_status': 'complete' if snapshots else 'partial',
-        'reason': reason,
-        'equity_pct': effective_equity,
-        'debt_and_money_market_pct': effective_debt_mm,
-        'acquisition_date': acquisition_date,
-        'transfer_date': transfer_date,
-        'is_fund_of_funds': is_fund_of_funds,
-        'fof_debt_investing_pct': fof_debt_investing_pct
-    })()
+
+    if transfer_date >= successor_from:
+        return ClassificationResult(
+            qualifies=False,
+            provision="Section 50AA (Not Applicable - Section 76 governs)",
+            effective_date=transfer_date,
+            threshold=0.0,
+            calculation_method="N/A",
+            source_data_status="complete",
+            reason="Transfers on or after 1 April 2026 are governed by Section 76 of the Income-tax Act, 2025",
+            equity_pct=equity_pct,
+            debt_and_money_market_pct=debt_and_money_market_pct,
+            acquisition_date=acquisition_date,
+            transfer_date=transfer_date,
+            is_fund_of_funds=is_fund_of_funds,
+            fof_debt_investing_pct=fof_debt_investing_pct,
+            is_mld=is_mld,
+        )
+
+    if is_mld:
+        return ClassificationResult(
+            qualifies=True,
+            provision="Section 50AA (Market-Linked Debenture)",
+            effective_date=transfer_date,
+            threshold=0.0,
+            calculation_method="statutory_inclusion",
+            source_data_status="complete",
+            reason="Market-linked debentures are included independently of the mutual-fund unit acquisition-date test",
+            equity_pct=equity_pct,
+            debt_and_money_market_pct=debt_and_money_market_pct,
+            acquisition_date=acquisition_date,
+            transfer_date=transfer_date,
+            is_fund_of_funds=False,
+            fof_debt_investing_pct=fof_debt_investing_pct,
+            is_mld=True,
+        )
+
+    if acquisition_date is None:
+        from core.models import InsufficientDataError
+        raise InsufficientDataError(
+            "Section 50AA classification requires the unit acquisition date.",
+            missing_data="acquisition_date",
+            required_source="CAS transaction ledger or verified registrar transaction statement",
+        )
+
+    if acquisition_date < date(2023, 4, 1):
+        return ClassificationResult(
+            qualifies=False,
+            provision="Section 48 (Grandfathered)",
+            effective_date=transfer_date,
+            threshold=0.0,
+            calculation_method="N/A",
+            source_data_status="complete",
+            reason=f"Units acquired {acquisition_date} before 1 April 2023 are outside Section 50AA unit scope",
+            equity_pct=equity_pct,
+            debt_and_money_market_pct=debt_and_money_market_pct,
+            acquisition_date=acquisition_date,
+            transfer_date=transfer_date,
+            is_fund_of_funds=is_fund_of_funds,
+            fof_debt_investing_pct=fof_debt_investing_pct,
+            is_mld=False,
+        )
+
+    try:
+        effective_equity = float(equity_pct)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Section 50AA domestic-equity percentage must be numeric") from exc
+    if not math.isfinite(effective_equity) or not 0.0 <= effective_equity <= 100.0:
+        raise ValueError("Section 50AA domestic-equity percentage must be finite and between 0 and 100")
+
+    qualifies = effective_equity <= 35.0
+    return ClassificationResult(
+        qualifies=qualifies,
+        provision="Section 50AA",
+        effective_date=transfer_date,
+        threshold=35.0,
+        calculation_method="original_domestic_equity_threshold",
+        source_data_status="complete",
+        reason=(
+            f"Domestic equity {effective_equity:.2f}% "
+            f"{'<= 35% (specified mutual fund)' if qualifies else '> 35% (not specified)'} "
+            "under the original Section 50AA definition applicable through 31 March 2026"
+        ),
+        equity_pct=effective_equity,
+        debt_and_money_market_pct=debt_and_money_market_pct,
+        acquisition_date=acquisition_date,
+        transfer_date=transfer_date,
+        is_fund_of_funds=is_fund_of_funds,
+        fof_debt_investing_pct=fof_debt_investing_pct,
+        is_mld=False,
+    )
 
 def compute_multi_horizon_fiduciary_score(
     c: Dict[str, Any],
@@ -3076,26 +3081,19 @@ def qualifies_as_specified_mutual_fund_under_section_76(
     is_mld: bool = False,
     snapshots: Optional[List[DailyPortfolioSnapshot]] = None,
     fy_start: Optional[date] = None,
-    fy_end: Optional[date] = None
+    fy_end: Optional[date] = None,
+    daily_snapshot_coverage_verified: bool = False,
 ) -> ClassificationResult:
-    """Section 76 (Income-tax Act 2025): Specified Mutual Fund qualification."""
-    if acquisition_date and acquisition_date < date(2023, 4, 1):
-        return ClassificationResult(
-            qualifies=False,
-            provision="Section 48 (Grandfathered)",
-            effective_date=transfer_date,
-            threshold=0.0,
-            calculation_method="N/A",
-            source_data_status="complete",
-            reason="Units acquired {} before 1 April 2023 - grandfathered under Section 48".format(acquisition_date),
-            debt_and_money_market_pct=debt_and_money_market_pct,
-            acquisition_date=acquisition_date,
-            transfer_date=transfer_date,
-            is_fund_of_funds=is_fund_of_funds,
-            fof_debt_investing_pct=fof_debt_investing_pct,
-            is_mld=is_mld
-        )
-    
+    """
+    Section 76 (Income-tax Act, 2025), applicable from 1 April 2026.
+
+    MLDs are independently included. For mutual-fund units acquired on/after
+    1 April 2023, the statutory test is >65% of total proceeds invested in
+    debt and money-market instruments, or (for a fund of funds) >=65% in
+    units of such specified mutual funds. The portfolio-composition limb
+    uses annual-average daily closing figures; a point-in-time percentage
+    is not an acceptable substitute.
+    """
     if transfer_date < date(2026, 4, 1):
         return ClassificationResult(
             qualifies=False,
@@ -3104,60 +3102,141 @@ def qualifies_as_specified_mutual_fund_under_section_76(
             threshold=65.0,
             calculation_method="N/A",
             source_data_status="complete",
-            reason="Transfer date {} before 1 April 2026 - Section 76 not yet applicable".format(transfer_date),
+            reason=f"Transfer date {transfer_date} is before Section 76 commencement on 1 April 2026",
             debt_and_money_market_pct=debt_and_money_market_pct,
             acquisition_date=acquisition_date,
             transfer_date=transfer_date,
             is_fund_of_funds=is_fund_of_funds,
             fof_debt_investing_pct=fof_debt_investing_pct,
-            is_mld=is_mld
+            is_mld=is_mld,
         )
-    
-    effective_debt = debt_and_money_market_pct
-    
-    # MLD (Market Linked Debentures) Scope: Section 76 treats MLDs as specified mutual funds
-    # if acquired on or after 1 April 2023, regardless of debt percentage
-    is_mld_qualifying = False
+
     if is_mld:
-        if acquisition_date and acquisition_date >= date(2023, 4, 1):
-            is_mld_qualifying = True
-        else:
-            # MLDs acquired before 1 April 2023 fall under Section 48 grandfathering (handled above)
-            pass
-    
-    if snapshots and fy_start and fy_end:
-        avg_debt = compute_annual_average_daily_closing(snapshots, fy_start, fy_end, "debt_pct")
-        avg_mm = compute_annual_average_daily_closing(snapshots, fy_start, fy_end, "money_market_pct")
-        effective_debt = (avg_debt or 0) + (avg_mm or 0)
-        method = "annual_average_daily"
-    else:
-        effective_debt = debt_and_money_market_pct
-        method = "annual_average_monthly"
-    
-    is_debt_dominated = float(effective_debt) > 65.0
-    is_qualifying_fof = (
-        is_fund_of_funds and 
-        fof_debt_investing_pct is not None and 
-        float(fof_debt_investing_pct) >= 65.0
-    )
-    qualifies = is_debt_dominated or is_qualifying_fof or is_mld_qualifying
-    
+        return ClassificationResult(
+            qualifies=True,
+            provision="Section 76 (Market-Linked Debenture)",
+            effective_date=transfer_date,
+            threshold=0.0,
+            calculation_method="statutory_inclusion",
+            source_data_status="complete",
+            reason="Market-linked debentures are included independently of the mutual-fund unit acquisition-date test",
+            debt_and_money_market_pct=debt_and_money_market_pct,
+            acquisition_date=acquisition_date,
+            transfer_date=transfer_date,
+            is_fund_of_funds=False,
+            fof_debt_investing_pct=fof_debt_investing_pct,
+            is_mld=True,
+        )
+
+    if acquisition_date is None:
+        from core.models import InsufficientDataError
+        raise InsufficientDataError(
+            "Section 76 classification requires the mutual-fund unit acquisition date.",
+            missing_data="acquisition_date",
+            required_source="CAS transaction ledger or verified registrar transaction statement",
+        )
+
+    if acquisition_date < date(2023, 4, 1):
+        return ClassificationResult(
+            qualifies=False,
+            provision="Section 48 (Grandfathered)",
+            effective_date=transfer_date,
+            threshold=0.0,
+            calculation_method="N/A",
+            source_data_status="complete",
+            reason=f"Units acquired {acquisition_date} before 1 April 2023 are outside Section 76 unit scope",
+            debt_and_money_market_pct=debt_and_money_market_pct,
+            acquisition_date=acquisition_date,
+            transfer_date=transfer_date,
+            is_fund_of_funds=is_fund_of_funds,
+            fof_debt_investing_pct=fof_debt_investing_pct,
+            is_mld=False,
+        )
+
+    if is_fund_of_funds:
+        if fof_debt_investing_pct is None:
+            from core.models import InsufficientDataError
+            raise InsufficientDataError(
+                "Section 76 fund-of-funds classification requires its verified allocation to units of specified mutual funds.",
+                missing_data="fof_debt_investing_pct",
+                required_source="Verified underlying-fund look-through / daily portfolio disclosures",
+            )
+        try:
+            fof_pct = float(fof_debt_investing_pct)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("Fund-of-funds specified-mutual-fund allocation must be numeric") from exc
+        if not math.isfinite(fof_pct) or not 0.0 <= fof_pct <= 100.0:
+            raise ValueError("Fund-of-funds specified-mutual-fund allocation must be finite and between 0 and 100")
+        qualifies = fof_pct >= 65.0
+        return ClassificationResult(
+            qualifies=qualifies,
+            provision="Section 76",
+            effective_date=transfer_date,
+            threshold=65.0,
+            calculation_method="verified_fund_of_funds_lookthrough",
+            source_data_status="provided",
+            reason=f"FoF allocation to units of specified mutual funds is {fof_pct:.2f}% {'>= 65%' if qualifies else '< 65%'}",
+            debt_and_money_market_pct=debt_and_money_market_pct,
+            acquisition_date=acquisition_date,
+            transfer_date=transfer_date,
+            is_fund_of_funds=True,
+            fof_debt_investing_pct=fof_pct,
+            is_mld=False,
+        )
+
+    if not (snapshots and fy_start and fy_end):
+        from core.models import InsufficientDataError
+        raise InsufficientDataError(
+            "Section 76 requires annual-average daily closing portfolio-composition snapshots; point-in-time debt percentages are not sufficient.",
+            missing_data="daily portfolio-composition snapshots and financial-year boundaries",
+            required_source="Verified daily closing portfolio disclosures with documented coverage for the transfer financial year",
+        )
+
+    financial_year_start = date(transfer_date.year if transfer_date.month >= 4 else transfer_date.year - 1, 4, 1)
+    financial_year_end = date(financial_year_start.year + 1, 3, 31)
+    if fy_start != financial_year_start or fy_end != financial_year_end:
+        from core.models import InsufficientDataError
+        raise InsufficientDataError(
+            "Section 76 snapshots must cover the financial year in which the transfer occurs.",
+            missing_data=f"expected {financial_year_start} through {financial_year_end}",
+            required_source="Verified financial-year daily closing portfolio-composition series",
+        )
+    if not daily_snapshot_coverage_verified:
+        from core.models import InsufficientDataError
+        raise InsufficientDataError(
+            "Section 76 daily snapshot coverage has not been independently verified; incomplete samples cannot establish the statutory annual average.",
+            missing_data="independent daily snapshot coverage verification",
+            required_source="Verified trading-session calendar and complete daily closing portfolio-composition series",
+        )
+
+    avg_debt = compute_annual_average_daily_closing(snapshots, fy_start, fy_end, "debt_pct")
+    avg_mm = compute_annual_average_daily_closing(snapshots, fy_start, fy_end, "money_market_pct")
+    if avg_debt is None or avg_mm is None:
+        from core.models import InsufficientDataError
+        raise InsufficientDataError(
+            "Section 76 annual-average daily closing percentages could not be computed from the supplied snapshots.",
+            missing_data="valid daily debt and money-market percentages",
+            required_source="Verified daily closing portfolio-composition series",
+        )
+    effective_debt = avg_debt + avg_mm
+    qualifies = effective_debt > 65.0
     return ClassificationResult(
         qualifies=qualifies,
         provision="Section 76",
         effective_date=transfer_date,
         threshold=65.0,
-        calculation_method=method,
-        source_data_status="complete" if snapshots else "partial",
-        reason="Debt+MM {:.2f}% ".format(effective_debt) + ('> 65%' if is_debt_dominated else '<= 65%') +  \
-                (", FoF debt {:.2f}% >= 65%".format(fof_debt_investing_pct) if is_qualifying_fof else "") + \
-                (", MLD qualifying" if is_mld_qualifying else ""),
+        calculation_method="annual_average_daily_closing",
+        source_data_status="verified_daily_coverage",
+        reason=(
+            f"Annual-average daily closing debt plus money-market allocation is {effective_debt:.2f}% "
+            f"{'> 65%' if qualifies else '<= 65%'} under Section 76"
+        ),
         debt_and_money_market_pct=effective_debt,
         acquisition_date=acquisition_date,
         transfer_date=transfer_date,
-        is_fund_of_funds=is_fund_of_funds,
+        is_fund_of_funds=False,
         fof_debt_investing_pct=fof_debt_investing_pct,
-        is_mld=is_mld
+        is_mld=False,
     )
 
 
@@ -3203,7 +3282,8 @@ def classify_specified_mutual_fund(
         transfer_date=transfer_date,
         snapshots=snapshots,
         fy_start=fy_start,
-        fy_end=fy_end
+        fy_end=fy_end,
+        is_mld=is_mld,
     )
     
     section_76_result = qualifies_as_specified_mutual_fund_under_section_76(
@@ -3222,10 +3302,15 @@ def classify_specified_mutual_fund(
     is_specified_50aa = section_50aa_result.qualifies
     is_specified_76 = section_76_result.qualifies
     
-    if is_equity_oriented:
+    if is_specified_50aa:
+        overall_classification = "SPECIFIED_MUTUAL_FUND_OR_MLD"
+        tax_treatment = "SECTION_50AA_DEEMED_STCG"
+    elif is_specified_76:
+        overall_classification = "SPECIFIED_MUTUAL_FUND_OR_MLD"
+        tax_treatment = "SECTION_76_DEEMED_STCG"
+    elif is_equity_oriented:
         overall_classification = "EQUITY_ORIENTED"
         tax_treatment = "EQUITY_ORIENTED_CONCESSIONAL"
-
     else:
         overall_classification = "HYBRID_OR_DEBT_NON_SPECIFIED"
         tax_treatment = "HYBRID_UNLISTED_OR_NORMAL"
