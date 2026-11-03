@@ -64,10 +64,18 @@ def test_clean_checkout():
                     return True
             return False
         
-        # Copy source files (excluding artifacts)
-        for src in project_root.rglob("*"):
+        # Copy tracked files only. Ignored/untracked client files must never
+        # leak into the clean-checkout fixture.
+        tracked = subprocess.run(
+            ["git", "ls-files", "-z"],
+            cwd=project_root,
+            capture_output=True,
+            check=True,
+        ).stdout.decode("utf-8").split("\0")
+        for relative_name in filter(None, tracked):
+            rel = Path(relative_name)
+            src = project_root / rel
             if src.is_file() and not should_exclude(src):
-                rel = src.relative_to(project_root)
                 dst = clean_dir / rel
                 dst.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(src, dst)
@@ -91,10 +99,14 @@ def test_clean_checkout():
         for f in critical_files:
             assert (clean_dir / f).exists(), f"Critical file missing in clean checkout: {f}"
         
-        # The data/lalit_portfolio/config.json and fund_aliases.json should exist
-        # (these are user configuration, not generated artifacts)
-        assert (clean_dir / "data/lalit_portfolio/config.json").exists(), "config.json missing"
-        assert (clean_dir / "data/lalit_portfolio/fund_aliases.json").exists(), "fund_aliases.json missing"
+        # A clean checkout must not contain client-specific records.
+        client_dir = clean_dir / "data" / "lalit_portfolio"
+        assert not (client_dir / "config.json").exists()
+        assert not (client_dir / "fund_metrics.json").exists()
+        assert not (client_dir / "fund_aliases.json").exists()
+        assert not (client_dir / "transactions.json").exists()
+        assert not list(client_dir.glob("*.xlsx"))
+        assert not list((client_dir / "statements").glob("*")) if (client_dir / "statements").exists() else True
         
         # Run P0 invariant tests in clean checkout
         print("[CLEAN CHECKOUT] Running P0 invariant tests...")
@@ -119,7 +131,7 @@ def test_clean_checkout():
         )
         assert result.returncode == 0, f"Universal logic validation failed in clean checkout:\n{result.stdout}\n{result.stderr}"
         assert "84/84 CHECKS PASSED" in result.stdout or result.returncode == 0, "Expected validation checks to pass"
-        print("[CLEAN CHECKOUT] Universal logic validation PASSED (84/84)")
+        print("[CLEAN CHECKOUT] Universal logic validation PASSED")
         
         # Run advisor.py end-to-end (this will fail without CAS statements, which is expected)
         # We test that the engine initializes correctly
@@ -136,8 +148,8 @@ def test_clean_checkout():
         
         print("\n✅ CLEAN CHECKOUT VIABILITY TEST PASSED")
         print("   All critical source files present")
-        print("   P0 invariant tests pass (15/15)")
-        print("   Universal logic validation passes (84/84)")
+        print("   P0 invariant tests pass in the isolated checkout")
+        print("   Universal logic validation passes")
         print("   Engine imports successfully")
         print("   No hardcoded paths or environment dependencies detected")
 
