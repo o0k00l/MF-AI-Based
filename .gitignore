@@ -36,11 +36,12 @@ narrative_cache.json
 
 # Project-specific: Private client data — never commit
 /data/private/
-/data/lalit_portfolio/*.json
-/data/lalit_portfolio/statements/
+/data/lalit_portfolio/*
+!/data/lalit_portfolio/README.md
 data/*/statements/
 *.xlsx
 *.xls
+
 
 # Project-specific: Misc generated/temp files
 novaai_interacton
