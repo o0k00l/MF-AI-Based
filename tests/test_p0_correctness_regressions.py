@@ -1069,6 +1069,7 @@ def test_section_76_fund_of_funds_threshold_is_inclusive(fof_pct, expected):
         debt_and_money_market_pct=0.0,
         is_fund_of_funds=True,
         fof_debt_investing_pct=fof_pct,
+        fof_underlying_traded_on_recognised_exchange=False,
         acquisition_date=date(2023, 4, 1),
         transfer_date=date(2026, 11, 3),
         snapshots=snapshots,
@@ -1252,3 +1253,30 @@ def test_section_76_rejects_missing_dates_even_with_calendar_provenance():
             fy_end=fy_end,
             snapshot_coverage_evidence=evidence,
         )
+
+
+@pytest.mark.parametrize(
+    ("fof_units_pct", "underlying_equity_pct", "expected"),
+    [(90.0, 90.0, True), (89.99, 99.0, False), (99.0, 89.99, False)],
+)
+def test_section_198_fund_of_funds_requires_both_monthly_90_percent_limb_conditions(
+    fof_units_pct, underlying_equity_pct, expected
+):
+    from core.math_engine import qualifies_as_equity_oriented_under_section_198
+
+    fy_start, fy_end = date(2026, 4, 1), date(2027, 3, 31)
+    monthly = _monthly_snapshots_for_fy(
+        fy_start,
+        equity_pct=0.0,
+        fof_units_pct=fof_units_pct,
+        underlying_equity_pct=underlying_equity_pct,
+    )
+    result = qualifies_as_equity_oriented_under_section_198(
+        equity_pct=0.0,
+        monthly_snapshots=monthly,
+        fy_start=fy_start,
+        fy_end=fy_end,
+        is_fund_of_funds=True,
+        fof_underlying_traded_on_recognised_exchange=True,
+    )
+    assert result.qualifies is expected
