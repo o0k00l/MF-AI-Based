@@ -136,7 +136,8 @@
       "new_sip_allocation": {
         "equity_pct": 100,
         "debt_pct": 0,
-        "note": "All new SIP capital goes to equity. Existing debt holdings maintained for rebalancing ammunition but receive no new SIP inflows. Requires explicit IPS authorization."
+        "note": "All new SIP capital goes to equity. Existing debt holdings maintained for rebalancing ammunition but receive no new SIP inflows. Requires explicit IPS authorization.",
+        "requires_explicit_ips_authorization": true
       },
       "description": "Tier 6 (SEBI Very High): Maximum-risk mandate. 95% equity ceiling. Highest volatility tolerance. Suitable only for horizon >= 10 years with explicit IPS authorization."
     }
