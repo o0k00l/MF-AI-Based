@@ -14,9 +14,9 @@ No production approval is granted by this report. A green unit-test run alone is
 
 | Gate | Required evidence | Current assessment |
 |---|---|---|
-| P0 invariant tests | Complete test run, no unexplained skips | Passed on verified `main` SHA `ce80a1c597fbe815598468a533208a10c8f415ee` (CI run `41709460857`) |
-| Correctness regressions | Complete test run and passing property/boundary tests | Regression suite passed on current SHA (CI run `41709460857`); broader property/boundary coverage remains incomplete |
-| Universal policy validation | All checks run against the authoritative policy, no contradictory hardcoded values | Passed on current SHA (CI run `41709460857`) |
+| P0 invariant tests | Complete test run, no unexplained skips | Passed on verified `main` SHA `9d9b14b1856c52731555ba2a215a9c272dfdd71e` (CI run `41710708849`) |
+| Correctness regressions | Complete test run and passing property/boundary tests | Regression suite passed on current SHA (CI run `41710708849`); broader property/boundary coverage remains incomplete |
+| Universal policy validation | All checks run against the authoritative policy, no contradictory hardcoded values | Passed on current SHA (CI run `41710708849`) |
 | Tax classification | Versioned statutory rules, verified source documents, scheme structure, acquisition/transfer dates and complete observation evidence | Provisional; not tax-advice ready |
 | Benchmark alpha | Authenticated daily TRI observations and independently sourced NSE session calendar | **Blocked** |
 | Portfolio look-through | Dated scheme constituents, identifiers, cash/derivative treatment and independently reconciled weights | Not established |
@@ -26,10 +26,10 @@ No production approval is granted by this report. A green unit-test run alone is
 
 ## 2. Verification evidence for current `main`
 
-Latest fully verified `main` at report preparation: `ce80a1c597fbe815598468a533208a10c8f415ee`.
+Latest fully verified `main` at report preparation: `9d9b14b1856c52731555ba2a215a9c272dfdd71e`.
 
-- CI run `41709460857` completed successfully with all six jobs: dependency-lock consistency, P0 fiduciary invariants, correctness regressions, full repository test suite, policy/static validation (including compileall, PDF export and clean-checkout privacy tests), and TRI fixture integrity / expected fail-closed release gate.
-- Security run `41709460739` completed successfully: hash-locked dependency installation, `pip check`, `pip-audit`, CycloneDX SBOM generation and artifact retention. The retained SBOM artifact digest is `sha256:a394b04139c982c039fab277c9dc1a0bbcfcac66d86cb20017a43ca1aea37268`.
+- CI run `41710708849` completed successfully with all six jobs: dependency-lock consistency, P0 fiduciary invariants, correctness regressions, full repository test suite, policy/static validation (including compileall, PDF export and clean-checkout privacy tests), and TRI fixture integrity / expected fail-closed release gate.
+- Security run `41710709237` completed successfully: hash-locked dependency installation, `pip check`, `pip-audit`, CycloneDX SBOM generation and artifact retention. The retained SBOM artifact digest is `sha256:90046db4e58d882f5cca9f0ecc6012b1567563cef153559ef0c713ef09d89003`.
 - These runs establish that the listed automated jobs passed on that SHA. They do not establish legal correctness, production data readiness, complete property-test coverage, independent security review, or production approval.
 
 ## 3. Non-negotiable safety controls
