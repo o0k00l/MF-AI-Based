@@ -91,7 +91,9 @@ print("\n>> [TEST 2] Universal 4-Slot Sizing Engine & Tiered Scaling:")
 established_plan = compute_deterministic_sip_blueprint(
     monthly_budget=100000.0,
     risk_tier="Tier 6 (Very High)",
-    stability_buffer_pct=7.54
+    stability_buffer_pct=7.54,
+    client_aum=5170000.0,
+    equity_sip_routing_override=True,
 )
 check("Established Plan Total Budget", established_plan.total_monthly_budget_inr == 100000.0)
 check("Established Plan Item Count", len(established_plan.items) == 4, f"Found {len(established_plan.items)} items")
