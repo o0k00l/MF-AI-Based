@@ -237,6 +237,8 @@ def test_p0_3_all_10_binary_eligibility_gates():
         "mandate_suitable": True,
         "aum_stable": True,
         "is_direct": True,
+        "plan": "Direct",
+        "direct_plan_evidence_status": "REVIEWER_ATTESTED_HASH_MATCH",
         "isin": "TEST001",
         "_provenance": {"confidence_score": 0.95}
     }
