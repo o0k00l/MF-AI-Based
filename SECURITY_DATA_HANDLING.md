@@ -58,15 +58,31 @@ At the time of this document, `main` was not protected and had no required statu
 2. Create a branch ruleset targeting the exact branch name `main`.
 3. Require a pull request before merging, with at least one approval from a reviewer who did not author the change.
 4. Dismiss stale approvals when new commits are pushed.
-5. Require the GitHub Actions status check for the CI workflow's `test` job. Confirm the exact displayed check name in the latest successful workflow run before selecting it.
+5. Require all release-critical checks from the current CI workflow, not a single generic job:
+   - `Resolve hash-locked dependency set`
+   - `P0 fiduciary invariants`
+   - `P0 correctness regressions`
+   - `Full test suite`
+   - `Universal policy validation`
+   - `TRI fixture integrity and release-state validation`
+   - `TRI coverage gate`
+   - `Dependency vulnerability audit`
+   - `Full Git history secret scan`
+   Confirm the exact displayed context names and successful results for the current PR head SHA before enabling them as required checks.
 6. Require conversation resolution.
 7. Block force pushes and branch deletion.
 8. Do not allow bypass for ordinary maintainers or the implementation author. Document any emergency administrator bypass and require an audit record.
 9. Require the production release checklist to be approved independently of the implementation author.
 
-A PR-based workflow is intended for future maintenance; it does not change the historical fact that earlier repairs were committed directly to `main`.
+A PR-based workflow is intended for future maintenance; it does not change the historical fact that earlier repairs were committed directly to `main`. Keep the repository private until the history purge, artifact review and required branch rules are complete.
 
-## 4. Current code and data-handling rules
+## 4. Automated secret and dependency scanning
+
+The remediation branch adds a full-history Gitleaks workflow using a full Git fetch. It is intended to detect credentials and tokens in current and historical commits. A clean Gitleaks run is not proof that personal or financial information was never committed; it does not replace the destructive history purge above. Any confirmed credential finding must be rotated before history rewriting, because deleting a blob does not invalidate a credential.
+
+The CI workflow also resolves a Python 3.11 lock with per-distribution SHA-256 hashes, uses that same generated lock to install test dependencies, and runs a vulnerability audit against the resolved graph. The lock must be retained in version control and reviewed whenever direct dependency constraints change.
+
+## 5. Current code and data-handling rules
 
 - Client data belongs outside the repository in a local directory supplied through `MF_CLIENT_DATA_DIR`.
 - Commit only schemas, empty templates and synthetic test fixtures.
@@ -74,6 +90,6 @@ A PR-based workflow is intended for future maintenance; it does not change the h
 - A filename being ignored is not proof that it is absent from a commit. Review `git status --ignored`, `git ls-files` and the actual staged diff before committing.
 - Never use real-client values in unit tests, examples, screenshots, logs or benchmark fixtures.
 
-## 5. Production-release conditions
+## 6. Production-release conditions
 
 The application remains a non-executable decision-support prototype until the release report records the exact release SHA, complete passing CI results, tax/legal review, authenticated benchmark data and calendar, private-data purge verification, protected-branch status and independent reviewer sign-off.
