@@ -11,3 +11,5 @@ CI verification refresh after mandatory prior-LTCG tax input changes.
 Risk tier parser fix on main; refresh CI run.
 
 Checksum diagnostic added to TRI verifier on main.
+
+Both TRI fixture checksum metadata corrected and verifier checks both.
