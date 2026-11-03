@@ -128,7 +128,8 @@ def test_p0_2_tax_shield_siphon_and_day_366():
         units=1000.0,
         nav=100.0,
         cost=100000.0,
-        source="cas"
+        source="cas",
+        equity_pct=100.0
     )
     lot2 = Lot(
         fund_id="ICICI Regular Fund",
@@ -137,7 +138,8 @@ def test_p0_2_tax_shield_siphon_and_day_366():
         units=1000.0,
         nav=100.0,
         cost=100000.0,
-        source="cas"
+        source="cas",
+        equity_pct=100.0
     )
     # Create 1 immature lot (< 365 days old: purchased 2026-05-01, as_of is 2026-10-09)
     # Holding days = ~161 days -> Immature!
@@ -148,7 +150,8 @@ def test_p0_2_tax_shield_siphon_and_day_366():
         units=500.0,
         nav=100.0,
         cost=50000.0,
-        source="cas"
+        source="cas",
+        equity_pct=100.0
     )
 
     plans = {
@@ -201,6 +204,8 @@ def test_p0_3_all_10_binary_eligibility_gates():
     base_good_fund = {
         "fund_id": "TEST_FUND",
         "fund_name": "Test Bluechip Direct Plan Growth",
+        "amc_name": "TEST AMC",
+        "allocation_pct": 0.0,
         "aum_crore": 15000.0,
         "category": "Flexi Cap",
         "top10_concentration_pct": 35.0,
@@ -222,13 +227,17 @@ def test_p0_3_all_10_binary_eligibility_gates():
     }
 
     # Clean pass
-    res_clean = check_eligibility_gates(base_good_fund)
+    base_holdings = [
+        {"amc_name": "TEST AMC", "current_value_inr": 200000.0},
+        {"amc_name": "OTHER AMC", "current_value_inr": 800000.0},
+    ]
+    res_clean = check_eligibility_gates(base_good_fund, portfolio_holdings=base_holdings)
     assert res_clean.passed is True
     assert len(res_clean.failed_gates) == 0
 
     # Gate 1 Failure: AMC Concentration >= 30%
     holdings = [{"scheme": "TEST Large Cap Fund", "value": 350000.0}]  # 35% AMC exposure
-    res_g1 = check_eligibility_gates(base_good_fund, portfolio_holdings=[{"scheme": "TEST Large Cap", "value": 350000.0}, {"scheme": "OTHER Fund", "value": 650000.0}])
+    res_g1 = check_eligibility_gates(base_good_fund, portfolio_holdings=[{"amc_name": "TEST AMC", "value": 350000.0}, {"amc_name": "OTHER AMC", "value": 650000.0}])
     assert res_g1.amc_concentration_gate is False
     assert res_g1.passed is False
     assert any("Gate 1" in g for g in res_g1.failed_gates)
@@ -447,8 +456,8 @@ def test_p0_6_multi_horizon_selection_and_peer_evaluation():
     # Verify blueprint selection dynamically routes to the highest multi-horizon scorer (ICICI)
     slots = select_autonomous_blueprint_funds(holdings=[], client_risk_tier=6, thematic_deficit_theme="Pharma")
     slot4 = slots["Slot 4: Tactical Thematic Satellite"]
-    assert "ICICI Prudential Healthcare" in slot4["scheme"], f"Expected ICICI Healthcare, got {slot4['scheme']}"
-    assert slot4["gate_passed"] is True
+    assert "NO_ACTION" in slot4["scheme"], f"Missing fiduciary metadata must fail closed, got {slot4['scheme']}"
+    assert slot4["gate_passed"] is False
     print("[PASS] P0.6 Multi-Horizon Selection & Peer Evaluation Verified")
 
 def test_p0_7_boundary_mutex_and_thematic_taper():
@@ -463,6 +472,8 @@ def test_p0_7_boundary_mutex_and_thematic_taper():
     base_candidate = {
         "fund_id": "TEST_GATE4",
         "fund_name": "Test Active Fund Direct Plan Growth",
+        "amc_name": "TEST AMC",
+        "allocation_pct": 0.0,
         "aum_crore": 5000.0,
         "category": "Large Cap",
         "top10_concentration_pct": 35.0,
@@ -715,7 +726,11 @@ def test_p0_10_gate4_fail_closed_and_missing_metrics():
     }
 
     # 1. Clean pass baseline
-    res_clean = check_eligibility_gates(base_active)
+    base_holdings = [
+        {"amc_name": "TEST AMC", "current_value_inr": 200000.0},
+        {"amc_name": "OTHER AMC", "current_value_inr": 800000.0},
+    ]
+    res_clean = check_eligibility_gates(base_active, portfolio_holdings=base_holdings)
     assert res_clean.sharpe_alpha_gate is True
     assert res_clean.passed is True
 
@@ -997,38 +1012,18 @@ def test_p0_14_cashflow_matched_tri_benchmark_engine():
     # Use HIGH-COVERAGE fixture (daily business day observations, 100% coverage)
     tri_high_path = Path("data/policy/benchmark_tri_series_high_coverage.json")
 
-    audit_500 = calculate_cashflow_matched_benchmark_xirr(
-        transactions_path=tx_path,
-        benchmark_key="NIFTY 500 TRI",
-        benchmark_series_path=tri_high_path,
-        cas_current=5170911.38
-    )
-    # SWITCH/STP now correctly netted/excluded at portfolio level (16 SWITCH_IN removed)
-    assert audit_500["cashflows_count"] == 363
-    assert audit_500["benchmark_units_accumulated"] > 90.0  # Updated for high-coverage fixture
-    assert audit_500["benchmark_terminal_valuation_inr"] > 4700000.0
-    assert audit_500["benchmark_matched_xirr_pct"] is not None
-    # Portfolio XIRR corrected: SWITCH/STP excluded per spec
-    assert abs(audit_500["portfolio_xirr_pct"] - 19.35) < 0.1
-    assert audit_500["benchmark_isin"] == "INF769K01EZ2"
-    assert "Cash-flow-matched" in audit_500["methodology"]
-    # Verify coverage metadata in result
-    prov_audit = audit_500.get("provenance_audit", {})
-    assert prov_audit.get("coverage_pct", 0) >= 95.0
+    with pytest.raises(TriProvenanceError) as high_fixture_error:
+        calculate_cashflow_matched_benchmark_xirr(
+            transactions_path=tx_path,
+            benchmark_key="NIFTY 500 TRI",
+            benchmark_series_path=tri_high_path,
+            cas_current=5170911.38
+        )
+    assert high_fixture_error.value.validation_stage == "frequency_insufficient"
 
-    # 2. NIFTY 50 TRI Audit with high-coverage fixture
-    audit_50 = calculate_cashflow_matched_benchmark_xirr(
-        transactions_path=tx_path,
-        benchmark_key="NIFTY 50 TRI",
-        benchmark_series_path=tri_high_path,
-        cas_current=5170911.38
-    )
-    assert audit_50["benchmark_matched_xirr_pct"] is not None
-    assert audit_50["benchmark_isin"] == "INF769K01EY5"
-    # Alpha may be negative with high-coverage Nifty 50 TRI fixture (different return profile)
-    # The important thing is that the engine runs and returns valid results with high-coverage data
-    prov_audit = audit_50.get("provenance_audit", {})
-    assert prov_audit.get("coverage_pct", 0) >= 95.0
+    # The high-coverage fixture contains 985 points but its own provenance says
+    # Monthly with daily interpolation. It is not an independently sourced daily TRI.
+    print("[PASS] P0.14 TRI rejects the monthly/interpolated fixture rather than publishing false daily alpha")
 
     print(f"[PASS] P0.14 Cash-Flow Matched TRI Benchmark Engine Verified (Nifty 500 TRI: {audit_500['benchmark_matched_xirr_pct']}%, Nifty 50 TRI: {audit_50['benchmark_matched_xirr_pct']}%)")
 
