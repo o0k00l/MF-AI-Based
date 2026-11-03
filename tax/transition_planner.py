@@ -111,12 +111,16 @@ def load_transactions(
     # First pass: collect all transactions per fund (both purchases and redemptions)
     transactions_by_fund: dict[str, list[dict]] = defaultdict(list)
 
-    for tx in data.get("transactions", []):
-        scheme = tx.get("scheme", "")
-        if not scheme:
-            continue
+    for row_index, tx in enumerate(data.get("transactions", [])):
+        if not isinstance(tx, dict):
+            raise ValueError(f"Transaction row {row_index} is not an object")
         units = tx.get("units", 0)
         amount = tx.get("amount", 0)
+        scheme = str(tx.get("scheme", "") or "").strip()
+        if not scheme:
+            if units == 0 and amount == 0:
+                continue
+            raise ValueError(f"Non-zero transaction row {row_index} is missing scheme name")
         txn_type = str(tx.get("type", "") or "").strip().upper()
         allowed_types = {
             "PURCHASE", "SIP", "SWITCH_IN", "STP_IN", "DIVIDEND_REINVEST",
