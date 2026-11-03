@@ -31,8 +31,13 @@ class Lot:
     nav: float  # purchase NAV
     cost: float  # units * nav
     source: str  # "cas" or "manual"
-    equity_pct: float | None = None  # verified scheme-level equity allocation, if supplied
-    
+    equity_pct: float | None = None  # Section 198 annual-average monthly-opening/closing percentage
+    equity_pct_method: str | None = None
+    equity_pct_fy_start: int | None = None
+    equity_pct_source_url: str | None = None
+    equity_pct_source_sha256: str | None = None
+    equity_pct_source_verified: bool = False
+
     def holding_days(self, as_of: date) -> int:
         return (as_of - self.purchase_date).days
     
@@ -145,13 +150,35 @@ def load_transactions(
             continue  # Skip zero-activity entries (address updates, nominee registrations, etc.)
 
         dt = _parse_date(tx.get("date", ""))
+        allocation_record = tx.get("equity_allocation")
+        if allocation_record is None:
+            allocation_record = (equity_allocation_by_fund or {}).get(scheme)
+        if isinstance(allocation_record, dict):
+            equity_pct = allocation_record.get("equity_pct")
+            equity_pct_method = allocation_record.get("method")
+            equity_pct_fy_start = allocation_record.get("financial_year_start")
+            equity_pct_source_url = allocation_record.get("source_url")
+            equity_pct_source_sha256 = allocation_record.get("source_document_sha256")
+            equity_pct_source_verified = allocation_record.get("independently_verified", False)
+        else:
+            equity_pct = tx.get("equity_allocation_pct", allocation_record)
+            equity_pct_method = tx.get("equity_allocation_method")
+            equity_pct_fy_start = tx.get("equity_allocation_fy_start")
+            equity_pct_source_url = tx.get("equity_allocation_source_url")
+            equity_pct_source_sha256 = tx.get("equity_allocation_source_sha256")
+            equity_pct_source_verified = tx.get("equity_allocation_source_verified", False)
         transactions_by_fund[scheme].append({
             "date": dt,
             "units": Decimal(str(units)),
             "amount": float(amount),
             "nav": float(tx.get("nav", 0)) if tx.get("nav") else 0.0,
             "type": txn_type,
-            "equity_pct": tx.get("equity_allocation_pct", (equity_allocation_by_fund or {}).get(scheme)),
+            "equity_pct": equity_pct,
+            "equity_pct_method": equity_pct_method,
+            "equity_pct_fy_start": equity_pct_fy_start,
+            "equity_pct_source_url": equity_pct_source_url,
+            "equity_pct_source_sha256": equity_pct_source_sha256,
+            "equity_pct_source_verified": equity_pct_source_verified,
             "description": tx.get("description", ""),
         })
 
@@ -289,7 +316,12 @@ def load_transactions(
                     nav=p["nav"],
                     cost=p["cost"],
                     source="cas",
-                    equity_pct=p.get("equity_pct")
+                    equity_pct=p.get("equity_pct"),
+                    equity_pct_method=p.get("equity_pct_method"),
+                    equity_pct_fy_start=p.get("equity_pct_fy_start"),
+                    equity_pct_source_url=p.get("equity_pct_source_url"),
+                    equity_pct_source_sha256=p.get("equity_pct_source_sha256"),
+                    equity_pct_source_verified=p.get("equity_pct_source_verified", False),
                 ))
 
     return lots_by_fund
@@ -449,24 +481,51 @@ def estimate_current_value(plan: FundSellPlan, current_nav: float) -> float:
     """Estimate current value of all lots in the plan."""
     return plan.total_units() * current_nav
 
-def classify_fund_for_tax(source_holding, tax_rules):
+def classify_fund_for_tax(source_holding, tax_rules, sale_date=None):
     """
-    Classify a holding using verified equity allocation from the scheme master.
-    Missing classification data is an error; it is never assumed to be non-equity.
+    Classify only from a provenance-backed Section 198 annual-average monthly
+    opening/closing calculation for the financial year of the intended sale.
+    Point-in-time scheme allocation percentages are not accepted.
     """
     import math
+    import re
+
     equity_pct = getattr(source_holding, "equity_pct", None)
     if equity_pct is None or isinstance(equity_pct, bool):
-        raise ValueError("Verified equity_allocation_pct is required for tax classification")
+        raise ValueError("equity_allocation_pct is required for tax classification")
     try:
         equity_pct = float(equity_pct)
     except (TypeError, ValueError) as exc:
         raise ValueError("equity_allocation_pct must be numeric") from exc
     if not math.isfinite(equity_pct) or not 0.0 <= equity_pct <= 100.0:
         raise ValueError("equity_allocation_pct must be finite and between 0 and 100")
+
+    method = getattr(source_holding, "equity_pct_method", None)
+    if method != "annual_average_monthly_opening_closing":
+        raise ValueError("equity allocation must use the Section 198 annual-average monthly opening/closing method")
+    if getattr(source_holding, "equity_pct_source_verified", False) is not True:
+        raise ValueError("Section 198 equity-allocation source must be independently verified")
+    source_url = getattr(source_holding, "equity_pct_source_url", None)
+    if not isinstance(source_url, str) or not source_url.startswith("https://"):
+        raise ValueError("Section 198 equity-allocation source URL must be HTTPS")
+    source_hash = getattr(source_holding, "equity_pct_source_sha256", None)
+    if not isinstance(source_hash, str) or not re.fullmatch(r"[0-9a-fA-F]{64}", source_hash):
+        raise ValueError("Section 198 equity-allocation source document SHA-256 is required")
+    fy_start = getattr(source_holding, "equity_pct_fy_start", None)
+    if isinstance(fy_start, bool) or not isinstance(fy_start, int):
+        raise ValueError("Section 198 equity-allocation financial_year_start is required")
+
+    if sale_date is not None:
+        expected_fy_start = sale_date.year if sale_date.month >= 4 else sale_date.year - 1
+        if fy_start != expected_fy_start:
+            raise ValueError(
+                f"Section 198 equity-allocation evidence is for FY starting {fy_start}, "
+                f"but sale date {sale_date} requires FY starting {expected_fy_start}"
+            )
+
     equity_threshold = float(tax_rules.get("classification_test", {}).get("equity_oriented_threshold_pct", 65.0))
-    if not math.isfinite(equity_threshold) or not 0.0 <= equity_threshold <= 100.0:
-        raise ValueError("Tax classification threshold is invalid")
+    if not math.isfinite(equity_threshold) or equity_threshold != 65.0:
+        raise ValueError("Section 198 statutory equity-oriented threshold must be 65%")
     return "equity_oriented" if equity_pct >= equity_threshold else "non_equity_oriented"
 
 
@@ -607,7 +666,7 @@ def plan_fy_tranches(
             lot_gain = lot_val - cost_basis
             if not math.isfinite(lot_gain) or not math.isfinite(cost_basis):
                 raise ValueError(f"Non-finite gain/cost basis for {fund_id}")
-            fund_tax_class = classify_fund_for_tax(lot, tax_rules)
+            fund_tax_class = classify_fund_for_tax(lot, tax_rules, as_of)
             if fund_tax_class != "equity_oriented":
                 raise ValueError(
                     f"Tax planning for {fund_tax_class!r} holdings is not supported by this equity-only exemption planner."
@@ -785,16 +844,13 @@ def plan_fy_tranches(
         fy_ptr = max(current_fy_start, target_fy_start)
         
         # Get tax rates for this specific fund and sale date
-        fund_tax_class = lot_info.get("fund_tax_class")
-        if fund_tax_class is None:
-            fund_tax_class = classify_fund_for_tax(lot_info["lot"], tax_rules)
+        sale_date = date(fy_ptr, 4, 1)  # Approximate sale date as start of FY
+        fund_tax_class = classify_fund_for_tax(lot_info["lot"], tax_rules, sale_date)
         if fund_tax_class != "equity_oriented":
             raise ValueError(
                 f"Tax planning for {fund_tax_class!r} holdings is not supported by this equity-only exemption planner. "
                 "Use a tax-class-specific computation with acquisition-date and investor-slab inputs."
             )
-        
-        sale_date = date(fy_ptr, 4, 1)  # Approximate sale date as start of FY
         tax_rates = get_tax_rates_for_sale(fund_tax_class, sale_date, tax_rules)
         try:
             ltcg_rate = float(tax_rates["ltcg_rate"])
