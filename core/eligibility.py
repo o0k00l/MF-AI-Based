@@ -725,14 +725,18 @@ def load_candidate_universe(
                 "fund_name": m.get("name", m.get("scheme_name", m.get("id", ""))),
             }),
             "is_direct": (
-                m.get("is_direct")
-                if isinstance(m.get("is_direct"), bool)
-                and _reviewed_direct_plan_evidence_status({
-                    "direct_plan_evidence": m.get("direct_plan_evidence"),
-                    "_evidence_root": str(Path(metrics_path).resolve().parent),
-                    "fund_name": m.get("name", m.get("scheme_name", m.get("id", ""))),
-                }) == "REVIEWER_ATTESTED_HASH_MATCH"
-                else None
+                False
+                if m.get("is_direct") is False
+                else (
+                    True
+                    if m.get("is_direct") is True
+                    and _reviewed_direct_plan_evidence_status({
+                        "direct_plan_evidence": m.get("direct_plan_evidence"),
+                        "_evidence_root": str(Path(metrics_path).resolve().parent),
+                        "fund_name": m.get("name", m.get("scheme_name", m.get("id", ""))),
+                    }) == "REVIEWER_ATTESTED_HASH_MATCH"
+                    else None
+                )
             ),
             "plan": (
                 m.get("direct_plan_evidence", {}).get("plan", "")
