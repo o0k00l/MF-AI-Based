@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-advisor_lean.py — Option B Standalone: Single-file fiduciary advisor (~180 LOC).
-Reads verified client data, computes 3 findings, prompts Gemini for action plan.
-No core/ imports, no state machines, no bloat.
+advisor_lean.py — legacy report CLI.
+Reads local private client data and uses shared core calculation modules.
+This is an executable report script, not a side-effect-free importable library.
 Usage:
     python advisor_lean.py              # 3 reports -> outputs/
     python advisor_lean.py --no-ai      # deterministic facts only
@@ -10,12 +10,11 @@ Usage:
     python advisor_lean.py --chat       # interactive REPL
 """
 from __future__ import annotations
-import json, re, sys, warnings, argparse
+import json, re, sys, argparse
 from datetime import date, datetime
 from collections import defaultdict
 from pathlib import Path
 
-warnings.filterwarnings("ignore")
 ROOT = Path(__file__).resolve().parent
 
 def discover_client_portfolios(root_dir: Path | None = None) -> dict[str, Path]:
@@ -32,6 +31,13 @@ def discover_client_portfolios(root_dir: Path | None = None) -> dict[str, Path]:
     return portfolios
 
 def get_default_client_dir() -> Path:
+    import os
+    env_client_dir = os.environ.get("MF_CLIENT_DATA_DIR")
+    if env_client_dir:
+        client_dir = Path(env_client_dir).expanduser().resolve()
+        if not client_dir.is_dir():
+            raise FileNotFoundError(f"MF_CLIENT_DATA_DIR does not exist: {client_dir}")
+        return client_dir
     ports = discover_client_portfolios()
     if "lalit_portfolio" in ports:
         return ports["lalit_portfolio"]
@@ -62,6 +68,14 @@ def norm(s):
     s = re.sub(r"\(.*?\)", " ", s)
     return " ".join(t for t in re.split(r"[^a-z0-9]+", s.lower()) if t and t not in {"fund","the","of","and","a","an","option","growth","plan","regular","direct","idcw","dividend","reinvestment","formerly","erstwhile","known","as","in","on","for","to"})
 
+required_client_files = [CLIENT/"config.json", CLIENT/"fund_metrics.json", CLIENT/"fund_aliases.json"]
+missing_client_files = [str(p) for p in required_client_files if not p.is_file()]
+if missing_client_files:
+    raise FileNotFoundError(
+        "Private client data is not configured. Set MF_CLIENT_DATA_DIR to a local "
+        "directory containing config.json, fund_metrics.json, fund_aliases.json "
+        f"and statements/*.xlsx. Missing: {missing_client_files}"
+    )
 cfg = jload(CLIENT/"config.json")
 metrics = {m["id"]: m for m in jload(CLIENT/"fund_metrics.json")["funds"]}
 aliases = {}
