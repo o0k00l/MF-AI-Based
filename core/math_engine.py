@@ -1169,6 +1169,7 @@ class TaxLot:
     nav: float
     cost: float
     source: str  # "transactions" or "manual"
+    equity_pct: Optional[float] = None  # verified scheme-master equity allocation
     
     def holding_days(self, as_of: date) -> int:
         return (as_of - self.purchase_date).days
@@ -1221,202 +1222,227 @@ def build_fifo_tax_lots(
     transactions_path: Path,
     holdings: Any,
     as_of_date: Optional[date] = None,
-    cas_current: Optional[float] = None
+    cas_current: Optional[float] = None,
+    scheme_aliases: Optional[Dict[str, List[str]]] = None,
 ) -> Dict[str, List[TaxLot]]:
+    """Build current FIFO lots from CAS transactions and reconcile to holdings.
+
+    Matching is exact after case/punctuation normalization. No fuzzy scheme
+    matching is permitted. Unmatched historical schemes are ignored only when
+    they are not part of the supplied current-holdings universe; every current
+    holding with units must reconcile to its surviving transaction lots.
     """
-    Build FIFO-ordered tax lots per fund from transaction history.
-    Returns dict[fund_id] -> List[TaxLot] sorted by purchase_date (FIFO).
-    
-    Handles all CAS transaction types: PURCHASE, SIP, SWITCH_IN, STP_IN, 
-    REDEMPTION, SWITCH_OUT, STP_OUT, DIVIDEND, STP_IN, STP_OUT.
-    
-    Rules:
-    - PURCHASE, SIP, SWITCH_IN, STP_IN: Add units to lot pool (FIFO)
-    - REDEMPTION, SWITCH_OUT, STP_OUT: Remove units from lot pool (FIFO)
-    - DIVIDEND: Reinvested = new lot at ex-div NAV; Payout = no unit change
-    - SWITCH_IN: Units received into target fund at switch NAV
-    - SWITCH_OUT: Units removed from source fund at switch NAV
-    """
+    import re
+    import math
+
     if not transactions_path.exists():
-        return {}
-    
+        raise FileNotFoundError(f"Tax-lot transaction history is missing: {transactions_path}")
     if as_of_date is None:
         as_of_date = date.today()
-    
-    try:
-        with open(transactions_path, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-    except Exception:
-        return {}
-    
-    transactions = data.get('transactions', [])
-    if not transactions:
-        return {}
-    
-    # Build lots per fund using FIFO
-    fund_lots: Dict[str, List[TaxLot]] = {}
-    fund_holdings: Dict[str, float] = {}  # current units per fund
-    
-    for txn in data.get('transactions', []):
-        try:
-            txn_date = datetime.strptime(txn.get('date', '')[:10], '%Y-%m-%d').date()
-            amount = float(txn.get('amount', 0))
-            txn_type = txn.get('type', '').upper()
-            scheme = txn.get('scheme', '')
-            units = float(txn.get('units', 0)) if txn.get('units') else 0
-            nav = float(txn.get('nav', 0)) if txn.get('nav') else 0
-            
-            if amount == 0 or units == 0:
-                continue
-            
-            # Match scheme to fund_id
-            fund_id = _match_scheme_to_fund(scheme)
-            if not fund_id:
-                continue
-            
-            if fund_id not in fund_lots:
-                fund_lots[fund_id] = []
-            if fund_id not in fund_holdings:
-                fund_holdings[fund_id] = 0.0
-            
-            if txn_type in ('PURCHASE', 'SIP', 'SWITCH_IN', 'STP_IN', 'DIVIDEND_REINVEST'):
-                # Add units to lot pool
-                units_to_add = units if units > 0 else (abs(amount) / nav) if nav > 0 else 0
-                if units_to_add > 0:
-                    cost = units_to_add * nav if nav > 0 else 0
-                    lot = TaxLot(
-                        fund_id=fund_id,
-                        scheme_name=scheme,
-                        folio=txn.get('folio', ''),
-                        purchase_date=txn_date,
-                        units=units_to_add,
-                        nav=nav,
-                        cost=cost,
-                        source='transactions'
-                    )
-                    fund_lots[fund_id].append(lot)
-                    fund_holdings[fund_id] += units_to_add
-            
-            elif txn_type in ('REDEMPTION', 'SWITCH_OUT', 'STP_OUT'):
-                # Remove units from lot pool (FIFO)
-                units_to_remove = units if units > 0 else (abs(amount) / nav) if nav > 0 else 0
-                if units_to_remove > 0:
-                    fund_lots[fund_id] = _fifo_redeem(fund_lots[fund_id], units_to_remove)
-                    fund_holdings[fund_id] -= units_to_remove
-            
-            elif txn_type in ('DIVIDEND',):
-                # Dividend payout = no unit change; reinvestment handled separately
-                pass
-            
-            elif txn_type in ('SWITCH_IN', 'SWITCH_OUT'):
-                # Handled above via SWITCH_IN/OUT types
-                pass
-        except Exception:
-            continue
-        
-        # Sort lots by purchase date (FIFO)
-        for fund_id in fund_lots:
-            fund_lots[fund_id].sort(key=lambda x: x.purchase_date)
-        
-        return fund_lots
-    """
-    Build FIFO-ordered tax lots per fund from transaction history.
-    Returns dict[fund_id] -> List[TaxLot] sorted by purchase_date (FIFO).
-    
-    Handles all CAS transaction types: PURCHASE, SIP, SWITCH_IN, STP_IN, 
-    REDEMPTION, SWITCH_OUT, STP_OUT, DIVIDEND, STP_IN, STP_OUT.
-    
-    Rules:
-    - PURCHASE, SIP, SWITCH_IN, STP_IN: Add units to lot pool (FIFO)
-    - REDEMPTION, SWITCH_OUT, STP_OUT: Remove units from lot pool (FIFO)
-    - DIVIDEND: Reinvested = new lot at ex-div NAV; Payout = no unit change
-    - SWITCH_IN: Units received into target fund at switch NAV
-    - SWITCH_OUT: Units removed from source fund at switch NAV
-    """
-    if not transactions_path.exists():
-        return {}
-    
-    if as_of_date is None:
-        as_of_date = date.today()
-    
-    try:
-        with open(transactions_path, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-    except Exception:
-        return {}
-    
-    transactions = data.get('transactions', [])
-    if not transactions:
-        return {}
-    
-    # Build lots per fund using FIFO
-    fund_lots: Dict[str, List[TaxLot]] = {}
-    fund_holdings: Dict[str, float] = {}  # current units per fund
-    
-    for txn in data.get('transactions', []):
-        try:
-            txn_date = datetime.strptime(txn.get('date', '')[:10], '%Y-%m-%d').date()
-            amount = float(txn.get('amount', 0))
-            txn_type = txn.get('type', '').upper()
-            scheme = txn.get('scheme', '')
-            units = float(txn.get('units', 0)) if txn.get('units') else 0
-            nav = float(txn.get('nav', 0)) if txn.get('nav') else 0
-            
-            if amount == 0 or units == 0:
-                continue
-            
-            # Match scheme to fund_id
-            fund_id = _match_scheme_to_fund(scheme)
-            if not fund_id:
-                continue
-            
-            if fund_id not in fund_lots:
-                fund_lots[fund_id] = []
-            if fund_id not in fund_holdings:
-                fund_holdings[fund_id] = 0.0
-            
-            if txn_type in ('PURCHASE', 'SIP', 'SWITCH_IN', 'STP_IN', 'DIVIDEND_REINVEST'):
-                # Add units to lot pool
-                units_to_add = units if units > 0 else (abs(amount) / nav) if nav > 0 else 0
-                if units_to_add > 0:
-                    cost = units_to_add * nav if nav > 0 else 0
-                    lot = TaxLot(
-                        fund_id=fund_id,
-                        scheme_name=scheme,
-                        folio=txn.get('folio', ''),
-                        purchase_date=txn_date,
-                        units=units_to_add,
-                        nav=nav,
-                        cost=cost,
-                        source='transactions'
-                    )
-                    fund_lots[fund_id].append(lot)
-                    fund_holdings[fund_id] += units_to_add
-            
-            elif txn_type in ('REDEMPTION', 'SWITCH_OUT', 'STP_OUT'):
-                # Remove units from lot pool (FIFO)
-                units_to_remove = units if units > 0 else (abs(amount) / nav) if nav > 0 else 0
-                if units_to_remove > 0:
-                    fund_lots[fund_id] = _fifo_redeem(fund_lots[fund_id], units_to_remove)
-                    fund_holdings[fund_id] -= units_to_remove
-            
-            elif txn_type in ('DIVIDEND',):
-                # Dividend payout = no unit change; reinvestment handled separately
-                pass
-            
-            elif txn_type in ('SWITCH_IN', 'SWITCH_OUT'):
-                # Handled above via SWITCH_IN/OUT types
-                pass
-        except Exception:
-            continue
-        
-        # Sort lots by purchase date (FIFO)
-        for fund_id in fund_lots:
-            fund_lots[fund_id].sort(key=lambda x: x.purchase_date)
-        
-        return fund_lots
+    if holdings is None:
+        raise ValueError("Current holdings are required to build and reconcile FIFO tax lots")
+    holding_items = holdings if isinstance(holdings, (list, tuple)) else getattr(holdings, "holdings", None)
+    if not holding_items:
+        raise ValueError("Current holdings are empty; FIFO tax-lot reconciliation is unavailable")
 
+    def _field(item, name, default=None):
+        if isinstance(item, dict):
+            return item.get(name, default)
+        return getattr(item, name, default)
 
+    def _key(value):
+        return re.sub(r"[^a-z0-9]", "", str(value or "").casefold())
+
+    scheme_to_fund: Dict[str, str] = {}
+    fund_holdings: Dict[str, Dict[str, Any]] = {}
+
+    def _add_alias(alias: Any, fund_id: str) -> None:
+        key = _key(alias)
+        if not key:
+            return
+        existing = scheme_to_fund.get(key)
+        if existing is not None and existing != fund_id:
+            raise ValueError(f"Ambiguous exact scheme alias {alias!r}: {existing!r} vs {fund_id!r}")
+        scheme_to_fund[key] = fund_id
+
+    for holding in holding_items:
+        fund_id = str(_field(holding, "fund_id", "") or "").strip()
+        if not fund_id:
+            raise ValueError("Current holding is missing fund_id")
+        fund_holdings[fund_id] = {
+            "units": _field(holding, "units", None),
+            "equity_pct": _field(holding, "equity_pct", None),
+        }
+        for alias in (
+            _field(holding, "scheme", ""),
+            _field(holding, "fund_name", ""),
+            _field(holding, "isin", ""),
+            fund_id,
+        ):
+            _add_alias(alias, fund_id)
+
+    for fund_id, aliases in (scheme_aliases or {}).items():
+        if fund_id not in fund_holdings:
+            continue
+        for alias in aliases:
+            _add_alias(alias, fund_id)
+
+    try:
+        with transactions_path.open("r", encoding="utf-8") as handle:
+            data = json.load(handle)
+    except Exception as exc:
+        raise ValueError(f"Unable to read CAS transaction history: {exc}") from exc
+
+    transactions = data.get("transactions")
+    if not isinstance(transactions, list) or not transactions:
+        raise ValueError("CAS transaction history is missing a non-empty transactions list")
+
+    # Remove matched reversal pairs before the FIFO pass. A reversal without
+    # its original row is an integrity failure, not a transaction to ignore.
+    consumed = set()
+    filtered = []
+    for index, txn in enumerate(transactions):
+        if not isinstance(txn, dict):
+            raise ValueError(f"Transaction row {index} is not an object")
+        desc = str(txn.get("description", txn.get("desc", "")) or "").casefold()
+        if "reversal" not in desc and "dishonour" not in desc and "reject" not in desc:
+            continue
+        scheme_key = _key(txn.get("scheme"))
+        try:
+            txn_date = datetime.strptime(str(txn.get("date", ""))[:10], "%Y-%m-%d").date()
+            amount = float(txn.get("amount", 0))
+            units = float(txn.get("units", 0))
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"Malformed reversal row {index}: {exc}") from exc
+        match_index = None
+        for candidate_index, candidate in enumerate(transactions):
+            if candidate_index == index or candidate_index in consumed:
+                continue
+            candidate_desc = str(candidate.get("description", candidate.get("desc", "")) or "").casefold()
+            if "reversal" in candidate_desc or "dishonour" in candidate_desc or "reject" in candidate_desc:
+                continue
+            try:
+                candidate_date = datetime.strptime(str(candidate.get("date", ""))[:10], "%Y-%m-%d").date()
+                candidate_amount = float(candidate.get("amount", 0))
+                candidate_units = float(candidate.get("units", 0))
+            except (TypeError, ValueError):
+                continue
+            if (
+                _key(candidate.get("scheme")) == scheme_key
+                and candidate_date == txn_date
+                and abs(abs(candidate_amount) - abs(amount)) <= 1.0
+                and abs(abs(candidate_units) - abs(units)) <= 0.001
+            ):
+                match_index = candidate_index
+                break
+        if match_index is None:
+            raise ValueError(f"Orphan reversal transaction at row {index}; original row could not be matched")
+        consumed.add(index)
+        consumed.add(match_index)
+
+    filtered = [txn for index, txn in enumerate(transactions) if index not in consumed]
+    fund_lots: Dict[str, List[TaxLot]] = {fund_id: [] for fund_id in fund_holdings}
+
+    allowed_types = {
+        "PURCHASE", "SIP", "SWITCH_IN", "STP_IN", "DIVIDEND_REINVEST",
+        "REDEMPTION", "SWITCH_OUT", "STP_OUT", "DIVIDEND",
+    }
+    purchase_types = {"PURCHASE", "SIP", "SWITCH_IN", "STP_IN", "DIVIDEND_REINVEST"}
+    redemption_types = {"REDEMPTION", "SWITCH_OUT", "STP_OUT"}
+
+    for index, txn in enumerate(filtered):
+        try:
+            txn_date = datetime.strptime(str(txn.get("date", ""))[:10], "%Y-%m-%d").date()
+            amount = float(txn.get("amount", 0))
+            units = float(txn.get("units", 0))
+            nav = float(txn.get("nav", 0) or 0)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"Malformed CAS transaction row {index}: {exc}") from exc
+        if not all(math.isfinite(value) for value in (amount, units, nav)):
+            raise ValueError(f"Non-finite numeric value in CAS transaction row {index}")
+        txn_type = str(txn.get("type", "") or "").strip().upper()
+        if txn_type not in allowed_types:
+            raise ValueError(f"Unsupported CAS transaction type at row {index}: {txn_type!r}")
+        if amount == 0 and units == 0:
+            continue
+        if txn_type == "DIVIDEND":
+            description = str(txn.get("description", txn.get("desc", "")) or "").casefold()
+            if not any(marker in description for marker in ("reinvest", "reinvestment", "drp")):
+                continue
+            txn_type = "DIVIDEND_REINVEST"
+        scheme = str(txn.get("scheme", "") or "")
+        fund_id = scheme_to_fund.get(_key(scheme))
+        if fund_id is None:
+            # Historical schemes no longer represented in current holdings are
+            # outside this lot book. Current holdings are reconciled below.
+            continue
+        folio = str(txn.get("folio", txn.get("folio_number", "")) or "")
+
+        if txn_type in purchase_types:
+            if amount <= 0 or units <= 0:
+                raise ValueError(f"Purchase row {index} must have positive amount and units")
+            if nav <= 0:
+                nav = amount / units
+            if not math.isfinite(nav) or nav <= 0:
+                raise ValueError(f"Purchase row {index} has invalid NAV")
+            equity_pct = fund_holdings[fund_id]["equity_pct"]
+            fund_lots[fund_id].append(
+                TaxLot(
+                    fund_id=fund_id,
+                    scheme_name=scheme,
+                    folio=folio,
+                    purchase_date=txn_date,
+                    units=units,
+                    nav=nav,
+                    cost=amount,
+                    source="transactions",
+                    equity_pct=equity_pct,
+                )
+            )
+        elif txn_type in redemption_types:
+            if amount >= 0 or units >= 0:
+                raise ValueError(f"Redemption/switch-out row {index} must have negative amount and units")
+            units_to_remove = abs(units)
+            lots = fund_lots[fund_id]
+            remaining = units_to_remove
+            updated_lots = []
+            for lot in sorted(lots, key=lambda item: (item.purchase_date, item.folio)):
+                if remaining <= 1e-8:
+                    updated_lots.append(lot)
+                    continue
+                if lot.units <= remaining + 1e-8:
+                    remaining -= lot.units
+                    continue
+                removed_cost = lot.cost * (remaining / lot.units)
+                lot.units -= remaining
+                lot.cost -= removed_cost
+                updated_lots.append(lot)
+                remaining = 0.0
+            if remaining > 1e-6:
+                raise ValueError(
+                    f"FIFO redemption row {index} exceeds available units for {fund_id} by {remaining:.6f}"
+                )
+            fund_lots[fund_id] = updated_lots
+
+    for fund_id, holding in fund_holdings.items():
+        expected_units = holding["units"]
+        if expected_units is None:
+            raise ValueError(f"Current holding {fund_id} is missing units for FIFO reconciliation")
+        expected_units = float(expected_units)
+        if not math.isfinite(expected_units) or expected_units < 0:
+            raise ValueError(f"Current holding {fund_id} has invalid units")
+        actual_units = sum(lot.units for lot in fund_lots[fund_id])
+        tolerance = max(0.01, expected_units * 1e-4)
+        if abs(actual_units - expected_units) > tolerance:
+            raise ValueError(
+                f"FIFO lot reconciliation failed for {fund_id}: lots={actual_units:.6f}, "
+                f"holding={expected_units:.6f}, tolerance={tolerance:.6f}"
+            )
+        fund_lots[fund_id].sort(key=lambda lot: (lot.purchase_date, lot.folio))
+        if not fund_lots[fund_id] and expected_units > tolerance:
+            raise ValueError(f"No surviving FIFO lots for non-zero current holding {fund_id}")
+
+    return {fund_id: lots for fund_id, lots in fund_lots.items() if lots}
 def calculate_overlap_matrix(holdings: List[HoldingItem], threshold_pct: float = 25.0) -> List[OverlapPair]:
     """
     Computes pairwise stock overlap among equity funds holding stock disclosures.
