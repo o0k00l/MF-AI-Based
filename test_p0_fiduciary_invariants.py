@@ -732,6 +732,8 @@ def test_p0_10_gate4_fail_closed_and_missing_metrics():
         "mandate_suitable": True,
         "aum_stable": True,
         "is_direct": True,
+        "plan": "Direct",
+        "direct_plan_evidence_status": "REVIEWER_ATTESTED_HASH_MATCH",
         "isin": "TEST003",
         "_provenance": {"confidence_score": 0.95}
     }
