@@ -979,14 +979,11 @@ def test_p0_13_statutory_tax_specified_fund_and_mandate_state():
 
 def test_p0_14_cashflow_matched_tri_benchmark_engine():
     """
-    Verifies the Cash-Flow-Matched Total Return Index (TRI) benchmark performance engine:
-    - Matches 363 external cash flows from transactions.json (SWITCH/STP netted to zero, DIVIDEND_REINVEST excluded)
-      against official daily/monthly TRI levels
-    - Accumulates benchmark units dynamically and evaluates terminal benchmark valuation
-    - Solves true Benchmark Matched XIRR and True Alpha deterministically
-    - Enforces 95% coverage gate via TriProvenanceError
+    Verifies that TRI alpha is unavailable unless an independently maintained
+    NSE session calendar is supplied. The repository intentionally has no such
+    verified calendar file, so the calculation must fail closed.
     """
-    from core.math_engine import calculate_cashflow_matched_benchmark_xirr, calculate_portfolio_xirr
+    from core.math_engine import calculate_cashflow_matched_benchmark_xirr
     from pathlib import Path
     import pytest
 
@@ -1090,7 +1087,7 @@ def test_p0_16_tri_coverage_gate_rejects_inflated_metadata():
     with open(sparse_tri_path, 'w') as f:
         json.dump(sparse_data, f)
 
-    # Build a separate calendar fixture from the complete test dataset, not the
+    # Build a separate synthetic calendar fixture from the complete test dataset, not the
     # edited sparse benchmark levels or their editable coverage metadata.
     calendar_sessions = full_calendar_sessions
     sessions_sha256 = hashlib.sha256(json.dumps(calendar_sessions, separators=(",", ":")).encode()).hexdigest()
@@ -1099,7 +1096,7 @@ def test_p0_16_tri_coverage_gate_rejects_inflated_metadata():
         "status": "VERIFIED",
         "sessions": calendar_sessions,
         "provenance": {
-            "source_url": "https://www.nseindia.com/reports",
+            "source_url": "https://example.test/nse-calendar-fixture",
             "source_document_sha256": "c" * 64,
             "sessions_sha256": sessions_sha256,
         },
