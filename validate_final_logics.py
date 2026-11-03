@@ -128,6 +128,11 @@ check("Slot 4: Thematic Satellite (0%)", roles["Tactical Thematic Satellite"].al
 check("100% Direct Plan Mandate", all("direct" in item.scheme_name.lower() for item in established_plan.items))
 check("Zero Standalone Debt Drag", established_plan.debt_sip_pct == 0.0 and established_plan.equity_sip_pct == 100.0)
 
+cas_path = Path("data/lalit_portfolio/statements/cas_detailed_report_2026_10_09_174452.xlsx")
+metrics_path = Path("data/lalit_portfolio/fund_metrics.json")
+aliases_path = Path("data/lalit_portfolio/fund_aliases.json")
+config_path = Path("data/lalit_portfolio/config.json")
+
 # =====================================================================
 # PRIVATE PORTFOLIO VALIDATION (requires local investor CAS inputs)
 if cas_path.is_file() and metrics_path.is_file() and aliases_path.is_file():
@@ -135,10 +140,6 @@ if cas_path.is_file() and metrics_path.is_file() and aliases_path.is_file():
     # TEST 3: Look-Through Stability Buffer Engine
     # =====================================================================
     print("\n>> [TEST 3] Look-Through Stability Buffer vs Category Labels:")
-
-    cas_path = Path("data/lalit_portfolio/statements/cas_detailed_report_2026_10_09_174452.xlsx")
-    metrics_path = Path("data/lalit_portfolio/fund_metrics.json")
-    aliases_path = Path("data/lalit_portfolio/fund_aliases.json")
 
     holdings = load_holdings_from_cas_excel(cas_path, metrics_path, aliases_path)
     check("Holdings Ingestion", len(holdings) == 23)
