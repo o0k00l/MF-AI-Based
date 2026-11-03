@@ -320,11 +320,23 @@ for t_name, exp_eq, exp_debt in tier_targets:
         f"-> Eq: {sip_tier.equity_sip_pct}% | Debt: {sip_tier.debt_sip_pct}%"
     )
     sip_tot = sum(it.monthly_inr for it in sip_tier.items)
+    sip_accounted = sip_tot + sip_tier.unallocated_budget_inr
     check(
-        f"{t_name} SIP Total Sums Exactly to Budget",
-        abs(sip_tot - 50000.0) < 0.01,
-        f"Sum: INR {sip_tot:,.2f}"
+        f"{t_name} SIP Budget Accounted For",
+        abs(sip_accounted - 50000.0) < 0.01,
+        f"Allocated: INR {sip_tot:,.2f}; withheld: INR {sip_tier.unallocated_budget_inr:,.2f}"
     )
+    if sip_tier.unallocated_budget_inr > 0.0:
+        check(
+            f"{t_name} SIP Withheld When Direct Evidence Is Missing",
+            all(item.monthly_inr == 0.0 for item in sip_tier.items),
+            "No partial allocation or redistribution"
+        )
+    else:
+        check(
+            f"{t_name} Positive SIPs Have Verified Direct Status",
+            all(item.is_direct is True for item in sip_tier.items if item.monthly_inr > 0),
+        )
 
     # 7B: Lumpsum Dynamic Scaling (INR 10 Lakhs Big-Ticket Baseline SAA)
     lump_tier = compute_deterministic_lumpsum_blueprint(
@@ -348,7 +360,7 @@ for t_name, exp_eq, exp_debt in tier_targets:
         f"Debt: INR {debt_tranche_amt:,.0f} (Expected: INR {exp_debt_amt:,.0f})"
     )
 
-print(f"  FINAL SCORECARD: {passed_checks}/{total_checks} CHECKS PASSED (100% SUCCESS RATE)")
-print("  SYSTEM IS READY FOR ALL CLIENT TIERS: STARTER, BUILDER, ESTABLISHED")
+print(f"  PUBLIC LOGIC SCORECARD: {passed_checks}/{total_checks} CHECKS PASSED")
+print("  INVESTOR RELEASE STATUS: SUBJECT TO PRIVATE CAS RECONCILIATION, VERIFIED SCHEME METADATA, HISTORICAL TRI SOURCE AUTHENTICATION AND INDEPENDENT NSE CALENDAR REVIEW")
 print("="*70 + "\n")
 
