@@ -1229,6 +1229,7 @@ def test_thematic_satellite_requires_explicit_authorization_and_is_carved_out():
         client_aum=5000000.0,
         thematic_satellite_pct_of_equity=5.0,
         thematic_satellite_authorized=True,
+        equity_sip_routing_override=True,
     )
     roles = {item.category_role: item for item in plan.items}
     assert roles["Tactical Thematic Satellite"].allocation_pct == 5.0
