@@ -78,7 +78,7 @@ python validate_final_logics.py
 python verify_tri_provenance.py
 ```
 
-The normal TRI command checks only fixture self-consistency; it does not approve alpha. A production tag must additionally pass `python verify_tri_provenance.py --require-alpha-release`. The tag workflow also refuses to run without a reviewed hash-locked `requirements.lock`. See `DEPENDENCY_LOCKING.md`.
+The normal TRI command checks only fixture self-consistency; it does not approve alpha. A production tag must additionally pass `python verify_tri_provenance.py --require-alpha-release`. The tag workflow also refuses to run without a reviewed hash-locked `requirements.lock`. See `DEPENDENCY_LOCKING.md`. The dependency audit workflow uses `pip-audit`; current dependency floors were raised following the audit. The private-repository Dependency Review feature is not yet enabled.
 
 Inspect the complete GitHub Actions run for the exact commit under review. A test result from a previous commit does not validate the current one. Skipped tests must be explained; they must not be counted as passing.
 
