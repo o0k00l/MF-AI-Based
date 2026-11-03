@@ -7,12 +7,7 @@ import sys
 from pathlib import Path
 
 
-def main():
-    print("=" * 70)
-    print("TRI FIXTURE INTEGRITY / RELEASE-ELIGIBILITY CHECK")
-    print("=" * 70)
-
-    path = Path("data/policy/benchmark_tri_series_high_coverage.json")
+def verify_fixture(path: Path) -> list[str]:
     with path.open(encoding="utf-8") as handle:
         data = json.load(handle)
 
@@ -29,23 +24,29 @@ def main():
         ).hexdigest()
         if not levels or computed != expected:
             failures.append(
-                f"{index_name}: levels checksum missing/mismatched; "
+                f"{path}: {index_name}: checksum missing/mismatched; "
                 f"expected={expected or '<missing>'}; computed={computed}"
             )
         else:
-            print(f"{index_name}: levels checksum matches ({len(levels)} observations)")
+            print(f"{path}: {index_name}: checksum matches ({len(levels)} observations)")
+    return failures
 
-    frequency = str(provenance.get("frequency", "")).strip().lower()
-    historical_url = str(provenance.get("historical_source_url", "") or "")
-    source_sha256 = str(provenance.get("source_document_sha256", "") or "")
-    calendar_path = Path("data/policy/nse_trading_calendar.json")
-    release_blockers = []
-    if not frequency.startswith("daily"):
-        release_blockers.append(f"series frequency is declared {provenance.get('frequency')!r}, not Daily")
-    if not historical_url.startswith("https://") or len(source_sha256) != 64:
-        release_blockers.append("historical TRI source document URL/SHA256 is not supplied")
-    if not calendar_path.exists():
-        release_blockers.append("independent NSE trading calendar file is absent")
+
+def main():
+    print("=" * 70)
+    print("TRI FIXTURE INTEGRITY / RELEASE-ELIGIBILITY CHECK")
+    print("=" * 70)
+
+    fixtures = [
+        Path("data/policy/benchmark_tri_series.json"),
+        Path("data/policy/benchmark_tri_series_high_coverage.json"),
+    ]
+    failures = []
+    for path in fixtures:
+        if not path.exists():
+            failures.append(f"{path}: fixture missing")
+            continue
+        failures.extend(verify_fixture(path))
 
     if failures:
         print("\nINTEGRITY FAILURE:")
@@ -53,10 +54,28 @@ def main():
             print(f"- {failure}")
         sys.exit(1)
 
-    print("\nLevels-file integrity: PASS")
-    if release_blockers:
+    print("\nLevels-file integrity: PASS for all TRI fixtures")
+    # The high-coverage fixture is still only a provisional series: its declared
+    # frequency is monthly/interpolated and the URLs are live-market pages.
+    with fixtures[1].open(encoding="utf-8") as handle:
+        high = json.load(handle)
+    provenance = high.get("provenance", {})
+    frequency = str(provenance.get("frequency", "")).strip().lower()
+    historical_url = str(provenance.get("historical_source_url", "") or "")
+    source_sha256 = str(provenance.get("source_document_sha256", "") or "")
+    calendar_path = Path("data/policy/nse_trading_calendar.json")
+
+    blockers = []
+    if not frequency.startswith("daily"):
+        blockers.append(f"series frequency is declared {provenance.get('frequency')!r}, not Daily")
+    if not historical_url.startswith("https://") or len(source_sha256) != 64:
+        blockers.append("historical TRI source document URL/SHA256 is not supplied")
+    if not calendar_path.exists():
+        blockers.append("independent NSE trading calendar file is absent")
+
+    if blockers:
         print("TRI alpha release eligibility: BLOCKED")
-        for blocker in release_blockers:
+        for blocker in blockers:
             print(f"- {blocker}")
         print("A matching levels checksum proves file integrity only; it does not prove source authenticity or exchange-calendar coverage.")
         return
