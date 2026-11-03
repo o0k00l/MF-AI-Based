@@ -3334,28 +3334,42 @@ def qualifies_as_specified_mutual_fund_under_section_76(
         )
 
     if is_fund_of_funds:
-        if fof_debt_investing_pct is None:
+        if not (snapshots and fy_start and fy_end):
             from core.models import InsufficientDataError
             raise InsufficientDataError(
-                "Section 76 fund-of-funds classification requires its verified allocation to units of specified mutual funds.",
-                missing_data="fof_debt_investing_pct",
-                required_source="Verified underlying-fund look-through / daily portfolio disclosures",
+                "Section 76 fund-of-funds classification requires annual-average daily closing allocation observations.",
+                missing_data="daily fof_specified_mf_pct observations and financial-year boundaries",
+                required_source="Verified daily closing fund-of-funds allocation disclosures",
             )
-        try:
-            fof_pct = float(fof_debt_investing_pct)
-        except (TypeError, ValueError) as exc:
-            raise ValueError("Fund-of-funds specified-mutual-fund allocation must be numeric") from exc
-        if not math.isfinite(fof_pct) or not 0.0 <= fof_pct <= 100.0:
-            raise ValueError("Fund-of-funds specified-mutual-fund allocation must be finite and between 0 and 100")
+        financial_year_start = date(transfer_date.year if transfer_date.month >= 4 else transfer_date.year - 1, 4, 1)
+        financial_year_end = date(financial_year_start.year + 1, 3, 31)
+        if fy_start != financial_year_start or fy_end != financial_year_end:
+            from core.models import InsufficientDataError
+            raise InsufficientDataError(
+                "Section 76 FoF snapshots must cover the financial year in which the transfer occurs.",
+                missing_data=f"expected {financial_year_start} through {financial_year_end}",
+                required_source="Verified financial-year daily closing FoF allocation series",
+            )
+        validate_daily_snapshot_coverage(snapshots, fy_start, fy_end, snapshot_coverage_evidence)
+        fof_pct = compute_annual_average_daily_closing(
+            snapshots, fy_start, fy_end, "fof_specified_mf_pct"
+        )
+        if fof_pct is None:
+            from core.models import InsufficientDataError
+            raise InsufficientDataError(
+                "Section 76 FoF annual-average daily closing allocation could not be computed.",
+                missing_data="daily allocation to units of specified mutual funds",
+                required_source="Verified daily closing fund-of-funds allocation disclosures",
+            )
         qualifies = fof_pct >= 65.0
         return ClassificationResult(
             qualifies=qualifies,
             provision="Section 76",
             effective_date=transfer_date,
             threshold=65.0,
-            calculation_method="verified_fund_of_funds_lookthrough",
-            source_data_status="provided",
-            reason=f"FoF allocation to units of specified mutual funds is {fof_pct:.2f}% {'>= 65%' if qualifies else '< 65%'}",
+            calculation_method="annual_average_daily_closing_fof_allocation",
+            source_data_status="verified_daily_coverage",
+            reason=f"Annual-average daily closing FoF allocation to specified mutual funds is {fof_pct:.2f}% {'>= 65%' if qualifies else '< 65%'}",
             debt_and_money_market_pct=debt_and_money_market_pct,
             acquisition_date=acquisition_date,
             transfer_date=transfer_date,
