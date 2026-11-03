@@ -26,7 +26,7 @@ jobs:
           - suite: correctness-regressions
             command: python -m pytest tests/test_p0_correctness_regressions.py -v --tb=short
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
@@ -43,7 +43,7 @@ jobs:
     name: Tests / full repository suite
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
@@ -60,7 +60,7 @@ jobs:
     name: Policy / static validation
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
@@ -83,7 +83,7 @@ jobs:
     name: Benchmark / fixture integrity (not alpha approval)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
