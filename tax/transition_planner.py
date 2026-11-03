@@ -121,6 +121,7 @@ def load_transactions(transactions_path: Path) -> dict[str, list[Lot]]:
             "units": Decimal(str(units)),
             "amount": float(amount),
             "nav": float(tx.get("nav", 0)) if tx.get("nav") else 0.0,
+            "equity_pct": tx.get("equity_allocation_pct"),
             "description": tx.get("description", ""),
         })
 
@@ -241,7 +242,8 @@ def load_transactions(transactions_path: Path) -> dict[str, list[Lot]]:
                     units=float(p["units"]),
                     nav=p["nav"],
                     cost=p["cost"],
-                    source="cas"
+                    source="cas",
+                    equity_pct=p.get("equity_pct")
                 ))
 
     return lots_by_fund
