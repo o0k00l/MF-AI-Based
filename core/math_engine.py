@@ -2025,13 +2025,22 @@ def aggregate_fiduciary_facts(
             benchmark_xirr = None
             alpha_pct = None
 
-        # Persist the full cashflow-matched benchmark audit record
-        bench_out_path = Path("data/lalit_portfolio/benchmark_xirr.json")
-        try:
+        # Persist audit output only beside explicitly configured external client data.
+        # Never write client-derived results into the repository working tree.
+        client_data_dir = os.environ.get("MF_CLIENT_DATA_DIR")
+        if client_data_dir:
+            client_root = Path(client_data_dir).expanduser().resolve()
+            repository_root = Path(__file__).resolve().parents[1]
+            try:
+                client_root.relative_to(repository_root)
+            except ValueError:
+                pass
+            else:
+                raise ValueError("MF_CLIENT_DATA_DIR must be outside the Git repository")
+            bench_out_path = client_root / "outputs" / "benchmark_xirr.json"
+            bench_out_path.parent.mkdir(parents=True, exist_ok=True)
             with open(bench_out_path, "w", encoding="utf-8") as f_b:
                 json.dump(bench_audit, f_b, indent=2)
-        except Exception:
-            pass
 
     # Mandate Authority & Runtime Hold Enforcement
     from core.models import MandateExecutionState
