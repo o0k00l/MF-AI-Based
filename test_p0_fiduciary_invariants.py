@@ -909,38 +909,31 @@ def test_p0_11_candidate_specific_lookthrough_overlap():
     print(f"[PASS] P0.11 Candidate-Specific Look-Through Overlap Verified: ICICI={ovl_icici}%, Mirae={ovl_mirae}%, Tata={ovl_tata}%, Nippon={ovl_nippon}%")
 
 
-def test_p0_12_all_four_slots_passive_fallback_and_no_action():
+def test_p0_12_all_four_slots_fail_closed_without_verified_candidates():
     """
-    Verifies that every slot has a tested fallback decision:
-    - Slot 1: Active flexi-cap failure -> Flexi Cap Index Fund Direct
-    - Slot 2: Active mid-cap failure / AUM size drag -> Nifty Midcap 150 Index Direct
-    - Slot 3: Active large-cap failure -> Nifty 50 Index Direct
-    - Slot 4: Thematic failure or ceiling reached -> NO ACTION / HOLD (0.0% allocation)
+    Missing candidate data must not invent passive scheme names or allocate funds.
+    Each unfilled sleeve is explicitly NO ACTION with its target budget unallocated.
     """
     from core.math_engine import select_autonomous_blueprint_funds
 
-    # Empty candidate universe triggers complete fallback across all slots
-    slots = select_autonomous_blueprint_funds(holdings=[], candidate_universe=[], client_risk_tier=6)
+    slots = select_autonomous_blueprint_funds(
+        holdings=[], candidate_universe=[], client_risk_tier=6
+    )
+    for name in (
+        "Slot 1: Core Flexi-Cap Compounder",
+        "Slot 2: Mid-Cap Alpha Engine",
+        "Slot 3: Large-Cap Bluechip Anchor",
+        "Slot 4: Tactical Thematic Satellite",
+        "High-Grade Debt Anchor",
+    ):
+        slot = slots[name]
+        assert slot.get("scheme") is None
+        assert slot.get("allocation_pct") == 0.0
+        assert slot.get("unallocated_pct", 0.0) >= 0.0
+        assert "NO_ACTION" in slot.get("rationale", "").replace("NO ACTION", "NO_ACTION").replace("NO_ACTION", "NO_ACTION")
 
-    # Slot 1: Must fall back to passive Flexi/Broad index
-    slot1 = slots["Slot 1: Core Flexi-Cap Compounder"]
-    assert "Index" in slot1["scheme"] or "Compounder" in slot1["scheme"]
-
-    # Slot 2: Must fall back to passive Midcap 150 index
-    slot2 = slots["Slot 2: Mid-Cap Alpha Engine"]
-    assert slot2.get("is_passive") is True
-    assert "Midcap 150" in slot2["scheme"]
-
-    # Slot 3: Must fall back to passive Nifty 50 index
-    slot3 = slots["Slot 3: Large-Cap Bluechip Anchor"]
-    assert slot3.get("is_passive") is True
-    assert "Nifty 50" in slot3["scheme"]
-
-    # Slot 4: Thematic sleeve with zero eligible candidates must trigger NO ACTION / HOLD
-    slot4 = slots["Slot 4: Tactical Thematic Satellite"]
-    assert slot4.get("gate_passed") is False or "NO ACTION" in slot4.get("rationale", "")
-
-    print("[PASS] P0.12 All 4 Slots Passive Fallback & NO ACTION Invariant Verified")
+    assert slots["Slot 4: Tactical Thematic Satellite"]["unallocated_pct"] == 0.0
+    print("[PASS] P0.12 No Candidate Universe Fails Closed Without Invented Schemes")
 
 
 def test_p0_13_statutory_tax_specified_fund_and_mandate_state():
