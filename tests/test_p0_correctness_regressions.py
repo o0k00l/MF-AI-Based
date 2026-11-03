@@ -1560,10 +1560,20 @@ def test_selector_does_not_select_candidate_using_direct_name_suffix_only():
 
 
 
-def test_section_198_direct_fund_threshold_is_strictly_more_than_65_percent():
+def test_section_198_direct_fund_threshold_is_at_least_65_percent():
     from core.math_engine import qualifies_as_equity_oriented_under_section_198
 
     fy_start, fy_end = date(2026, 4, 1), date(2027, 3, 31)
+    monthly_below_threshold = _monthly_snapshots_for_fy(fy_start, equity_pct=64.99)
+    result_below_threshold = qualifies_as_equity_oriented_under_section_198(
+        equity_pct=64.99,
+        monthly_snapshots=monthly_below_threshold,
+        monthly_coverage_evidence=_monthly_coverage_evidence(fy_start, monthly_below_threshold),
+        fy_start=fy_start,
+        fy_end=fy_end,
+    )
+    assert result_below_threshold.qualifies is False
+
     monthly_at_threshold = _monthly_snapshots_for_fy(fy_start, equity_pct=65.0)
     result_at_threshold = qualifies_as_equity_oriented_under_section_198(
         equity_pct=65.0,
@@ -1572,7 +1582,7 @@ def test_section_198_direct_fund_threshold_is_strictly_more_than_65_percent():
         fy_start=fy_start,
         fy_end=fy_end,
     )
-    assert result_at_threshold.qualifies is False
+    assert result_at_threshold.qualifies is True
 
     monthly_above_threshold = _monthly_snapshots_for_fy(fy_start, equity_pct=65.01)
     result_above_threshold = qualifies_as_equity_oriented_under_section_198(
@@ -1584,8 +1594,7 @@ def test_section_198_direct_fund_threshold_is_strictly_more_than_65_percent():
     )
     assert result_above_threshold.qualifies is True
 
-
-def test_tax_planner_equity_classification_uses_strict_more_than_65_percent():
+def test_tax_planner_equity_classification_uses_at_least_65_percent():
     lot = Lot(
         fund_id="synthetic-fund", folio_name="synthetic-folio",
         purchase_date=date(2024, 1, 1), units=1, nav=100, cost=100,
@@ -1597,9 +1606,9 @@ def test_tax_planner_equity_classification_uses_strict_more_than_65_percent():
         equity_pct_source_reviewed=True,
     )
     rules = {"classification_test": {"equity_oriented_threshold_pct": 65.0}}
-    assert classify_fund_for_tax(lot, rules, sale_date=date(2026, 11, 3)) == "non_equity_oriented"
-    lot.equity_pct = 65.01
     assert classify_fund_for_tax(lot, rules, sale_date=date(2026, 11, 3)) == "equity_oriented"
+    lot.equity_pct = 64.99
+    assert classify_fund_for_tax(lot, rules, sale_date=date(2026, 11, 3)) == "non_equity_oriented"
 
 
 def test_legacy_tax_classifier_never_defaults_unknown_or_non_equity_to_equity():
@@ -1609,9 +1618,9 @@ def test_legacy_tax_classifier_never_defaults_unknown_or_non_equity_to_equity():
     rules = {"classification_test": {"equity_oriented_threshold_pct": 65.0}}
     with pytest.raises(ValueError, match="Verified annual-average equity allocation"):
         _classify_fund_for_tax(SimpleNamespace(equity_pct=None), rules)
+    assert _classify_fund_for_tax(SimpleNamespace(equity_pct=65.0), rules) == "equity_oriented"
     with pytest.raises(NotImplementedError, match="Non-equity tax classification is not implemented"):
-        _classify_fund_for_tax(SimpleNamespace(equity_pct=65.0), rules)
-    assert _classify_fund_for_tax(SimpleNamespace(equity_pct=65.01), rules) == "equity_oriented"
+        _classify_fund_for_tax(SimpleNamespace(equity_pct=64.99), rules)
 
 
 def test_tri_release_flag_fails_closed_while_fixture_is_provisional():
