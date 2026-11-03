@@ -1597,6 +1597,65 @@ def test_candidate_ingestion_never_hardcodes_direct_plan_status(tmp_path):
 
 
 
+def test_selector_slot_targets_are_policy_weighted_and_not_hardcoded(monkeypatch):
+    import json
+    from pathlib import Path
+    from types import SimpleNamespace
+    import core.eligibility as eligibility
+    import core.fund_classifier as classifier
+    import core.math_engine as math_engine
+
+    policy = json.loads(
+        (Path(__file__).resolve().parents[1] / "data/policy/asset_allocation.json").read_text()
+    )
+    profile = policy["behavioral_risk_profiles"]["very_high"]
+    saa = profile["saa_targets"]
+    equity_parts = {
+        "flexi": float(saa["flexi_multi_cap_pct"]),
+        "mid_small": float(saa["mid_cap_pct"]) + float(saa["small_cap_pct"]),
+        "large": float(saa["large_cap_pct"]),
+    }
+    equity_total = sum(equity_parts.values())
+    expected = {
+        "Slot 1: Core Flexi-Cap Compounder": round(100.0 * equity_parts["flexi"] / equity_total, 1),
+        "Slot 2: Mid-Cap Alpha Engine": round(100.0 * equity_parts["mid_small"] / equity_total, 1),
+    }
+    expected["Slot 3: Large-Cap Bluechip Anchor"] = round(
+        100.0 - expected["Slot 1: Core Flexi-Cap Compounder"] - expected["Slot 2: Mid-Cap Alpha Engine"],
+        1,
+    )
+
+    monkeypatch.setattr(
+        eligibility, "_reviewed_direct_plan_evidence_status",
+        lambda candidate: "REVIEWER_ATTESTED_HASH_MATCH",
+    )
+    monkeypatch.setattr(
+        eligibility, "check_eligibility_gates",
+        lambda *args, **kwargs: SimpleNamespace(passed=True),
+    )
+    monkeypatch.setattr(classifier, "classify_fund_category", lambda name, category, candidate=None: category)
+    monkeypatch.setattr(classifier, "detect_fund_theme", lambda name, category: "Healthcare")
+    monkeypatch.setattr(math_engine, "compute_multi_horizon_fiduciary_score", lambda candidate: candidate["score"])
+
+    candidates = [
+        {"fund_id": "flexi", "fund_name": "Synthetic Flexi", "category": "Flexi Cap Equity", "is_direct": True, "score": 3.0},
+        {"fund_id": "mid", "fund_name": "Synthetic Mid", "category": "Mid Cap Equity", "is_direct": True, "score": 2.0},
+        {"fund_id": "large", "fund_name": "Synthetic Large", "category": "Large Cap Equity", "is_direct": True, "score": 1.0},
+        {"fund_id": "debt", "fund_name": "Synthetic Debt", "category": "Debt", "is_direct": True, "score": 1.0},
+    ]
+    result = math_engine.select_autonomous_blueprint_funds(
+        holdings=[],
+        candidate_universe=candidates,
+        client_risk_tier=6,
+    )
+    for slot_name, target in expected.items():
+        assert result[slot_name]["allocation_pct"] == target
+        assert result[slot_name]["gate_passed"] is True
+        assert result[slot_name]["allocation_basis"] == "percent_of_equity_budget"
+    assert result["High-Grade Debt Anchor"]["allocation_pct"] == pytest.approx(float(saa["debt_liquid_pct"]))
+    assert result["High-Grade Debt Anchor"]["allocation_basis"] == "percent_of_total_portfolio"
+
+
 def test_selector_does_not_select_candidate_using_direct_name_suffix_only():
     from core.math_engine import select_autonomous_blueprint_funds
 
