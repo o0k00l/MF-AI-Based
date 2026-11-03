@@ -24,8 +24,10 @@ jobs:
           python-version: '3.11'
       - name: Install compatible lock tooling
         run: python -m pip install "pip==24.3.1" "pip-tools==7.4.1"
-      - name: Verify requirements.lock is current
-        run: pip-compile --check --resolver=backtracking --generate-hashes --output-file=requirements.lock requirements.txt
+      - name: Regenerate and verify requirements.lock
+        run: |
+          pip-compile --resolver=backtracking --generate-hashes --output-file=requirements.lock requirements.txt
+          git diff --exit-code -- requirements.lock
 
   p0-tests:
     name: P0 / ${{ matrix.suite }}
