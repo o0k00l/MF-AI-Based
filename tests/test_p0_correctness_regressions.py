@@ -777,6 +777,20 @@ def test_eligibility_rejects_out_of_range_confidence_score(confidence):
         "plan": "Direct Plan - Growth Option",
         "isin": "TEST-ISIN",
     }
+    source_bytes = b"SYNTHETIC TEST ONLY: Example Large Cap Fund; Direct Plan - Growth Option"
+    source_file = tmp_path / "scheme-master-source.txt"
+    source_file.write_bytes(source_bytes)
+    fund["direct_plan_evidence"] = {
+        "source_file": source_file.name,
+        "source_document_sha256": hashlib.sha256(source_bytes).hexdigest(),
+        "source_url": "https://example.test/synthetic-scheme-master",
+        "source_type": "AMFI_SCHEME_MASTER",
+        "reviewer_attested": True,
+        "reviewed_at": date.today().isoformat(),
+        "scheme_name": fund["fund_name"],
+        "plan": "Direct",
+    }
+    fund["_evidence_root"] = str(tmp_path.resolve())
     holdings = [
         {"amc_name": "EXAMPLE AMC", "current_value_inr": 200000.0},
         {"amc_name": "OTHER AMC", "current_value_inr": 800000.0},
@@ -786,7 +800,10 @@ def test_eligibility_rejects_out_of_range_confidence_score(confidence):
     assert result.passed is False
 
 
-def test_gate10_accepts_explicit_direct_plan_growth_option_classification():
+def test_gate10_accepts_explicit_direct_plan_growth_option_classification(tmp_path):
+    import hashlib
+    from datetime import date
+
     fund = {
         "fund_id": "fund-x",
         "fund_name": "Example Large Cap Fund",
