@@ -68,15 +68,19 @@ Never commit CAS statements, folio identifiers, investor identity, goals, budget
 
 ## Running checks
 
-Use a clean checkout and the pinned dependencies from `requirements.txt`:
+Use a clean checkout and install the reviewed hash-locked dependencies:
 
 ```bash
-python -m pip install -r requirements.txt
+python -m pip install --require-hashes -r requirements.lock
+python -m pip check
+pip-audit -r requirements.lock
 python -m pytest test_p0_fiduciary_invariants.py -v
 python -m pytest tests/test_p0_correctness_regressions.py -v
 python validate_final_logics.py
 python verify_tri_provenance.py
 ```
+
+`requirements.txt` is the human-maintained input constraints file; use `requirements.lock` for reproducible installs. The Security workflow verifies the hash-locked install, `pip check` and `pip-audit`. See `DEPENDENCY_LOCKING.md`. The tag release workflow refuses to proceed unless the lock and authenticated daily TRI/calendar evidence pass.
 
 Inspect the complete GitHub Actions run for the exact commit under review. A test result from a previous commit does not validate the current one. Skipped tests must be explained; they must not be counted as passing.
 
