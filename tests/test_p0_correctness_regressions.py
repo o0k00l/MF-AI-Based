@@ -93,7 +93,7 @@ def test_tax_planner_allocates_each_lot_only_once():
         equity_pct_fy_start=2026,
         equity_pct_source_url="https://example.test/monthly-portfolio-disclosure",
         equity_pct_source_sha256="e" * 64,
-        equity_pct_source_verified=True,
+        equity_pct_source_reviewed=True,
     )
     plan = FundSellPlan(fund_id="fund-x", total_amount=1000.0, lots=[lot])
     tax_rules = {
@@ -254,7 +254,7 @@ def test_tax_planner_respects_prior_ltcg_realized_in_current_fy():
         equity_pct_fy_start=2026,
         equity_pct_source_url="https://example.test/verified-monthly-disclosure",
         equity_pct_source_sha256="a" * 64,
-        equity_pct_source_verified=True,
+        equity_pct_source_reviewed=True,
     )
     plan = FundSellPlan(fund_id="fund-x", total_amount=1000.0, lots=[lot])
     tax_rules = {
@@ -298,7 +298,7 @@ def test_tax_planner_refuses_non_equity_tax_class_in_equity_exemption_path():
         equity_pct_fy_start=2026,
         equity_pct_source_url="https://example.test/verified-monthly-disclosure",
         equity_pct_source_sha256="b" * 64,
-        equity_pct_source_verified=True,
+        equity_pct_source_reviewed=True,
     )
     plan = FundSellPlan(fund_id="fund-x", total_amount=1000.0, lots=[lot])
     with pytest.raises(ValueError, match="not supported by this equity-only exemption planner"):
@@ -421,7 +421,7 @@ def test_tax_planner_rejects_missing_nav_and_insufficient_verified_lots():
         equity_pct_fy_start=2026,
         equity_pct_source_url="https://example.test/verified-monthly-disclosure",
         equity_pct_source_sha256="a" * 64,
-        equity_pct_source_verified=True,
+        equity_pct_source_reviewed=True,
     )
     tax_rules = {
         "ltcg_exemption": 125000.0,
@@ -658,7 +658,7 @@ def test_current_fy_exit_load_uses_actual_planning_date(purchase_date, expected_
         equity_pct_fy_start=2026,
         equity_pct_source_url="https://example.test/verified-monthly-disclosure",
         equity_pct_source_sha256="a" * 64,
-        equity_pct_source_verified=True,
+        equity_pct_source_reviewed=True,
     )
     plan = FundSellPlan(fund_id="fund-x", total_amount=900.0, lots=[lot])
     result = plan_fy_tranches(
@@ -884,7 +884,7 @@ def test_tax_planner_requires_verified_prior_ltcg_headroom(tmp_path):
         equity_pct_fy_start=2026,
         equity_pct_source_url="https://example.test/verified-monthly-disclosure",
         equity_pct_source_sha256="a" * 64,
-        equity_pct_source_verified=True,
+        equity_pct_source_reviewed=True,
     )
     with pytest.raises(ValueError, match="Verified prior_ltcg_this_fy is required"):
         plan_fy_tranches(
@@ -935,7 +935,7 @@ def _monthly_coverage_evidence(fy_start, snapshots):
         expected_months=tuple(snapshot.month for snapshot in snapshots),
         source_url="https://example.test/verified-monthly-calendar",
         source_document_sha256="c" * 64,
-        independently_verified=True,
+        reviewer_attested=True,
     )
 
 
@@ -973,7 +973,7 @@ def _daily_coverage_evidence(snapshots):
         expected_dates=tuple(snapshot.date for snapshot in snapshots),
         source_url="https://example.test/verified-daily-calendar",
         source_document_sha256="b" * 64,
-        independently_verified=True,
+        reviewer_attested=True,
     )
 
 
@@ -1296,7 +1296,7 @@ def test_section_76_rejects_missing_dates_even_with_calendar_provenance():
         expected_dates=expected,
         source_url="https://example.test/verified-daily-calendar",
         source_document_sha256="c" * 64,
-        independently_verified=True,
+        reviewer_attested=True,
     )
     incomplete = snapshots[:-1]
     with pytest.raises(InsufficientDataError, match="do not exactly match"):
@@ -1377,7 +1377,7 @@ def test_tax_planner_rejects_point_in_time_or_stale_equity_allocation_evidence()
     lot.equity_pct_fy_start = 2025
     lot.equity_pct_source_url = "https://example.test/disclosure"
     lot.equity_pct_source_sha256 = "f" * 64
-    lot.equity_pct_source_verified = True
+    lot.equity_pct_source_reviewed = True
     with pytest.raises(ValueError, match="requires FY starting 2026"):
         classify_fund_for_tax(lot, rules, sale_date=date(2026, 11, 3))
 
