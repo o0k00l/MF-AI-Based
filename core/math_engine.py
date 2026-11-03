@@ -2842,12 +2842,72 @@ class ClassificationResult:
 
 
 @dataclass
+class MonthlyPortfolioSnapshot:
+    """Monthly opening/closing portfolio composition for Section 198 annual-average tests."""
+    month: date
+    opening_equity_pct: Optional[float] = None
+    closing_equity_pct: Optional[float] = None
+    opening_fof_units_pct: Optional[float] = None
+    closing_fof_units_pct: Optional[float] = None
+    opening_underlying_equity_pct: Optional[float] = None
+    closing_underlying_equity_pct: Optional[float] = None
+
+
+@dataclass
 class DailyPortfolioSnapshot:
     """Daily portfolio composition for annual-average-of-daily-closing calculation."""
     date: date
     equity_pct: float
     debt_pct: float
     money_market_pct: float
+    fof_specified_mf_pct: Optional[float] = None
+
+
+def compute_annual_average_monthly_opening_closing(
+    snapshots: List[MonthlyPortfolioSnapshot],
+    fy_start: date,
+    fy_end: date,
+    metric: str = "equity_pct",
+) -> float:
+    """Average the 12 monthly means of opening and closing figures required by Section 198."""
+    import math
+
+    if metric not in {"equity_pct", "fof_units_pct", "underlying_equity_pct"}:
+        raise ValueError(f"Unsupported monthly portfolio-composition metric: {metric!r}")
+    if fy_start.day != 1 or fy_start.month != 4 or fy_end != date(fy_start.year + 1, 3, 31):
+        raise ValueError("Section 198 requires exact financial-year boundaries (1 April to 31 March)")
+    expected_months = [date(fy_start.year + (3 + i) // 12, ((3 + i) % 12) + 1, 1) for i in range(12)]
+    by_month = {}
+    for snapshot in snapshots or []:
+        if not isinstance(snapshot, MonthlyPortfolioSnapshot):
+            raise TypeError("Section 198 requires MonthlyPortfolioSnapshot records")
+        if snapshot.month in by_month:
+            raise ValueError(f"Duplicate monthly portfolio snapshot for {snapshot.month}")
+        by_month[snapshot.month] = snapshot
+    if set(by_month) != set(expected_months):
+        missing = sorted(set(expected_months) - set(by_month))
+        unexpected = sorted(set(by_month) - set(expected_months))
+        from core.models import InsufficientDataError
+        raise InsufficientDataError(
+            "Section 198 monthly opening/closing observations must cover all 12 financial-year months.",
+            missing_data=f"missing_months={missing}, unexpected_months={unexpected}",
+            required_source="Verified monthly opening and closing portfolio-composition disclosures",
+        )
+    monthly_means = []
+    for month in expected_months:
+        record = by_month[month]
+        opening = getattr(record, f"opening_{metric}")
+        closing = getattr(record, f"closing_{metric}")
+        values = []
+        for label, raw in (("opening", opening), ("closing", closing)):
+            if raw is None or isinstance(raw, bool):
+                raise ValueError(f"Section 198 {metric} {label} value is required for {month}")
+            value = float(raw)
+            if not math.isfinite(value) or not 0.0 <= value <= 100.0:
+                raise ValueError(f"Section 198 {metric} {label} value must be finite and between 0 and 100 for {month}")
+            values.append(value)
+        monthly_means.append((values[0] + values[1]) / 2.0)
+    return sum(monthly_means) / 12.0
 
 
 @dataclass(frozen=True)
@@ -2918,7 +2978,7 @@ def compute_annual_average_daily_closing(
     prove that every required day is present. Statutory callers must separately
     establish and pass verified coverage before relying on the result.
     """
-    allowed_metrics = {"equity_pct", "debt_pct", "money_market_pct"}
+    allowed_metrics = {"equity_pct", "debt_pct", "money_market_pct", "fof_specified_mf_pct"}
     if metric not in allowed_metrics:
         raise ValueError(f"Unsupported portfolio-composition metric: {metric!r}")
     if fy_start > fy_end:
