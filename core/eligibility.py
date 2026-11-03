@@ -178,13 +178,20 @@ def check_eligibility_gates(
     sharpe = fund_data.get("sharpe_3y", fund_data.get("sharpe", None))
     alpha = fund_data.get("alpha_3y", fund_data.get("alpha", None))
     f_name = fund_data.get("fund_name", fund_data.get("name", ""))
+    
+    # Gate 4: Check if this is a verified passive scheme
+    # If ISIN/scheme master unavailable for active fund, Default to False (not passive)
+    # Passive verification failure due to missing ISIN should NOT cause gate failure for active funds
+    is_passive_cand = False
     try:
-        is_passive_cand = is_verified_passive_scheme(fund_data, fund_name=f_name, category=category, require_scheme_master=False)
-    except InsufficientDataError as e:
-        # Gate 4: Passive scheme verification failed due to missing scheme master
-        # This is a hard fail for Gate 4 exemption — active fund criteria must be met
-        failed.append(f"Gate 4 [Passive Verification]: {e}")
-        is_passive_cand = False
+        is_passive_cand = is_verified_passive_scheme(fund_data, fund_name=f_name, category=category, require_scheme_master=True)
+    except InsufficientDataError:
+        # No ISIN/scheme master available - cannot verify passive status
+        # For active funds, this is fine - we'll check Sharpe and Alpha below
+        # Only fail if fund was explicitly marked as passive but can't be verified
+        if fund_data.get("is_passive") is True:
+            failed.append(f"Gate 4 [Passive Verification]: Cannot verify passive status - missing scheme master")
+            is_passive_cand = False
 
     sharpe_ok = False
     if is_passive_cand:

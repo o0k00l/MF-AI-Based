@@ -188,7 +188,10 @@ with tab_switch:
     csv_file = Path("outputs/MFCentral_Action_Checklist.csv")
     if not csv_file.exists():
         import generate_checklist
-        generate_checklist.generate_mfcentral_checklist()
+        generate_checklist.generate_mfcentral_checklist(
+            regular_funds=getattr(f1, 'regular_funds', None),
+            annual_bleed_inr=getattr(f1, 'annual_bleed_inr', 0.0)
+        )
 
     if csv_file.exists():
         df = pd.read_csv(csv_file)

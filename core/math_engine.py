@@ -3398,7 +3398,7 @@ def select_autonomous_blueprint_funds(
             }
         else:
             blueprint["Slot 4: Tactical Thematic Satellite"] = {
-                "allocation_pct": 15.0,
+                "allocation_pct": 0.0,
                 "scheme": f"NO_ACTION: No eligible {thematic_deficit_theme} fund found",
                 "fund_name": f"NO_ACTION: No eligible {thematic_deficit_theme} fund found",
                 "folio": None,
