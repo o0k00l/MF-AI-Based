@@ -46,8 +46,17 @@ OUT.mkdir(exist_ok=True)
 
 def jload(p): return json.loads(p.read_text(encoding="utf-8"))
 def _num(v):
-    try: return float(v)
-    except: return 0.0
+    """Parse required CAS numeric values without silently fabricating zeroes."""
+    import math
+    if v is None or isinstance(v, bool) or (isinstance(v, str) and not v.strip()):
+        raise ValueError(f"Required CAS numeric value is missing: {v!r}")
+    try:
+        value = float(str(v).replace(",", "").replace("₹", "").strip())
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"Invalid CAS numeric value: {v!r}") from exc
+    if not math.isfinite(value) or value < 0:
+        raise ValueError(f"CAS numeric value must be finite and non-negative: {v!r}")
+    return value
 
 def norm(s):
     s = re.sub(r"\(.*?\)", " ", s)
@@ -59,17 +68,12 @@ aliases = {norm(n): fid for fid, names in jload(CLIENT/"fund_aliases.json")["ali
 aa_policy = jload(POLICY/"asset_allocation.json")
 
 def match_scheme(scheme):
-    n = norm(scheme)
-    if n in aliases and aliases[n] in metrics:
-        return metrics[aliases[n]]
-    best, score = None, 0.0
-    a = set(n.split())
-    for mid, m in metrics.items():
-        b = set(norm(mid).split())
-        if not a or not b: continue
-        s = len(a & b) / max(1, min(len(a), len(b)))
-        if s > score: best, score = m, s
-    return best if score >= 0.5 else None
+    """Resolve only through an explicit normalized alias; never fuzzy-match funds."""
+    n = norm(str(scheme or ""))
+    fund_id = aliases.get(n)
+    if fund_id is None:
+        return None
+    return metrics.get(fund_id)
 
 import openpyxl
 xlsx = sorted((CLIENT/"statements").glob("cas_detailed_report_*.xlsx"))[-1]
