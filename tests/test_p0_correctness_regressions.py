@@ -878,7 +878,7 @@ def test_tax_planner_requires_verified_prior_ltcg_headroom(tmp_path):
 
 
 # Statutory regression coverage: Section 50AA / Section 76 effective dates and evidence gates.
-def _daily_snapshots_for_fy(fy_start, fy_end, debt_pct, money_market_pct, equity_pct=10.0):
+def _daily_snapshots_for_fy(fy_start, fy_end, debt_pct, money_market_pct, equity_pct=10.0, fof_pct=None):
     from datetime import timedelta
     from core.math_engine import DailyPortfolioSnapshot
 
@@ -891,21 +891,68 @@ def _daily_snapshots_for_fy(fy_start, fy_end, debt_pct, money_market_pct, equity
                 equity_pct=equity_pct,
                 debt_pct=debt_pct,
                 money_market_pct=money_market_pct,
+                fof_specified_mf_pct=fof_pct,
             )
         )
         current += timedelta(days=1)
     return snapshots
 
 
+def _monthly_snapshots_for_fy(fy_start, equity_pct=10.0, fof_units_pct=0.0, underlying_equity_pct=0.0):
+    from core.math_engine import MonthlyPortfolioSnapshot
+
+    rows = []
+    for month in range(4, 13):
+        rows.append(MonthlyPortfolioSnapshot(
+            month=date(fy_start.year, month, 1),
+            opening_equity_pct=equity_pct,
+            closing_equity_pct=equity_pct,
+            opening_fof_units_pct=fof_units_pct,
+            closing_fof_units_pct=fof_units_pct,
+            opening_underlying_equity_pct=underlying_equity_pct,
+            closing_underlying_equity_pct=underlying_equity_pct,
+        ))
+    for month in range(1, 4):
+        rows.append(MonthlyPortfolioSnapshot(
+            month=date(fy_start.year + 1, month, 1),
+            opening_equity_pct=equity_pct,
+            closing_equity_pct=equity_pct,
+            opening_fof_units_pct=fof_units_pct,
+            closing_fof_units_pct=fof_units_pct,
+            opening_underlying_equity_pct=underlying_equity_pct,
+            closing_underlying_equity_pct=underlying_equity_pct,
+        ))
+    return rows
+
+
+def _daily_coverage_evidence(snapshots):
+    from core.math_engine import DailySnapshotCoverageEvidence
+
+    return DailySnapshotCoverageEvidence(
+        expected_dates=tuple(snapshot.date for snapshot in snapshots),
+        source_url="https://example.test/verified-daily-calendar",
+        source_document_sha256="b" * 64,
+        independently_verified=True,
+    )
+
+
 def test_section_50aa_original_equity_test_applies_through_fy_2025_26():
     from core.math_engine import classify_specified_mutual_fund
 
+    fy_start, fy_end = date(2025, 4, 1), date(2026, 3, 31)
+    daily = _daily_snapshots_for_fy(fy_start, fy_end, debt_pct=60.0, money_market_pct=5.0, equity_pct=35.0)
+    monthly = _monthly_snapshots_for_fy(fy_start, equity_pct=35.0)
     result = classify_specified_mutual_fund(
         "Debt",
         equity_pct=35.0,
-        debt_and_money_market_pct=60.0,
+        debt_and_money_market_pct=65.0,
         acquisition_date=date(2023, 4, 1),
         transfer_date=date(2026, 3, 31),
+        snapshots=daily,
+        monthly_snapshots=monthly,
+        fy_start=fy_start,
+        fy_end=fy_end,
+        snapshot_coverage_evidence=_daily_coverage_evidence(daily),
     )
     assert result["specified_50AA"]["qualifies"] is True
     assert result["specified_50AA"]["threshold"] == 35.0
@@ -917,6 +964,11 @@ def test_section_50aa_original_equity_test_applies_through_fy_2025_26():
         debt_and_money_market_pct=64.99,
         acquisition_date=date(2023, 4, 1),
         transfer_date=date(2026, 3, 31),
+        snapshots=_daily_snapshots_for_fy(fy_start, fy_end, debt_pct=60.0, money_market_pct=5.0, equity_pct=35.01),
+        monthly_snapshots=_monthly_snapshots_for_fy(fy_start, equity_pct=35.01),
+        fy_start=fy_start,
+        fy_end=fy_end,
+        snapshot_coverage_evidence=_daily_coverage_evidence(_daily_snapshots_for_fy(fy_start, fy_end, debt_pct=60.0, money_market_pct=5.0, equity_pct=35.01)),
     )
     assert not_qualifying["specified_50AA"]["qualifies"] is False
 
