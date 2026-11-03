@@ -115,7 +115,11 @@ check("Established Plan Total Budget", established_plan.total_monthly_budget_inr
 check("Established Plan Item Count", len(established_plan.items) == 4, f"Found {len(established_plan.items)} items")
 
 sum_alloc = sum(item.monthly_inr for item in established_plan.items)
-check("Established Plan Allocations Sum to Budget", abs(sum_alloc - 100000.0) < 0.01)
+check(
+    "Established Plan Budget Accounting",
+    abs(sum_alloc + established_plan.unallocated_budget_inr - 100000.0) < 0.01,
+    f"Invested: ₹{sum_alloc:,.0f}; explicitly unallocated: ₹{established_plan.unallocated_budget_inr:,.0f}"
+ )
 
 # Check individual slots
 roles = {item.category_role: item for item in established_plan.items}
@@ -127,7 +131,8 @@ check("Slot 3: Large-Cap Anchor (21.1%)", roles["Large-Cap Bluechip Anchor"].all
 check("Slot 4: Thematic Satellite (0%)", roles["Tactical Thematic Satellite"].allocation_pct == 0.0 and roles["Tactical Thematic Satellite"].monthly_inr == 0.0)
 check(
     "100% Direct Plan Mandate",
-    all(item.is_direct is True for item in established_plan.items if item.monthly_inr > 0),
+    all(item.is_direct is True for item in established_plan.items if item.monthly_inr > 0)
+    and (established_plan.unallocated_budget_inr == 0.0 or sum_alloc == 0.0),
     "Uses explicit selected-candidate metadata, not scheme-name substring inference"
  )
 check("Zero Standalone Debt Drag", established_plan.debt_sip_pct == 0.0 and established_plan.equity_sip_pct == 100.0)
