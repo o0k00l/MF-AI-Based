@@ -30,7 +30,7 @@ python-dotenv>=1.2.2,<2.0.0          # Secure environment variable loading from 
 
 # --- Report Formatting & Artifact Export ---
 markdown==3.11                # Markdown rendering for client restructuring reports
-xhtml2pdf>=0.2.20,<0.3.0             # HTML-to-PDF compilation for client report export
+reportlab>=4.4.0             # Safe A4 PDF report generation using escaped Platypus flowables
 
 # --- API Layer (Milestone 2) ---
 fastapi>=0.115.0              # REST API framework
