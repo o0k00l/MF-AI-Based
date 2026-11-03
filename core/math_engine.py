@@ -18,8 +18,8 @@ from datetime import datetime, date, timedelta
 from dataclasses import dataclass
 import math
 
-# Import TriProvenanceError for benchmark validation error handling
-from core.models import TriProvenanceError
+# Import various model classes for type annotations
+from core.models import TriProvenanceError, HoldingItem, FeeBleedAnalysis, PlanType, AssetClass
 
 # ─────────────────────────────────────────────────────────────────────────────
 # DATE-AWARE STATUTORY TAX LAYER (1961 Act vs 2025 Act)
