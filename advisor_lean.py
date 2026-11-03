@@ -151,7 +151,7 @@ SEBI_RISKOMETER_PROFILES = {
         "badge": "🟠 Moderately High (Caramel)",
         "color": "#fb8c00",
         "description": "Significant volatility expected. Predominantly large-cap equity & hybrid equity.",
-        "large": 45.0, "mid_small": 30.0, "debt": 15.0, "equity_target": 85.0
+        "large": 45.0, "mid_small": 30.0, "debt": 25.0, "equity_target": 75.0
     },
     "5_high": {
         "level": 5,
