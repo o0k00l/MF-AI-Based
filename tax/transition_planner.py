@@ -518,7 +518,15 @@ def plan_fy_tranches(
         raise ValueError("prior_ltcg_this_fy must be finite and non-negative")
     # Validate the configured allowance once; the per-fund tax schedule supplies
     # the operative class-specific allowance below.
-    exit_load_pct = tax_rules.get("exit_load_pct", 1.0)
+    try:
+        exit_load_pct = float(tax_rules.get("exit_load_pct", 1.0))
+        holding_months = int(tax_rules.get("lt_holding_months", 12))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Exit-load rate and long-term holding period must be numeric") from exc
+    if not math.isfinite(exit_load_pct) or not 0.0 <= exit_load_pct <= 100.0:
+        raise ValueError("Exit-load percentage must be finite and between 0 and 100")
+    if holding_months <= 0:
+        raise ValueError("Long-term holding period must be a positive number of months")
     # Collect lots up to plan.total_amount per fund using strict FIFO
     all_lots = []
     
@@ -567,7 +575,7 @@ def plan_fy_tranches(
                 lot_val = remaining_target
             remaining_target -= lot_val
             
-            is_lt = lot.is_long_term_given(as_of, tax_rules.get("lt_holding_months", 12))
+            is_lt = lot.is_long_term_given(as_of, holding_months)
             cost_basis = (units_to_sell / lot.units) * lot.cost if lot.units > 0 else 0.0
             lot_gain = lot_val - cost_basis
             if not math.isfinite(lot_gain) or not math.isfinite(cost_basis):
@@ -759,12 +767,23 @@ def plan_fy_tranches(
         
         sale_date = date(fy_ptr, 4, 1)  # Approximate sale date as start of FY
         tax_rates = get_tax_rates_for_sale(fund_tax_class, sale_date, tax_rules)
-        ltcg_rate = tax_rates["ltcg_rate"]
-        stcg_rate = tax_rates["stcg_rate"]
-        exemption = tax_rates["ltcg_exemption"]
+        try:
+            ltcg_rate = float(tax_rates["ltcg_rate"])
+            stcg_rate = float(tax_rates["stcg_rate"])
+            exemption = float(tax_rates["ltcg_exemption"])
+            cess_rate = float(tax_rates["cess_rate"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError(f"Incomplete tax rate schedule for {fund_tax_class}: {exc}") from exc
+        if (
+            not all(math.isfinite(v) for v in (ltcg_rate, stcg_rate, exemption, cess_rate))
+            or not 0.0 <= ltcg_rate <= 1.0
+            or not 0.0 <= stcg_rate <= 1.0
+            or exemption < 0
+            or not 0.0 <= cess_rate <= 1.0
+        ):
+            raise ValueError(f"Invalid tax rate schedule for {fund_tax_class}")
         if fy_ptr == current_fy_start:
             exemption = max(0.0, exemption - prior_ltcg)
-        cess_rate = tax_rates["cess_rate"]
         
         while lot_units > 0.0001:
             is_deferred = lot_info.get("deferred", False)
