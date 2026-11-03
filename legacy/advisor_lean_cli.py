@@ -466,11 +466,10 @@ transactions_path = CLIENT / "transactions.json"
 cas_invested = sum(h["invested"] for h in holdings)
 cas_current = sum(h["value"] for h in holdings if h["value"] > 0)
 portfolio_xirr = calculate_portfolio_xirr(transactions_path, holdings, cas_invested, cas_current)
+# Benchmark alpha remains unavailable until authenticated daily TRI data and
+# an independently sourced trading-session calendar pass the release gate.
 benchmark_xirr = None
 alpha_pct = None
-if portfolio_xirr is not None:
-    benchmark_xirr = 0.12
-    alpha_pct = (portfolio_xirr - 0.12) * 100
 
 # Optional imports - may be unavailable in test environments
 try:
@@ -804,6 +803,9 @@ SYS = """You are a SEBI-registered fee-only Fiduciary Wealth Advisor. Rules:
 def build_health_prompt(f):
     top = sorted(f["fee_bleed"]["regular_value"] and [{"scheme":h["scheme"],"value":h["value"],"commission":round(h["value"]*0.01,0)} for h in regular], key=lambda x:-x["value"])[:8]
     ov = [{"a":a,"b":b,"pct":p} for a,b,p in f["overlap"]["pairs"]][:6]
+    portfolio_xirr_text = f"{f['xirr_pct'] * 100:.2f}%" if f.get("xirr_pct") is not None else "UNAVAILABLE"
+    benchmark_xirr_text = f"{f['benchmark_xirr_pct'] * 100:.2f}%" if f.get("benchmark_xirr_pct") is not None else "BLOCKED — authenticated daily TRI and independent calendar unavailable"
+    alpha_text = f"{f['alpha_pct']:+.2f}%" if f.get("alpha_pct") is not None else "UNAVAILABLE"
     return f"""Generate Portfolio Health & Commission Audit for {f['client']}.
 
 FACTS:
