@@ -10,6 +10,7 @@ permissions:
 
 jobs:
   release-gates:
+    timeout-minutes: 45
     name: Release / production evidence gates
     runs-on: ubuntu-latest
     steps:
