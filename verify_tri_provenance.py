@@ -50,8 +50,8 @@ def verify_fixture(path: Path) -> list[str]:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
-        return [f"{label}: unable to read valid JSON: {exc}"]
-    label = label if path.is_relative_to(ROOT) else path
+        return [f"{path}: unable to read valid JSON: {exc}"]
+    label = path.relative_to(ROOT) if path.is_relative_to(ROOT) else path
     provenance = data.get("provenance", {})
     coverage = data.get("coverage", {})
     benchmarks = data.get("benchmarks", {})
