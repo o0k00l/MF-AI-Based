@@ -111,6 +111,12 @@ def test_tax_classification_recomputes_source_document_digest_and_blocks_path_es
     rules = {"classification_test": {"equity_oriented_threshold_pct": 65.0}}
     assert classify_fund_for_tax(lot, rules, sale_date=date(2026, 11, 3)) == "equity_oriented"
 
+    original_root = lot.equity_pct_evidence_root
+    lot.equity_pct_evidence_root = None
+    with pytest.raises(ValueError, match="source evidence root is required"):
+        classify_fund_for_tax(lot, rules, sale_date=date(2026, 11, 3))
+    lot.equity_pct_evidence_root = original_root
+
     lot.equity_pct_source_sha256 = "0" * 64
     with pytest.raises(ValueError, match="does not match local source bytes"):
         classify_fund_for_tax(lot, rules, sale_date=date(2026, 11, 3))
