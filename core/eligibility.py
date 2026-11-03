@@ -31,33 +31,54 @@ def _require_field(fund_data: dict, gate: str, *names):
 
 
 def _risk_tier_to_int(tier: Any) -> int:
+    """Parse a SEBI riskometer tier without ambiguous substring matching."""
+    if isinstance(tier, bool):
+        raise ValueError("Risk tier must be an integer from 1 to 6, not boolean")
     if isinstance(tier, int):
-        return tier
+        if 1 <= tier <= 6:
+            return tier
+        raise ValueError(f"Risk tier out of range: {tier}")
     if isinstance(tier, RiskTier):
         if tier == RiskTier.CUSTOM:
-            raise ValueError("RiskTier.CUSTOM cannot be mapped to a legacy 1-6 tier. Provide a custom allocation via get_target_allocation with custom_target.")
+            raise ValueError("RiskTier.CUSTOM requires an explicit custom suitability policy")
         mapping = {
-            RiskTier.CONSERVATIVE: 2,  # Tier 2 (Low)
-            RiskTier.MODERATE: 4,      # Tier 4 (Moderate High)
-            RiskTier.AGGRESSIVE: 6,    # Tier 6 (Very High)
+            RiskTier.CONSERVATIVE: 2,
+            RiskTier.MODERATE: 4,
+            RiskTier.AGGRESSIVE: 6,
         }
-        return mapping.get(tier, 6)
-    # Try to parse string like "Tier 6 (Very High)"
-    tier_str = str(tier).lower()
-    if "tier 1" in tier_str or "preservation" in tier_str:
-        return 1
-    if "tier 2" in tier_str or "low" in tier_str:
-        return 2
-    if "tier 3" in tier_str or "moderate" in tier_str:
-        return 3
-    if "tier 4" in tier_str or "moderately high" in tier_str:
-        return 4
-    if "tier 5" in tier_str or "high" in tier_str:
-        return 5
-    if "tier 6" in tier_str or "very high" in tier_str or "aggressive" in tier_str:
+        return mapping[tier]
+    tier_str = str(tier).strip().lower()
+    import re
+    match = re.search(r"\\btier\\s*([1-6])\\b", tier_str)
+    if match:
+        return int(match.group(1))
+    # Match the most specific labels first.
+    if "very high" in tier_str or "aggressive" in tier_str:
         return 6
-    return 6
+    if "moderately high" in tier_str:
+        return 4
+    if tier_str in {"high", "5_high"} or tier_str.endswith("_high"):
+        return 5
+    if "moderate" in tier_str:
+        return 3
+    if "low to moderate" in tier_str:
+        return 2
+    if tier_str in {"low", "preservation"}:
+        return 1
+    raise ValueError(f"Unrecognized risk tier: {tier!r}")
 
+
+def _finite_number(value: Any, field: str) -> float:
+    """Convert a required numeric input; reject booleans, blanks and non-finite values."""
+    if value is None or isinstance(value, bool) or (isinstance(value, str) and not value.strip()):
+        raise ValueError(f"{field} is missing or malformed")
+    try:
+        result = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{field} is not numeric: {value!r}") from exc
+    if not math.isfinite(result):
+        raise ValueError(f"{field} must be finite")
+    return result
 
 CATEGORY_AUM_CAPS = {
     "Small Cap": 20000.0,
@@ -101,35 +122,51 @@ def check_eligibility_gates(
     fund_name = fund_data.get("fund_name", fund_data.get("name", fund_id))
 
     # --- Gate 1: AMC Concentration Gate ---
-    amc_name = fund_name.split()[0].upper() if fund_name else ""
-    amc_exposure_pct = 0.0
-    if portfolio_holdings:
-        def _get_val(h):
-            if isinstance(h, dict):
-                return float(h.get("value", h.get("current_value_inr", 0.0)) or 0.0)
-            return float(getattr(h, "current_value_inr", 0.0) or 0.0)
-
-        def _get_scheme(h):
-            if isinstance(h, dict):
-                return str(h.get("scheme", h.get("fund_name", "")) or "")
-            return str(getattr(h, "scheme", getattr(h, "fund_name", "")) or "")
-
-        total_val = sum(_get_val(h) for h in portfolio_holdings)
-        if total_val > 0:
-            amc_val = sum(
-                _get_val(h)
-                for h in portfolio_holdings
-                if _get_scheme(h).split()[0].upper() == amc_name
-            )
-            amc_exposure_pct = (amc_val / total_val) * 100.0
-
-    amc_ok = amc_exposure_pct < amc_max_limit_pct
-    if not amc_ok:
-        failed.append(f"Gate 1 [AMC Concentration]: AMC {amc_name} exposure {amc_exposure_pct:.1f}% >= {amc_max_limit_pct}% ceiling")
+    # Never infer an AMC from the first token of a scheme name: many AMCs have
+    # multi-word names and unrelated schemes can share the same first token.
+    amc_name = str(fund_data.get("amc_name", "") or "").strip()
+    amc_exposure_pct = None
+    amc_ok = False
+    if not amc_name:
+        failed.append("Gate 1 [AMC Concentration]: explicit amc_name missing — cannot verify (fail-closed)")
+    elif not portfolio_holdings:
+        failed.append("Gate 1 [AMC Concentration]: portfolio holdings missing — cannot verify (fail-closed)")
+    else:
+        try:
+            holding_values = []
+            amc_values = []
+            target_amc = amc_name.casefold()
+            for holding in portfolio_holdings:
+                raw_value = holding.get("value", holding.get("current_value_inr")) if isinstance(holding, dict) else getattr(holding, "current_value_inr", None)
+                raw_amc = holding.get("amc_name", holding.get("amc")) if isinstance(holding, dict) else getattr(holding, "amc_name", None)
+                value = _finite_number(raw_value, "portfolio holding value")
+                if value < 0:
+                    raise ValueError("portfolio holding value cannot be negative")
+                if not raw_amc:
+                    raise ValueError("portfolio holding AMC metadata missing")
+                holding_values.append(value)
+                if str(raw_amc).strip().casefold() == target_amc:
+                    amc_values.append(value)
+            total_val = sum(holding_values)
+            if total_val <= 0:
+                raise ValueError("portfolio total value must be positive")
+            amc_exposure_pct = sum(amc_values) / total_val * 100.0
+            amc_ok = amc_exposure_pct < amc_max_limit_pct
+            if not amc_ok:
+                failed.append(f"Gate 1 [AMC Concentration]: AMC {amc_name} exposure {amc_exposure_pct:.1f}% >= {amc_max_limit_pct}% ceiling")
+        except (TypeError, ValueError) as exc:
+            failed.append(f"Gate 1 [AMC Concentration]: invalid holdings/AMC data ({exc}) — fail-closed")
+    details["amc_name"] = amc_name or None
     details["amc_exposure_pct"] = amc_exposure_pct
 
     # --- Gate 2: Liquidity & AUM Stability Gate ---
-    aum = float(fund_data.get("aum_crore", fund_data.get("aum_cr", 0.0)) or 0.0)
+    try:
+        aum = _finite_number(fund_data.get("aum_crore", fund_data.get("aum_cr")), "AUM")
+        if aum < 0:
+            raise ValueError("AUM cannot be negative")
+    except ValueError as exc:
+        aum = 0.0
+        failed.append(f"Gate 2 [AUM]: {exc} — fail-closed")
     aum_min_ok = aum >= min_aum_crore
     if not aum_min_ok:
         failed.append(f"Gate 2 [Liquidity/AUM]: AUM ₹{aum:,.0f} Cr < ₹{min_aum_crore:,.0f} Cr minimum")
@@ -157,18 +194,32 @@ def check_eligibility_gates(
         top10 = 0.0
         top10_ok = False
     else:
-        top10 = float(top10_raw) or 0.0
-        top10_ok = top10 <= max_top10_concentration_pct
+        try:
+            top10 = _finite_number(top10_raw, "top-10 concentration")
+            if not 0.0 <= top10 <= 100.0:
+                raise ValueError("top-10 concentration must be between 0 and 100")
+            top10_ok = top10 <= max_top10_concentration_pct
+        except ValueError as exc:
+            top10 = None
+            top10_ok = False
+            failed.append(f"Gate 3 [Top-10 Concentration]: {exc} — fail-closed")
         if not top10_ok:
             failed.append(f"Gate 3 [Top-10 Concentration]: Top 10 holdings {top10:.1f}% > {max_top10_concentration_pct:.1f}%")
     details["top10_concentration_pct"] = top10
 
     # Sector concentration check
-    sector_conc = float(fund_data.get("single_sector_weight_pct", fund_data.get("max_sector_concentration_pct", fund_data.get("fin", 0.0))) or 0.0)
+    sector_raw = fund_data.get("single_sector_weight_pct", fund_data.get("max_sector_concentration_pct", fund_data.get("fin")))
+    try:
+        sector_conc = _finite_number(sector_raw, "single-sector concentration")
+        if not 0.0 <= sector_conc <= 100.0:
+            raise ValueError("single-sector concentration must be between 0 and 100")
+    except ValueError as exc:
+        sector_conc = None
+        failed.append(f"Gate 3 [Sector Concentration]: {exc} — fail-closed")
     # Broad diversified equity funds must not exceed single-sector concentration cap (35%).
     # Dedicated thematic/sectoral funds are governed by Gate 9 (15% portfolio allocation cap) rather than an internal sector cap.
     is_thematic = any(kw in category.lower() or kw in fund_name.lower() for kw in ("thematic", "sectoral", "defence", "energy", "pharma", "health", "tech"))
-    if not is_thematic and sector_conc > max_sector_concentration_pct:
+    if not is_thematic and sector_conc is not None and sector_conc > max_sector_concentration_pct:
         failed.append(f"Gate 3 [Sector Concentration]: Sector weight {sector_conc:.1f}% > {max_sector_concentration_pct:.1f}%")
     details["sector_concentration_pct"] = sector_conc
 
@@ -256,9 +307,16 @@ def check_eligibility_gates(
         failed.append("Gate 5 [Capture Ratio Asymmetry]: Missing downside/upside capture ratio data in fund_metrics.json — required for fiduciary assessment")
         downside_ok = False
     else:
-        downside_capture = float(downside_capture)
-        upside_capture = float(upside_capture)
-        downside_ok = True
+        try:
+            downside_capture = _finite_number(downside_capture, "downside capture")
+            upside_capture = _finite_number(upside_capture, "upside capture")
+            if not (0.0 <= downside_capture <= 500.0 and 0.0 <= upside_capture <= 500.0):
+                raise ValueError("capture ratios must be between 0 and 500")
+            downside_ok = True
+        except ValueError as exc:
+            failed.append(f"Gate 5 [Capture Ratio]: {exc} — fail-closed")
+            downside_ok = False
+            downside_capture = upside_capture = None
         # Capture Ratio Asymmetry Gate: Fund fails if downside capture > 100% AND upside < downside
         if downside_capture > 100.0 and upside_capture < downside_capture:
             downside_ok = False
@@ -274,8 +332,16 @@ def check_eligibility_gates(
         riskometer_score = 6
         mandate_ok = False
     else:
-        riskometer_score = int(riskometer_raw)
-        mandate_ok = True
+        try:
+            riskometer_num = _finite_number(riskometer_raw, "riskometer_score")
+            if not riskometer_num.is_integer() or not 1 <= riskometer_num <= 6:
+                raise ValueError("riskometer_score must be an integer from 1 to 6")
+            riskometer_score = int(riskometer_num)
+            mandate_ok = True
+        except ValueError as exc:
+            riskometer_score = 6
+            mandate_ok = False
+            failed.append(f"Gate 6 [Riskometer]: {exc} — fail-closed")
     mandate_suitable_raw = fund_data.get("mandate_suitable")
     if mandate_suitable_raw is None:
         failed.append("Gate 6 [Mandate Suitability]: mandate_suitable field missing - cannot verify (fail-closed)")
@@ -301,9 +367,17 @@ def check_eligibility_gates(
     # Top-level confidence_score overrides _provenance.confidence_score
     confidence_score = None
     if "confidence_score" in fund_data:
-        confidence_score = float(fund_data.get("confidence_score", 0.0) or 0.0)
+        try:
+            confidence_score = _finite_number(fund_data.get("confidence_score"), "confidence_score")
+        except ValueError as exc:
+            confidence_score = None
+            failed.append(f"Gate 7 [Data Integrity]: {exc} — fail-closed")
     elif "confidence_score" in provenance:
-        confidence_score = float(provenance.get("confidence_score", 0.0) or 0.0)
+        try:
+            confidence_score = _finite_number(provenance.get("confidence_score"), "_provenance.confidence_score")
+        except ValueError as exc:
+            confidence_score = None
+            failed.append(f"Gate 7 [Data Integrity]: {exc} — fail-closed")
     
     if confidence_score is None:
         failed.append("Gate 7 [Data Integrity]: confidence_score missing from fund_data and _provenance - cannot verify (fail-closed)")
@@ -328,12 +402,22 @@ def check_eligibility_gates(
         failed.append("Gate 8 [Manager Tenure]: manager_tenure_years field missing - cannot verify (fail-closed)")
         tenure = 0.0
     else:
-        tenure = float(fund_data.get("manager_tenure_years", fund_data.get("tenure", 0.0)) or 0.0)
+        try:
+            tenure = _finite_number(fund_data.get("manager_tenure_years", fund_data.get("tenure")), "manager_tenure_years")
+            if tenure < 0: raise ValueError("manager tenure cannot be negative")
+        except ValueError as exc:
+            tenure = 0.0
+            failed.append(f"Gate 8 [Manager Tenure]: {exc} — fail-closed")
     if "track_record_years" not in fund_data and "track_record" not in fund_data:
         failed.append("Gate 8 [Track Record]: track_record_years field missing - cannot verify (fail-closed)")
         scheme_track_record = 0.0
     else:
-        scheme_track_record = float(fund_data.get("track_record_years", fund_data.get("track_record", 0.0)) or 0.0)
+        try:
+            scheme_track_record = _finite_number(fund_data.get("track_record_years", fund_data.get("track_record")), "track_record_years")
+            if scheme_track_record < 0: raise ValueError("track record cannot be negative")
+        except ValueError as exc:
+            scheme_track_record = 0.0
+            failed.append(f"Gate 8 [Track Record]: {exc} — fail-closed")
     is_process_driven = bool(fund_data.get("is_process_driven", False) or "index" in category.lower() or "arbitrage" in category.lower())
 
     track_ok = scheme_track_record >= 3.0
@@ -349,7 +433,13 @@ def check_eligibility_gates(
 
     # --- Gate 9: Thematic Satellite Cap Gate ---
     thematic_ok = True
-    alloc_pct = float(fund_data.get("allocation_pct", 0.0))
+    try:
+        alloc_pct = _finite_number(fund_data.get("allocation_pct"), "allocation_pct")
+        if not 0.0 <= alloc_pct <= 100.0: raise ValueError("allocation_pct must be between 0 and 100")
+    except ValueError as exc:
+        alloc_pct = 0.0
+        thematic_ok = False
+        failed.append(f"Gate 9 [Thematic Cap]: {exc} — fail-closed")
     if is_thematic:
         if is_starter and alloc_pct > 0.0:
             thematic_ok = False
@@ -360,11 +450,19 @@ def check_eligibility_gates(
     details["thematic_ok"] = thematic_ok
 
     # --- Gate 10: 100% Direct Plan Mandate Gate ---
-    is_direct = fund_data.get("is_direct", True)
-    if "regular" in fund_name.lower() or "distributor" in str(fund_data.get("plan", "")).lower():
+    plan_value = str(fund_data.get("plan", "") or "").strip().casefold()
+    direct_flag = fund_data.get("is_direct")
+    if direct_flag is True and plan_value in {"", "direct", "direct plan"}:
+        is_direct = True
+    elif direct_flag is False or "regular" in plan_value or "distributor" in plan_value or "regular" in fund_name.lower():
         is_direct = False
+    elif plan_value in {"direct", "direct plan"}:
+        is_direct = True
+    else:
+        is_direct = False
+        failed.append("Gate 10 [Direct Plan Mandate]: explicit Direct plan classification missing or invalid — fail-closed")
     if not is_direct:
-        failed.append("Gate 10 [Direct Plan Mandate]: Scheme is a Regular plan carrying distributor commission")
+        failed.append("Gate 10 [Direct Plan Mandate]: Scheme is not verified as a Direct plan")
     details["is_direct"] = is_direct
 
     passed = (len(failed) == 0)
