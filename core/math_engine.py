@@ -397,7 +397,8 @@ def calculate_cashflow_matched_benchmark_xirr(
     as_of_date: Optional[date] = None,
     benchmark_key: str = "NIFTY 500 TRI",
     benchmark_series_path: Optional[Path] = None,
-    cas_current: Optional[float] = None
+    cas_current: Optional[float] = None,
+    trading_calendar_path: Optional[Path] = None,
 ) -> Dict[str, Any]:
     """
     Cash-flow-matched Total Return Index (TRI) benchmark performance calculation.
@@ -418,7 +419,15 @@ def calculate_cashflow_matched_benchmark_xirr(
     
     if benchmark_series_path is None:
         benchmark_series_path = Path("data/policy/benchmark_tri_series.json")
+    if trading_calendar_path is None:
+        trading_calendar_path = Path("data/policy/nse_trading_calendar.json")
 
+    if not trading_calendar_path.exists():
+        raise TriProvenanceError(
+            f"Independent NSE trading calendar not found: {trading_calendar_path}",
+            benchmark=benchmark_key,
+            validation_stage="trading_calendar_missing"
+        )
     if not benchmark_series_path.exists():
         raise TriProvenanceError(
             f"Benchmark TRI series file not found: {benchmark_series_path}",
@@ -437,6 +446,8 @@ def calculate_cashflow_matched_benchmark_xirr(
             tx_data = json.load(f)
         with open(benchmark_series_path, "r", encoding="utf-8") as f:
             tri_data = json.load(f)
+        with open(trading_calendar_path, "r", encoding="utf-8") as f:
+            calendar_data = json.load(f)
     except Exception as e:
         raise TriProvenanceError(
             f"Failed to read benchmark series or transactions: {e}",
@@ -482,13 +493,9 @@ def calculate_cashflow_matched_benchmark_xirr(
                 validation_stage="checksum_mismatch"
             )
 
-    # COVERAGE VALIDATION: Minimum trading day coverage
-    coverage = tri_data.get("coverage", {})
-    coverage_key = "nifty_500_tri" if "500" in benchmark_key else "nifty_50_tri"
-    coverage_info = coverage.get(coverage_key, {})
-    
-    # Compute actual coverage from observed data points and expected trading days
-    # Use metadata's expected_trading_days as the ground truth for expected coverage
+    # COVERAGE VALIDATION: use a separately maintained NSE session calendar.
+    # The benchmark JSON's expected_trading_days / coverage_pct are descriptive only;
+    # they are not trusted as the denominator because the same fixture can edit them.
     try:
         for date_key, raw_level in levels.items():
             parsed_level = float(raw_level)
@@ -508,57 +515,78 @@ def calculate_cashflow_matched_benchmark_xirr(
             benchmark=benchmark_key,
             validation_stage="no_data"
         )
-    
-    # Use metadata's expected trading days as the ground truth
-    metadata_expected_days = coverage_info.get("expected_trading_days")
-    metadata_provided_points = coverage_info.get("provided_data_points")
-    metadata_coverage_pct = coverage_info.get("coverage_pct", 0)
-    
-    # Calculate actual coverage from observed data
-    provided_data_points = len(levels)
-    observed_start = sorted_dates[0]
-    observed_end = sorted_dates[-1]
-    observed_span_days = (observed_end - observed_start).days + 1
-    observed_trading_days = sum(
-        1 for i in range(observed_span_days)
-        if (observed_start + timedelta(days=i)).weekday() < 5
-    )
-    
-    # Use metadata's expected trading days as the denominator for coverage calculation
-    # This prevents sparse data from appearing to have 100% coverage
-    expected_trading_days = metadata_expected_days if metadata_expected_days else observed_trading_days
-    actual_coverage_pct = (provided_data_points / expected_trading_days * 100) if expected_trading_days > 0 else 0
-    min_coverage_pct = 95.0  # Per provenance missing_date_policy
-    
-    # Also check against metadata coverage_pct if provided (for consistency)
-    metadata_coverage_pct = coverage_info.get("coverage_pct", 0)
-    
-    # ENFORCE coverage threshold — fail closed if below minimum
-    # Use the MORE CONSERVATIVE of actual and metadata coverage
-    effective_coverage_pct = min(actual_coverage_pct, metadata_coverage_pct) if metadata_coverage_pct > 0 else actual_coverage_pct
-    
-    # Also validate that the observed date range is reasonable
-    # If observed span is much smaller than expected, flag it
-    if metadata_expected_days and observed_trading_days < metadata_expected_days * 0.5:
+
+    calendar_provenance = calendar_data.get("provenance", {})
+    sessions = calendar_data.get("sessions", [])
+    source_url = str(calendar_provenance.get("source_url", ""))
+    source_document_sha256 = str(calendar_provenance.get("source_document_sha256", ""))
+    sessions_sha256 = str(calendar_provenance.get("sessions_sha256", ""))
+    if (
+        calendar_data.get("exchange") != "NSE"
+        or calendar_data.get("status") != "VERIFIED"
+        or not source_url.startswith("https://")
+        or len(source_document_sha256) != 64
+        or any(c not in "0123456789abcdefABCDEF" for c in source_document_sha256)
+        or not isinstance(sessions, list)
+        or not sessions
+    ):
         raise TriProvenanceError(
-            f"TRI data span ({observed_trading_days} trading days) is significantly smaller than "
-            f"expected ({metadata_expected_days} trading days) for {benchmark_key}. "
-            f"Data may be incomplete or truncated.",
+            "NSE calendar must include VERIFIED status, HTTPS source URL, source-document SHA256 and a non-empty sessions list.",
             benchmark=benchmark_key,
-            validation_stage="date_range_insufficient"
+            validation_stage="trading_calendar_provenance_invalid"
         )
-    
-    if effective_coverage_pct < min_coverage_pct:
+    computed_sessions_sha256 = hashlib.sha256(
+        json.dumps(sessions, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    ).hexdigest()
+    if computed_sessions_sha256 != sessions_sha256:
+        raise TriProvenanceError(
+            "NSE calendar session checksum mismatch.",
+            benchmark=benchmark_key,
+            validation_stage="trading_calendar_checksum_mismatch"
+        )
+    try:
+        calendar_sessions = [datetime.strptime(str(d), "%Y-%m-%d").date() for d in sessions]
+    except ValueError as exc:
+        raise TriProvenanceError(
+            f"NSE calendar contains an invalid session date: {exc}",
+            benchmark=benchmark_key,
+            validation_stage="trading_calendar_dates_invalid"
+        )
+    if calendar_sessions != sorted(set(calendar_sessions)):
+        raise TriProvenanceError(
+            "NSE calendar sessions must be unique and strictly ascending.",
+            benchmark=benchmark_key,
+            validation_stage="trading_calendar_order_invalid"
+        )
+
+    observed_start, observed_end = sorted_dates[0], sorted_dates[-1]
+    expected_sessions = [d for d in calendar_sessions if observed_start <= d <= observed_end]
+    observed_sessions = set(sorted_dates)
+    expected_session_set = set(expected_sessions)
+    non_session_points = sorted(observed_sessions - expected_session_set)
+    if non_session_points:
+        raise TriProvenanceError(
+            f"TRI data contains dates that are not NSE trading sessions: {non_session_points[:5]}",
+            benchmark=benchmark_key,
+            validation_stage="tri_dates_not_exchange_sessions"
+        )
+    expected_trading_days = len(expected_sessions)
+    provided_data_points = len(observed_sessions)
+    actual_coverage_pct = (
+        len(observed_sessions & expected_session_set) / expected_trading_days * 100.0
+        if expected_trading_days else 0.0
+    )
+    min_coverage_pct = 95.0
+    effective_coverage_pct = actual_coverage_pct
+    if expected_trading_days == 0 or effective_coverage_pct < min_coverage_pct:
         raise TriProvenanceError(
             f"TRI coverage {effective_coverage_pct:.2f}% below minimum {min_coverage_pct:.1f}% "
-            f"for {benchmark_key}. Expected {expected_trading_days} trading days, "
-            f"got {provided_data_points} data points. "
-            f"Actual coverage: {actual_coverage_pct:.2f}%, Metadata coverage: {metadata_coverage_pct:.2f}%. "
-            f"Note: {coverage_info.get('note', 'No note provided.')}",
+            f"for {benchmark_key}. Independent NSE calendar expects {expected_trading_days} sessions "
+            f"between {observed_start} and {observed_end}; observed {provided_data_points}.",
             benchmark=benchmark_key,
             validation_stage="coverage_insufficient"
         )
-    
+
     # MISSING-DATE AUDIT: Forward-fill tracking
     sorted_dates = sorted([datetime.strptime(d, "%Y-%m-%d").date() for d in levels])
     date_gaps = []
@@ -742,10 +770,14 @@ def calculate_cashflow_matched_benchmark_xirr(
         "benchmark_matched_xirr_pct": round(bench_xirr * 100.0, 2) if bench_xirr else None,
         "portfolio_xirr_pct": round(port_xirr * 100.0, 2) if port_xirr else None,
         "alpha_pct": round(alpha_pct, 2) if alpha_pct is not None else None,
-        "methodology": "Cash-flow-matched Total Return Index (TRI) unit acquisition model based on NSE Indices official daily/monthly series",
+        "methodology": "Cash-flow-matched TRI unit acquisition model; benchmark series checksum and separate NSE calendar metadata checked, but source authenticity requires separate human verification",
         "provenance_audit": {
-            "checksum_verified": True,
+            "series_checksum_verified": True,
+            "source_authenticity_verified": False,
             "computed_checksum": computed_checksum,
+            "calendar_sessions_checksum_verified": True,
+            "calendar_source_url": source_url,
+            "expected_trading_sessions": expected_trading_days,
             "coverage_pct": effective_coverage_pct,
             "date_gaps_detected": len(date_gaps),
             "gap_details": date_gaps[:5] if date_gaps else [],
