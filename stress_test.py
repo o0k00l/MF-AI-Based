@@ -1,7 +1,7 @@
 """
 stress_test.py — Deterministic Portfolio Stress Testing & Market Shock Simulator.
-Simulates market drawdowns across Current Portfolio vs Target Fiduciary Portfolio.
-Zero external dependencies; accepts holdings/config as parameters (no circular imports).
+Fixed analyst-selected shocks and scheme-name buckets are not historical replay, calibrated scenarios, forecasts, or verified look-through exposure.
+Outputs are illustrative only; they are not proof of safety, capital saved, or investment recommendations.
 """
 from __future__ import annotations
 import sys
@@ -222,9 +222,9 @@ def print_cli_report():
 
     print("=" * 80)
     print("KEY TAKEAWAYS:")
-    print(f"1. In a Covid-2020 liquidity crash, moving to the target fiduciary portfolio cushions ~INR {covid_cushion:,.0f} in capital.")
-    print(f"2. In a Sectoral Unwind, eliminating high-beta thematics protects ~INR {thematic_cushion:,.0f} from sharp drawdown.")
-    print(f"3. The target INR {target_debt:,.0f} debt floor provides dry powder to rebalance into equities at market bottoms.")
+    print(f"1. Under the selected COVID-like shock, the assumed target allocation has a modelled difference of INR {covid_cushion:,.0f}.")
+    print(f"2. Under the assumed thematic shock, the modelled difference is INR {thematic_cushion:,.0f}; this is not a protection estimate.")
+    print(f"3. The assumed target debt allocation is INR {target_debt:,.0f}; no rebalancing outcome is modelled.")
     print("=" * 80)
 
 if __name__ == "__main__":
