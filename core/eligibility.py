@@ -10,6 +10,65 @@ from typing import List, Dict, Any, Optional
 from core.models import EligibilityGateResult, NOActionResult, RiskTier
 
 
+def _reviewed_direct_plan_evidence_status(fund_data: dict) -> str:
+    """
+    Verify the bytes of a local plan-source document and require a current human
+    attestation. This verifies file integrity and records reviewer assurance;
+    it does not cryptographically authenticate the publisher or reviewer.
+    """
+    import hashlib
+    import re
+    from datetime import date
+
+    evidence = fund_data.get("direct_plan_evidence")
+    evidence_root_value = fund_data.get("_evidence_root")
+    if not isinstance(evidence, dict) or not evidence_root_value:
+        return "MISSING"
+    try:
+        root = Path(evidence_root_value).expanduser().resolve()
+        relative_source = evidence.get("source_file")
+        if not isinstance(relative_source, str) or not relative_source.strip():
+            return "MISSING"
+        relative_path = Path(relative_source)
+        if relative_path.is_absolute():
+            return "INVALID"
+        source_path = (root / relative_path).resolve()
+        source_path.relative_to(root)
+        if not source_path.is_file():
+            return "MISSING"
+        actual_sha = hashlib.sha256(source_path.read_bytes()).hexdigest()
+    except (OSError, ValueError, RuntimeError):
+        return "INVALID"
+
+    declared_sha = evidence.get("source_document_sha256")
+    source_url = evidence.get("source_url")
+    source_type = evidence.get("source_type")
+    reviewed_at_raw = evidence.get("reviewed_at")
+    scheme_name = fund_data.get("fund_name") or fund_data.get("name")
+    if (
+        not isinstance(declared_sha, str)
+        or not re.fullmatch(r"[0-9a-fA-F]{64}", declared_sha)
+        or actual_sha.lower() != declared_sha.lower()
+        or not isinstance(source_url, str)
+        or not source_url.startswith("https://")
+        or source_type not in {"AMC_FACTSHEET", "AMFI_SCHEME_MASTER", "REGISTRAR_SCHEME_MASTER"}
+        or evidence.get("reviewer_attested") is not True
+        or evidence.get("plan") != "Direct"
+        or evidence.get("scheme_name") != scheme_name
+        or not isinstance(reviewed_at_raw, str)
+    ):
+        return "INVALID"
+    try:
+        reviewed_at = date.fromisoformat(reviewed_at_raw)
+    except ValueError:
+        return "INVALID"
+    age_days = (date.today() - reviewed_at).days
+    if age_days < 0 or age_days > 180:
+        return "STALE"
+    return "REVIEWER_ATTESTED_HASH_MATCH"
+
+
+
 def _resolve_field(fund_data: dict, *names, default=None):
     """Resolve a field from either expanded or abbreviated names.
     
@@ -463,16 +522,23 @@ def check_eligibility_gates(
     # --- Gate 10: 100% Direct Plan Mandate Gate ---
     plan_value = str(fund_data.get("plan", "") or "").strip().casefold()
     direct_flag = fund_data.get("is_direct")
-    # The word "Direct" in a scheme name is not evidence. Require an
-    # explicit boolean plan classification from a scheme master or official
-    # scheme document; conflicting plan text overrides a positive flag.
+    direct_evidence_status = fund_data.get("direct_plan_evidence_status")
+    # The scheme name and a caller-supplied boolean are not proof. Require
+    # reviewer-attested evidence whose local source-file hash was checked at
+    # ingestion. This is an evidence-integrity check, not publisher authentication.
     if "regular" in plan_value or "distributor" in plan_value or "regular" in fund_name.casefold():
         is_direct = False
-    elif direct_flag is True and (not plan_value or plan_value.startswith("direct")):
+    elif (
+        direct_flag is True
+        and plan_value.startswith("direct")
+        and direct_evidence_status == "REVIEWER_ATTESTED_HASH_MATCH"
+    ):
         is_direct = True
     else:
         is_direct = False
-        failed.append("Gate 10 [Direct Plan Mandate]: explicit Direct-plan source classification missing or invalid — fail-closed")
+        failed.append(
+            "Gate 10 [Direct Plan Mandate]: current reviewer-attested source document with matching hash and explicit Direct plan classification is required"
+        )
     if not is_direct:
         failed.append("Gate 10 [Direct Plan Mandate]: Scheme is not verified as a Direct plan")
     details["is_direct"] = is_direct
@@ -650,10 +716,30 @@ def load_candidate_universe(
             "manager_tenure_years": float(manager_tenure_raw) if manager_tenure_raw is not None else None,
             "track_record_years": float(track_record_raw) if track_record_raw is not None else None,
             "composite_score": float(composite_raw) if composite_raw is not None else None,
-            # Never synthesize Direct-plan status. It must be a boolean
-            # from the dated scheme-level source record.
-            "is_direct": m.get("is_direct") if isinstance(m.get("is_direct"), bool) else None,
-            "plan": m.get("plan", m.get("plan_type", "")),
+            # Never synthesize Direct-plan status. Require the source document
+            # to be present locally, hash-matched and reviewer-attested.
+            "direct_plan_evidence": m.get("direct_plan_evidence"),
+            "_evidence_root": str(Path(metrics_path).resolve().parent),
+            "direct_plan_evidence_status": _reviewed_direct_plan_evidence_status({
+                "direct_plan_evidence": m.get("direct_plan_evidence"),
+                "_evidence_root": str(Path(metrics_path).resolve().parent),
+                "fund_name": m.get("name", m.get("scheme_name", m.get("id", ""))),
+            }),
+            "is_direct": (
+                m.get("is_direct")
+                if isinstance(m.get("is_direct"), bool)
+                and _reviewed_direct_plan_evidence_status({
+                    "direct_plan_evidence": m.get("direct_plan_evidence"),
+                    "_evidence_root": str(Path(metrics_path).resolve().parent),
+                    "fund_name": m.get("name", m.get("scheme_name", m.get("id", ""))),
+                }) == "REVIEWER_ATTESTED_HASH_MATCH"
+                else None
+            ),
+            "plan": (
+                m.get("direct_plan_evidence", {}).get("plan", "")
+                if isinstance(m.get("direct_plan_evidence"), dict)
+                else ""
+            ),
             "is_passive": is_passive_raw if is_passive_raw is not None else False,
             "_provenance": provenance_raw if provenance_raw is not None else {},
             "eligibility": {}
