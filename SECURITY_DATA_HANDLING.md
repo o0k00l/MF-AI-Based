@@ -37,7 +37,7 @@ git push --force origin --all
 git push --force origin --tags
 ```
 
-The current safe `data/lalit_portfolio/README.md` setup note can then be restored in a normal commit from a clean working clone. Do not restore any old JSON, statement, transaction or report files.
+Do not restore the former client-specific directory or any of its JSON, statement, transaction or report files. External-data setup instructions are maintained in the root README.
 
 ### Verify the purge
 
