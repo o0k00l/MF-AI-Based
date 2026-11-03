@@ -1,8 +1,10 @@
 # ==============================================================================
 # Fiduciary Recommendation Engine - Unified Python Dependencies
 # ==============================================================================
-# Authoritative runtime and test dependencies for the Fiduciary Engine.
-# Versions are pinned to verified working baselines.
+# Human-maintained dependency input constraints for development and CI.
+# This is NOT a complete lockfile: several direct and transitive versions are open.
+# Production release must use a reviewed, hash-locked requirements.lock generated
+# using the procedure in DEPENDENCY_LOCKING.md.
 # ==============================================================================
 
 # --- Core Data Ingestion & CAS Statement Parsers ---
@@ -18,17 +20,17 @@ scipy>=1.10.0                 # Brent's method root-finding for XIRR & portfolio
 python-dateutil>=2.8.0        # Robust financial date parsing and calendar math
 
 # --- Web UI & Dashboard ---
-streamlit==1.65.0             # Interactive advisory wizard and client inspection UI
+streamlit==1.66.1  # Pillow 13 compatible; 1.65.0 pins Pillow below 13             # Interactive advisory wizard and client inspection UI
 
 # --- AI Providers & Qualitative Verification ---
 google-genai==1.5.0           # Google Gemini API SDK for qualitative research
 openai>=3.0.0                 # Requesty.ai (primary) and OpenRouter (fallback) client
-requests==2.32.3              # HTTP communication with mfapi.in and external endpoints
-python-dotenv==1.0.1          # Secure environment variable loading from .env
+requests>=2.33.0,<3.0.0              # HTTP communication with mfapi.in and external endpoints
+python-dotenv>=1.2.2,<2.0.0          # Secure environment variable loading from .env
 
 # --- Report Formatting & Artifact Export ---
 markdown==3.11                # Markdown rendering for client restructuring reports
-xhtml2pdf==0.2.15             # HTML-to-PDF compilation for client report export
+xhtml2pdf>=0.2.20,<0.3.0             # HTML-to-PDF compilation for client report export
 
 # --- API Layer (Milestone 2) ---
 fastapi>=0.115.0              # REST API framework
@@ -38,10 +40,13 @@ sqlalchemy[asyncio]>=2.0.0    # Async ORM for DB access
 redis>=5.0.0                  # Redis client (NAV cache, sessions)
 confluent-kafka>=2.3.0        # Kafka producer/consumer (async events)
 pydantic>=2.5.0               # Data validation (engine models)
-python-jose[cryptography]>=3.3.0  # JWT token handling
+# python-jose intentionally omitted: current 3.5.0 has a critical JOSE algorithm-confusion advisory; no patched release is available. Add a maintained JWT package only with actual code use and explicit algorithm/key restrictions.
+
+# Pillow is imported directly by the UI/export path; require the security-fixed 13.0.0+ line.
+Pillow>=13.0.0,<14.0.0
 
 # --- Testing & Release Gates ---
-pytest==8.3.3                 # Authoritative test runner
+pytest>=9.0.3,<10.0.0                 # Authoritative test runner
 pytest-timeout==2.4.0         # Per-test timeout limit enforcement
 pytest-mock==3.12.0           # Unit test fixture mocking
 hypothesis==6.92.0            # Property-based invariant testing
