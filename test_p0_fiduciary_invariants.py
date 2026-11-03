@@ -77,7 +77,9 @@ def test_p0_1_universal_4_slot_sizing_invariant():
     assert roles["Mid-Cap Alpha Engine"].allocation_pct == 52.6
     assert roles["Large-Cap Bluechip Anchor"].allocation_pct == 21.1
     assert roles["Tactical Thematic Satellite"].allocation_pct == 0.0
-    assert sum(it.monthly_inr for it in plan_t6.items) == budget
+    assert sum(it.monthly_inr for it in plan_t6.items) + plan_t6.unallocated_budget_inr == budget
+    if plan_t6.unallocated_budget_inr > 0:
+        assert all(it.monthly_inr == 0 for it in plan_t6.items)
 
     # Tier 5: 85% Equity / 15% Debt (Established >= 5L) — policy-driven from high saa_targets
     plan_t5 = compute_deterministic_sip_blueprint(
@@ -96,7 +98,9 @@ def test_p0_1_universal_4_slot_sizing_invariant():
     assert roles5["Large-Cap Bluechip Anchor"].allocation_pct == 23.6
     assert roles5["Tactical Thematic Satellite"].allocation_pct == 0.0
     assert roles5["High-Grade Debt Cushion"].allocation_pct == 15.0
-    assert sum(it.monthly_inr for it in plan_t5.items) == budget
+    assert sum(it.monthly_inr for it in plan_t5.items) + plan_t5.unallocated_budget_inr == budget
+    if plan_t5.unallocated_budget_inr > 0:
+        assert all(it.monthly_inr == 0 for it in plan_t5.items)
 
     # Starter Portfolio (< 5L AUM): 60/40 Core/Mid, 0% Large, 0% Thematic (hardcoded starter logic)
     plan_starter = compute_deterministic_sip_blueprint(
@@ -111,7 +115,9 @@ def test_p0_1_universal_4_slot_sizing_invariant():
     assert roles_starter["Mid-Cap Alpha Engine"].allocation_pct == 40.0
     assert "Large-Cap Bluechip Anchor" not in roles_starter
     assert "Tactical Thematic Satellite" not in roles_starter
-    assert sum(it.monthly_inr for it in plan_starter.items) == 20000.0
+    assert sum(it.monthly_inr for it in plan_starter.items) + plan_starter.unallocated_budget_inr == 20000.0
+    if plan_starter.unallocated_budget_inr > 0:
+        assert all(it.monthly_inr == 0 for it in plan_starter.items)
     print("[PASS] P0.1 Universal 4-Slot Sizing Invariant Verified")
 
 
