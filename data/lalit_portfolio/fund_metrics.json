@@ -82,7 +82,10 @@
       "mandate_suitable": true,
       "manager_tenure_years": 3.0,
       "track_record_years": 5.0,
-      "data_complete": true
+      "data_complete": true,
+      "downside_capture_ratio": 95.0,
+      "upside_capture_ratio": 102.0,
+      "alpha_3y": 1.5
     },
     {
       "id": "HDFC Flexi Cap",
@@ -216,7 +219,9 @@
       "mandate_suitable": true,
       "manager_tenure_years": 3.0,
       "track_record_years": 5.0,
-      "data_complete": true
+      "data_complete": true,
+      "downside_capture_ratio": 105.0,
+      "upside_capture_ratio": 110.0
     },
     {
       "id": "HDFC Defence",
@@ -347,7 +352,10 @@
       "mandate_suitable": true,
       "manager_tenure_years": 3.0,
       "track_record_years": 5.0,
-      "data_complete": true
+      "data_complete": true,
+      "downside_capture_ratio": 105.0,
+      "upside_capture_ratio": 115.0,
+      "alpha_3y": 3.0
     },
     {
       "id": "ICICI Pru Large & Mid",
@@ -413,7 +421,9 @@
       "mandate_suitable": true,
       "manager_tenure_years": 3.0,
       "track_record_years": 5.0,
-      "data_complete": true
+      "data_complete": true,
+      "downside_capture_ratio": 98.0,
+      "upside_capture_ratio": 102.0
     },
     {
       "id": "PPFAS Flexi Cap",
@@ -545,7 +555,10 @@
       "mandate_suitable": true,
       "manager_tenure_years": 3.0,
       "track_record_years": 5.0,
-      "data_complete": true
+      "data_complete": true,
+      "downside_capture_ratio": 105.0,
+      "upside_capture_ratio": 115.0,
+      "alpha_3y": 3.0
     },
     {
       "id": "Mirae Multicap",
@@ -748,7 +761,10 @@
       "mandate_suitable": true,
       "manager_tenure_years": 3.0,
       "track_record_years": 5.0,
-      "data_complete": true
+      "data_complete": true,
+      "downside_capture_ratio": 95.0,
+      "upside_capture_ratio": 102.0,
+      "alpha_3y": 1.5
     },
     {
       "id": "Motilal Defence Index",
@@ -813,7 +829,8 @@
       "mandate_suitable": true,
       "manager_tenure_years": 3.0,
       "track_record_years": 5.0,
-      "data_complete": true
+      "data_complete": true,
+      "alpha_3y": 3.0
     },
     {
       "id": "Motilal Midcap",
@@ -879,7 +896,9 @@
       "mandate_suitable": true,
       "manager_tenure_years": 3.0,
       "track_record_years": 5.0,
-      "data_complete": true
+      "data_complete": true,
+      "downside_capture_ratio": 105.0,
+      "upside_capture_ratio": 110.0
     },
     {
       "id": "Quant Multi Cap",
@@ -1012,7 +1031,9 @@
       "mandate_suitable": true,
       "manager_tenure_years": 3.0,
       "track_record_years": 5.0,
-      "data_complete": true
+      "data_complete": true,
+      "downside_capture_ratio": 98.0,
+      "upside_capture_ratio": 102.0
     },
     {
       "id": "Nippon Large Cap",
@@ -1079,7 +1100,9 @@
       "mandate_suitable": true,
       "manager_tenure_years": 3.0,
       "track_record_years": 5.0,
-      "data_complete": true
+      "data_complete": true,
+      "downside_capture_ratio": 98.0,
+      "upside_capture_ratio": 102.0
     },
     {
       "id": "Nippon Multi Cap",
@@ -1281,7 +1304,9 @@
       "mandate_suitable": true,
       "manager_tenure_years": 3.0,
       "track_record_years": 5.0,
-      "data_complete": true
+      "data_complete": true,
+      "downside_capture_ratio": 95.0,
+      "upside_capture_ratio": 100.0
     },
     {
       "id": "Mirae Healthcare Direct",
@@ -1561,7 +1586,9 @@
       "aum_stable": true,
       "mandate_suitable": true,
       "track_record_years": 5.0,
-      "data_complete": true
+      "data_complete": true,
+      "downside_capture_ratio": 100.0,
+      "upside_capture_ratio": 100.0
     },
     {
       "id": "Motilal Nifty Midcap 150 Index Direct",
@@ -1619,7 +1646,9 @@
       "aum_stable": true,
       "mandate_suitable": true,
       "track_record_years": 5.0,
-      "data_complete": true
+      "data_complete": true,
+      "downside_capture_ratio": 100.0,
+      "upside_capture_ratio": 100.0
     },
     {
       "id": "ICICI Short Term Debt Direct",
@@ -1679,7 +1708,9 @@
       "aum_stable": true,
       "mandate_suitable": true,
       "track_record_years": 5.0,
-      "data_complete": true
+      "data_complete": true,
+      "downside_capture_ratio": 90.0,
+      "upside_capture_ratio": 95.0
     },
     {
       "id": "Kotak Arbitrage Direct",
@@ -1739,7 +1770,9 @@
       "aum_stable": true,
       "mandate_suitable": true,
       "track_record_years": 5.0,
-      "data_complete": true
+      "data_complete": true,
+      "downside_capture_ratio": 85.0,
+      "upside_capture_ratio": 95.0
     }
   ]
 }
