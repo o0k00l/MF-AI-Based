@@ -30,7 +30,7 @@ pip-compile --resolver=backtracking --generate-hashes \
   --output-file=requirements.lock requirements.txt
 ```
 
-Commit the input constraints and lock together. Do not hand-edit package versions or hashes. The CI `Dependencies / lock matches declared constraints` job runs `pip-compile --check` and fails if the committed lock is stale. After regeneration, review the resolved dependency graph and require the full test suite, `pip check`, and `pip-audit` to pass before release.
+Commit the input constraints and lock together. Do not hand-edit package versions or hashes. The CI `Dependencies / lock matches declared constraints` job regenerates the lock from `requirements.txt` and uses `git diff --exit-code` to fail if the committed lock changes. After regeneration, review the resolved dependency graph and require the full test suite, `pip check`, and `pip-audit` to pass before release.
 
 ## Security notes
 
