@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-app.py — Entry point for Fiduciary Wealth Copilot Streamlit Dashboard.
-Run: python -m streamlit run app.py --server.port 8501
+app.py — Launch the retired dashboard notice only.
+The legacy portfolio dashboard is disabled pending a validated rebuild.
 """
 import subprocess
 import sys
