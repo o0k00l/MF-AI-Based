@@ -3013,9 +3013,11 @@ def qualifies_as_equity_oriented_under_section_198(
     equity_pct: float,
     calculation_method: str = "annual_average_monthly_opening_closing",
     monthly_snapshots: Optional[List[MonthlyPortfolioSnapshot]] = None,
+    fof_underlying_traded_on_recognised_exchange: Optional[bool] = None,
     fy_start: Optional[date] = None,
     fy_end: Optional[date] = None,
     is_fund_of_funds: bool = False,
+    fof_underlying_traded_on_recognised_exchange: Optional[bool] = None,
 ) -> ClassificationResult:
     """
     Section 198(8): equity-oriented fund qualification.
@@ -3036,6 +3038,24 @@ def qualifies_as_equity_oriented_under_section_198(
         )
 
     if is_fund_of_funds:
+        if not isinstance(fof_underlying_traded_on_recognised_exchange, bool):
+            raise InsufficientDataError(
+                "Section 198 fund-of-funds classification requires verified evidence whether the underlying fund is exchange-traded.",
+                missing_data="fof_underlying_traded_on_recognised_exchange",
+                required_source="Verified exchange-listing status of the underlying fund",
+            )
+        if not fof_underlying_traded_on_recognised_exchange:
+            return ClassificationResult(
+                qualifies=False,
+                provision="Section 198(8)",
+                effective_date=fy_end,
+                threshold=65.0,
+                calculation_method="not_qualifying_non_exchange_traded_fof",
+                source_data_status="verified_structure",
+                reason="The 90%/90% fund-of-funds limb requires the underlying fund to be traded on a recognised stock exchange",
+                equity_pct=0.0,
+                is_fund_of_funds=True,
+            )
         fund_units_pct = compute_annual_average_monthly_opening_closing(
             monthly_snapshots, fy_start, fy_end, "fof_units_pct"
         )
@@ -3474,6 +3494,7 @@ def classify_specified_mutual_fund(
             fy_start=fy_start,
             fy_end=fy_end,
             is_fund_of_funds=is_fund_of_funds,
+            fof_underlying_traded_on_recognised_exchange=fof_underlying_traded_on_recognised_exchange,
         )
     
     section_50aa_result = qualifies_as_specified_mutual_fund_under_section_50AA(
