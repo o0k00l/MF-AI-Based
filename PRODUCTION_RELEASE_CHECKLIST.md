@@ -83,7 +83,7 @@ A release is assessed against one exact commit SHA. Evidence from older commits,
 
 ## Gate 6 — Software quality and reproducibility
 
-- [x] Complete P0 invariant suite passes on code SHA `0f1e1b9`.
+- [x] Complete P0 invariant suite passes on code SHA `609bd8a`.
 - [x] Complete correctness regression suite passes on code SHA `0f1e1b9`.
 - [ ] Property-based and boundary tests cover money, dates, XIRR, tax lots, coverage, duplicates and invalid inputs.
 - [x] Universal policy checks pass against central policy files, without duplicated hardcoded thresholds.
@@ -91,8 +91,10 @@ A release is assessed against one exact commit SHA. Evidence from older commits,
 - [x] Clean-checkout privacy and engine initialization tests pass.
 - [x] Runtime and development dependencies are hash-locked, and CI verifies `pip install --require-hashes`, `pip check` and `pip-audit`.
 - [ ] Supported Python version and runtime platform are pinned and verified.
-- [ ] Static analysis, formatting, type checking, dependency vulnerability review and secret scanning pass.
-- [ ] Software bill of materials and release artifact digest are retained.
+- [x] Dependency vulnerability review: `pip-audit` reports no known vulnerabilities in the hash-locked dependency tree.
+- [ ] Static analysis, formatting, type checking and secret scanning pass.
+- [x] CycloneDX dependency SBOM is generated and retained as a GitHub Actions artifact (digest recorded above).
+- [ ] Production release artifact digest and independent reviewer sign-off are retained.
 
 **Current status:** Full CI passed on SHA `0f1e1b9` (123 passed, 2 private-CAS integration skips). The same SHA passed hash-locked installation, `pip check` and `pip-audit`. Independent SBOM review, static analysis, formatting/type checking and secret-scan evidence remain outstanding.
 
