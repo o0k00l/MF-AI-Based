@@ -510,8 +510,18 @@ def plan_fy_tranches(
     
     import math
     for fund_id, plan in plans.items():
-        if not plan.lots and (plan.total_amount is None or float(plan.total_amount) <= 0):
+        # Validate the requested amount before looking up NAV or iterating lots.
+        try:
+            target_sell_amount = float(plan.total_amount) if plan.total_amount is not None else float("inf")
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"Invalid sale amount for {fund_id}: {plan.total_amount!r}") from exc
+        if math.isnan(target_sell_amount) or target_sell_amount < 0:
+            raise ValueError(f"Invalid sale amount for {fund_id}: {plan.total_amount!r}")
+        if target_sell_amount == 0 or (target_sell_amount == float("inf") and not plan.lots):
             continue
+        if not plan.lots:
+            raise ValueError(f"No verified tax lots available for positive sale request: {fund_id}")
+
         raw_nav = current_navs.get(fund_id)
         try:
             current_nav = float(raw_nav)
@@ -520,10 +530,6 @@ def plan_fy_tranches(
         if not math.isfinite(current_nav) or current_nav <= 0:
             raise ValueError(f"Current NAV for {fund_id} must be finite and positive")
         
-        # Validate the requested gross amount before allocating any lot.
-        target_sell_amount = float(plan.total_amount) if plan.total_amount is not None else float("inf")
-        if target_sell_amount < 0 or not (target_sell_amount == float("inf") or (target_sell_amount < float("inf"))):
-            raise ValueError(f"Invalid sale amount for {fund_id}: {plan.total_amount!r}")
         remaining_target = target_sell_amount
         
         # Sort lots strictly by FIFO (purchase_date)
