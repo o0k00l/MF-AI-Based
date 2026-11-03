@@ -537,6 +537,11 @@ def plan_fy_tranches(
             is_lt = lot.is_long_term_given(as_of, tax_rules.get("lt_holding_months", 12))
             cost_basis = (units_to_sell / lot.units) * lot.cost if lot.units > 0 else 0.0
             lot_gain = lot_val - cost_basis
+            fund_tax_class = classify_fund_for_tax(lot, tax_rules)
+            if fund_tax_class != "equity_oriented":
+                raise ValueError(
+                    f"Tax planning for {fund_tax_class!r} holdings is not supported by this equity-only exemption planner."
+                )
             
             all_lots.append({
                 "fund_id": fund_id,
@@ -546,8 +551,13 @@ def plan_fy_tranches(
                 "cost": cost_basis,
                 "units": units_to_sell,
                 "current_nav": current_nav,
-                "fund_tax_class": classify_fund_for_tax(lot, tax_rules),
+                "fund_tax_class": fund_tax_class,
             })
+        if target_sell_amount != float("inf") and remaining_target > 0.01:
+            raise ValueError(
+                f"Insufficient verified lot value for {fund_id}: requested {target_sell_amount:.2f}, "
+                f"unallocated {remaining_target:.2f}"
+            )
     # Separate loss lots vs gain lots
     loss_lots = [l for l in all_lots if l["gain"] <= 0]
     gain_lots = [l for l in all_lots if l["type"] == "LT" and l["gain"] > 0]
