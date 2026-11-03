@@ -14,7 +14,7 @@ pypdf>=4.0.0                  # Fallback PDF parsing and text stream extraction
 
 # --- Numerical Math & Tabular Processing ---
 pandas>=2.0.0                 # Tabular data manipulation for Streamlit views and reports
-scipy>=1.10.0                 # Brent's method root-finding for XIRR & portfolio math
+scipy>=1.18.1                 # Brent's method root-finding for XIRR & portfolio math
 python-dateutil>=2.8.0        # Robust financial date parsing and calendar math
 
 # --- Web UI & Dashboard ---
