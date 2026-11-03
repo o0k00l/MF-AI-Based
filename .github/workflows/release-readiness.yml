@@ -17,16 +17,13 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: '3.11'
-      - name: Require a hash-locked dependency set
+      - name: Verify the lock matches declared dependency constraints
         run: |
-          if [ ! -f requirements.lock ]; then
-            echo "::error::requirements.lock is missing. Generate and review a hash-locked lockfile before creating a production release."
-            exit 1
-          fi
+          python -m pip install "pip==24.3.1" "pip-tools==7.4.1"
+          pip-compile --resolver=backtracking --generate-hashes --output-file=requirements.lock requirements.txt
+          git diff --exit-code -- requirements.lock
       - name: Install locked dependencies only
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install --require-hashes -r requirements.lock
+        run: python -m pip install --require-hashes -r requirements.lock
       - name: Run P0 and correctness suites
         run: |
           python -m pytest test_p0_fiduciary_invariants.py -v --tb=short
