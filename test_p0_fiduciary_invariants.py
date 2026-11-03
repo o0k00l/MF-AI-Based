@@ -32,6 +32,28 @@ from tax.transition_planner import (
 )
 
 
+# Fixture to check if CAS data is available (required for some integration tests)
+@pytest.fixture(scope="module")
+def cas_data_available():
+    """Check if CAS Excel statements are available in data/lalit_portfolio."""
+    cas_dir = Path(__file__).parent / "data" / "lalit_portfolio"
+    if not cas_dir.exists():
+        return False
+    # Check for any xlsx files
+    cas_files = list(cas_dir.glob("*.xlsx")) + list((cas_dir / "statements").glob("*.xlsx"))
+    return len(cas_files) > 0
+
+
+# Helper function to safely get CAS paths (for tests that require real data)
+def get_cas_paths_or_skip():
+    """Get CAS data paths or raise pytest skip if not available."""
+    from advisor import get_default_paths
+    try:
+        return get_default_paths()
+    except FileNotFoundError as e:
+        pytest.skip(str(e))
+
+
 def test_p0_1_universal_4_slot_sizing_invariant():
     """Verifies that equity allocations across all risk tiers strictly adhere to policy-driven SAA targets."""
     budget = 100000.0
@@ -314,12 +336,15 @@ def test_p0_4_candidate_universe_and_no_action_branch():
 
 def test_p0_5_fiduciary_personal_redemption_engine():
     """Verifies the Deterministic Fiduciary Personal Cash Redemption Engine across all ticket sizes."""
-    from advisor import get_default_paths
     from core.math_engine import aggregate_fiduciary_facts
     from core.redemption_engine import compute_personal_redemption_plan
     from core.models import RedemptionPriorityTier
 
-    cas, metrics, config, aliases, _ = get_default_paths()
+    # Skip if CAS data not available (integration test requiring real statements)
+    if not (Path(__file__).parent / "data" / "lalit_portfolio").exists():
+        pytest.skip("CAS Excel statements not available - integration test skipped")
+
+    cas, metrics, config, aliases, _ = get_cas_paths_or_skip()
     facts = aggregate_fiduciary_facts(cas, metrics, config, aliases)
     tx_path = cas.parent.parent / "transactions.json"
     if not tx_path.exists():
@@ -800,11 +825,14 @@ def test_p0_11_candidate_specific_lookthrough_overlap():
     Verifies that the overlap pillar calculates candidate-specific look-through overlap
     against the client's actual portfolio holdings, producing differentiated scores.
     """
-    from advisor import get_default_paths
     from core.math_engine import aggregate_fiduciary_facts, compute_candidate_portfolio_overlap
     import json
 
-    cas, metrics_p, config, aliases, _ = get_default_paths()
+    # Skip if CAS data not available (integration test requiring real statements)
+    if not (Path(__file__).parent / "data" / "lalit_portfolio").exists():
+        pytest.skip("CAS Excel statements not available - integration test skipped")
+
+    cas, metrics_p, config, aliases, _ = get_cas_paths_or_skip()
     facts = aggregate_fiduciary_facts(cas, metrics_p, config, aliases)
 
     with open(metrics_p, "r", encoding="utf-8") as f:
@@ -940,15 +968,15 @@ def test_p0_14_cashflow_matched_tri_benchmark_engine():
     """
     from core.math_engine import calculate_cashflow_matched_benchmark_xirr, calculate_portfolio_xirr
     from pathlib import Path
+    import pytest
 
-    def _load_tri_data(path):
-        with open(path, "r") as f:
-            return json.load(f)
-
+    # Skip if transactions.json not available (requires processed CAS data)
     tx_path = Path("data/lalit_portfolio/transactions.json")
+    if not tx_path.exists():
+        pytest.skip("transactions.json not available - requires processed CAS Excel data")
+
     tri_path = Path("data/policy/benchmark_tri_series.json")
 
-    assert tx_path.exists(), "transactions.json must exist"
     assert tri_path.exists(), "benchmark_tri_series.json must exist"
 
     # 1. NIFTY 500 TRI Audit - Original file should fail coverage gate
@@ -1009,12 +1037,15 @@ def test_p0_15_runtime_mandate_hold_enforcement():
     - Asserts deterministic SIP and lumpsum plans are non-actionable conditional scenarios
     - Asserts that assert_mandate_execution_authorized strictly raises MandateHoldViolationError
     """
-    from advisor import get_default_paths
     from core.math_engine import aggregate_fiduciary_facts, assert_mandate_execution_authorized
     from core.models import MandateExecutionState, MandateHoldViolationError
     import pytest
 
-    cas, metrics, config, aliases, _ = get_default_paths()
+    # Skip if CAS data not available (integration test requiring real statements)
+    if not (Path(__file__).parent / "data" / "lalit_portfolio").exists():
+        pytest.skip("CAS Excel statements not available - integration test skipped")
+
+    cas, metrics, config, aliases, _ = get_cas_paths_or_skip()
     facts = aggregate_fiduciary_facts(cas, metrics, config, aliases)
 
     assert facts.mandate_state == MandateExecutionState.HOLD_PENDING_TRI_VALIDATION
@@ -1042,7 +1073,11 @@ def test_p0_16_tri_coverage_gate_rejects_inflated_metadata():
     import tempfile
     import os
 
+    # Skip if transactions.json not available (requires processed CAS data)
     tx_path = Path("data/lalit_portfolio/transactions.json")
+    if not tx_path.exists():
+        pytest.skip("transactions.json not available - requires processed CAS Excel data")
+
     tri_path = Path("data/policy/benchmark_tri_series_high_coverage.json")
 
     # Create a sparse TRI fixture with inflated coverage_pct metadata
@@ -1089,21 +1124,5 @@ def test_p0_16_tri_coverage_gate_rejects_inflated_metadata():
         assert "100" not in str(e).lower() or "1.0" in str(e) or "1.0%" in str(e)
     except Exception as e:
         assert False, f"Expected TriProvenanceError, got {type(e).__name__}: {e}"
-    test_p0_1_universal_4_slot_sizing_invariant()
-    test_p0_2_tax_shield_siphon_and_day_366()
-    test_p0_3_all_10_binary_eligibility_gates()
-    test_p0_4_candidate_universe_and_no_action_branch()
-    test_p0_5_fiduciary_personal_redemption_engine()
-    test_p0_6_multi_horizon_selection_and_peer_evaluation()
-    test_p0_7_boundary_mutex_and_thematic_taper()
-    test_p0_8_folio_router_and_idcw_rejection()
-    test_p0_9_thematic_taper_exact_algebra_and_boundary()
-    test_p0_10_gate4_fail_closed_and_missing_metrics()
-    test_p0_11_candidate_specific_lookthrough_overlap()
-    test_p0_12_all_four_slots_passive_fallback_and_no_action()
-    test_p0_13_statutory_tax_specified_fund_and_mandate_state()
-    test_p0_14_cashflow_matched_tri_benchmark_engine()
-    test_p0_15_runtime_mandate_hold_enforcement()
-    print("\n=======================================================")
-    print(" ALL 15 P0 FIDUCIARY INVARIANTS ARE FULLY TESTED!")
-    print("=======================================================")
+
+    print("[PASS] P0.16 TRI Coverage Gate Rejects Inflated Metadata Verified")
