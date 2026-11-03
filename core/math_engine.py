@@ -3069,7 +3069,6 @@ def qualifies_as_equity_oriented_under_section_198(
     fy_start: Optional[date] = None,
     fy_end: Optional[date] = None,
     is_fund_of_funds: bool = False,
-    monthly_coverage_evidence: Optional[MonthlySnapshotCoverageEvidence] = None,
 ) -> ClassificationResult:
     """
     Section 198(8): equity-oriented fund qualification.
