@@ -362,15 +362,17 @@ def classify_cashflow(txn_type: str, txn_subtype: str = "") -> str:
     txn_subtype = txn_subtype.upper() if txn_subtype else ""
     
     # External flows - investor puts in or takes out cash
-    if txn_type in ("PURCHASE", "SIP", "REDEMPTION", "DIVIDEND"):
+    if txn_type == "DIVIDEND" and any(marker in txn_subtype for marker in ("REINVEST", "REINVESTMENT", "DRP")):
+        return "internal"
+
+    if txn_type in ("PURCHASE", "SIP", "REDEMPTION", "SWP", "DIVIDEND"):
         return "external"
-    
+
     # Internal flows - net zero at portfolio level
     if txn_type in ("SWITCH_IN", "SWITCH_OUT", "STP_IN", "STP_OUT", "DIVIDEND_REINVEST"):
         return "internal"
-    
-    # Default to external for unknown types (conservative)
-    return "external"
+
+    raise ValueError(f"Unsupported transaction type for cash-flow classification: {txn_type!r}")
 
 
 def filter_external_cashflows(transactions: list[dict]) -> list[dict]:
