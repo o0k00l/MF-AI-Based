@@ -128,8 +128,10 @@ mc_ids = sorted(mc_funds, key=mc_funds.get, reverse=True)
 pairs = []
 for i in range(len(mc_ids)):
     for j in range(i+1, len(mc_ids)):
-        a = set(match_scheme(mc_ids[i]).get("h", [])[:10])
-        b = set(match_scheme(mc_ids[j]).get("h", [])[:10])
+        # mc_ids already contains canonical metric identifiers; do not feed
+        # identifiers back through the external CAS alias resolver.
+        a = set(metrics[mc_ids[i]].get("h", [])[:10])
+        b = set(metrics[mc_ids[j]].get("h", [])[:10])
         pairs.append((mc_ids[i], mc_ids[j], round(100*len(a&b)/10, 1)))
 f2 = {"funds": mc_funds, "pairs": pairs, "avg_overlap": round(sum(p[2] for p in pairs)/max(1,len(pairs)),1), "total": sum(mc_funds.values())}
 
