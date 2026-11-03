@@ -250,6 +250,11 @@ def test_tax_planner_respects_prior_ltcg_realized_in_current_fy():
         cost=500,
         source="cas",
         equity_pct=100.0,
+        equity_pct_method="annual_average_monthly_opening_closing",
+        equity_pct_fy_start=2026,
+        equity_pct_source_url="https://example.test/verified-monthly-disclosure",
+        equity_pct_source_sha256="a" * 64,
+        equity_pct_source_verified=True,
     )
     plan = FundSellPlan(fund_id="fund-x", total_amount=1000.0, lots=[lot])
     tax_rules = {
@@ -289,6 +294,11 @@ def test_tax_planner_refuses_non_equity_tax_class_in_equity_exemption_path():
         cost=500,
         source="cas",
         equity_pct=20.0,
+        equity_pct_method="annual_average_monthly_opening_closing",
+        equity_pct_fy_start=2026,
+        equity_pct_source_url="https://example.test/verified-monthly-disclosure",
+        equity_pct_source_sha256="b" * 64,
+        equity_pct_source_verified=True,
     )
     plan = FundSellPlan(fund_id="fund-x", total_amount=1000.0, lots=[lot])
     with pytest.raises(ValueError, match="not supported by this equity-only exemption planner"):
@@ -407,6 +417,11 @@ def test_tax_planner_rejects_missing_nav_and_insufficient_verified_lots():
         cost=500,
         source="cas",
         equity_pct=100.0,
+        equity_pct_method="annual_average_monthly_opening_closing",
+        equity_pct_fy_start=2026,
+        equity_pct_source_url="https://example.test/verified-monthly-disclosure",
+        equity_pct_source_sha256="a" * 64,
+        equity_pct_source_verified=True,
     )
     tax_rules = {
         "ltcg_exemption": 125000.0,
@@ -639,6 +654,11 @@ def test_current_fy_exit_load_uses_actual_planning_date(purchase_date, expected_
         cost=1000,
         source="cas",
         equity_pct=100.0,
+        equity_pct_method="annual_average_monthly_opening_closing",
+        equity_pct_fy_start=2026,
+        equity_pct_source_url="https://example.test/verified-monthly-disclosure",
+        equity_pct_source_sha256="a" * 64,
+        equity_pct_source_verified=True,
     )
     plan = FundSellPlan(fund_id="fund-x", total_amount=900.0, lots=[lot])
     result = plan_fy_tranches(
@@ -860,6 +880,11 @@ def test_tax_planner_requires_verified_prior_ltcg_headroom(tmp_path):
         cost=500,
         source="cas",
         equity_pct=100.0,
+        equity_pct_method="annual_average_monthly_opening_closing",
+        equity_pct_fy_start=2026,
+        equity_pct_source_url="https://example.test/verified-monthly-disclosure",
+        equity_pct_source_sha256="a" * 64,
+        equity_pct_source_verified=True,
     )
     with pytest.raises(ValueError, match="Verified prior_ltcg_this_fy is required"):
         plan_fy_tranches(
