@@ -699,7 +699,7 @@ def validate_direct_sip_mandate(sip_plan: Any) -> bool:
             raise ValueError(f"Invalid SIP amount for recommendation {scheme!r}") from exc
         if not math.isfinite(amount_value) or amount_value < 0:
             raise ValueError(f"SIP amount must be finite and non-negative for {scheme!r}")
-        if amount_value == 0 and scheme.upper().startswith("NO_ACTION"):
+        if amount_value == 0:
             continue
         if is_direct is not True:
             raise ValueError(
