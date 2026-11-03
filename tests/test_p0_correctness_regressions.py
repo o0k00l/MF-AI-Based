@@ -389,3 +389,52 @@ def test_daily_tri_calculation_uses_exact_observations_and_reports_unverified_so
     assert result["benchmark_terminal_valuation_inr"] == pytest.approx(1040.0)
     assert result["portfolio_xirr_pct"] > result["benchmark_matched_xirr_pct"]
     assert result["provenance_audit"]["source_authenticity_verified"] is False
+
+
+def test_tax_planner_rejects_missing_nav_and_insufficient_verified_lots():
+    lot = Lot(
+        fund_id="fund-x",
+        folio_name="folio-1",
+        purchase_date=date(2024, 1, 1),
+        units=10,
+        nav=50,
+        cost=500,
+        source="cas",
+        equity_pct=100.0,
+    )
+    tax_rules = {
+        "ltcg_exemption": 125000.0,
+        "lt_holding_months": 12,
+        "exit_load_pct": 1.0,
+        "classes": {
+            "equity_oriented": {
+                "long_term": {"rate_pct": 12.5, "exemption_limit_inr": 125000.0, "holding_period_months_gt": 12},
+                "short_term": {"rate_pct": 20.0},
+            }
+        },
+        "exit_load_schedules": {},
+    }
+    with pytest.raises(ValueError, match="Missing or invalid current NAV"):
+        plan_fy_tranches(
+            plans={"fund-x": FundSellPlan(fund_id="fund-x", total_amount=1000.0, lots=[lot])},
+            tax_rules=tax_rules,
+            as_of=date(2026, 11, 3),
+            current_navs={},
+        )
+    with pytest.raises(ValueError, match="Insufficient verified lot value"):
+        plan_fy_tranches(
+            plans={"fund-x": FundSellPlan(fund_id="fund-x", total_amount=2000.0, lots=[lot])},
+            tax_rules=tax_rules,
+            as_of=date(2026, 11, 3),
+            current_navs={"fund-x": 100.0},
+        )
+
+
+def test_tax_planner_rejects_negative_sale_even_when_no_lots_exist():
+    with pytest.raises(ValueError, match="Invalid sale amount"):
+        plan_fy_tranches(
+            plans={"fund-x": FundSellPlan(fund_id="fund-x", total_amount=-1.0, lots=[])},
+            tax_rules={"ltcg_exemption": 125000.0},
+            as_of=date(2026, 11, 3),
+            current_navs={},
+        )
