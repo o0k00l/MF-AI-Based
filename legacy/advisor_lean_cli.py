@@ -458,6 +458,7 @@ f4 = compute_saa(profile_name=cfg.get("ips", {}).get("risk_tolerance", "aggressi
 
 # ── Unified XIRR Engine from core.math_engine ──
 from core.math_engine import calculate_xirr, calculate_portfolio_xirr
+from core.benchmark_reporting import format_performance_metrics
 
 from datetime import datetime, date
 
@@ -803,9 +804,12 @@ SYS = """You are a SEBI-registered fee-only Fiduciary Wealth Advisor. Rules:
 def build_health_prompt(f):
     top = sorted(f["fee_bleed"]["regular_value"] and [{"scheme":h["scheme"],"value":h["value"],"commission":round(h["value"]*0.01,0)} for h in regular], key=lambda x:-x["value"])[:8]
     ov = [{"a":a,"b":b,"pct":p} for a,b,p in f["overlap"]["pairs"]][:6]
-    portfolio_xirr_text = f"{f['xirr_pct'] * 100:.2f}%" if f.get("xirr_pct") is not None else "UNAVAILABLE"
-    benchmark_xirr_text = f"{f['benchmark_xirr_pct'] * 100:.2f}%" if f.get("benchmark_xirr_pct") is not None else "BLOCKED — authenticated daily TRI and independent calendar unavailable"
-    alpha_text = f"{f['alpha_pct']:+.2f}%" if f.get("alpha_pct") is not None else "UNAVAILABLE"
+    performance_text = format_performance_metrics(
+        f.get("xirr_pct"), f.get("benchmark_xirr_pct"), f.get("alpha_pct")
+    )
+    portfolio_xirr_text = performance_text["portfolio_xirr"]
+    benchmark_xirr_text = performance_text["benchmark_xirr"]
+    alpha_text = performance_text["alpha"]
     return f"""Generate Portfolio Health & Commission Audit for {f['client']}.
 
 FACTS:
