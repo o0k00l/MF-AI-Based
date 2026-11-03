@@ -2878,9 +2878,9 @@ def validate_monthly_snapshot_coverage(
         )
     if evidence.reviewer_attested is not True:
         raise InsufficientDataError(
-            "Section 198 monthly disclosure calendar is not independently verified.",
-            missing_data="independent monthly coverage verification",
-            required_source="Independently verified monthly disclosure calendar",
+            "Section 198 monthly disclosure calendar lacks an explicit reviewer attestation.",
+            missing_data="reviewer attestation for monthly coverage",
+            required_source="Monthly disclosure calendar with source URL and document digest, reviewed by an adviser",
         )
     if not isinstance(evidence.source_url, str) or not evidence.source_url.startswith("https://"):
         raise ValueError("Monthly snapshot source_url must be an HTTPS URL")
@@ -2898,7 +2898,7 @@ def validate_monthly_snapshot_coverage(
         missing = sorted(set(expected) - set(observed))
         unexpected = sorted(set(observed) - set(expected))
         raise InsufficientDataError(
-            "Section 198 monthly snapshot dates do not match the verified monthly disclosure calendar.",
+            "Section 198 monthly snapshot dates do not match the reviewer-attested monthly disclosure calendar.",
             missing_data=f"missing_months={missing}, unexpected_months={unexpected}",
             required_source="Complete monthly opening and closing portfolio disclosures",
         )
@@ -2988,8 +2988,8 @@ def validate_daily_snapshot_coverage(
         )
     if evidence.reviewer_attested is not True:
         raise InsufficientDataError(
-            "Daily snapshot calendar evidence is not independently verified.",
-            missing_data="independent calendar verification",
+            "Daily snapshot calendar evidence lacks an explicit reviewer attestation.",
+            missing_data="reviewer attestation for daily coverage",
             required_source="Independently verified expected observation calendar",
         )
     if not isinstance(evidence.source_url, str) or not evidence.source_url.startswith("https://"):
@@ -3012,7 +3012,7 @@ def validate_daily_snapshot_coverage(
         raise InsufficientDataError(
             "Section 76 daily snapshot dates do not exactly match the verified expected-date calendar.",
             missing_data=f"missing_dates={missing[:10]}, unexpected_dates={unexpected[:10]}",
-            required_source="Complete daily closing portfolio series aligned to the independently verified expected-date calendar",
+            required_source="Complete daily closing portfolio series aligned to a source-documented, reviewer-attested expected-date calendar",
         )
 
 
