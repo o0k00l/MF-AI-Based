@@ -44,3 +44,38 @@ def test_negative_one_year_return_is_scored_as_a_bad_return_not_replaced_by_alph
     }
     _, pillars = calculate_candidate_6_pillar_score(candidate, "Flexi Cap")
     assert pillars["alpha_return"] == 30.0
+
+
+
+def test_metrics_loader_rejects_missing_evidence_file(tmp_path):
+    from core.candidate_scoring import FiduciaryFundSelector
+
+    with pytest.raises(FileNotFoundError, match="missing"):
+        FiduciaryFundSelector(fund_metrics_path=tmp_path / "missing.json")
+
+
+def test_metrics_loader_rejects_malformed_and_empty_evidence(tmp_path):
+    import json
+    from core.candidate_scoring import FiduciaryFundSelector
+
+    path = tmp_path / "metrics.json"
+    path.write_text("{not-json", encoding="utf-8")
+    with pytest.raises(ValueError, match="invalid JSON"):
+        FiduciaryFundSelector(fund_metrics_path=path)
+
+    path.write_text(json.dumps({"funds": []}), encoding="utf-8")
+    with pytest.raises(ValueError, match="no fund records"):
+        FiduciaryFundSelector(fund_metrics_path=path)
+
+
+def test_metrics_loader_rejects_duplicate_fund_identity(tmp_path):
+    import json
+    from core.candidate_scoring import FiduciaryFundSelector
+
+    path = tmp_path / "metrics.json"
+    path.write_text(json.dumps({"funds": [
+        {"id": "same", "name": "Fund A"},
+        {"id": "same", "name": "Fund B"},
+    ]}), encoding="utf-8")
+    with pytest.raises(ValueError, match="Duplicate"):
+        FiduciaryFundSelector(fund_metrics_path=path)
