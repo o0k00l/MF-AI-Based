@@ -2700,21 +2700,38 @@ def calculate_saa_drift_minimizer(
     
     current_pct = {k: (v / total_val) * 100 for k, v in current_alloc.items()}
     
-    # Dynamic target mapping supporting Tier 6 granular keys
-    tgt_eq = (
-        target_allocation.get("equity_pct", 0.0)
-        or (
-            target_allocation.get("large_cap_pct", 0.0)
-            + target_allocation.get("mid_small_cap_pct", 0.0)
-            + target_allocation.get("mid_cap_pct", 0.0)
-            + target_allocation.get("small_cap_pct", 0.0)
-            + target_allocation.get("flexi_multi_cap_pct", 0.0)
-        )
+    # Do not invent a 95/5 aggressive target when the client's SAA is absent.
+    # An explicit zero-equity target is valid and must not be replaced by a fallback.
+    if not isinstance(target_allocation, dict):
+        raise ValueError("Explicit client SAA target allocation is required")
+    equity_keys = (
+        "large_cap_pct", "mid_small_cap_pct", "mid_cap_pct",
+        "small_cap_pct", "flexi_multi_cap_pct",
     )
-    if tgt_eq <= 0:
-        tgt_eq = 95.0
-    tgt_db = target_allocation.get("debt_liquid_pct", target_allocation.get("debt_global_pct", 100.0 - tgt_eq))
-    tgt_cash = target_allocation.get("cash_pct", 0.0)
+    has_equity_target = "equity_pct" in target_allocation or any(
+        key in target_allocation for key in equity_keys
+    )
+    if not has_equity_target:
+        raise ValueError("Client SAA is missing an explicit equity allocation; no default target is permitted")
+    try:
+        if "equity_pct" in target_allocation:
+            tgt_eq = float(target_allocation["equity_pct"])
+        else:
+            tgt_eq = sum(float(target_allocation.get(key, 0.0)) for key in equity_keys)
+        debt_key = "debt_liquid_pct" if "debt_liquid_pct" in target_allocation else (
+            "debt_global_pct" if "debt_global_pct" in target_allocation else "debt_pct"
+        )
+        if debt_key not in target_allocation:
+            raise ValueError("Client SAA is missing an explicit debt allocation")
+        tgt_db = float(target_allocation[debt_key])
+        tgt_cash = float(target_allocation.get("cash_pct", 0.0))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Client SAA equity/debt/cash targets must be numeric") from exc
+    target_values = (tgt_eq, tgt_db, tgt_cash)
+    if any(not math.isfinite(value) or not 0.0 <= value <= 100.0 for value in target_values):
+        raise ValueError("Client SAA equity/debt/cash targets must be finite and between 0 and 100")
+    if abs(sum(target_values) - 100.0) > 0.01:
+        raise ValueError("Client SAA equity, debt and cash targets must sum to 100%")
 
     target_pct = {
         "Equity": tgt_eq,
