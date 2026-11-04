@@ -710,6 +710,9 @@ def load_candidate_universe(
             "direct_plan_evidence": m.get("direct_plan_evidence"),
             "_evidence_root": str(Path(metrics_path).resolve().parent),
             "fund_name": fund_name,
+            "scheme_id": scheme_id,
+            "isin": m.get("isin"),
+            "amc_name": m.get("amc_name"),
         }
         direct_evidence_status = _reviewed_direct_plan_evidence_status(evidence_context)
         source_direct_flag = m.get("is_direct")
@@ -751,6 +754,8 @@ def load_candidate_universe(
         cand = {
             "fund_id": m.get("id", ""),
             "scheme_id": scheme_id,
+            "isin": m.get("isin"),
+            "amc_name": m.get("amc_name"),
             "constituent_weights": lookthrough.get("constituent_weights"),
             "constituent_weights_coverage_pct": lookthrough.get("constituent_weights_coverage_pct"),
             "lookthrough_status": lookthrough["status"],
