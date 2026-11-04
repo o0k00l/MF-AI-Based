@@ -2205,3 +2205,26 @@ def test_sip_operational_constraints_reject_invalid_policy():
     policy["sip_increment_inr"] = 0.0
     with pytest.raises(ValueError, match="finite and positive"):
         _sip_operational_constraint_violations([_sip_item()], policy)
+
+
+def test_cas_parser_marks_stock_lookthrough_as_missing_not_zero(tmp_path):
+    from openpyxl import Workbook
+    from core.math_engine import parse_cas
+
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Portfolio Details"
+    sheet.append(["To Date", "2026-10-31"])
+    sheet.append(["Scheme Name", "Folio No.", "Current Value", "Invested Value"])
+    sheet.append(["Example Equity Fund - Direct Growth", "12345", 150000.0, 120000.0])
+    path = tmp_path / "cas.xlsx"
+    workbook.save(path)
+
+    as_of_date, holdings = parse_cas(path)
+
+    assert as_of_date == "2026-10-31"
+    assert len(holdings) == 1
+    assert holdings[0]["constituent_weights"] is None
+    assert holdings[0]["constituent_weights_coverage_pct"] is None
+    assert holdings[0]["lookthrough_status"] == "MISSING"
+    assert "do not contain stock-level" in holdings[0]["lookthrough_reason"]
