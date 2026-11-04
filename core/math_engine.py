@@ -4062,6 +4062,11 @@ def select_autonomous_blueprint_funds(
             # Existing holdings must influence marginal portfolio fit. A confirmed
             # empty portfolio has zero overlap; missing/incomplete constituent
             # evidence is unknown and therefore cannot enter the ranking.
+            if holdings:
+                if candidate.get("lookthrough_status") != "VERIFIED":
+                    continue
+                if any(getattr(holding, "lookthrough_status", "MISSING") != "VERIFIED" for holding in holdings):
+                    continue
             portfolio_overlap = compute_candidate_portfolio_overlap(
                 candidate,
                 holdings=holdings,
