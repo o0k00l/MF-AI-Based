@@ -336,9 +336,11 @@ def _safe_exception_code(exc: Exception) -> str | None:
 
 
 def _call_gemini(prompt: str, system_prompt: str = "") -> str:
-    key = os.getenv("GEMINI_API_KEY", "")
-    if not key:
-        raise ProviderError("Gemini", "GEMINI_API_KEY is not configured.")
+    """Fail closed until zero-cost model pricing can be authoritatively verified."""
+    raise ProviderError(
+        "Gemini",
+        "Gemini is disabled by FREE_ONLY policy: zero-cost API pricing cannot be verified.",
+    )
     from google import genai
     client = genai.Client(api_key=key)
     try:
@@ -399,8 +401,8 @@ def call_llm(prompt: str, data_snapshot: str = "", system_instruction: str = "",
             if time.time() - float(entry.get("timestamp", 0)) < NARRATIVE_TTL_SECONDS:
                 return str(entry["text"])
 
+    # FREE_ONLY: only adapters with explicit zero-cost catalogue evidence are eligible.
     providers = (
-        ("Gemini", _call_gemini),
         ("OpenRouter", _call_openrouter),
         ("Requesty", _call_requesty),
     )
