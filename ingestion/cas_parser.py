@@ -374,6 +374,19 @@ def parse_cas_xlsx(source, scheme_master=None, scheme_master_source_bytes=None) 
                         else:
                             tx_type = "UNKNOWN"
 
+                        unit_changing_types = {
+                            "PURCHASE", "SIP", "SWITCH_IN", "SWITCH_OUT",
+                            "STP_IN", "STP_OUT", "DIVIDEND_REINVEST", "REDEMPTION",
+                        }
+                        if tx_type in unit_changing_types and units is None:
+                            out["rejected"].append({
+                                "row": tx_row_number,
+                                "scheme": last_scheme,
+                                "raw_cells": {"units": repr(r[unt_col]) if unt_col is not None else None},
+                                "reason": "unit-changing transaction is missing its unit quantity",
+                            })
+                            continue
+
                         out["transactions"].append({
                             "scheme": last_scheme,
                             "date": d,
