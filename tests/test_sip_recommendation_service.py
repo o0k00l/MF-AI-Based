@@ -12,6 +12,8 @@ def _holding():
         scheme_id="SCHEME-1",
         lookthrough_status="VERIFIED",
         metrics_status="VERIFIED",
+        constituent_weights={"ISSUER-A": 60.0, "ISSUER-B": 40.0},
+        equity_pct=100.0,
         constituent_weights_coverage_pct=100.0,
         current_value_inr=125000.0,
     )
@@ -192,6 +194,10 @@ def test_verified_cas_holdings_return_policy_saa_diagnostic_but_never_route_budg
     assert assessment["saa_drift"]["current_weights_pct"]["large_cap"] == "100"
     assert assessment["sip_routing"]["status"] == "HOLD"
     assert assessment["sip_routing"]["allocated_budget_inr"] == 0.0
+    assert assessment["lookthrough"]["status"] == "CALCULATED"
+    assert assessment["lookthrough"]["issuer_exposure_inr"]["ISSUER-A"] == "75000.0"
+    assert len(assessment["decision_trace"]["sha256"]) == 64
+    assert assessment["decision_trace"]["algorithm"] == "SHA-256-CANONICAL-JSON-v1"
     assert result["status"] == "HOLD"
     assert result["decision"] == "NO_ACTION"
     assert result["plan"]["items"] == []
