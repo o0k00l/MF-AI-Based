@@ -2941,7 +2941,7 @@ def compute_candidate_portfolio_overlap(
     if candidate_weights is None:
         return None
 
-    total_portfolio_value = 0.0
+    total_equity_value = 0.0
     portfolio_stock_weights: Dict[str, float] = {}
     for holding in holdings:
         try:
@@ -2951,7 +2951,6 @@ def compute_candidate_portfolio_overlap(
             return None
         if not math.isfinite(value) or value <= 0.0 or not math.isfinite(equity_pct) or not 0.0 <= equity_pct <= 100.0:
             return None
-        total_portfolio_value += value
         if equity_pct == 0.0:
             continue
         holding_weights = validated_weights(
@@ -2961,17 +2960,21 @@ def compute_candidate_portfolio_overlap(
         )
         if holding_weights is None:
             return None
-        equity_value_weight = value * equity_pct / 100.0
+        equity_value = value * equity_pct / 100.0
+        total_equity_value += equity_value
         for security_id, stock_weight_pct in holding_weights.items():
             portfolio_stock_weights[security_id] = (
                 portfolio_stock_weights.get(security_id, 0.0)
-                + equity_value_weight * stock_weight_pct / 100.0
+                + equity_value * stock_weight_pct / 100.0
             )
 
-    if not math.isfinite(total_portfolio_value) or total_portfolio_value <= 0.0:
-        return None
+    # Compare equity sleeves with equity sleeves. Including debt/cash in this
+    # denominator artificially dilutes overlap and can make a duplicate fund
+    # look diversified merely because the investor also holds debt.
+    if not math.isfinite(total_equity_value) or total_equity_value <= 0.0:
+        return 0.0
     portfolio_stock_weights = {
-        security_id: value / total_portfolio_value * 100.0
+        security_id: value / total_equity_value * 100.0
         for security_id, value in portfolio_stock_weights.items()
     }
     overlap = sum(
@@ -4145,7 +4148,11 @@ def select_autonomous_blueprint_funds(
             if holdings:
                 if candidate.get("lookthrough_status") != "VERIFIED":
                     continue
-                if any(getattr(holding, "lookthrough_status", "MISSING") != "VERIFIED" for holding in holdings):
+                if any(
+                    float(getattr(holding, "equity_pct", 0.0) or 0.0) > 0.0
+                    and getattr(holding, "lookthrough_status", "MISSING") != "VERIFIED"
+                    for holding in holdings
+                ):
                     continue
             portfolio_overlap = compute_candidate_portfolio_overlap(
                 candidate,
