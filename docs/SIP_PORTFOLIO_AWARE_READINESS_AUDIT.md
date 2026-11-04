@@ -173,3 +173,13 @@
 - Regression coverage added for fuzzy-match rejection, exact identity, reviewed alias and ambiguous-name rejection in `tests/test_sip_portfolio_overlap.py`.
 - Commit sequence: `310a91d` (code), `02fd3f0` (tests).
 - Limitation: tests have not yet been executed; scheme-master/ISIN-first matching remains a follow-up improvement. Reviewed aliases are still a controlled manual bridge for source naming differences.
+
+
+### 25. Investor-facing 3-tier SAA disagreed with SIP engine risk mapping — FIXED IN CODE; EXECUTION NOT YET VERIFIED
+- File: `core/models.py`, `SAA_POLICY_MAP`.
+- Previous values were Conservative 20/80, Moderate 60/40, Aggressive 95/5, while the SIP engine mapped those labels to SEBI Tier 2, Tier 4 and Tier 6 profiles in `asset_allocation.json` (40/60, 75/25, 95/5).
+- This meant different parts of the application could display or calculate materially different target allocations for the same investor risk label.
+- Correction: the shared 3-tier map now matches the SIP engine's approved profile mapping: Conservative 40/60, Moderate 75/25, Aggressive 95/5. Custom remains explicit and separately approved.
+- Regression tests added for all three mappings and 100% reconciliation in `tests/test_sip_portfolio_overlap.py`.
+- Commits: `1780600` (code), `a508cc1` (tests).
+- Limitation: tests have not yet been executed. This aligns the SAA values; it does not itself prove that every API/UI route passes the same normalized risk label.
