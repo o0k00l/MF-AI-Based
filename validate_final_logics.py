@@ -110,11 +110,12 @@ check(
 # Check individual slots
 roles = {item.category_role: item for item in established_plan.items}
 # Policy: very_high saa_targets: flexi=25, mid=25, small=25, large=20 (sum=95)
-# Weights: flexi=25/95=26.3%, mid+small=50/95=52.6%, large=20/95=21.1%, thematic=0%
+# Weights: flexi=25/95=26.3%, mid=25/95=26.3%, small=25/95=26.3%, large=20/95=21.1%, thematic=0%
 check("Slot 1: Core Flexi target weight (26.3%)", roles["Core Flexi-Cap Compounder"].allocation_pct == 26.3)
-check("Slot 2: Mid-Cap Alpha target weight (52.6%)", roles["Mid-Cap Alpha Engine"].allocation_pct == 52.6)
-check("Slot 3: Large-Cap Anchor target weight (21.1%)", roles["Large-Cap Bluechip Anchor"].allocation_pct == 21.1)
-check("Slot 4: Thematic Satellite target weight (0%)", roles["Tactical Thematic Satellite"].allocation_pct == 0.0)
+check("Slot 2: Mid-Cap Alpha target weight (26.3%)", roles["Mid-Cap Alpha Engine"].allocation_pct == 26.3)
+check("Slot 3: Small-Cap Growth target weight (26.3%)", roles["Small-Cap Growth Engine"].allocation_pct == 26.3)
+check("Slot 4: Large-Cap Anchor target weight (21.1%)", roles["Large-Cap Bluechip Anchor"].allocation_pct == 21.1)
+check("Slot 5: Thematic Satellite target weight (0%)", roles["Tactical Thematic Satellite"].allocation_pct == 0.0)
 check(
     "SIP amounts withheld when budget is unallocated",
     all(item.monthly_inr == 0.0 for item in established_plan.items)
