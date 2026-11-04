@@ -61,7 +61,7 @@ def generate_health_audit_report(facts: FiduciaryFactsPayload) -> str:
     
     weighted_overlap = getattr(facts, 'weighted_overlap', [])
     risk_distribution = getattr(facts, 'risk_distribution', None)
-    switch_costs = getattr(facts, 'switch_costs', [])
+    # Unverified caller-provided cost records are never admitted to investor-facing prompts.\n    switch_costs = []
     eligibility_results = getattr(facts, 'eligibility_results', [])
     no_action = getattr(facts, 'no_action', None)
     
