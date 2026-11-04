@@ -25,6 +25,12 @@ def test_readiness_distinguishes_live_api_from_missing_evidence_provider():
         "checks": {"evidence_provider": "not_configured"},
         "evidence_validation_available": False,
         "recommendations_enabled": False,
+        "release_blockers": [
+            "evidence_provider_not_configured",
+            "authenticated_daily_tri_unavailable",
+            "independent_nse_calendar_unavailable",
+            "research_release_approval_missing",
+        ],
     }
 
 
@@ -38,6 +44,11 @@ def test_configured_provider_only_enables_evidence_validation_not_recommendation
         "checks": {"evidence_provider": "configured"},
         "evidence_validation_available": True,
         "recommendations_enabled": False,
+        "release_blockers": [
+            "authenticated_daily_tri_unavailable",
+            "independent_nse_calendar_unavailable",
+            "research_release_approval_missing",
+        ],
     }
 
 
