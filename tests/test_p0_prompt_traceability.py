@@ -40,6 +40,7 @@ def test_decision_hash_is_full_sha256_and_covers_all_decision_content():
 
     assert len(original) == 64
     assert decision.to_dict()["hash"] == original
+    assert decision.to_dict()["hash_version"] == "RFC8785-JCS-SHA256-v1"
 
     decision.inputs["budget_inr"] = 20000
     assert decision.compute_hash() != original
