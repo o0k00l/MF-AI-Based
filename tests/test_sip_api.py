@@ -139,11 +139,13 @@ def test_api_passes_temporary_cas_to_evidence_provider_and_removes_it(monkeypatc
         portfolio_disclosure_source_bytes_by_scheme_id,
         disclosure_as_of_date,
         candidate_universe,
+        portfolio_context=None,
     ):
         assert cas_path.is_file()
         assert metrics_path == Path(__file__)
         assert risk_profile == "Moderate"
         assert candidate_universe[0]["is_direct"] is True
+        assert portfolio_context == {"as_of_date": "2026-11-04", "perimeter_complete": False}
         return {
             "status": "HOLD",
             "decision": "NO_ACTION",
@@ -158,6 +160,7 @@ def test_api_passes_temporary_cas_to_evidence_provider_and_removes_it(monkeypatc
         client,
         monthly_budget_inr="15000",
         risk_profile="Moderate",
+        portfolio_context_json='{"as_of_date":"2026-11-04","perimeter_complete":false}',
     )
 
     assert response.status_code == 200
@@ -419,3 +422,15 @@ def test_api_runs_portfolio_saa_diagnostic_end_to_end_and_keeps_budget_on_hold(m
     assert len(body["portfolio_assessment"]["decision_trace"]["sha256"]) == 64
     assert body["plan"]["items"] == []
     assert body["plan"]["unallocated_budget_inr"] == 10000
+
+
+def test_api_rejects_malformed_portfolio_context_before_calling_provider():
+    called = []
+    client = TestClient(sip.create_sip_app(evidence_provider=lambda **kwargs: called.append(kwargs)))
+    response = _upload(
+        client, monthly_budget_inr="10000", risk_profile="Moderate",
+        portfolio_context_json="{not-json",
+    )
+    assert response.status_code == 422
+    assert response.json()["decision"] == "NO_ACTION"
+    assert called == []
