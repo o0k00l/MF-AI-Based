@@ -62,6 +62,7 @@ def _bundle(root: Path) -> dict:
             "category": "Flexi Cap",
             "benchmark_identity": "NIFTY 500 TRI",
             "scheme_structure": "OPEN_ENDED_EQUITY",
+            "plan_type": "Direct", "option_type": "Growth",
             "riskometer_score": 5,
         }],
     })
@@ -80,6 +81,7 @@ def _bundle(root: Path) -> dict:
         "category": "Flexi Cap",
         "benchmark_identity": "NIFTY 500 TRI",
         "scheme_structure": "OPEN_ENDED_EQUITY",
+            "plan_type": "Direct", "option_type": "Growth",
         "riskometer_score": 5,
         "is_direct": True,
         "direct_plan_evidence": {
