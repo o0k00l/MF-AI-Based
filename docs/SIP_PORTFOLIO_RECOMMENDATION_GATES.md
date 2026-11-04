@@ -131,3 +131,17 @@ portfolio-aware. It does not approve any fund, target allocation, concentration
 threshold, performance claim or deployment. Those require current source
 evidence, approved client mandate, independent review and the existing TRI,
 calendar and research release controls.
+
+
+## 12. Portfolio-aware ranking and category benchmark anchor gates (#40 / #41)
+
+- Standalone fund scoring and portfolio-aware SIP scoring are separate modes.
+- A portfolio-aware score requires verified candidate-to-existing-portfolio overlap evidence, a stable candidate identity, an overlap source digest, an evidence date within the approved freshness window and at least 99.5% look-through coverage.
+- Missing overlap is unavailable evidence, never a neutral 50-point observation. A verified 0% overlap remains a valid measured result and is distinguishable from missing evidence.
+- Portfolio-aware scoring requires an independently reviewed category anchor record for the exact candidate category. It must supply all seven bounds: alpha, 1Y return, Sharpe, TER, defensive buffer, international exposure and portfolio overlap.
+- Every bound must be finite and increasing. The anchor record must identify the exact benchmark, original source bytes/digest, effective date, reviewer and policy version.
+- The provider contract requires the rank-score source to declare portfolio-aware scope and an explicit missing-overlap block policy. It also requires verified overlap status/coverage and matching category anchor source, policy version and benchmark identity.
+- No category borrows another category's anchors or generic defaults. Categories with no complete, approved anchor set remain unavailable for scoring and SIP ranking.
+- Current in-code numeric anchors are not automatically treated as independent approvals. Flexi Cap, Mid Cap and Large Cap currently lack their own 1Y-return anchor in the legacy map; they fail closed in standalone scoring until complete category-specific anchors are approved. Other unsupported categories remain unavailable.
+- These controls validate the evidence and policy envelope; they do not independently validate that the scoring methodology predicts future returns or is investment-optimal. That remains a separate model/policy review.
+
