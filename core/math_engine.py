@@ -1144,7 +1144,7 @@ def load_holdings_from_cas_excel(
         identity = {
             "scheme_id": None, "isin": None, "status": "MISSING",
             "plan_type": None, "option_type": None,
-            "plan_option_status": "MISSING",
+            "plan_option_status": "MISSING", "riskometer_score": None,
             "reason": "No verified scheme master was supplied.",
         }
         if scheme_master is not None and scheme_master_source_bytes is not None and amc_name:
@@ -1275,7 +1275,12 @@ def load_holdings_from_cas_excel(
                 lookthrough_status=disclosure["status"],
                 lookthrough_reason=disclosure["reason"],
                 amc_name=amc_name or None,
-                risk_tier=None,
+                # Use only the scheme-level Riskometer score returned by
+                # exact verified scheme-master identity resolution.
+                risk_tier=(
+                    f"Tier {identity['riskometer_score']}"
+                    if identity.get("riskometer_score") is not None else None
+                ),
                 metrics_status=metrics_status,
             )
         )
