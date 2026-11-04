@@ -4921,6 +4921,20 @@ def compute_deterministic_sip_blueprint(
         raise ValueError("Stability buffer percentage must be finite and between 0 and 100")
     stability_buffer_pct = stability_value
     client_aum = aum_value
+    if not client_aum_verified:
+        return DeterministicSIPPlan(
+            total_monthly_budget_inr=b,
+            unallocated_budget_inr=b,
+            equity_sip_pct=0.0,
+            debt_sip_pct=0.0,
+            items=[],
+            execution_status="HOLD_PORTFOLIO_AUM_UNVERIFIED",
+            enforcement_notice=(
+                "NO ACTION — complete SIP budget withheld because total portfolio AUM "
+                "has not been independently reconciled and attested. CAS-only holdings "
+                "are not treated as the complete investor portfolio."
+            ),
+        )
     policy_path = Path(__file__).resolve().parents[1] / "data" / "policy" / "asset_allocation.json"
     if not policy_path.is_file():
         raise ValueError(f"Required allocation policy file is missing: {policy_path}")
@@ -4960,10 +4974,7 @@ def compute_deterministic_sip_blueprint(
     # CAS mutual-fund holdings alone are not total investor AUM. The
     # starter heuristic is permitted only when the caller has independently
     # reconciled and attested the complete portfolio perimeter.
-    is_starter = bool(
-        client_aum_verified
-        and (client_aum < starter_aum_threshold or b < starter_budget_threshold)
-    )
+    is_starter = client_aum < starter_aum_threshold or b < starter_budget_threshold
 
     # Dynamic Folio Discovery
     # Resolved dynamically through select_autonomous_blueprint_funds below
