@@ -5185,3 +5185,17 @@ classify_specified_mutual_fund = _tax_classification_disabled
 qualifies_as_equity_oriented_under_section_198 = _tax_classification_disabled
 qualifies_as_specified_mutual_fund_under_section_50AA = _tax_classification_disabled
 qualifies_as_specified_mutual_fund_under_section_76 = _tax_classification_disabled
+
+
+
+def _tax_lot_maturity_classification_disabled(*args, **kwargs):
+    raise TaxClassificationDisabledError(
+        "Direct tax-lot maturity classification is disabled pending independent "
+        "Indian tax/legal approval and exact scheme/plan/lot evidence. No "
+        "holding-period, LTCG or STCG classification has been generated."
+    )
+
+
+# Prevent direct class imports from bypassing the module-level FIFO release gate.
+TaxLot.is_long_term = _tax_lot_maturity_classification_disabled
+TaxLot.is_short_term = _tax_lot_maturity_classification_disabled
