@@ -173,6 +173,17 @@ def validate_evidence_provider_payload(payload: Any) -> dict[str, Any]:
                 or candidate["fund_name"].strip().casefold() != master_record["scheme_name"].strip().casefold()
                 or candidate["amc_name"].strip().casefold() != master_record["amc_name"].strip().casefold()):
             raise EvidenceProviderContractError(f"Candidate {fund_id!r} identity conflicts with verified scheme master.")
+        if candidate.get("is_direct") is not True:
+            raise EvidenceProviderContractError(f"Candidate {fund_id!r} is not explicitly classified as Direct.")
+        if not isinstance(candidate.get("direct_plan_evidence"), dict):
+            raise EvidenceProviderContractError(f"Candidate {fund_id!r} is missing Direct-plan source evidence.")
+        if not isinstance(candidate.get("_evidence_root"), (str, __import__("pathlib").Path)):
+            raise EvidenceProviderContractError(f"Candidate {fund_id!r} is missing its evidence root.")
+        from core.eligibility import _reviewed_direct_plan_evidence_status
+        if _reviewed_direct_plan_evidence_status(candidate) != "REVIEWER_ATTESTED_HASH_MATCH":
+            raise EvidenceProviderContractError(
+                f"Candidate {fund_id!r} Direct-plan source evidence is invalid, stale, or identity-conflicting."
+            )
 
     for optional_path in ("metrics_path", "aliases_path"):
         value = payload[optional_path]
