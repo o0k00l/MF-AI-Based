@@ -7,6 +7,14 @@ must be outside the Git checkout and readable by the application process. The
 provider is filesystem-backed and read-only: it performs no network scraping,
 does not synthesize data, and does not persist uploaded CAS files.
 
+A second, independent runtime trust root is mandatory:
+`SIP_REVIEWER_TRUST_REGISTRY_JSON`. It must contain the independently
+administered reviewer public-key registry. It must be mounted/configured
+separately from the evidence bundle; the bundle publisher must not be able to
+supply or replace its own trust registry. If the trust registry is absent or
+invalid, `/ready` reports `not_ready` and recommendation requests remain
+`HOLD / NO_ACTION` with the entire budget unallocated.
+
 ## Required layout
 
 A version-1 bundle uses a UTF-8 `manifest.json`:
@@ -113,11 +121,16 @@ are rejected.
   together and validated before the service can treat the context as
   provider-attested.
 
-The provider checks bundle path safety and structure. The API then runs the
-existing evidence contract, including source-byte hash, date/freshness,
-scheme identity, candidate completeness attestation and Direct-plan evidence
-checks. These checks do not independently authenticate the publisher or the
-reviewer.
+The provider checks bundle path safety and structure. The API then requires
+detached Ed25519 reviewer approvals against the separately configured trust
+registry. Approvals bind original source digests and the normalized structured
+records (including scheme identity, constituent weights/coverage, candidate
+universe, ranking inputs and approved category anchors). Reviewer identity,
+independence, key validity/revocation, scope, repository, issuance and expiry
+are verified. A plain `reviewer_attested: true` flag is not accepted as proof
+of independent review. The trust registry and signed envelopes are required
+for production evidence validation; this still does not establish that the
+publisher is authoritative or that a candidate universe is truly complete.
 
 ## Operational controls
 
