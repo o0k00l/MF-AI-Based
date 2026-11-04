@@ -319,6 +319,13 @@ def calculate_candidate_6_pillar_score(
                 raise ValueError("Non-finite portfolio overlap percentage")
     if overlap_raw is None:
         raise ValueError("Scoring requires verified portfolio overlap evidence")
+    for metric_name, metric_value in (
+        ("cash/debt buffer", buffer_pct),
+        ("international exposure", intl_pct),
+        ("portfolio overlap", overlap_raw),
+    ):
+        if isinstance(metric_value, bool) or not 0.0 <= float(metric_value) <= 100.0:
+            raise ValueError(f"{metric_name} percentage must be between 0 and 100")
 
     if not weights.validate():
         raise ValueError("Scoring weights must be finite and sum to 1.0")
