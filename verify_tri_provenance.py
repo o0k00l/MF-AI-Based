@@ -11,6 +11,7 @@ import argparse
 import hashlib
 import json
 import math
+import re
 import sys
 from datetime import date
 from pathlib import Path
@@ -68,12 +69,10 @@ def verify_fixture(path: Path) -> list[str]:
     if not isinstance(benchmarks, dict):
         failures.append(f"{label}: benchmarks must be a JSON object")
         benchmarks = {}
-    specs = (
-        ("NIFTY 500 TRI", "nifty_500_tri", "checksum_sha256_nifty_500_tri"),
-        ("NIFTY 50 TRI", "nifty_50_tri", "checksum_sha256_nifty_50_tri"),
-    )
-    for index_name, coverage_key, checksum_key in specs:
-        benchmark = benchmarks.get(index_name, {})
+    for index_name, benchmark in benchmarks.items():
+        if not isinstance(index_name, str):
+            failures.append(f"{label}: benchmark names must be strings")
+            continue
         if not isinstance(benchmark, dict):
             failures.append(f"{label}: {index_name}: benchmark entry must be a JSON object")
             continue
@@ -81,6 +80,9 @@ def verify_fixture(path: Path) -> list[str]:
         if not isinstance(levels, dict) or not levels:
             failures.append(f"{label}: {index_name}: levels must be a non-empty date/value object")
             continue
+        slug = re.sub(r"[^a-z0-9]+", "_", index_name.strip().lower()).strip("_")
+        checksum_key = f"checksum_sha256_{slug}"
+        coverage_key = slug
         expected = str(provenance.get(checksum_key, ""))
         computed = _canonical_sha256(levels)
         if len(expected) != 64 or computed.lower() != expected.lower():
