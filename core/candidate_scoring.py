@@ -163,6 +163,8 @@ def _validate_portfolio_score_evidence(
 
     if not isinstance(overlap_evidence, dict) or overlap_evidence.get("status") != "VERIFIED":
         raise ValueError("Verified portfolio overlap evidence is required; missing overlap cannot receive a neutral score")
+    if overlap_evidence.get("reviewer_attested") is not True:
+        raise ValueError("Portfolio overlap evidence requires reviewer attestation")
     if overlap_evidence.get("candidate_id") != candidate_id:
         raise ValueError("Portfolio overlap evidence candidate identity mismatch")
     try:
@@ -189,6 +191,8 @@ def _validate_portfolio_score_evidence(
 
     if not isinstance(anchor_evidence, dict) or anchor_evidence.get("status") != "APPROVED":
         raise ValueError("Independently approved category benchmark anchors are required")
+    if anchor_evidence.get("reviewer_attested") is not True:
+        raise ValueError("Category benchmark anchors require reviewer attestation")
     if anchor_evidence.get("category") != category_key:
         raise ValueError("Approved category anchor identity does not match candidate category")
     if not isinstance(anchor_evidence.get("benchmark_identity"), str) or not anchor_evidence["benchmark_identity"].strip():
