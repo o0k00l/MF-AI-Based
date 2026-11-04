@@ -155,6 +155,7 @@ def test_missing_amc_column_cannot_be_resolved_by_scheme_name_alone(tmp_path):
 
     holdings = load_holdings_from_cas_excel(
         cas_path,
+        fund_metrics_path=_metrics_file(tmp_path),
         scheme_master=scheme_master,
         scheme_master_source_bytes=scheme_master_bytes,
         portfolio_disclosures_by_scheme_id={SCHEME_ID: disclosure},
