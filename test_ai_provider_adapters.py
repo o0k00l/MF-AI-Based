@@ -75,8 +75,9 @@ def test_openai_request_omits_optional_generation_parameters(monkeypatch):
     assert calls == [{"model": "vendor/model", "messages": [{"role": "user", "content": "test"}]}]
 
 
-def test_gemini_fails_closed_when_zero_cost_pricing_is_unverifiable():
-    with pytest.raises(ai_engine.ProviderError, match="FREE_ONLY"):
+def test_gemini_requires_api_key_when_enabled(monkeypatch):
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    with pytest.raises(ai_engine.ProviderError, match="GEMINI_API_KEY"):
         ai_engine._call_gemini("test")
 
 
