@@ -206,6 +206,28 @@ def test_verified_cas_holdings_return_policy_saa_diagnostic_but_never_route_budg
     assert result["plan"]["unallocated_budget_inr"] == 10000
 
 
+def _candidate_universe():
+    candidates = []
+    for index in range(1, 31):
+        fund_id = f"CANDIDATE-{index}"
+        scheme_id = f"CANDIDATE-SCHEME-{index}"
+        isin = f"INF000000{index:03d}"
+        candidates.append({
+            "fund_id": fund_id, "scheme_id": scheme_id, "isin": isin,
+            "amc_name": "Example AMC", "category": "Large Cap",
+            "benchmark": "Nifty 100 TRI", "is_direct": True,
+            "constituent_weights": {"ISSUER-A": 60, "ISSUER-C": 40},
+            "constituent_weights_coverage_pct": 100,
+            "direct_plan_evidence": {
+                "scheme_id": scheme_id, "isin": isin, "plan": "Direct",
+                "option": "Growth", "amc_name": "Example AMC",
+                "benchmark": "Nifty 100 TRI", "reviewed_at": date.today().isoformat(),
+                "source_document_sha256": f"{index:064x}",
+            },
+        })
+    return candidates
+
+
 def _complete_portfolio_context():
     as_of = date.today().isoformat()
     evidence_refs = {
@@ -261,20 +283,20 @@ def _complete_portfolio_context():
                 "direct_plan", "source_authenticity", "scheme_identity",
                 "risk", "constituent_coverage", "operational",
             ],
-            "candidate_sleeves": {"CANDIDATE-1": "large_cap"},
+            "candidate_sleeves": {f"CANDIDATE-{i}": "large_cap" for i in range(1, 31)},
             "rounding_increment_inr": "500",
         },
         "candidate_gate_results": {
-            "CANDIDATE-1": {
+            f"CANDIDATE-{i}": {
                 "direct_plan": "PASS", "source_authenticity": "PASS",
                 "scheme_identity": "PASS", "risk": "PASS",
                 "constituent_coverage": "PASS", "operational": "PASS",
-            },
+            } for i in range(1, 31)
         },
         "operational_evidence_by_candidate_id": {
-            "CANDIDATE-1": {
+            f"CANDIDATE-{i}": {
                 "scheme_identity": {
-                    "scheme_id": "CANDIDATE-SCHEME-1", "isin": "INF000000010",
+                    "scheme_id": f"CANDIDATE-SCHEME-{i}", "isin": f"INF000000{i:03d}",
                     "plan": "Direct", "option": "Growth", "amc": "Example AMC",
                 },
                 "evidence_ref": "sha256:ops", "evidence_as_of_date": as_of,
@@ -282,7 +304,7 @@ def _complete_portfolio_context():
                 "exit_load_evidence_ref": "sha256:exit",
                 "lockin_evidence_ref": "sha256:lock",
                 "subscription_status_evidence_ref": "sha256:subscription",
-            },
+            } for i in range(1, 31)
         },
         "ips": {
             "approved": True, "source_ref": "sha256:approved-ips",
@@ -309,20 +331,8 @@ def test_complete_portfolio_workflow_integrates_issues_23_to_34_without_authoriz
     tmp_path, monkeypatch
 ):
     args = _inputs(tmp_path)
-    candidate = {
-        "fund_id": "CANDIDATE-1", "scheme_id": "CANDIDATE-SCHEME-1",
-        "isin": "INF000000010", "amc_name": "Example AMC",
-        "category": "Large Cap", "benchmark": "Nifty 100 TRI",
-        "is_direct": True, "constituent_weights": {"ISSUER-A": 60, "ISSUER-C": 40},
-        "constituent_weights_coverage_pct": 100,
-        "direct_plan_evidence": {
-            "scheme_id": "CANDIDATE-SCHEME-1", "isin": "INF000000010",
-            "plan": "Direct", "option": "Growth", "amc_name": "Example AMC",
-            "benchmark": "Nifty 100 TRI", "reviewed_at": date.today().isoformat(),
-            "source_document_sha256": "a" * 64,
-        },
-    }
-    args["candidate_universe"] = [candidate]
+    candidates = _candidate_universe()
+    args["candidate_universe"] = candidates
     monkeypatch.setattr(service, "load_holdings_from_cas_excel", lambda *a, **k: [_holding()])
     monkeypatch.setattr(
         service, "compute_deterministic_sip_blueprint",
@@ -338,7 +348,7 @@ def test_complete_portfolio_workflow_integrates_issues_23_to_34_without_authoriz
     assert context["goal_suitability"]["status"] == "VALIDATED"
     assert context["liquidity_and_affordability"]["status"] == "AFFORDABLE"
     assert context["affordability_stress"]["all_scenarios_sustainable"] is True
-    assert context["candidate_screening"]["eligible_candidate_ids"] == ["CANDIDATE-1"]
+    assert len(context["candidate_screening"]["eligible_candidate_ids"]) == 30
     assert context["scheme_operational_feasibility"]["CANDIDATE-1"]["status"] == "FEASIBLE_FOR_REVIEW"
     assert context["candidate_overlap_diagnostics"]["CANDIDATE-1"]["status"] == "ASSESSED"
     assert context["candidate_overlap_diagnostics"]["CANDIDATE-1"]["shared_issuers"] == ["ISSUER-A"]
@@ -393,20 +403,9 @@ def test_client_declared_portfolio_context_never_passes_provider_provenance_gate
 
 def test_candidate_issuer_concentration_breach_blocks_portfolio_assessment(tmp_path, monkeypatch):
     args = _inputs(tmp_path)
-    candidate = {
-        "fund_id": "CANDIDATE-1", "scheme_id": "CANDIDATE-SCHEME-1",
-        "isin": "INF000000010", "amc_name": "Example AMC",
-        "category": "Large Cap", "benchmark": "Nifty 100 TRI",
-        "is_direct": True, "constituent_weights": {"ISSUER-A": 100},
-        "constituent_weights_coverage_pct": 100,
-        "direct_plan_evidence": {
-            "scheme_id": "CANDIDATE-SCHEME-1", "isin": "INF000000010",
-            "plan": "Direct", "option": "Growth", "amc_name": "Example AMC",
-            "benchmark": "Nifty 100 TRI", "reviewed_at": date.today().isoformat(),
-            "source_document_sha256": "a" * 64,
-        },
-    }
-    args["candidate_universe"] = [candidate]
+    candidates = _candidate_universe()
+    candidates[0]["constituent_weights"] = {"ISSUER-A": 100}
+    args["candidate_universe"] = candidates
     monkeypatch.setattr(service, "load_holdings_from_cas_excel", lambda *a, **k: [_holding()])
     monkeypatch.setattr(
         service, "compute_deterministic_sip_blueprint",
