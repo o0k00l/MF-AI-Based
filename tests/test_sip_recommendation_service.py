@@ -443,3 +443,71 @@ def test_cas_asset_value_mismatch_blocks_total_portfolio_saa(tmp_path, monkeypat
     assert assessment["status"] == "HOLD"
     assert "PORTFOLIO_CONTEXT_INVALID_OR_INCOMPLETE" in assessment["reason"]
     assert result["plan"]["unallocated_budget_inr"] == 10000
+
+
+def test_candidate_universe_below_policy_minimum_never_enters_scoring(tmp_path, monkeypatch):
+    args = _inputs(tmp_path)
+    monkeypatch.setattr(service, "load_holdings_from_cas_excel", lambda *a, **k: [_holding()])
+    monkeypatch.setattr(service, "compute_deterministic_sip_blueprint", lambda **kwargs: SimpleNamespace(items=[]))
+
+    result = service.recommend_sip(**args, portfolio_context=_complete_portfolio_context())
+
+    screening = result["portfolio_assessment"]["total_portfolio_context"]["candidate_screening"]
+    assert screening["status"] == "UNIVERSE_INSUFFICIENT"
+    assert screening["universe_minimum"] == 30
+    assert screening["universe_observed"] == 1
+    assert screening["scoring_permitted"] is False
+    assert result["plan"]["unallocated_budget_inr"] == 10000
+
+
+def test_external_equity_without_lookthrough_blocks_portfolio_risk_clearance(tmp_path, monkeypatch):
+    args = _inputs(tmp_path)
+    args["candidate_universe"] = _candidate_universe()
+    monkeypatch.setattr(service, "load_holdings_from_cas_excel", lambda *a, **k: [_holding()])
+    monkeypatch.setattr(service, "compute_deterministic_sip_blueprint", lambda **kwargs: SimpleNamespace(items=[]))
+    context = _complete_portfolio_context()
+    context["assets"][1].pop("constituent_weights")
+
+    result = service.recommend_sip(**args, portfolio_context=context)
+
+    assessment = result["portfolio_assessment"]["total_portfolio_context"]
+    assert assessment["external_asset_lookthrough"]["status"] == "HOLD"
+    assert assessment["external_asset_lookthrough"]["reason"] == "EXTERNAL_EQUITY_LOOKTHROUGH_MISSING"
+    assert assessment["all_input_gates_pass"] is False
+    assert result["plan"]["unallocated_budget_inr"] == 10000
+
+
+def test_client_ips_cannot_exceed_risk_profile_equity_limit(tmp_path, monkeypatch):
+    args = _inputs(tmp_path)
+    args["candidate_universe"] = _candidate_universe()
+    monkeypatch.setattr(service, "load_holdings_from_cas_excel", lambda *a, **k: [_holding()])
+    monkeypatch.setattr(service, "compute_deterministic_sip_blueprint", lambda **kwargs: SimpleNamespace(items=[]))
+    context = _complete_portfolio_context()
+    context["ips"]["target_weights_pct"] = {
+        "large_cap": "25", "mid_cap": "25", "small_cap": "25",
+        "flexi_multi_cap": "25", "debt_liquid": "0",
+    }
+
+    result = service.recommend_sip(**args, portfolio_context=context)
+
+    assessment = result["portfolio_assessment"]["total_portfolio_context"]
+    assert assessment["status"] == "HOLD"
+    assert "PORTFOLIO_CONTEXT_INVALID_OR_INCOMPLETE" in assessment["reason"]
+    assert result["plan"]["unallocated_budget_inr"] == 10000
+
+
+def test_goal_risk_profile_mismatch_blocks_sip_suitability(tmp_path, monkeypatch):
+    args = _inputs(tmp_path)
+    args["candidate_universe"] = _candidate_universe()
+    monkeypatch.setattr(service, "load_holdings_from_cas_excel", lambda *a, **k: [_holding()])
+    monkeypatch.setattr(service, "compute_deterministic_sip_blueprint", lambda **kwargs: SimpleNamespace(items=[]))
+    context = _complete_portfolio_context()
+    context["goals"][0]["approved_risk_profile"] = "Moderate"
+
+    result = service.recommend_sip(**args, portfolio_context=context)
+
+    assessment = result["portfolio_assessment"]["total_portfolio_context"]
+    assert assessment["goal_suitability"]["status"] == "HOLD"
+    assert assessment["goal_suitability"]["reason"] == "GOAL_RISK_PROFILE_CONFLICT"
+    assert assessment["all_input_gates_pass"] is False
+    assert result["plan"]["unallocated_budget_inr"] == 10000
