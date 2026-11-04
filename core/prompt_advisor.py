@@ -81,7 +81,7 @@ def generate_health_audit_report(facts: FiduciaryFactsPayload) -> str:
         )
     thematic_table_str = "\n".join(thematic_rows) if thematic_rows else "No thematic data"
 
-    stability_info = ""
+    stability_info = "NOT AVAILABLE — do not infer that an allocation target is satisfied."
     if getattr(facts, "stability_buffer", None):
         sb = facts.stability_buffer
         stability_info = f"Total Stability Buffer: {sb.total_stability_buffer_pct:.2f}% (Embedded Debt: INR {sb.embedded_debt_inr:,.0f}, Embedded Cash: INR {sb.embedded_cash_inr:,.0f}). Meets Tier 6 Target: {sb.meets_tier_target}."
@@ -98,7 +98,7 @@ INPUT FACT PAYLOAD:
 - Regular Plan Count: {facts.fee_bleed.regular_funds_count} funds
 - Regular Plan Total Value: INR {facts.fee_bleed.regular_portfolio_value_inr:,.2f}
 - Annual Commission Drag: INR {facts.fee_bleed.annual_bleed_inr:,.2f} per year
-- 10-Year Compounded Loss: INR {facts.fee_bleed.ten_year_compounded_loss_inr:,.2f} (at 12% CAGR)
+- 10-Year Fee-Difference Scenario Estimate: INR {facts.fee_bleed.ten_year_compounded_loss_inr:,.2f} (scenario only; do not present as guaranteed loss or realized saving)
 - Current Asset Allocation: {facts.saa_drift.current_equity_pct}% Equity, {facts.saa_drift.current_debt_pct}% Debt, {facts.saa_drift.current_cash_pct}% Cash
 - Target Allocation: {facts.saa_drift.target_equity_pct}% Equity, {facts.saa_drift.target_debt_pct}% Debt
 - Look-Through Stability Buffer: {stability_info}
@@ -112,7 +112,7 @@ INPUT FACT PAYLOAD:
 - Weighted Look-Through Overlap: {len(getattr(facts, 'weighted_overlap', []))} high-overlap pairs identified
 - Weighted Overlap Details: {[{'fund_a': p.fund_a, 'fund_b': p.fund_b, 'weighted_overlap_pct': p.weighted_overlap_pct, 'verdict': p.verdict} for p in getattr(facts, 'weighted_overlap', [])[:5]]}
 - Risk Distribution (Ordinal SEBI Tiers): {getattr(facts, 'risk_distribution', None).model_dump() if getattr(facts, 'risk_distribution', None) else 'Not available'}
-- Switch Cost Analysis: {len(getattr(facts, 'switch_costs', []))} regular funds analyzed with actual exit load + CGT costs
+- Switch Cost Evidence: {len(getattr(facts, 'switch_costs', []))} scheme-level cost records supplied; do not infer missing exit-load or tax values
 - Switch Cost Details: {[{'fund': s['fund_name'], 'cost_inr': s['switch_cost_inr'], 'cost_pct': s['switch_cost_pct'], 'warning': s['warning']} for s in getattr(facts, 'switch_costs', [])[:5]]}
 - Eligibility Gates Results: {len(getattr(facts, 'eligibility_results', []))} candidate funds evaluated with binary gates
 - NO ACTION Decision: {getattr(facts, 'no_action', None).action if getattr(facts, 'no_action', None) else 'N/A'} - {getattr(facts, 'no_action', None).reason if getattr(facts, 'no_action', None) else 'N/A'}
@@ -135,13 +135,13 @@ STRUCTURE YOUR REPORT AS FOLLOWS:
 - **Is Actionable Order:** {is_actionable_order}
 - **Interpretation:** Explain what this means for the investor — e.g., "HOLD_PENDING_TRI_VALIDATION means all audit findings and recommendations are PROPOSED ONLY and require explicit written client authorization before execution."
 
-1. Executive Scorecard: Provide a data-driven score (0-100) across Performance, Cost (commission drag), Overlap (portfolio concentration), and Risk (SAA drift).
-2. The Hidden Commission Leak: Explain the INR {facts.fee_bleed.annual_bleed_inr:,.2f}/yr loss and the INR {facts.fee_bleed.ten_year_compounded_loss_inr:,.2f} 10-year compounded loss. Include a compact Markdown table showing the top regular funds leaking money.
+1. Executive Summary: Describe supplied performance, cost, overlap and risk facts. Do not invent a composite score or ranking unless a validated scoring output is explicitly supplied.
+2. Regular-plan Expense Difference: Explain the reported INR {facts.fee_bleed.annual_bleed_inr:,.2f}/yr estimate and the INR {facts.fee_bleed.ten_year_compounded_loss_inr:,.2f} 10-year scenario estimate. Clearly label both as estimates, not guaranteed savings or realized losses. Include the supplied scheme details only.
 3. Weighted Look-Through Overlap Analysis: Contrast the weighted look-through overlap methodology against naive Jaccard. Report the top weighted overlap pairs and shared stocks.
 4. Ordinal Risk Distribution: Report SEBI risk-o-meter tier distribution (explaining why cardinal averages like 5.84/6.00 are mathematically invalid for ordinal data).
-5. Scheme Overlap & Duplication Analysis: Detail the structural risks of holding 23 funds and the high pairwise duplication.
-6. Asset Mix Analysis & Look-Through Stability Buffer: Contrast current allocation vs target. Highlight the {facts.stability_buffer.total_stability_buffer_pct if facts.stability_buffer else 0.0:.2f}% look-through stability buffer.
-7. Switch Cost Analysis: Report actual switch costs (exit load + CGT) for regular funds per Sections 47 & 112A.
+5. Scheme Overlap & Duplication Analysis: Use the actual holdings count and supplied overlap evidence. Do not assume that overlap is high or that consolidation is required.
+6. Asset Mix Analysis & Look-Through Stability Buffer: Contrast supplied current allocation vs target. If stability-buffer evidence is absent, state unavailable rather than substituting 0.00%.
+7. Switch Cost Analysis: Report only the supplied scheme-level cost records. Do not infer tax treatment or cite statutory sections without validated source evidence.
 8. Immediate Diagnostic Summary: Clear, actionable summary for the investor.
     """
     return _call_llm_with_retry(prompt)
