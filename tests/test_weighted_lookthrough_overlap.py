@@ -38,6 +38,12 @@ def test_weighted_overlap_uses_actual_constituent_weights():
     assert result[0].shared_stocks[0]["weight_a_pct"] == 30.0
     assert result[0].shared_stocks[0]["weight_b_pct"] == 20.0
     assert result[0].verdict == "HIGH_CONCENTRATION"
+    assert result[0].status == "VERIFIED"
+    assert result[0].source == "EXACT_SCHEME_PORTFOLIO_DISCLOSURES"
+    assert result[0].effective_date == "2026-11-01"
+    assert result[0].coverage_pct == 100.0
+    assert len(result[0].source_refs) == 2
+    assert all(len(item["source_document_sha256"]) == 64 for item in result[0].source_refs)
 
 
 def test_weighted_overlap_never_infers_equal_weights_from_top_holdings():
