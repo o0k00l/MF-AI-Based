@@ -2105,6 +2105,24 @@ def aggregate_fiduciary_facts(
         disclosure_max_age_days=disclosure_max_age_days,
     )
 
+    # An empty active-holdings set is not a verified zero-drift portfolio.
+    # In particular, malformed/rejected or all-zero CAS rows must not flow
+    # into SAA/risk diagnostics where empty maps can look like measured zero.
+    # A cash-only portfolio needs its own independently verified cash evidence
+    # contract; bank-cash values in an IPS config alone are not that evidence.
+    if not holdings:
+        raise ValueError(
+            "Portfolio diagnostics unavailable: CAS contains no verified active holdings; "
+            "zero drift and zero risk cannot be inferred from an empty portfolio."
+        )
+    portfolio_value = sum(float(holding.current_value_inr) for holding in holdings)
+    if not math.isfinite(portfolio_value) or portfolio_value <= 0.0:
+        raise ValueError(
+            "Portfolio diagnostics unavailable: verified active holdings have no positive "
+            "finite portfolio value; HOLD until a supported cash-only or invested portfolio "
+            "snapshot is independently verified."
+        )
+
     # SIP generation requires an explicit investor mandate. Never manufacture
     # a ₹1 lakh budget or Tier 6 risk profile when client inputs are absent.
     if not config_path.is_file():
