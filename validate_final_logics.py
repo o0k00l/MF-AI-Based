@@ -190,6 +190,9 @@ check("Gate 9 Passes for 15% Satellite on Established", validate_thematic_satell
 # Gate 9 Violation Test: Starter investor (< INR 5L AUM) cannot hold thematic
 starter_with_thematic = DeterministicSIPPlan(
     total_monthly_budget_inr=5000.0,
+    unallocated_budget_inr=4000.0,
+    equity_sip_pct=20.0,
+    debt_sip_pct=0.0,
     items=[
         DeterministicSIPRecommendation(
             category_role="Thematic",
