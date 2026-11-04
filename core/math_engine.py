@@ -264,94 +264,97 @@ def calculate_portfolio_xirr(
     as_of_date: Optional[date] = None
 ) -> Optional[float]:
     """
-    Calculate portfolio-level XIRR from transaction history.
-    
-    Supports both Pydantic HoldingItem models and raw dictionary holdings.
-    Handles all CAS transaction types: PURCHASE, SIP, REDEMPTION, SWITCH_IN, SWITCH_OUT, STP_IN, STP_OUT, DIVIDEND.
-    
-    Args:
-        transactions_path: Path to transactions.json
-        holdings: Current holdings (List of HoldingItem or List of dict)
-        cas_invested: Optional pre-aggregated invested amount from CAS
-        cas_current: Optional pre-aggregated current valuation from CAS
-        as_of_date: Valuation date (defaults to max transaction date or today)
-        
-    Returns:
-        Portfolio XIRR as decimal (e.g. 0.1582 for 15.82%), or None if insufficient data
+    Calculate portfolio XIRR only from a structurally complete, supported
+    transaction ledger. Any malformed row makes the result unavailable;
+    silently dropping a cash flow can materially distort investor returns.
     """
     if not transactions_path.exists():
         return None
-    
+
     try:
-        with open(transactions_path, 'r', encoding='utf-8') as f:
+        with open(transactions_path, "r", encoding="utf-8") as f:
             data = json.load(f)
-    except Exception:
+    except (OSError, UnicodeError, json.JSONDecodeError):
         return None
-    
-    transactions = data.get('transactions', [])
-    if not transactions:
+
+    if not isinstance(data, dict):
         return None
-    
+    transactions = data.get("transactions")
+    if not isinstance(transactions, list) or not transactions:
+        return None
+
+    supported_types = {
+        "PURCHASE", "SIP", "REDEMPTION", "SWITCH_IN", "SWITCH_OUT",
+        "STP_IN", "STP_OUT", "DIVIDEND", "SWP", "DIVIDEND_REINVEST",
+    }
     cashflows = []
     txn_dates = []
-    for txn in transactions:
+    for index, txn in enumerate(transactions, start=1):
+        if not isinstance(txn, dict):
+            return None
+        date_value = txn.get("date")
+        txn_type = str(txn.get("type", "")).strip().upper()
+        if not isinstance(date_value, str) or not date_value.strip() or txn_type not in supported_types:
+            return None
         try:
-            d_str = txn.get('date', '')
-            if not d_str:
-                continue
-            txn_date = datetime.strptime(d_str[:10], '%Y-%m-%d').date()
-            amount = float(txn.get('amount', 0))
-            txn_type = txn.get('type', '').upper()
-            desc = txn.get('description', '').lower()
-            
-            # Skip zero-amount non-financial transactions (address/nominee updates)
-            if amount == 0:
-                continue
-                
-            txn_dates.append(txn_date)
-            is_reversal = any(kw in desc for kw in ('reversal', 'dishonour', 'reject'))
-            
-            # In CAS statements, amounts follow accounting conventions:
-            # - Negative amount: money leaving scheme (redemption, switch out, purchase reversal) -> positive cashflow: -amount
-            # - Positive amount: money entering scheme (purchase, SIP, switch in, redemption reversal) -> negative cashflow: -amount
-            if amount < 0:
-                cf = -amount
-            else:
-                if txn_type in ('REDEMPTION', 'SWITCH_OUT', 'STP_OUT', 'DIVIDEND', 'SWP') and not is_reversal:
-                    cf = abs(amount)
-                else:
-                    cf = -amount
-            cashflows.append((txn_date, cf))
-        except Exception:
+            txn_date = datetime.strptime(date_value[:10], "%Y-%m-%d").date()
+            amount = float(txn.get("amount"))
+        except (TypeError, ValueError, OverflowError):
+            return None
+        if not math.isfinite(amount):
+            return None
+
+        desc = str(txn.get("description", "")).lower()
+        subtype = str(txn.get("subtype", "")).upper()
+        is_reversal = any(kw in desc for kw in ("reversal", "dishonour", "reject"))
+        txn_dates.append(txn_date)
+
+        # A zero amount is only safely ignorable when explicitly identified
+        # as a non-cash administrative event; unsupported rows fail closed.
+        if amount == 0.0:
             continue
-            
-    if not cashflows:
+
+        if amount < 0:
+            cf = -amount
+        elif txn_type in ("REDEMPTION", "SWITCH_OUT", "STP_OUT", "DIVIDEND", "SWP") and not is_reversal:
+            cf = abs(amount)
+        else:
+            cf = -amount
+        cashflows.append((txn_date, cf))
+
+    valuation_date = as_of_date or date.today()
+    if not isinstance(valuation_date, date) or valuation_date < max(txn_dates):
         return None
-        
-    if as_of_date is None:
-        as_of_date = max(txn_dates) if txn_dates else date.today()
-    
-    # Terminal valuation cashflow (positive = investor's net worth)
-    if cas_current is not None and cas_current > 0:
-        total_value = float(cas_current)
-    else:
-        total_value = 0.0
-        for h in (holdings or []):
-            if isinstance(h, dict):
-                v = float(h.get("value", h.get("current_value", 0.0)) or 0.0)
-            else:
-                v = float(getattr(h, "current_value_inr", 0.0) or 0.0)
-            if v > 0:
-                total_value += v
+
+    try:
+        if cas_current is not None:
+            total_value = float(cas_current)
+            if not math.isfinite(total_value) or total_value < 0:
+                return None
+        else:
+            total_value = 0.0
+            for holding in (holdings or []):
+                if isinstance(holding, dict):
+                    raw_value = holding.get("value", holding.get("current_value"))
+                else:
+                    raw_value = getattr(holding, "current_value_inr", None)
+                if raw_value is None:
+                    return None
+                value = float(raw_value)
+                if not math.isfinite(value) or value < 0:
+                    return None
+                total_value += value
+    except (TypeError, ValueError, OverflowError):
+        return None
 
     if total_value > 0:
-        cashflows.append((as_of_date, total_value))
-    
+        cashflows.append((valuation_date, total_value))
     if len(cashflows) < 2:
         return None
-    
-    return calculate_xirr(cashflows)
-
+    try:
+        return calculate_xirr(cashflows)
+    except (ValueError, OverflowError, ZeroDivisionError):
+        return None
 
 
 
