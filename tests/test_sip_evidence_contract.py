@@ -151,3 +151,11 @@ def test_contract_rejects_stale_candidate_universe_source():
 
     with pytest.raises(EvidenceProviderContractError, match="source is stale"):
         validate_evidence_provider_payload(payload)
+
+
+def test_contract_rejects_source_url_with_whitespace():
+    payload = valid_payload()
+    payload["candidate_universe_source"]["source_url"] = "https://example.com/file name.pdf"
+
+    with pytest.raises(EvidenceProviderContractError, match="source URL must be HTTPS"):
+        validate_evidence_provider_payload(payload)
