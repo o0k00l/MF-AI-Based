@@ -180,6 +180,10 @@ class OverlapPair(BaseModel):
     overlap_pct: float
     shared_stocks: List[str]
     verdict: str  # "HIGH_DUPLICATION" | "MODERATE" | "ACCEPTABLE"
+    # Legacy top-holdings set overlap is a count proxy, never verified weighted
+    # constituent overlap. The evidence basis is explicit in serialized output.
+    evidence_basis: str = "TOP_HOLDINGS_COUNT_PROXY"
+    verification_status: str = "HEURISTIC"
 
 
 class SAADriftAnalysis(BaseModel):
