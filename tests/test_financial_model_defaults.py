@@ -134,7 +134,16 @@ def test_eligibility_gates_require_all_explicit_true_for_pass():
     result = EligibilityGateResult(
         fund_id="fund-1", fund_name="Fund 1", passed=True, **gates
     )
-    assert result.model_dump() | {"failed_gates": []} == result.model_dump()
+    assert result.passed is True
+    assert all(
+        getattr(result, field) is True
+        for field in (
+            "amc_concentration_gate", "aum_stability_gate", "concentration_gate",
+            "sharpe_alpha_gate", "liquidity_gate", "mandate_suitability_gate",
+            "data_integrity_gate", "manager_tenure_gate", "thematic_satellite_gate",
+            "direct_plan_gate",
+        )
+    )
 
     with pytest.raises(ValidationError, match="cannot pass"):
         EligibilityGateResult(
