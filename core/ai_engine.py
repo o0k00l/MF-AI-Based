@@ -339,24 +339,26 @@ def _safe_exception_code(exc: Exception) -> str | None:
 
 
 def _call_gemini(prompt: str, system_prompt: str = "") -> str:
-    """Fail closed until zero-cost model pricing can be authoritatively verified."""
-    raise ProviderError(
-        "Gemini",
-        "Gemini is disabled by FREE_ONLY policy: zero-cost API pricing cannot be verified.",
-    )
+    """Generate text using live Gemini model discovery; API usage may be billable."""
+    key = os.getenv("GEMINI_API_KEY", "")
+    if not key:
+        raise ProviderError("Gemini", "GEMINI_API_KEY is not configured.")
     from google import genai
-    client = genai.Client(api_key=key)
+
     try:
+        client = genai.Client(api_key=key)
         models = []
         for item in client.models.list():
             name = getattr(item, "name", None)
             actions = getattr(item, "supported_actions", None)
-            if not isinstance(name, str) or not name:
+            if not isinstance(name, str) or not name.strip():
                 continue
             if actions and "generateContent" not in actions:
                 continue
             model_id = name.removeprefix("models/")
-            if model_id.startswith("gemini-") and "embedding" not in model_id.lower():
+            if model_id.startswith("gemini-") and not any(
+                term in model_id.lower() for term in ("embedding", "aqa")
+            ):
                 models.append(model_id)
         models = list(dict.fromkeys(models))
     except Exception as exc:
@@ -387,7 +389,6 @@ def _call_gemini(prompt: str, system_prompt: str = "") -> str:
             )
             if not _should_try_next_model(last_error):
                 raise last_error from None
-            continue
     raise last_error or ProviderError("Gemini", "Gemini had no usable discovered models.")
 
 
@@ -404,10 +405,12 @@ def call_llm(prompt: str, data_snapshot: str = "", system_instruction: str = "",
             if time.time() - float(entry.get("timestamp", 0)) < NARRATIVE_TTL_SECONDS:
                 return str(entry["text"])
 
-    # FREE_ONLY: only adapters with explicit zero-cost catalogue evidence are eligible.
+    # Ordered cost preference: free-catalogue providers first; Gemini is the
+    # explicitly authorized final fallback and may incur API charges.
     providers = (
         ("OpenRouter", _call_openrouter),
         ("Requesty", _call_requesty),
+        ("Gemini", _call_gemini),
     )
     errors = []
     for name, function in providers:
