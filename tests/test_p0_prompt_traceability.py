@@ -210,3 +210,77 @@ def test_redemption_interactive_response_does_not_invent_tax_waterfall():
     assert "1,25,000" not in answer
     assert "Day 366" not in answer
     assert "INR 0 tax" not in answer
+
+
+def _unvalidated_lumpsum_plan():
+    return SimpleNamespace(
+        total_lumpsum_inr=200000.0,
+        unallocated_amount_inr=0.0,
+        cash_validation_passed=False,
+        cash_validation_message="Synthetic cash validation failure",
+        execution_status="PROPOSED",
+        tranches=[
+            SimpleNamespace(
+                role="Large-cap",
+                scheme_name="Synthetic Fake Fund",
+                folio_target=None,
+                amount_inr=200000.0,
+                allocation_pct=100.0,
+                timing="Immediate",
+                source_vehicle="Bank",
+                fiduciary_rationale="Synthetic only",
+            )
+        ],
+    )
+
+
+def test_unvalidated_lumpsum_tranches_are_not_exposed_in_report(monkeypatch):
+    facts = SimpleNamespace(
+        client_name="Synthetic Investor",
+        client_age=40,
+        horizon_years=5,
+        risk_tier_name="Tier 6 (Very High)",
+        saa_drift=SimpleNamespace(target_equity_pct=95, target_debt_pct=5),
+        monthly_sip_budget_inr=10000.0,
+        lumpsum_budget_inr=200000.0,
+        deterministic_sip_plan=None,
+        deterministic_lumpsum_plan=_unvalidated_lumpsum_plan(),
+        stability_buffer=None,
+        mandate_state="HOLD_PENDING_TRI_VALIDATION",
+        is_execution_authorized=False,
+        is_actionable_order=False,
+    )
+    monkeypatch.setattr(prompt_advisor, "_build_dynamic_selection_dossier", lambda _: "Synthetic dossier")
+    monkeypatch.setattr(prompt_advisor, "_call_llm_with_retry", lambda prompt: prompt)
+
+    prompt = prompt_advisor.generate_cash_and_sip_plan(facts)
+
+    assert "NO ACTION" in prompt
+    assert "cash validation has not passed" in prompt
+    assert "Synthetic Fake Fund" not in prompt
+
+
+def test_unvalidated_lumpsum_tranches_are_not_exposed_interactively():
+    facts = SimpleNamespace(
+        deterministic_sip_plan=None,
+        deterministic_lumpsum_plan=_unvalidated_lumpsum_plan(),
+        monthly_sip_budget_inr=10000.0,
+        lumpsum_budget_inr=200000.0,
+    )
+
+    answer = prompt_advisor.answer_interactive_query(facts, "show lumpsum deployment")
+
+    assert "NO ACTION" in answer
+    assert "cash validation has not passed" in answer
+    assert "Synthetic Fake Fund" not in answer
+
+
+def test_lumpsum_reporting_rejects_non_reconciling_plan():
+    plan = _unvalidated_lumpsum_plan()
+    plan.cash_validation_passed = True
+    plan.unallocated_amount_inr = 1000.0
+
+    valid, reason = prompt_advisor._validate_lumpsum_plan_for_reporting(plan, 200000.0)
+
+    assert valid is False
+    assert "do not reconcile" in reason
