@@ -240,14 +240,22 @@ def validate_evidence_provider_payload(
     if not isinstance(as_of, date) or isinstance(as_of, datetime):
         raise EvidenceProviderContractError("disclosure_as_of_date must be a date, not a timestamp or string.")
 
+    scheme_records = payload["scheme_master"].get("schemes") if isinstance(payload["scheme_master"], dict) else None
     _validate_source_document(
         payload["scheme_master"], payload["scheme_master_source_bytes"],
         label="Scheme master", as_of=as_of,
+        trust_registry=trust_registry,
+        require_reviewer_signature=require_reviewer_signature,
+        structured_records=scheme_records,
+        scope="SIP_SCHEME_MASTER",
     )
     if metrics_present == metrics_fields:
         _validate_source_document(
             payload["metrics_source_metadata"], payload["metrics_source_bytes"],
             label="Fund metrics", as_of=as_of,
+            trust_registry=trust_registry,
+            require_reviewer_signature=require_reviewer_signature,
+            scope="SIP_EVIDENCE_RELEASE",
         )
         metrics_path = payload["metrics_path"]
         if not isinstance(metrics_path, Path) or metrics_path.is_symlink() or not metrics_path.is_file():
@@ -275,6 +283,9 @@ def validate_evidence_provider_payload(
             payload["portfolio_context_source_metadata"],
             payload["portfolio_context_source_bytes"],
             label="Total portfolio context", as_of=as_of,
+            trust_registry=trust_registry,
+            require_reviewer_signature=require_reviewer_signature,
+            scope="SIP_EVIDENCE_RELEASE",
         )
     if score_source_present:
         score_metadata = payload["candidate_score_source_metadata"]
@@ -283,6 +294,9 @@ def validate_evidence_provider_payload(
             payload["candidate_score_source_bytes"],
             label="Candidate ranking scores",
             as_of=as_of,
+            trust_registry=trust_registry,
+            require_reviewer_signature=require_reviewer_signature,
+            scope="SIP_EVIDENCE_RELEASE",
         )
         if not isinstance(score_metadata.get("methodology_version"), str) or not score_metadata["methodology_version"].strip():
             raise EvidenceProviderContractError("Candidate score source requires methodology_version.")
@@ -298,6 +312,9 @@ def validate_evidence_provider_payload(
             payload["category_anchor_source_bytes"],
             label="Category benchmark anchors",
             as_of=as_of,
+            trust_registry=trust_registry,
+            require_reviewer_signature=require_reviewer_signature,
+            scope="SIP_EVIDENCE_RELEASE",
         )
         if not isinstance(anchor_metadata.get("policy_version"), str) or not anchor_metadata["policy_version"].strip():
             raise EvidenceProviderContractError("Category benchmark anchor source requires policy_version.")
@@ -358,6 +375,13 @@ def validate_evidence_provider_payload(
         raw = disclosure_bytes[scheme_id]
         if not isinstance(raw, bytes) or not raw:
             raise EvidenceProviderContractError(f"Original source bytes for {scheme_id!r} are missing.")
+        _validate_source_document(
+            record, raw, label=f"Portfolio disclosure {scheme_id!r}", as_of=as_of,
+            trust_registry=trust_registry,
+            require_reviewer_signature=require_reviewer_signature,
+            structured_records=record,
+            scope="SIP_PORTFOLIO_DISCLOSURE",
+        )
 
     candidates = payload["candidate_universe"]
     if not isinstance(candidates, list) or not candidates:
@@ -366,6 +390,10 @@ def validate_evidence_provider_payload(
     _validate_source_document(
         candidate_source, payload["candidate_universe_source_bytes"],
         label="Candidate universe", as_of=as_of,
+        trust_registry=trust_registry,
+        require_reviewer_signature=require_reviewer_signature,
+        structured_records=candidates,
+        scope="SIP_CANDIDATE_UNIVERSE",
     )
     if candidate_source.get("universe_complete") is not True:
         raise EvidenceProviderContractError("Candidate universe must be explicitly reviewer-attested as complete.")
@@ -424,7 +452,10 @@ def validate_evidence_provider_payload(
         if not isinstance(candidate.get("_evidence_root"), (str, __import__("pathlib").Path)):
             raise EvidenceProviderContractError(f"Candidate {fund_id!r} is missing its evidence root.")
         from core.eligibility import _reviewed_direct_plan_evidence_status
-        if _reviewed_direct_plan_evidence_status(candidate) != "REVIEWER_ATTESTED_HASH_MATCH":
+        if _reviewed_direct_plan_evidence_status(
+            candidate, as_of_date=as_of, trust_registry=trust_registry,
+            require_signature=require_reviewer_signature,
+        ) != "REVIEWER_ATTESTED_HASH_MATCH":
             raise EvidenceProviderContractError(
                 f"Candidate {fund_id!r} Direct-plan source evidence is invalid, stale, or identity-conflicting."
             )
