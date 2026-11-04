@@ -65,7 +65,7 @@ def test_legacy_cli_requires_external_client_data_before_creating_outputs(tmp_pa
         check=False,
     )
     assert completed.returncode != 0
-    assert "MF_CLIENT_DATA_DIR is required" in completed.stderr
+    assert "legacy advisor CLI is retired and disabled" in completed.stderr
     assert not (repository_root / "outputs").exists()
     assert not (tmp_path / "outputs").exists()
 
