@@ -42,7 +42,7 @@ jobs:
         run: python validate_final_logics.py
       - name: Audit hash-locked dependencies
         run: |
-          python -m pip install pip-audit
+          python -m pip install "pip-audit==2.9.0"
           pip-audit -r requirements.lock
       - name: Generate CycloneDX dependency SBOM
         run: pip-audit -r requirements.lock --format cyclonedx-json --output dependency-sbom.cdx.json
