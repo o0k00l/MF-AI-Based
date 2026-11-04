@@ -30,9 +30,19 @@ class ScoringWeights:
     w_mpb_overlap: float = 0.10         # Marginal Portfolio Benefit / Overlap Inverted Pillar
 
     def validate(self) -> bool:
-        total = (self.w_alpha + self.w_sharpe + self.w_ter +
-                 self.w_downside_buffer + self.w_international + self.w_mpb_overlap)
-        return abs(total - 1.0) < 1e-5
+        values = (
+            self.w_alpha, self.w_sharpe, self.w_ter,
+            self.w_downside_buffer, self.w_international, self.w_mpb_overlap,
+        )
+        if any(isinstance(value, bool) for value in values):
+            return False
+        try:
+            numeric = tuple(float(value) for value in values)
+        except (TypeError, ValueError):
+            return False
+        if any(not math.isfinite(value) or value < 0.0 or value > 1.0 for value in numeric):
+            return False
+        return abs(sum(numeric) - 1.0) < 1e-5
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -86,9 +96,22 @@ def normalize_metric(val: Optional[float], val_min: float, val_max: float, inver
     if val is None:
         return 0.0
 
-    v = float(val)
-    val_clamped = min(max(v, val_min), val_max)
-    range_span = val_max - val_min
+    if isinstance(val, bool):
+        raise ValueError("Scoring metric must be numeric, not boolean")
+    if isinstance(val_min, bool) or isinstance(val_max, bool):
+        raise ValueError("Scoring bounds must be numeric")
+    try:
+        v = float(val)
+        lower = float(val_min)
+        upper = float(val_max)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Scoring metric and bounds must be numeric") from exc
+    if not all(math.isfinite(x) for x in (v, lower, upper)):
+        raise ValueError("Scoring metric and bounds must be finite")
+    if upper < lower:
+        raise ValueError("Scoring upper bound cannot be below lower bound")
+    val_clamped = min(max(v, lower), upper)
+    range_span = upper - lower
 
     if range_span <= 1e-6:
         return 50.0  # Equal peer baseline
@@ -177,7 +200,9 @@ def calculate_candidate_6_pillar_score(
 
     # 1. Alpha & Return Pillar (60% Alpha, 40% 1Y Return Momentum)
     p_alpha = normalize_metric(alpha_3y, alpha_bounds[0], alpha_bounds[1])
-    p_ret = normalize_metric(ret_1y, ret_bounds[0], ret_bounds[1]) if ret_1y > 0 else p_alpha
+    # Negative and zero returns are valid observations and must score against
+    # the return anchors; substituting alpha would hide a poor 1Y outcome.
+    p_ret = normalize_metric(ret_1y, ret_bounds[0], ret_bounds[1])
     p_alpha_ret = round((p_alpha * 0.6) + (p_ret * 0.4), 1)
 
     # 2. Sharpe Volatility Efficiency Pillar
