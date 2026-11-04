@@ -396,16 +396,16 @@ def test_complete_portfolio_workflow_integrates_issues_23_to_34_without_authoriz
     assert context["candidate_level_sip_allocation_simulation"]["reconciliation_ok"] is True
     allocation = context["candidate_level_sip_allocation_simulation"]
     print("SIP_ALLOCATION_DIAGNOSTIC=" + json.dumps(allocation, sort_keys=True))
-    assert allocation["allocated_budget_inr"] == "5000", {
+    assert allocation["allocated_budget_inr"] == "3000", {
         "allocations": allocation["allocations"],
         "rejected_candidates": allocation["rejected_candidates"],
         "unallocated_by_sleeve_inr": allocation["unallocated_by_sleeve_inr"],
         "unallocated_budget_inr": allocation["unallocated_budget_inr"],
     }
-    assert context["candidate_level_sip_allocation_simulation"]["unallocated_budget_inr"] == "5000"
+    assert context["candidate_level_sip_allocation_simulation"]["unallocated_budget_inr"] == "7000"
     assert context["candidate_level_sip_allocation_simulation"]["reconciliation_ok"] is True
     assert context["candidate_overlap_diagnostics"]["CANDIDATE-1"]["shared_issuers"] == ["ISSUER-A"]
-    assert context["incremental_sip_routing_simulation"]["allocations_inr"] == {"large_cap": "5000"}
+    assert context["incremental_sip_routing_simulation"]["allocations_inr"] == {"large_cap": "3000"}
     assert context["freshness"]["status"] == "CURRENT"
     trace = result["portfolio_assessment"]["decision_trace"]
     trace_record = json.loads(trace["canonical_record"])
@@ -417,9 +417,9 @@ def test_complete_portfolio_workflow_integrates_issues_23_to_34_without_authoriz
     assert trace_record["source_digests"]["portfolio_context_source_sha256"] == hashlib.sha256(portfolio_source).hexdigest()
     assert trace_record["as_of_dates"]["cas_valuation_date"] == date.today().isoformat()
     assert trace_record["portfolio_effect"]["candidate_level_allocation_simulation"]["reconciliation_ok"] is True
-    assert trace_record["allocation"]["simulated_unallocated_budget_inr"] == "5000"
+    assert trace_record["allocation"]["simulated_unallocated_budget_inr"] == "7000"
     assert trace_record["allocation"]["authorized_allocated_budget_inr"] == 0
-    assert trace_record["allocation"]["simulated_allocated_budget_inr"] == "5000"
+    assert trace_record["allocation"]["simulated_allocated_budget_inr"] == "3000"
     assert len(trace_record["policy_source_sha256"]) == 64
     assert trace_record["eligibility"]["candidate_rank_evidence"]["CANDIDATE-1"]["rank_score"] == "1"
     assert trace_record["eligibility"]["candidate_rank_evidence"]["CANDIDATE-1"]["rank_score_methodology_version"] == "risk-quality-v1"
@@ -654,18 +654,29 @@ def test_combined_selected_funds_cannot_collectively_breach_sector_cap(tmp_path,
         for index in range(1, 31)
     }
     context["concentration_policy"]["max_issuer_pct_of_portfolio"] = "100"
-    context["concentration_policy"]["max_sector_pct_of_portfolio"] = "12.9"
+    context["concentration_policy"]["max_sector_pct_of_portfolio"] = "20.1"
+    # The individually screened candidate has modest exposure, while the
+    # top-ranked candidates selected across both sleeves concentrate in the
+    # existing Healthcare issuer. Individually each min-ticket passes; their
+    # combined selected SIP amounts breach the sector limit.
+    for candidate in candidates:
+        if candidate["fund_id"] in {
+            "CANDIDATE-13", "CANDIDATE-14", "CANDIDATE-15",
+            "CANDIDATE-28", "CANDIDATE-29", "CANDIDATE-30",
+        }:
+            candidate["constituent_weights"] = {"SMALL-ISSUER": 100.0}
 
     result = service.recommend_sip(**args, portfolio_context=context)
 
     assessment = result["portfolio_assessment"]["total_portfolio_context"]
     individual = assessment["candidate_overlap_diagnostics"]["CANDIDATE-1"]
     print("SIP_INDIVIDUAL_CONCENTRATION_DIAGNOSTIC=" + json.dumps(individual, sort_keys=True))
+    assert individual["ticket_basis_inr"] == "1000"
     combined = assessment["proposed_candidate_set_concentration"]
     allocation = assessment["candidate_level_sip_allocation_simulation"]
     assert individual["status"] == "ASSESSED", individual
     assert combined["status"] == "HOLD"
-    assert float(combined["sector_market_cap_theme"]["breaches"]["sector"]["Financials"]) > 12.8
+    assert float(combined["sector_market_cap_theme"]["breaches"]["sector"]["Healthcare"]) > 20.1
     assert allocation["status"] == "HOLD"
     assert allocation["allocated_budget_inr"] == "0"
     assert allocation["unallocated_budget_inr"] == "10000"
