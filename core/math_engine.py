@@ -1169,6 +1169,10 @@ def load_holdings_from_cas_excel(
             matched_metric = _find_matching_metric_by_scheme_identity(
                 identity.get("scheme_id"), identity.get("isin"), metrics_map
             )
+            if matched_metric is not None:
+                _validate_sip_metrics_exposures(
+                    matched_metric, scheme_id=identity["scheme_id"]
+                )
         else:
             matched_metric = _find_matching_metric(scheme_str, metrics_map, aliases_map)
         if matched_metric is None:
@@ -1276,6 +1280,25 @@ def load_holdings_from_cas_excel(
         )
 
     return holdings
+
+
+def _validate_sip_metrics_exposures(metric: Dict[str, Any], *, scheme_id: str) -> None:
+    """Reject malformed exposure inputs before they influence SIP allocation."""
+    required = ("eq", "debt", "lc", "mc", "sc")
+    values: dict[str, float] = {}
+    for field in required:
+        raw = metric.get(field)
+        if isinstance(raw, bool):
+            raise ValueError(f"Fund metrics {field} exposure is invalid for {scheme_id!r}.")
+        try:
+            value = float(raw)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise ValueError(f"Fund metrics {field} exposure is missing or invalid for {scheme_id!r}.") from exc
+        if not math.isfinite(value) or not 0.0 <= value <= 100.0:
+            raise ValueError(f"Fund metrics {field} exposure is outside 0-100 for {scheme_id!r}.")
+        values[field] = value
+    if values["eq"] + values["debt"] > 100.0 + 0.5:
+        raise ValueError(f"Fund metrics equity plus debt exposure exceeds 100% for {scheme_id!r}.")
 
 
 def _find_matching_metric_by_scheme_identity(
