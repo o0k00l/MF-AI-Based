@@ -64,3 +64,17 @@ def test_weighted_overlap_rejects_incomplete_or_invalid_weights():
 
     assert weighted_lookthrough_overlap_status(holdings) == "UNAVAILABLE"
     assert calculate_weighted_lookthrough_overlap(holdings) == []
+
+
+def test_zero_equity_holding_does_not_require_stock_disclosure():
+    debt = _holding(
+        "scheme-debt",
+        None,
+        status="MISSING",
+        coverage=None,
+    )
+    debt.equity_pct = 0.0
+    equity = _holding("scheme-equity", {"RELIANCE": 100.0})
+
+    assert weighted_lookthrough_overlap_status([debt, equity]) == "VERIFIED"
+    assert calculate_weighted_lookthrough_overlap([debt, equity]) == []
