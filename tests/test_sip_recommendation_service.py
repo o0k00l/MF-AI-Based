@@ -376,6 +376,8 @@ def test_complete_portfolio_workflow_integrates_issues_23_to_34_without_authoriz
         metrics_source_bytes=metrics_source,
         candidate_universe_source_bytes=universe_source,
         candidate_score_source_bytes=score_source,
+        metrics_normalized_sha256="a" * 64,
+        candidate_universe_normalized_sha256="b" * 64,
         portfolio_context_source_bytes=portfolio_source,
     )
 
@@ -401,6 +403,8 @@ def test_complete_portfolio_workflow_integrates_issues_23_to_34_without_authoriz
     assert trace_record["source_digests"]["metrics_source_sha256"] == hashlib.sha256(metrics_source).hexdigest()
     assert trace_record["source_digests"]["candidate_universe_source_sha256"] == hashlib.sha256(universe_source).hexdigest()
     assert trace_record["source_digests"]["candidate_score_source_sha256"] == hashlib.sha256(score_source).hexdigest()
+    assert trace_record["source_digests"]["metrics_normalized_sha256"] == "a" * 64
+    assert trace_record["source_digests"]["candidate_universe_normalized_sha256"] == "b" * 64
     assert trace_record["source_digests"]["portfolio_context_source_sha256"] == hashlib.sha256(portfolio_source).hexdigest()
     assert trace_record["as_of_dates"]["cas_valuation_date"] == date.today().isoformat()
     assert trace_record["portfolio_effect"]["candidate_level_allocation_simulation"]["reconciliation_ok"] is True
