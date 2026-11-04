@@ -93,6 +93,9 @@ def _bundle(root: Path) -> dict:
         **_source(universe_bytes, "REVIEWED_CANDIDATE_UNIVERSE"),
         "universe_complete": True,
         "coverage_scope": "All reviewed direct equity schemes",
+        "normalized_candidate_universe_sha256": hashlib.sha256(
+            (root / "candidates.json").read_bytes()
+        ).hexdigest(),
     })
     manifest = {
         "schema_version": 1,
@@ -200,4 +203,11 @@ def test_provider_rejects_partial_portfolio_context_manifest(tmp_path):
     manifest["portfolio_context_file"] = "portfolio_context.json"
     _write_json(tmp_path, "manifest.json", manifest)
     with pytest.raises(ValueError, match="must be configured together"):
+        build_sip_evidence_provider(tmp_path)
+
+
+def test_provider_rejects_tampered_normalized_candidate_universe(tmp_path):
+    _bundle(tmp_path)
+    _write_json(tmp_path, "candidates.json", [{"fund_id": "tampered"}])
+    with pytest.raises(ValueError, match="Normalized candidate universe SHA-256"):
         build_sip_evidence_provider(tmp_path)
