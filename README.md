@@ -33,7 +33,7 @@ The current policy uses a 60% Flexi-cap / 40% Mid-Small-cap equity split when AU
 | `data/policy/tax_rules.json` | Provisional reference data only; not approved for investor-facing tax calculations or advice |
 | `data/policy/benchmark_tri_series*.json` | TRI fixtures for integrity and algorithm tests, not verified performance claims |
 | `verify_tri_provenance.py` | Fixture checksum and benchmark release-eligibility checks |
-| `advisor.py`, `advisor_lean.py` | Local-data report entry points; not trade-execution tools |
+| `advisor.py` | Explicit external client-data path resolver for controlled tooling |\n| `advisor_lean.py`, `legacy/advisor_lean_cli.py`, `ui/app.py` | Retired/disabled entry points; do not use for investor reports or recommendations |
 
 ## Dashboard status
 
