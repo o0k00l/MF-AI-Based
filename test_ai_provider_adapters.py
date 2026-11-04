@@ -91,7 +91,7 @@ def test_narrative_provider_chain_excludes_gemini(monkeypatch):
     monkeypatch.setattr(ai_engine, "_call_openrouter", unavailable)
     monkeypatch.setattr(ai_engine, "_call_requesty", requesty)
     monkeypatch.setattr(ai_engine, "_get_narrative_cache", lambda: {})
-    assert ai_engine.call_llm("test", use_cache=False) == "READY"
+    assert ai_engine.call_llm("test", use_cache=False, external_processing_consent=True) == "READY"
     assert attempted == ["openrouter", "requesty"]
 
 
