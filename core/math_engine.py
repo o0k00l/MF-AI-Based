@@ -2138,16 +2138,31 @@ def aggregate_fiduciary_facts(
         try:
             # The terminal valuation date must come from this CAS statement,
             # never from today's date or the latest transaction date.
-            cas_as_of_date = _parse_cas_valuation_date(cas_path)
-            bench_audit_record = calculate_cashflow_matched_benchmark_xirr(
-                transactions_path=transactions_path,
-                as_of_date=cas_as_of_date,
-                benchmark_key="NIFTY 500 TRI",
-                cas_current=tot_cur
+            # A mathematically computable result is not a releasable alpha
+            # claim. Enforce the same independent evidence gate used by CI
+            # before any benchmark or alpha value can enter the client report.
+            from verify_tri_provenance import alpha_release_blockers
+            release_blockers = alpha_release_blockers(
+                Path("data/policy/benchmark_tri_series.json")
             )
-            if bench_audit_record.get("benchmark_matched_xirr_pct") is not None:
-                benchmark_xirr = bench_audit_record["benchmark_matched_xirr_pct"] / 100.0
-                alpha_pct = bench_audit_record.get("alpha_pct")
+            if release_blockers:
+                bench_audit_record = {
+                    "release_status": "BLOCKED",
+                    "release_blockers": release_blockers,
+                    "benchmark_matched_xirr_pct": None,
+                    "alpha_pct": None,
+                }
+            else:
+                cas_as_of_date = _parse_cas_valuation_date(cas_path)
+                bench_audit_record = calculate_cashflow_matched_benchmark_xirr(
+                    transactions_path=transactions_path,
+                    as_of_date=cas_as_of_date,
+                    benchmark_key="NIFTY 500 TRI",
+                    cas_current=tot_cur
+                )
+                if bench_audit_record.get("benchmark_matched_xirr_pct") is not None:
+                    benchmark_xirr = bench_audit_record["benchmark_matched_xirr_pct"] / 100.0
+                    alpha_pct = bench_audit_record.get("alpha_pct")
         except TriProvenanceError as e:
             bench_audit_record = {"error": str(e), "validation_stage": e.validation_stage}
             benchmark_xirr = None
