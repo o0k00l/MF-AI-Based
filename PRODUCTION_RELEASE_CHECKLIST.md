@@ -67,7 +67,7 @@ A release is assessed against one exact commit SHA. Evidence from older commits,
 - [ ] Current Indian tax counsel / qualified reviewer signs off the interpretation for the release.
 - [ ] Evidence hashes are recomputed from local source bytes. Reviewer attestation is not represented as publisher authentication.
 
-**Current status:** Tax classifiers and tests are provisional. Statutory legal interpretation and scheme-level evidence have not received independent release sign-off.
+**Current status:** All investor-facing statutory classification, tax-rate, FIFO tax-maturity, lot-level exit-load, transition, redemption and switch-advice APIs are disabled and fail closed. Independent Indian tax/legal review and verified scheme/plan/lot evidence remain outstanding; no tax calculation is release-eligible.
 
 ## Gate 5 — Benchmark and performance claims
 
@@ -83,20 +83,21 @@ A release is assessed against one exact commit SHA. Evidence from older commits,
 
 ## Gate 6 — Software quality and reproducibility
 
-- [x] Complete P0 invariant suite passes on latest fully verified `main` SHA `025ded618d0dbc9787a9ccfe271c10331c13b566` (CI run `41763762140`).
+- [x] Complete P0 invariant suite passes on latest fully verified `main` SHA `e47487d6368c7a903c29fedf3e7058f844f1285f` (CI run `41770329852`).
 - [x] Complete correctness regression suite passes on the same SHA and CI run.
 - [ ] Property-based and boundary tests cover money, dates, XIRR, tax lots, coverage, duplicates and invalid inputs.
-- [x] Universal policy checks pass against central policy files on latest fully verified `main` SHA `025ded618d0dbc9787a9ccfe271c10331c13b566` (CI run `41763762140`).
-- [x] The two current test skips are the documented private-CAS integration checks; they are isolated and skipped when client files are absent.
-- [x] Clean-checkout privacy and engine initialization tests pass on latest fully verified `main` SHA (CI run `41763762140`).
-- [x] Runtime and development dependencies are hash-locked, and CI verifies `pip install --require-hashes`, `pip check` and `pip-audit` on latest fully verified `main` SHA (Security run `41763762165`).
+- [x] Universal policy checks pass against central policy files on latest fully verified `main` SHA `e47487d6368c7a903c29fedf3e7058f844f1285f` (CI run `41770329852`).
+- [x] Test skips are explicit: 30 legacy tax/exit-load test cases are skipped because those investor-facing APIs are intentionally disabled pending independent approval; one private-CAS integration test is skipped because no private client data is supplied to CI.
+- [x] Clean-checkout privacy and engine initialization tests pass on latest fully verified `main` SHA (CI run `41770329852`).
+- [x] Runtime and development dependencies are hash-locked, and CI verifies `pip install --require-hashes`, `pip check` and `pip-audit` on latest fully verified `main` SHA (Security run `41770329933`).
 - [ ] Supported Python version and runtime platform are pinned and verified.
-- [x] Dependency vulnerability review: `pip-audit` reports no known vulnerabilities in the hash-locked dependency tree on latest fully verified `main` SHA (Security run `41763762165`).
-- [ ] Static analysis, formatting, type checking and secret scanning pass.
+- [x] Dependency vulnerability review: `pip-audit` reports no known vulnerabilities in the hash-locked dependency tree on latest fully verified `main` SHA (Security run `41770329933`).
+- [x] Decision traceability uses RFC 8785/JCS canonical UTF-8 bytes plus SHA-256, with explicit `RFC8785-JCS-SHA256-v1` hash metadata and RFC number/string/UTF-16 property-order test vectors (CI run `41770329852`).
+- [ ] Static analysis, formatting, type checking and independent secret scanning pass.
 - [x] CycloneDX dependency SBOM is generated and retained as a GitHub Actions artifact (digest recorded above).
 - [ ] Production release artifact digest and independent reviewer sign-off are retained.
 
-**Current status (2026-11-04):** All six CI jobs passed on latest fully verified `main` SHA `025ded618d0dbc9787a9ccfe271c10331c13b566` (run `41763762140`): dependency-lock consistency, P0 fiduciary invariants, correctness regressions, full test suite, policy/static validation and TRI fixture integrity. The Security workflow also passed on that exact SHA (run `41763762165`), including hash-locked installation, `pip check`, `pip-audit` and CycloneDX SBOM generation. The retained SBOM artifact digest for this SHA is `sha256:598b6ce85ad8d02cbc6b11cea447d84f2a768d4925a764aa93514f1af6d5a9ef`. Full-suite result: **131 passed, 2 skipped**. The two skips are the private-CAS integration tests at `test_p0_fiduciary_invariants.py:427` and `:915`; they require an externally supplied `MF_CLIENT_DATA_DIR` and intentionally do not run in CI without investor data. The Security job used pinned `pip-audit==2.9.0`, completed hash-locked installation and dependency consistency, passed the vulnerability audit, and retained the CycloneDX SBOM. These are software verification results only; they do not satisfy the remaining property/boundary coverage, static analysis, formatting, type-checking, secret-scanning or independent SBOM review requirements.
+**Current status (2026-11-04):** All six CI jobs passed on latest fully verified `main` SHA `e47487d6368c7a903c29fedf3e7058f844f1285f` (CI run `41770329852`): dependency-lock consistency, P0 fiduciary invariants, correctness regressions, full test suite, policy/static validation and TRI fixture integrity. The Security workflow passed on the same SHA (Security run `41770329933`), including hash-locked installation, `pip check`, `pip-audit` and CycloneDX SBOM generation. The retained SBOM artifact digest for this SHA is `sha256:6a281ef603519476c375be26aed17aa4c026ec023270021f95abfb289f7e1896`. Full-suite result: **133 passed, 31 skipped**. Of the skips, 30 are legacy tax/exit-load calculation test cases intentionally disabled pending independent approval; one private-CAS integration test requires an externally supplied `MF_CLIENT_DATA_DIR` and does not run in CI without investor data. The Security job used pinned `pip-audit==2.9.0`, completed hash-locked installation and dependency consistency, passed the vulnerability audit, and retained the CycloneDX SBOM. These are software verification results only; they do not satisfy the remaining property/boundary coverage, static analysis, formatting, type-checking, independent secret scanning or SBOM review requirements.
 
 ## Gate 7 — GitHub release controls
 
