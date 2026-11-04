@@ -174,7 +174,7 @@ def parse_cas_xlsx(source, scheme_master=None, scheme_master_source_bytes=None) 
         if "current portfolio value" not in labels:
             continue
         pos = labels.index("current portfolio value")
-        for follow in rows[i + 1:i + 4]:
+        for follow_row_number, follow in enumerate(rows[i + 1:i + 4], start=i + 2):
             if pos < len(follow) and follow[pos] is not None:
                 raw_total = follow[pos]
                 try:
@@ -183,7 +183,7 @@ def parse_cas_xlsx(source, scheme_master=None, scheme_master_source_bytes=None) 
                         raise ValueError("stated portfolio total must be non-negative")
                 except (TypeError, ValueError, OverflowError) as exc:
                     out["rejected"].append({
-                        "row": rows.index(follow) + 1,
+                        "row": follow_row_number,
                         "scheme": None,
                         "raw_cells": {"stated_total": repr(raw_total)},
                         "reason": f"invalid stated portfolio total: {exc}",
@@ -351,7 +351,7 @@ def parse_cas_xlsx(source, scheme_master=None, scheme_master_source_bytes=None) 
                         desc = re.sub(r"[^a-z0-9]+", " ", desc_raw.casefold()).strip()
                         if any(term in desc for term in ("reversal", "dishonour", "dishonor", "rejected", "cancelled", "canceled")):
                             tx_type = "UNKNOWN"
-                        elif any(term in desc for term in ("stamp duty", "securities transaction tax", " stt ", "exit load", "transaction charge")) or desc == "stt":
+                        elif any(term in desc for term in ("stamp duty", "securities transaction tax", "exit load", "transaction charge")) or "stt" in desc.split():
                             tx_type = "CHARGES"
                         elif "switch out" in desc:
                             tx_type = "SWITCH_OUT"
