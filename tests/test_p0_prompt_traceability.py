@@ -483,3 +483,13 @@ def test_health_audit_prompt_does_not_interpolate_caller_switch_costs():
     assert "Switch Cost Details: NO ACTION" in source
     assert "s['switch_cost_inr']" not in source
     assert "getattr(facts, 'switch_costs', [])[:5]" not in source
+
+
+def test_portfolio_aggregation_does_not_call_disabled_tax_classifier():
+    import inspect
+    from core import math_engine
+
+    source = inspect.getsource(math_engine.aggregate_fiduciary_facts)
+    assert "compute_fifo_tax_lots(" not in source
+    assert "tax_lots_summary = None" in source
+    assert "reconcile_cas_holdings_with_transactions" in source
