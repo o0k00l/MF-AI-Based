@@ -1068,6 +1068,13 @@ def test_p0_17_tri_release_gate_rejects_boolean_and_nonfinite_observations(tmp_p
     blockers = verifier.alpha_release_blockers(fixture_path)
     assert any("non-finite or non-positive TRI value" in blocker for blocker in blockers)
 
+    # Even complete, self-asserted metadata and matching local hashes cannot
+    # authenticate the publisher or independent reviewer.
+    levels["2026-01-02"] = 101.0
+    fixture_path.write_text(json.dumps(fixture), encoding="utf-8")
+    blockers = verifier.alpha_release_blockers(fixture_path)
+    assert any("external release approval is still required" in blocker for blocker in blockers)
+
 
 
 
