@@ -1596,6 +1596,9 @@ def test_candidate_ingestion_never_hardcodes_direct_plan_status(tmp_path):
         "reviewer_attested": True,
         "reviewed_at": date.today().isoformat(),
         "scheme_name": "Synthetic Flexi Cap Growth",
+        "scheme_id": "SYNTH-SCHEME-001",
+        "isin": "SYNTH-ISIN-001",
+        "amc_name": "SYNTHETIC AMC",
         "plan": "Direct",
     }
 
@@ -1610,6 +1613,9 @@ def test_candidate_ingestion_never_hardcodes_direct_plan_status(tmp_path):
             "id": "synthetic-source-classified-direct",
             "name": "Synthetic Flexi Cap Growth",
             "category": "Flexi Cap Equity",
+            "scheme_id": "SYNTH-SCHEME-001",
+            "isin": "SYNTH-ISIN-001",
+            "amc_name": "SYNTHETIC AMC",
             "is_direct": True,
             "direct_plan_evidence": direct_evidence,
         },
@@ -1642,6 +1648,9 @@ def test_candidate_ingestion_never_hardcodes_direct_plan_status(tmp_path):
         "id": "synthetic-source-hash-mismatch",
         "name": "Synthetic Flexi Cap Growth",
         "category": "Flexi Cap Equity",
+        "scheme_id": "SYNTH-SCHEME-001",
+        "isin": "SYNTH-ISIN-001",
+        "amc_name": "SYNTHETIC AMC",
         "is_direct": True,
         "direct_plan_evidence": direct_evidence,
     }]}), encoding="utf-8")
