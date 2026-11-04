@@ -13,6 +13,7 @@ Evaluates candidate mutual funds across 6 objective, quantitative fiduciary pill
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Tuple
@@ -100,7 +101,7 @@ def normalize_metric(val: Optional[float], val_min: float, val_max: float, inver
 def calculate_candidate_6_pillar_score(
     cand: Dict[str, Any],
     category_key: str = "Healthcare",
-    portfolio_overlap_pct: float = 0.0,
+    portfolio_overlap_pct: Optional[float] = None,
     weights: Optional[ScoringWeights] = None
 ) -> Tuple[float, Dict[str, float]]:
     """
@@ -111,14 +112,55 @@ def calculate_candidate_6_pillar_score(
     if weights is None:
         weights = ScoringWeights()
 
-    # Extract metrics with explicit units
-    alpha_3y = float(cand.get("alpha_3y", cand.get("alpha", 0.0)) or 0.0)
-    ret_1y = float(cand.get("return_1y", cand.get("ret_1y", 0.0)) or 0.0)
-    sharpe_3y = float(cand.get("sharpe_3y", cand.get("sharpe", 0.5)) or 0.5)
-    ter = float(cand.get("ter_direct_pct", cand.get("er", 0.85)) or 0.85)
-    buffer_pct = float(cand.get("cash_debt_buffer_pct", cand.get("debt", 0.0)) or 0.0)
-    intl_pct = float(cand.get("international_equity_pct", 0.0) or 0.0)
-    overlap = float(portfolio_overlap_pct or cand.get("overlap_pct", 12.0) or 12.0)
+    # Required selection metrics must be supplied explicitly. Zero is a valid
+    # observation; missing, blank, boolean and non-finite values are not.
+    def required_metric(*keys: str) -> float:
+        raw = next((cand[key] for key in keys if key in cand), None)
+        if raw is None or isinstance(raw, bool) or (isinstance(raw, str) and not raw.strip()):
+            raise ValueError(f"Missing required scoring metric: {keys[0]}")
+        try:
+            value = float(raw)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"Malformed required scoring metric: {keys[0]}") from exc
+        if not math.isfinite(value):
+            raise ValueError(f"Non-finite required scoring metric: {keys[0]}")
+        return value
+
+    alpha_3y = required_metric("alpha_3y", "alpha")
+    ret_1y = required_metric("return_1y", "ret_1y")
+    sharpe_3y = required_metric("sharpe_3y", "sharpe")
+    ter = required_metric("ter_direct_pct", "er")
+
+    # Optional explanatory pillars are neutral when evidence is absent. They
+    # must never be fabricated as zero, 12%, or another assumed observation.
+    def optional_metric(*keys: str) -> Optional[float]:
+        raw = next((cand[key] for key in keys if key in cand), None)
+        if raw is None:
+            return None
+        if isinstance(raw, bool):
+            raise ValueError(f"Malformed optional scoring metric: {keys[0]}")
+        try:
+            value = float(raw)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"Malformed optional scoring metric: {keys[0]}") from exc
+        if not math.isfinite(value):
+            raise ValueError(f"Non-finite optional scoring metric: {keys[0]}")
+        return value
+
+    buffer_pct = optional_metric("cash_debt_buffer_pct", "debt")
+    intl_pct = optional_metric("international_equity_pct")
+    overlap_raw = portfolio_overlap_pct
+    if overlap_raw is None:
+        overlap_raw = optional_metric("overlap_pct")
+    elif isinstance(overlap_raw, bool):
+        raise ValueError("Malformed portfolio overlap percentage")
+    else:
+        overlap_raw = float(overlap_raw)
+        if not math.isfinite(overlap_raw):
+            raise ValueError("Non-finite portfolio overlap percentage")
+
+    if not weights.validate():
+        raise ValueError("Scoring weights must be finite and sum to 1.0")
 
     if category_key not in CATEGORY_BENCHMARK_ANCHORS:
         raise ValueError(
@@ -145,13 +187,13 @@ def calculate_candidate_6_pillar_score(
     p_ter = normalize_metric(ter, ter_bounds[0], ter_bounds[1], invert=True)
 
     # 4. Capital Preservation & Defensive Buffer Pillar
-    p_buf = normalize_metric(buffer_pct, buf_bounds[0], buf_bounds[1])
+    p_buf = 50.0 if buffer_pct is None else normalize_metric(buffer_pct, buf_bounds[0], buf_bounds[1])
 
     # 5. Geographic Moat Pillar (Neutral 0.0 for pure domestic sectors)
-    p_intl = normalize_metric(intl_pct, intl_bounds[0], intl_bounds[1]) if intl_pct > 0 else 0.0
+    p_intl = 50.0 if intl_pct is None else normalize_metric(intl_pct, intl_bounds[0], intl_bounds[1])
 
     # 6. Marginal Portfolio Benefit / Overlap Inverted Pillar (lower overlap is better)
-    p_ovl = normalize_metric(overlap, ovl_bounds[0], ovl_bounds[1], invert=True)
+    p_ovl = 50.0 if overlap_raw is None else normalize_metric(overlap_raw, ovl_bounds[0], ovl_bounds[1], invert=True)
 
     pillars = {
         "alpha_return": p_alpha_ret,
