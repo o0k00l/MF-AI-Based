@@ -341,7 +341,7 @@ def test_complete_portfolio_workflow_integrates_issues_23_to_34_without_authoriz
     assert context["scheme_operational_feasibility"]["CANDIDATE-1"]["status"] == "FEASIBLE_FOR_REVIEW"
     assert context["candidate_overlap_diagnostics"]["CANDIDATE-1"]["status"] == "ASSESSED"
     assert context["candidate_overlap_diagnostics"]["CANDIDATE-1"]["shared_issuers"] == ["ISSUER-A"]
-    assert context["incremental_sip_routing_simulation"]["allocations_inr"] == {"large_cap": "2500", "flexi_multi_cap": "2500", "mid_cap": "2500", "small_cap": "2500"}
+    assert context["incremental_sip_routing_simulation"]["allocations_inr"] == {"large_cap": "10000"}
     assert context["freshness"]["status"] == "CURRENT"
     assert context["recommendation_authorized"] is False
     assert context["execution_authorized"] is False
