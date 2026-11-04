@@ -6,6 +6,7 @@ manufactures or substitutes source evidence.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from datetime import date
@@ -117,7 +118,6 @@ def build_sip_evidence_provider(
         metrics_metadata.get("normalized_metrics_sha256")
         if isinstance(metrics_metadata, dict) else None
     )
-    import hashlib
     actual_normalized_hash = hashlib.sha256(metrics_path.read_bytes()).hexdigest()
     if declared_normalized_hash != actual_normalized_hash:
         raise ValueError("Normalized fund metrics SHA-256 does not match the reviewed metadata.")
