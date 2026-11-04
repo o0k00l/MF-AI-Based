@@ -15,7 +15,7 @@ from datetime import date
 import hashlib
 import json
 import math
-from decimal import Decimal
+from decimal import Decimal, ROUND_CEILING
 from pathlib import Path
 from typing import Any
 
@@ -431,12 +431,26 @@ def _assess_complete_portfolio_context(
                 overlap_results[candidate_id] = {"status": "HOLD", "reason": "CANDIDATE_LOOKTHROUGH_MISSING"}
                 continue
             candidate_sleeve = candidate_policy.get("candidate_sleeves", {}).get(candidate_id)
-            ticket_budget = Decimal(str(routing.get("allocations_inr", {}).get(candidate_sleeve, "0")))
-            if ticket_budget <= 0:
+            sleeve_budget = Decimal(str(routing.get("allocations_inr", {}).get(candidate_sleeve, "0")))
+            if sleeve_budget <= 0:
                 overlap_results[candidate_id] = {
                     "status": "HOLD", "reason": "NO_ROUTED_SIP_BUDGET_FOR_CANDIDATE_SLEEVE"
                 }
                 continue
+            # Screen one candidate at its minimum viable monthly ticket, not
+            # against the entire sleeve budget. The actual selected-fund set is
+            # re-evaluated collectively against its exact allocated amounts below.
+            allocation_policy = policy["sip_allocation_policy"]
+            policy_minimum = Decimal(str(allocation_policy["min_sip_per_fund_inr"]))
+            scheme_minimum = Decimal(str(
+                operational_results[candidate_id]["minimum_monthly_sip_inr"]
+            ))
+            increment = Decimal(str(allocation_policy["sip_increment_inr"]))
+            ticket_minimum = max(policy_minimum, scheme_minimum)
+            ticket_budget = (
+                (ticket_minimum / increment).to_integral_value(rounding=ROUND_CEILING)
+                * increment
+            )
             candidate_post_total = Decimal(str(total)) + ticket_budget
             candidate_exposure = calculate_lookthrough_exposure(
                 [{"holding_value_inr": str(ticket_budget),
@@ -476,6 +490,7 @@ def _assess_complete_portfolio_context(
             overlap_results[candidate_id] = {
                 "status": "HOLD" if concentration_blocked else "ASSESSED",
                 "ticket_basis_inr": str(ticket_budget),
+                "sleeve_budget_available_inr": str(sleeve_budget),
                 "shared_issuers": sorted(set(issuers) & set(existing_issuer_values)),
                 "candidate_issuer_exposure_inr": issuers,
                 "combined_issuer_concentration_pct": concentrations,
