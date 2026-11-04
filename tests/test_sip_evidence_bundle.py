@@ -114,14 +114,15 @@ def test_provider_is_not_configured_when_bundle_path_is_unset(monkeypatch):
 
 def test_provider_loads_only_explicit_bundle_and_passes_source_contract(tmp_path):
     _bundle(tmp_path)
+    cas_path = tmp_path / "cas.xlsx"
+    cas_path.write_bytes(b"temporary uploaded CAS")
     provider = build_sip_evidence_provider(tmp_path)
 
     payload = provider(
-        cas_path=tmp_path / "cas.xlsx",
+        cas_path=cas_path,
         monthly_budget_inr=25000,
         risk_profile="Moderate",
     )
-    (tmp_path / "cas.xlsx").write_bytes(b"temporary uploaded CAS")
     validated = validate_evidence_provider_payload(payload)
 
     assert validated["scheme_master"]["schemes"][0]["scheme_id"] == "scheme-1"
@@ -131,6 +132,7 @@ def test_provider_loads_only_explicit_bundle_and_passes_source_contract(tmp_path
 
 def test_provider_rejects_path_traversal_in_manifest(tmp_path):
     manifest = _bundle(tmp_path)
+    (tmp_path.parent / "outside.xlsx").write_bytes(b"outside")
     manifest["scheme_master_source_file"] = "../outside.xlsx"
     _write_json(tmp_path, "manifest.json", manifest)
 
