@@ -4146,10 +4146,11 @@ def compute_deterministic_lumpsum_blueprint(
         required_slots.extend([
             "Slot 1: Core Flexi-Cap Compounder",
             "Slot 2: Mid-Cap Alpha Engine",
-            "Slot 3: Large-Cap Bluechip Anchor",
+            "Slot 3: Small-Cap Growth Engine",
+            "Slot 4: Large-Cap Bluechip Anchor",
         ])
         if thematic_satellite_authorized and satellite_pct > 0:
-            required_slots.append("Slot 4: Tactical Thematic Satellite")
+            required_slots.append("Slot 5: Tactical Thematic Satellite")
     if debt_pct > 0:
         required_slots.append("High-Grade Debt Anchor")
 
@@ -4319,8 +4320,9 @@ def compute_deterministic_sip_blueprint(
     )
     flexi_info = slots["Slot 1: Core Flexi-Cap Compounder"]
     mid_info = slots["Slot 2: Mid-Cap Alpha Engine"]
-    large_info = slots["Slot 3: Large-Cap Bluechip Anchor"]
-    thematic_info = slots["Slot 4: Tactical Thematic Satellite"]
+    small_info = slots["Slot 3: Small-Cap Growth Engine"]
+    large_info = slots["Slot 4: Large-Cap Bluechip Anchor"]
+    thematic_info = slots["Slot 5: Tactical Thematic Satellite"]
     debt_info = slots.get("High-Grade Debt Anchor", {})
 
     flexi_scheme = flexi_info.get("scheme") or flexi_info.get("fund_name") or "NO_ACTION: No eligible fund selected"
@@ -4331,13 +4333,17 @@ def compute_deterministic_sip_blueprint(
     mid_target_folio = mid_info.get("folio")
     mid_default_rat = mid_info.get("rationale", "NO_ACTION: No eligible fund selected for Slot 2.")
 
+    small_scheme = small_info.get("scheme") or small_info.get("fund_name") or "NO_ACTION: No eligible fund selected"
+    small_target_folio = small_info.get("folio")
+    small_default_rat = small_info.get("rationale", "NO_ACTION: No eligible fund selected for Slot 3.")
+
     large_scheme = large_info.get("scheme") or large_info.get("fund_name") or "NO_ACTION: No eligible fund selected"
     large_target_folio = large_info.get("folio")
-    large_default_rat = large_info.get("rationale", "NO_ACTION: No eligible fund selected for Slot 3.")
+    large_default_rat = large_info.get("rationale", "NO_ACTION: No eligible fund selected for Slot 4.")
 
     pharma_scheme = thematic_info.get("scheme") or thematic_info.get("fund_name") or "NO_ACTION: No eligible fund selected"
     direct_pharma_folio = thematic_info.get("folio")
-    pharma_rat = thematic_info.get("rationale", "NO_ACTION: No eligible thematic fund selected for Slot 4.")
+    pharma_rat = thematic_info.get("rationale", "NO_ACTION: No eligible thematic fund selected for Slot 5.")
 
     debt_scheme = debt_info.get("scheme") or "NO_ACTION: No verified debt candidate selected"
     direct_debt_folio = debt_info.get("folio")
@@ -4363,9 +4369,22 @@ def compute_deterministic_sip_blueprint(
             thematic_pct = round(target_eq * satellite_pct / 100.0, 1)
             core_equity_pct = target_eq - thematic_pct
             flexi_pct = round(core_equity_pct * starter_flexi_weight / 100.0, 1)
-            mid_pct = round(core_equity_pct * starter_mid_weight / 100.0, 1)
+            mid_small_pct = round(core_equity_pct * starter_mid_weight / 100.0, 1)
+            # Preserve the starter policy's combined mid/small sleeve while
+            # splitting it using the investor's SAA mid/small proportions.
+            _tier_profiles = {1: "low", 2: "low_to_moderate", 3: "moderate", 4: "moderately_high", 5: "high", 6: "very_high"}
+            _starter_saa = allocation_policy["behavioral_risk_profiles"][_tier_profiles[tier_num]]["saa_targets"]
+            _starter_mid = float(_starter_saa["mid_cap_pct"])
+            _starter_small = float(_starter_saa["small_cap_pct"])
+            _starter_mid_small = _starter_mid + _starter_small
+            if _starter_mid_small > 0:
+                mid_pct = round(mid_small_pct * _starter_mid / _starter_mid_small, 1)
+                small_pct = round(mid_small_pct - mid_pct, 1)
+            else:
+                mid_pct = 0.0
+                small_pct = 0.0
             large_pct = round(core_equity_pct * starter_large_weight / 100.0, 1)
-            diff = round(core_equity_pct - flexi_pct - mid_pct - large_pct, 1)
+            diff = round(core_equity_pct - flexi_pct - mid_pct - small_pct - large_pct, 1)
             flexi_pct = round(flexi_pct + diff, 1)
             _append_flexi_sip_items(flexi_pct)
             if mid_pct > 0:
@@ -4379,6 +4398,19 @@ def compute_deterministic_sip_blueprint(
                         rational_code="ALPHA_ENGINE",
                         fiduciary_rationale=mid_default_rat,
                         is_direct=mid_info.get("is_direct")
+                    )
+                )
+            if small_pct > 0:
+                items.append(
+                    DeterministicSIPRecommendation(
+                        category_role="Small-Cap Growth Engine",
+                        scheme_name=small_scheme,
+                        folio_target=small_target_folio,
+                        monthly_inr=round(b * (small_pct / 100.0), 2),
+                        allocation_pct=small_pct,
+                        rational_code="SMALL_CAP_GROWTH",
+                        fiduciary_rationale=small_default_rat,
+                        is_direct=small_info.get("is_direct"),
                     )
                 )
             if large_pct > 0:
@@ -4457,14 +4489,17 @@ def compute_deterministic_sip_blueprint(
             thematic_pct = round(target_eq * satellite_pct / 100.0, 1)
             core_equity_pct = target_eq - thematic_pct
             _w_flexi = _flexi / _eq_sum
-            _w_mid_sm = (_mid + _small) / _eq_sum
+            _w_mid = _mid / _eq_sum
+            _w_small = _small / _eq_sum
             _w_large = _large / _eq_sum
             flexi_pct = round(core_equity_pct * _w_flexi, 1)
-            mid_pct = round(core_equity_pct * _w_mid_sm, 1)
+            mid_pct = round(core_equity_pct * _w_mid, 1)
+            small_pct = round(core_equity_pct * _w_small, 1)
             large_pct = round(core_equity_pct * _w_large, 1)
 
-            # Absorb any sub-percent rounding discrepancy into Slot 1
-            eq_diff = round(target_eq - (flexi_pct + mid_pct + large_pct + thematic_pct), 1)
+            # Absorb sub-percent rounding discrepancy into Flexi only; preserve
+            # the separate mid- and small-cap strategic sleeve targets.
+            eq_diff = round(target_eq - (flexi_pct + mid_pct + small_pct + large_pct + thematic_pct), 1)
             flexi_pct = round(flexi_pct + eq_diff, 1)
 
             # Slot 1: Core Flexi-Cap Compounder
@@ -4483,7 +4518,21 @@ def compute_deterministic_sip_blueprint(
                 )
             )
 
-            # Slot 3: Large-Cap Bluechip Anchor
+            # Slot 3: Small-Cap Growth Engine
+            items.append(
+                DeterministicSIPRecommendation(
+                    category_role="Small-Cap Growth Engine",
+                    scheme_name=small_scheme,
+                    folio_target=small_target_folio,
+                    monthly_inr=round(b * (small_pct / 100.0), 2),
+                    allocation_pct=small_pct,
+                    rational_code="SMALL_CAP_GROWTH",
+                    fiduciary_rationale=small_default_rat,
+                    is_direct=small_info.get("is_direct"),
+                )
+            )
+
+            # Slot 4: Large-Cap Bluechip Anchor
             items.append(
                 DeterministicSIPRecommendation(
                     category_role="Large-Cap Bluechip Anchor",
@@ -4497,7 +4546,7 @@ def compute_deterministic_sip_blueprint(
                 )
             )
 
-            # Slot 4: Tactical Thematic Satellite
+            # Slot 5: Tactical Thematic Satellite
             items.append(
                 DeterministicSIPRecommendation(
                     category_role="Tactical Thematic Satellite",
