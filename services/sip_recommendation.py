@@ -575,6 +575,7 @@ def _build_sip_decision_trace(
     metrics_source_bytes: bytes | None = None,
     candidate_universe_source_bytes: bytes | None = None,
     portfolio_context_source_bytes: bytes | None = None,
+    candidate_score_source_bytes: bytes | None = None,
 ) -> dict[str, str]:
     """Hash the source and diagnostic inputs that led to a fail-closed SIP result."""
     candidate_source_hashes = {}
@@ -596,6 +597,7 @@ def _build_sip_decision_trace(
             "candidate_direct_plan_sources": candidate_source_hashes,
             "metrics_source_sha256": hashlib.sha256(metrics_source_bytes).hexdigest() if metrics_source_bytes else None,
             "candidate_universe_source_sha256": hashlib.sha256(candidate_universe_source_bytes).hexdigest() if candidate_universe_source_bytes else None,
+            "candidate_score_source_sha256": hashlib.sha256(candidate_score_source_bytes).hexdigest() if candidate_score_source_bytes else None,
             "portfolio_context_source_sha256": hashlib.sha256(portfolio_context_source_bytes).hexdigest() if portfolio_context_source_bytes else None,
             "portfolio_context_bundle_sha256": (
                 context_assessment.get("source_bundle_sha256")
@@ -694,6 +696,7 @@ def recommend_sip(
     metrics_source_bytes: bytes | None = None,
     candidate_universe_source_bytes: bytes | None = None,
     portfolio_context_source_bytes: bytes | None = None,
+    candidate_score_source_bytes: bytes | None = None,
 ) -> dict[str, Any]:
     """Build a fail-closed portfolio-aware SIP decision from explicit evidence.
 
@@ -840,6 +843,7 @@ def recommend_sip(
         metrics_source_bytes=metrics_source_bytes,
         candidate_universe_source_bytes=candidate_universe_source_bytes,
         portfolio_context_source_bytes=portfolio_context_source_bytes,
+        candidate_score_source_bytes=candidate_score_source_bytes,
     )
     portfolio_assessment["recommendation_lifecycle"]["decision_trace_sha256"] = (
         portfolio_assessment["decision_trace"]["sha256"]
