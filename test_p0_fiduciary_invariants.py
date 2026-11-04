@@ -414,84 +414,48 @@ def test_p0_4_candidate_universe_and_no_action_branch(tmp_path):
 
 
 
-def test_p0_5_fiduciary_personal_redemption_engine():
-    """Verifies the Deterministic Fiduciary Personal Cash Redemption Engine across all ticket sizes."""
-    from core.math_engine import aggregate_fiduciary_facts
+def test_p0_5_fiduciary_personal_redemption_engine_fails_closed():
+    """Redemption must remain NO ACTION without approved tax and scheme/lot evidence."""
     from core.redemption_engine import compute_personal_redemption_plan
-    from core.models import RedemptionPriorityTier
+    from core.models import HoldingItem, PlanType, AssetClass
 
-    # Client CAS and mandate files must be supplied through an external directory.
-    import os
-    configured_dir = os.environ.get("MF_CLIENT_DATA_DIR")
-    if not configured_dir:
-        pytest.skip("MF_CLIENT_DATA_DIR is not configured for private CAS integration testing")
-    client_dir = Path(configured_dir).expanduser().resolve()
-    statements_dir = client_dir / "statements"
-    local_cas = list(statements_dir.glob("cas_detailed_report_*.xlsx")) if statements_dir.exists() else []
-    if not local_cas:
-        pytest.skip("Private client CAS statement not present in MF_CLIENT_DATA_DIR")
-    cas, metrics, config, aliases, _ = _get_portfolio_paths_or_skip()
-    facts = aggregate_fiduciary_facts(cas, metrics, config, aliases)
-    tx_path = cas.parent.parent / "transactions.json"
-    if not tx_path.exists():
-        tx_path = cas.parent / "transactions.json"
+    holding = HoldingItem(
+        fund_id="synthetic-fund-001",
+        scheme="Synthetic Equity Scheme - Direct Growth",
+        fund_name="Synthetic Equity Scheme",
+        folio="SYNTHETIC-FOLIO",
+        is_direct=True,
+        plan=PlanType.DIRECT,
+        asset_class=AssetClass.EQUITY,
+        equity_pct=100.0,
+        debt_pct=0.0,
+        hybrid_pct=0.0,
+        international_pct=0.0,
+        current_value_inr=250000.0,
+        invested_value_inr=200000.0,
+        units=2000.0,
+        nav=125.0,
+    )
 
-    # 1. Test Small-Ticket (<= 1L) -> Single-fund MFCentral friction minimization
-    plan_small = compute_personal_redemption_plan(
+    plan = compute_personal_redemption_plan(
         requested_amount=100000.0,
-        holdings=facts.holdings,
-        transactions_path=tx_path,
-        is_net_cash=False
+        holdings=[holding],
+        transactions_path=None,
+        is_net_cash=False,
     )
-    assert plan_small.ticket_category == "SMALL_TICKET"
-    assert plan_small.funds_liquidated_count == 1, "Small-ticket must use single fund to minimize operational friction"
-    assert plan_small.total_exit_load_inr == 0.0, "0% Exit load guarantee must be respected"
-    assert plan_small.total_gross_redeemed_inr == 100000.0
-    assert plan_small.tranches[0].priority_tier == RedemptionPriorityTier.BUBBLE_DERISKING
-    assert plan_small.total_annual_commission_saved_inr > 0, "Must terminate broker commission bleed"
 
-    # 2. Test Medium-Ticket (1L to 5L) -> Complete folio cleanups
-    plan_med = compute_personal_redemption_plan(
-        requested_amount=300000.0,
-        holdings=facts.holdings,
-        transactions_path=tx_path,
-        is_net_cash=False
-    )
-    assert plan_med.ticket_category == "MEDIUM_TICKET"
-    assert plan_med.full_folio_exits_count >= 1, "Medium ticket must prioritize 100% full folio closures"
-    assert plan_med.total_gross_redeemed_inr == 300000.0
-    assert plan_med.total_tax_sheltered_under_112a_inr == 125000.0, "Must maximize Sec 112A 1.25L annual exemption"
-    assert plan_med.total_exit_load_inr == 0.0
-
-    # 3. Test Large-Ticket (> 5L) -> Macro structural derisking & Sec 70 Loss Harvesting
-    plan_large = compute_personal_redemption_plan(
-        requested_amount=1000000.0,
-        holdings=facts.holdings,
-        transactions_path=tx_path,
-        is_net_cash=False
-    )
-    assert plan_large.ticket_category == "LARGE_TICKET"
-    assert plan_large.full_folio_exits_count >= 4, "Large ticket must sweep all bubble funds"
-    # Ensure all bubble funds are wiped out before regular
-    assert any("Loss Harvesting" in t.fiduciary_reason for t in plan_large.tranches), "Must harvest Sec 70 capital loss"
-    assert plan_large.total_annual_commission_saved_inr >= 10000.0, "Must save substantial recurring broker fee"
-    # Core Direct anchors must be protected
-    for t in plan_large.tranches:
-        assert "direct" not in t.scheme_name.lower() or "baf" not in t.scheme_name.lower(), "Core anchors must not be touched"
-
-    # 4. Test Net Cash Target Mode
-    plan_net = compute_personal_redemption_plan(
-        requested_amount=200000.0,
-        holdings=facts.holdings,
-        transactions_path=tx_path,
-        is_net_cash=True
-    )
-    assert plan_net.is_net_cash_target is True
-    assert plan_net.total_net_cash_inr >= 200000.0, "Net cash received must satisfy requested amount"
-    assert plan_net.total_exit_load_inr == 0.0
-
-    print("[PASS] P0.5 Fiduciary Personal Redemption Engine Verified (Small, Med, Large, Net)")
-
+    assert plan.ticket_category == "NO_ACTION_EVIDENCE"
+    assert plan.requested_amount_inr == 100000.0
+    assert plan.total_gross_redeemed_inr == 0.0
+    assert plan.total_exit_load_inr == 0.0
+    assert plan.total_stcg_tax_inr == 0.0
+    assert plan.total_ltcg_tax_inr == 0.0
+    assert plan.total_net_cash_inr == 0.0
+    assert plan.funds_liquidated_count == 0
+    assert plan.tranches == []
+    assert plan.execution_steps
+    assert "provisional" in plan.ticket_rationale.lower()
+    assert "remains unallocated" in plan.ticket_rationale.lower()
 
 
 def test_p0_6_multi_horizon_selection_and_peer_evaluation(tmp_path):
