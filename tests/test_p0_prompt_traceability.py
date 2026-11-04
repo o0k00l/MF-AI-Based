@@ -314,3 +314,35 @@ def test_tax_rules_loader_rejects_provisional_policy():
 
     with pytest.raises(InsufficientDataError, match="provisional or lack independent"):
         _load_tax_rules(policy_path)
+
+
+def test_legacy_tax_transition_and_switch_advice_fail_closed():
+    from datetime import date
+    import pytest
+    from tax import transition_planner as planner
+
+    blocked_calls = [
+        lambda: planner.load_tax_rules(None),
+        lambda: planner.classify_fund_for_tax(None, None),
+        lambda: planner.get_tax_rates_for_sale("equity_oriented", date(2026, 4, 1), {}),
+        lambda: planner.plan_fy_tranches({}, {}, date(2026, 4, 1), {}),
+        lambda: planner.generate_transition_plan_md({}, {}, 0, "Synthetic", date(2026, 4, 1)),
+        lambda: planner.write_transition_plan(None, {}, {}, 0, "Synthetic", date(2026, 4, 1)),
+        lambda: planner.generate_stp_vs_lump_sum_comparison(100000, 30),
+        lambda: planner.bogleheads_payback_years(1000, 10000, 0.5),
+        lambda: planner.bogleheads_circuit_breaker(1000, 10000, 0.5, 5),
+        lambda: planner.compare_switch_vs_stop_sip(10000, 1000, 0, 1, 0.5),
+        lambda: planner.compute_exit_load_amortization(10000, 1),
+    ]
+
+    for invoke in blocked_calls:
+        with pytest.raises(planner.TaxAdviceDisabledError, match="disabled pending independently approved"):
+            invoke()
+
+
+def test_legacy_tax_advice_alias_is_also_disabled():
+    import pytest
+    from tax import transition_planner as planner
+
+    with pytest.raises(planner.TaxAdviceDisabledError):
+        planner.evaluate_bogleheads_switch_hurdle(1000, 10000, 0.5, 5)
