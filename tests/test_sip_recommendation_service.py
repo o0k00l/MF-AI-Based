@@ -355,6 +355,11 @@ def test_complete_portfolio_workflow_integrates_issues_23_to_34_without_authoriz
 ):
     args = _inputs(tmp_path)
     candidates = _candidate_universe()
+    score_source = b"reviewed rank-score export for the integration case"
+    score_ref = "sha256:" + hashlib.sha256(score_source).hexdigest()
+    for candidate in candidates:
+        candidate["rank_score_source_ref"] = score_ref
+        candidate["rank_score_methodology_version"] = "risk-quality-v1"
     args["candidate_universe"] = candidates
     monkeypatch.setattr(service, "load_holdings_from_cas_excel", lambda *a, **k: [_holding()])
     monkeypatch.setattr(
@@ -370,6 +375,7 @@ def test_complete_portfolio_workflow_integrates_issues_23_to_34_without_authoriz
         portfolio_context=_complete_portfolio_context(),
         metrics_source_bytes=metrics_source,
         candidate_universe_source_bytes=universe_source,
+        candidate_score_source_bytes=score_source,
         portfolio_context_source_bytes=portfolio_source,
     )
 
@@ -394,6 +400,7 @@ def test_complete_portfolio_workflow_integrates_issues_23_to_34_without_authoriz
     trace_record = json.loads(trace["canonical_record"])
     assert trace_record["source_digests"]["metrics_source_sha256"] == hashlib.sha256(metrics_source).hexdigest()
     assert trace_record["source_digests"]["candidate_universe_source_sha256"] == hashlib.sha256(universe_source).hexdigest()
+    assert trace_record["source_digests"]["candidate_score_source_sha256"] == hashlib.sha256(score_source).hexdigest()
     assert trace_record["source_digests"]["portfolio_context_source_sha256"] == hashlib.sha256(portfolio_source).hexdigest()
     assert trace_record["as_of_dates"]["cas_valuation_date"] == date.today().isoformat()
     assert trace_record["portfolio_effect"]["candidate_level_allocation_simulation"]["reconciliation_ok"] is True
@@ -401,7 +408,7 @@ def test_complete_portfolio_workflow_integrates_issues_23_to_34_without_authoriz
     assert trace_record["allocation"]["simulated_allocated_budget_inr"] == "10000"
     assert len(trace_record["policy_source_sha256"]) == 64
     assert trace_record["eligibility"]["candidate_rank_evidence"]["CANDIDATE-1"]["rank_score"] == "1"
-    assert trace_record["eligibility"]["candidate_rank_evidence"]["CANDIDATE-1"]["rank_score_methodology_version"] is None
+    assert trace_record["eligibility"]["candidate_rank_evidence"]["CANDIDATE-1"]["rank_score_methodology_version"] == "risk-quality-v1"
     assert result["portfolio_assessment"]["recommendation_lifecycle"]["state_persisted"] is False
     assert context["recommendation_authorized"] is False
     assert context["execution_authorized"] is False
