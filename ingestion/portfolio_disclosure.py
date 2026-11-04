@@ -216,6 +216,10 @@ def resolve_scheme_identity(
         return unresolved("Matched master record has no ISIN; identity is not accepted.")
     raw_plan = record.get("plan_type")
     raw_option = record.get("option_type")
+    raw_riskometer = record.get("riskometer_score")
+    if (isinstance(raw_riskometer, bool) or not isinstance(raw_riskometer, int)
+            or not 1 <= raw_riskometer <= 6):
+        return unresolved("Matched scheme master record has no valid verified SEBI Riskometer score.")
     plan_map = {"direct": "DIRECT", "regular": "REGULAR"}
     option_map = {"growth": "GROWTH", "idcw": "IDCW"}
     plan_type = plan_map.get(str(raw_plan or "").strip().casefold())
@@ -233,5 +237,6 @@ def resolve_scheme_identity(
         "plan_type": plan_type,
         "option_type": option_type,
         "plan_option_status": plan_option_status,
-        "reason": "Exact scheme name + AMC match in verified master; plan/option status is separately recorded.",
+        "riskometer_score": raw_riskometer,
+        "reason": "Exact scheme name + AMC match in verified master; plan/option and scheme Riskometer are source-bound.",
     }
