@@ -301,6 +301,7 @@ for t_name, exp_eq, exp_debt in tier_targets:
             monthly_budget=50000.0,
             risk_tier=t_name,
             stability_buffer_pct=None,
+            client_aum=5000000.0,
             equity_sip_routing_override=True,
         )
         check(
@@ -353,6 +354,7 @@ tier6_override = compute_deterministic_sip_blueprint(
     monthly_budget=50000.0,
     risk_tier="Tier 6 (Very High)",
     stability_buffer_pct=0.0,
+    client_aum=5000000.0,
     equity_sip_routing_override=True,
 )
 check(
