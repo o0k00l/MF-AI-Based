@@ -1155,16 +1155,22 @@ def load_holdings_from_cas_excel(
             raw_items.append((str(s_name).strip(), str(f_no).strip() if f_no else "", i_float, c_float, u_float, nav_float, str(amc_value or "").strip()))
 
     for scheme_str, folio_str, invested, current, units_val, nav_val, amc_name in raw_items:
-        # Plan detection
-        scheme_lower = scheme_str.lower()
-        plan = PlanType.DIRECT if "direct" in scheme_lower else PlanType.REGULAR
-        is_direct = plan == PlanType.DIRECT
+        # Plan and option are separate instrument attributes. Display-name
+        # fragments are never evidence for either one.
+        plan = PlanType.UNKNOWN
+        is_direct = None
+        plan_option_status = "MISSING"
+        option_type = None
 
-        # Resolve stable scheme identity independently from fund performance
-        # metrics. A scheme master identifies the instrument; it does not supply
-        # category, risk or exposure metrics.
-        identity = {"scheme_id": None, "isin": None, "status": "MISSING",
-                    "reason": "No verified scheme master was supplied."}
+        # Resolve stable scheme identity and plan/option independently from
+        # fund performance metrics. Only exact scheme-master fields can
+        # establish Direct/Regular or Growth/IDCW.
+        identity = {
+            "scheme_id": None, "isin": None, "status": "MISSING",
+            "plan_type": None, "option_type": None,
+            "plan_option_status": "MISSING",
+            "reason": "No verified scheme master was supplied.",
+        }
         if scheme_master is not None and scheme_master_source_bytes is not None and amc_name:
             from ingestion.portfolio_disclosure import resolve_scheme_identity
             identity = resolve_scheme_identity(
@@ -1172,6 +1178,15 @@ def load_holdings_from_cas_excel(
                 scheme_master,
                 source_bytes=scheme_master_source_bytes,
             )
+        plan_option_status = identity.get("plan_option_status", "MISSING")
+        option_type = identity.get("option_type")
+        if plan_option_status == "VERIFIED":
+            if identity.get("plan_type") == "DIRECT":
+                plan, is_direct = PlanType.DIRECT, True
+            elif identity.get("plan_type") == "REGULAR":
+                plan, is_direct = PlanType.REGULAR, False
+            else:
+                plan_option_status = "CONFLICTING"
 
         # Exact identity / reviewed-alias metrics match only. Never infer
         # classification or substitute default exposures when metrics are absent.
@@ -1190,10 +1205,14 @@ def load_holdings_from_cas_excel(
             ter_plan = str(
                 matched_metric.get("ter_plan", matched_metric.get("plan", ""))
             ).strip().casefold()
-            expected_plan = "direct" if plan == PlanType.DIRECT else "regular"
-            # TER is plan-specific. Do not infer Regular TER from a Direct TER
-            # using a generic commission delta (or vice versa).
-            if raw_ter is None or ter_plan != expected_plan:
+            expected_plan = (
+                "direct" if plan == PlanType.DIRECT
+                else "regular" if plan == PlanType.REGULAR
+                else None
+            )
+            # TER is plan-specific. Unknown plan identity cannot be assigned
+            # either Direct or Regular TER, and no commission delta is inferred.
+            if raw_ter is None or expected_plan is None or ter_plan != expected_plan:
                 er = None
             else:
                 er = float(raw_ter)
@@ -1251,6 +1270,8 @@ def load_holdings_from_cas_excel(
                 folio=folio_str,
                 is_direct=is_direct,
                 plan=plan,
+                plan_option_status=plan_option_status,
+                option_type=option_type,
                 invested_value_inr=invested,
                 current_value_inr=current,
                 asset_class=asset_class,
