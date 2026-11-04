@@ -266,6 +266,6 @@ def test_recommendation_surfaces_invalid_cas_as_hold_with_full_budget(tmp_path):
     assert result["plan"]["total_monthly_budget_inr"] == 25000.0
     assert result["plan"]["unallocated_budget_inr"] == 25000.0
     assert any(
-        "CAS or evidence validation failed closed (ValueError)" in reason
+        "CAS valuation-date validation failed closed (ValueError)" in reason
         for reason in result["reasons"]
     )
