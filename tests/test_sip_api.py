@@ -100,7 +100,7 @@ def test_api_passes_temporary_cas_to_evidence_provider_and_removes_it(monkeypatc
                     "scheme_id": "scheme-1",
                     "isin": "INF000000001",
                     "amc_name": "Example AMC",
-                    "reviewed_at": date(2026, 11, 4).isoformat(),
+                    "reviewed_at": date.today().isoformat(),
                 },
             }],
             "candidate_universe_source": {
