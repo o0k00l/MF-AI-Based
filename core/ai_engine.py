@@ -132,9 +132,8 @@ def _is_zero_price(value: Any) -> bool:
 
 
 def _discover_openai_models(provider: str, url: str, key: str) -> list[str]:
-    cached = _read_model_cache(provider, key)
-    if cached:
-        return cached
+    # Pricing is mutable provider data. Never let a cached model ID stand in
+    # for current zero-price evidence; every discovery reads the live catalogue.
     payload = _http_json(url, key, provider)
     discovered: list[str] = []
     for item in payload["data"]:
@@ -173,7 +172,7 @@ def _discover_openai_models(provider: str, url: str, key: str) -> list[str]:
     discovered = list(dict.fromkeys(discovered))
     if not discovered:
         raise ProviderError(provider, f"{provider} returned no eligible free text-generation models.")
-    _write_model_cache(provider, key, discovered)
+    # Do not cache model IDs: they are not durable evidence of zero pricing.
     return discovered
 
 
@@ -285,6 +284,20 @@ def _call_openai_compatible(provider: str, base_url: str, prompt: str,
     with lock:
         for model in models[:5]:
             try:
+                # Re-check the live catalogue immediately before each generation
+                # attempt. A model that was free during initial discovery may
+                # have been repriced or withdrawn before this request.
+                current_models = (
+                    discover_requesty_free_models(key) if provider == "Requesty"
+                    else discover_openrouter_free_models(key)
+                )
+                if model not in current_models:
+                    last_error = ProviderError(
+                        provider,
+                        f"{provider} model is no longer verified as zero-priced; generation blocked.",
+                        model=model,
+                    )
+                    continue
                 # Intentionally send only the portable required fields. Do not
                 # assume temperature, seed, max_tokens, or other optional knobs.
                 response = client.chat.completions.create(model=model, messages=messages)
@@ -339,57 +352,11 @@ def _safe_exception_code(exc: Exception) -> str | None:
 
 
 def _call_gemini(prompt: str, system_prompt: str = "") -> str:
-    """Generate text using live Gemini model discovery; API usage may be billable."""
-    key = os.getenv("GEMINI_API_KEY", "")
-    if not key:
-        raise ProviderError("Gemini", "GEMINI_API_KEY is not configured.")
-    from google import genai
-
-    try:
-        client = genai.Client(api_key=key)
-        models = []
-        for item in client.models.list():
-            name = getattr(item, "name", None)
-            actions = getattr(item, "supported_actions", None)
-            if not isinstance(name, str) or not name.strip():
-                continue
-            if actions and "generateContent" not in actions:
-                continue
-            model_id = name.removeprefix("models/")
-            if model_id.startswith("gemini-") and not any(
-                term in model_id.lower() for term in ("embedding", "aqa")
-            ):
-                models.append(model_id)
-        models = list(dict.fromkeys(models))
-    except Exception as exc:
-        raise ProviderError(
-            "Gemini", f"Gemini model discovery failed ({type(exc).__name__}).",
-            status_code=_exception_http_status(exc),
-            code=_safe_exception_code(exc),
-        ) from None
-    if not models:
-        raise ProviderError("Gemini", "Gemini returned no generateContent-capable models.")
-    config = {"system_instruction": system_prompt} if system_prompt else None
-    last_error: ProviderError | None = None
-    for model in models[:5]:
-        try:
-            response = client.models.generate_content(
-                model=model, contents=prompt, config=config
-            )
-            result = (response.text or "").strip()
-            if result:
-                return result
-            last_error = ProviderError("Gemini", "Gemini returned an empty response.", model=model)
-        except Exception as exc:
-            last_error = ProviderError(
-                "Gemini", f"Gemini generation failed ({type(exc).__name__}).",
-                status_code=_exception_http_status(exc),
-                code=_safe_exception_code(exc),
-                model=model,
-            )
-            if not _should_try_next_model(last_error):
-                raise last_error from None
-    raise last_error or ProviderError("Gemini", "Gemini had no usable discovered models.")
+    """Gemini is disabled until authoritative zero-cost eligibility is verifiable."""
+    raise ProviderError(
+        "Gemini",
+        "Gemini is disabled by FREE_ONLY policy: zero-cost API pricing cannot be verified.",
+    )
 
 
 def call_llm(prompt: str, data_snapshot: str = "", system_instruction: str = "",
@@ -405,12 +372,10 @@ def call_llm(prompt: str, data_snapshot: str = "", system_instruction: str = "",
             if time.time() - float(entry.get("timestamp", 0)) < NARRATIVE_TTL_SECONDS:
                 return str(entry["text"])
 
-    # Ordered cost preference: free-catalogue providers first; Gemini is the
-    # explicitly authorized final fallback and may incur API charges.
+    # Only providers with live, explicit zero-price catalogue evidence are eligible.
     providers = (
         ("OpenRouter", _call_openrouter),
         ("Requesty", _call_requesty),
-        ("Gemini", _call_gemini),
     )
     errors = []
     for name, function in providers:
