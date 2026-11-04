@@ -2373,13 +2373,20 @@ def aggregate_fiduciary_facts(
         cas_valuation_date = _parse_cas_valuation_date(cas_path)
     except (OSError, ValueError, TypeError):
         cas_valuation_date = None
-    portfolio_xirr = calculate_portfolio_xirr(
-        transactions_path,
-        holdings,
-        cas_current=tot_cur,
-        as_of_date=cas_valuation_date,
-    )
     cas_recon = reconcile_cas_holdings_with_transactions(holdings, transactions_path)
+    # XIRR is not a standalone property of a parseable transaction list. It is
+    # only meaningful when the supplied ledger reconciles to the CAS unit
+    # balances; otherwise partial/missing rows can materially distort returns.
+    portfolio_xirr = (
+        calculate_portfolio_xirr(
+            transactions_path,
+            holdings,
+            cas_current=tot_cur,
+            as_of_date=cas_valuation_date,
+        )
+        if cas_recon.get("status") == "VERIFIED_RECONCILED"
+        else None
+    )
     tax_lots_summary = None
 
     # Transaction history is optional for a CAS-only portfolio snapshot. If a
