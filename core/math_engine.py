@@ -1112,6 +1112,11 @@ def load_holdings_from_cas_excel(
                 nav=nav_val,
                 top_holdings=top_h,
                 expense_ratio_pct=er,
+                scheme_id=None,
+                constituent_weights=None,
+                constituent_weights_coverage_pct=None,
+                lookthrough_status="MISSING",
+                lookthrough_reason="CAS and metrics do not establish verified constituent weights.",
                 risk_tier=_asset_class_to_risk_tier(asset_class),
             )
         )
