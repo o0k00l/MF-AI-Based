@@ -1,4 +1,6 @@
-from datetime import date
+from datetime import date, datetime
+import hashlib
+from pathlib import Path
 
 import pytest
 
@@ -9,25 +11,49 @@ from services.sip_evidence_contract import (
 )
 
 
-def valid_payload():
+def _source_metadata(raw):
     return {
-        "metrics_path": None,
-        "aliases_path": None,
-        "scheme_master": {"status": "PROVISIONAL", "schemes": []},
-        "scheme_master_source_bytes": b"source master",
-        "portfolio_disclosures_by_scheme_id": {"scheme-1": {"scheme_id": "scheme-1"}},
-        "portfolio_disclosure_source_bytes_by_scheme_id": {"scheme-1": b"source disclosure"},
-        "disclosure_as_of_date": date(2026, 11, 4),
-        "candidate_universe": [{"candidate_id": "candidate-1"}],
+        "source_url": "https://amfiindia.com/source",
+        "source_document_sha256": hashlib.sha256(raw).hexdigest(),
+        "reviewer_attested": True,
+        "effective_date": "2026-11-01",
+        "source_type": "OFFICIAL_SCHEME_MASTER",
     }
 
 
-def test_contract_accepts_complete_structural_payload_without_certifying_it():
+def valid_payload():
+    master_bytes = b"source master"
+    universe_bytes = b"source candidate universe"
+    return {
+        "metrics_path": Path(__file__),
+        "aliases_path": None,
+        "scheme_master": {
+            **_source_metadata(master_bytes),
+            "status": "VERIFIED",
+            "schemes": [{
+                "scheme_id": "scheme-1", "isin": "INF000000001",
+                "scheme_name": "Example Direct Growth", "amc_name": "Example AMC",
+            }],
+        },
+        "scheme_master_source_bytes": master_bytes,
+        "portfolio_disclosures_by_scheme_id": {"scheme-1": {"scheme_id": "scheme-1"}},
+        "portfolio_disclosure_source_bytes_by_scheme_id": {"scheme-1": b"source disclosure"},
+        "disclosure_as_of_date": date(2026, 11, 4),
+        "candidate_universe": [{
+            "fund_id": "fund-1", "fund_name": "Example Direct Growth",
+            "scheme_id": "scheme-1", "isin": "INF000000001",
+            "amc_name": "Example AMC", "category": "Flexi Cap",
+        }],
+        "candidate_universe_source": _source_metadata(universe_bytes),
+        "candidate_universe_source_bytes": universe_bytes,
+    }
+
+
+def test_contract_accepts_source_backed_candidate_identity():
     payload = valid_payload()
     result = validate_evidence_provider_payload(payload)
 
     assert set(result) == REQUIRED_EVIDENCE_FIELDS
-    assert result["scheme_master"]["status"] == "PROVISIONAL"
 
 
 def test_contract_rejects_missing_required_field():
@@ -46,11 +72,19 @@ def test_contract_rejects_unexpected_and_request_override_fields():
         validate_evidence_provider_payload(payload)
 
 
-def test_contract_requires_original_scheme_master_bytes():
+def test_contract_rejects_source_hash_mismatch():
     payload = valid_payload()
-    payload["scheme_master_source_bytes"] = b""
+    payload["candidate_universe_source_bytes"] = b"tampered"
 
-    with pytest.raises(EvidenceProviderContractError, match="scheme_master_source_bytes"):
+    with pytest.raises(EvidenceProviderContractError, match="SHA-256 does not match"):
+        validate_evidence_provider_payload(payload)
+
+
+def test_contract_requires_reviewer_attestation():
+    payload = valid_payload()
+    payload["candidate_universe_source"]["reviewer_attested"] = False
+
+    with pytest.raises(EvidenceProviderContractError, match="reviewer attestation"):
         validate_evidence_provider_payload(payload)
 
 
@@ -62,29 +96,42 @@ def test_contract_requires_exact_disclosure_source_key_coverage():
         validate_evidence_provider_payload(payload)
 
 
-def test_contract_rejects_missing_disclosure_source_bytes():
+def test_contract_rejects_disclosure_scheme_id_not_in_master():
     payload = valid_payload()
-    payload["portfolio_disclosure_source_bytes_by_scheme_id"]["scheme-1"] = None
+    payload["portfolio_disclosures_by_scheme_id"] = {"other": {"scheme_id": "other"}}
+    payload["portfolio_disclosure_source_bytes_by_scheme_id"] = {"other": b"source"}
 
-    with pytest.raises(EvidenceProviderContractError, match="source bytes"):
+    with pytest.raises(EvidenceProviderContractError, match="absent from verified scheme master"):
         validate_evidence_provider_payload(payload)
 
 
-def test_contract_requires_date_object_for_as_of_date():
+def test_contract_rejects_timestamp_as_decision_date():
     payload = valid_payload()
-    payload["disclosure_as_of_date"] = "2026-11-04"
+    payload["disclosure_as_of_date"] = datetime(2026, 11, 4)
 
-    with pytest.raises(EvidenceProviderContractError, match="must be a date"):
+    with pytest.raises(EvidenceProviderContractError, match="not a timestamp"):
         validate_evidence_provider_payload(payload)
 
 
-def test_contract_rejects_empty_or_malformed_candidate_universe():
+def test_contract_rejects_duplicate_candidate_fund_ids():
     payload = valid_payload()
-    payload["candidate_universe"] = []
+    payload["candidate_universe"].append(dict(payload["candidate_universe"][0]))
 
-    with pytest.raises(EvidenceProviderContractError, match="non-empty list"):
+    with pytest.raises(EvidenceProviderContractError, match="Duplicate candidate fund_id"):
         validate_evidence_provider_payload(payload)
 
-    payload["candidate_universe"] = ["not-a-candidate"]
-    with pytest.raises(EvidenceProviderContractError, match="Every candidate"):
+
+def test_contract_rejects_candidate_identity_conflicting_with_scheme_master():
+    payload = valid_payload()
+    payload["candidate_universe"][0]["isin"] = "INF999999999"
+
+    with pytest.raises(EvidenceProviderContractError, match="identity conflicts"):
+        validate_evidence_provider_payload(payload)
+
+
+def test_contract_rejects_candidate_missing_required_identity_field():
+    payload = valid_payload()
+    payload["candidate_universe"][0].pop("amc_name")
+
+    with pytest.raises(EvidenceProviderContractError, match="requires amc_name"):
         validate_evidence_provider_payload(payload)
