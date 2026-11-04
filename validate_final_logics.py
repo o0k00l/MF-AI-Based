@@ -80,8 +80,10 @@ for L in test_lumpsums:
     )
     check(
         f"Lumpsum INR {L:,.0f} does not fabricate a parking vehicle or tax saving",
-        lp.parking_vehicle == "NO_ACTION" and lp.tax_savings_vs_debt_fund_inr == 0.0,
-        f"Vehicle: {lp.parking_vehicle}; estimated saving: {lp.tax_savings_vs_debt_fund_inr:.2f}",
+        lp.parking_vehicle == "NO_ACTION" and lp.tax_savings_vs_debt_fund_inr is None,
+        f"Vehicle: {lp.parking_vehicle}; estimated saving: "
+        + ("UNAVAILABLE" if lp.tax_savings_vs_debt_fund_inr is None
+           else f"{lp.tax_savings_vs_debt_fund_inr:.2f}"),
     )
 
 # =====================================================================
@@ -216,6 +218,9 @@ check("Gate 10 Passes 100% Direct Plans", validate_direct_sip_mandate(establishe
 
 regular_plan_test = DeterministicSIPPlan(
     total_monthly_budget_inr=10000.0,
+    unallocated_budget_inr=0.0,
+    equity_sip_pct=100.0,
+    debt_sip_pct=0.0,
     items=[
         DeterministicSIPRecommendation(
             category_role="Core",

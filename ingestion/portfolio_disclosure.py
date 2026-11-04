@@ -166,5 +166,24 @@ def resolve_scheme_identity(
         return unresolved("Matched master record has no stable scheme identifier.")
     if not isinstance(isin, str) or not isin.strip():
         return unresolved("Matched master record has no ISIN; identity is not accepted.")
-    return {"status": "VERIFIED", "scheme_id": scheme_id.strip(),
-            "isin": isin.strip(), "reason": "Exact scheme name + AMC match in verified master."}
+    raw_plan = record.get("plan_type")
+    raw_option = record.get("option_type")
+    plan_map = {"direct": "DIRECT", "regular": "REGULAR"}
+    option_map = {"growth": "GROWTH", "idcw": "IDCW"}
+    plan_type = plan_map.get(str(raw_plan or "").strip().casefold())
+    option_type = option_map.get(str(raw_option or "").strip().casefold())
+    if plan_type and option_type:
+        plan_option_status = "VERIFIED"
+    elif raw_plan is not None or raw_option is not None:
+        plan_option_status = "CONFLICTING"
+    else:
+        plan_option_status = "MISSING"
+    return {
+        "status": "VERIFIED",
+        "scheme_id": scheme_id.strip(),
+        "isin": isin.strip(),
+        "plan_type": plan_type,
+        "option_type": option_type,
+        "plan_option_status": plan_option_status,
+        "reason": "Exact scheme name + AMC match in verified master; plan/option status is separately recorded.",
+    }

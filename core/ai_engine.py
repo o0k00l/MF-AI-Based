@@ -22,12 +22,33 @@ load_dotenv()
 
 _requesty_mutex = threading.Lock()
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-CACHE_DIR = PROJECT_ROOT / "cache"
-CACHE_DIR.mkdir(parents=True, exist_ok=True)
-MODEL_CACHE_FILE = CACHE_DIR / "free_models_cache.json"
-NARRATIVE_CACHE_FILE = CACHE_DIR / "narrative_cache.json"
 CACHE_TTL_SECONDS = 3600
-NARRATIVE_TTL_SECONDS = 90 * 86400
+
+
+def _external_model_cache_file() -> Path | None:
+    """Optional model catalogue cache; never write inside the Git checkout."""
+    configured = os.getenv("MF_AI_CACHE_DIR", "").strip()
+    if not configured:
+        return None
+    root = Path(configured).expanduser().resolve()
+    try:
+        root.relative_to(PROJECT_ROOT)
+    except ValueError:
+        pass
+    else:
+        return None
+    try:
+        root.mkdir(parents=True, exist_ok=True)
+        root = root.resolve(strict=True)
+        root.relative_to(PROJECT_ROOT)
+    except (OSError, ValueError):
+        return None
+    return root / "free_models_cache.json"
+
+
+MODEL_CACHE_FILE = _external_model_cache_file()
+# Investor-specific narrative caching is disabled; no plaintext report cache.
+NARRATIVE_CACHE_FILE = None
 
 REQUESTY_BASE_URL = "https://router.requesty.ai/v1"
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
@@ -62,6 +83,8 @@ def _key_fingerprint(key: str) -> str:
 
 
 def _read_model_cache(provider: str, key: str) -> list[str] | None:
+    if MODEL_CACHE_FILE is None:
+        return None
     try:
         data = json.loads(MODEL_CACHE_FILE.read_text(encoding="utf-8"))
         entry = data.get(provider, {})
@@ -76,6 +99,8 @@ def _read_model_cache(provider: str, key: str) -> list[str] | None:
 
 
 def _write_model_cache(provider: str, key: str, models: list[str]) -> None:
+    if MODEL_CACHE_FILE is None:
+        return
     try:
         try:
             data = json.loads(MODEL_CACHE_FILE.read_text(encoding="utf-8"))
@@ -182,7 +207,7 @@ def discover_requesty_free_models(api_key: str = "", force_refresh: bool = False
     key = api_key or os.getenv("REQUESTY_API_KEY", "")
     if not key:
         raise ProviderError("Requesty", "REQUESTY_API_KEY is not configured.")
-    if force_refresh:
+    if force_refresh and MODEL_CACHE_FILE is not None:
         try:
             data = json.loads(MODEL_CACHE_FILE.read_text(encoding="utf-8"))
             data.pop("Requesty", None)
@@ -197,7 +222,7 @@ def discover_openrouter_free_models(api_key: str = "", force_refresh: bool = Fal
     key = api_key or os.getenv("OPENROUTER_API_KEY", "")
     if not key:
         raise ProviderError("OpenRouter", "OPENROUTER_API_KEY is not configured.")
-    if force_refresh:
+    if force_refresh and MODEL_CACHE_FILE is not None:
         try:
             data = json.loads(MODEL_CACHE_FILE.read_text(encoding="utf-8"))
             data.pop("OpenRouter", None)
@@ -212,20 +237,13 @@ def _cache_key(prompt: str, data_snapshot: str = "") -> str:
 
 
 def _get_narrative_cache() -> dict[str, Any]:
-    try:
-        value = json.loads(NARRATIVE_CACHE_FILE.read_text(encoding="utf-8"))
-        return value if isinstance(value, dict) else {}
-    except (OSError, ValueError, TypeError):
-        return {}
+    """Legacy compatibility: investor-specific narrative cache is disabled."""
+    return {}
 
 
 def _save_narrative_cache(cache: dict[str, Any]) -> None:
-    try:
-        temp_path = NARRATIVE_CACHE_FILE.with_suffix(".tmp")
-        temp_path.write_text(json.dumps(cache, indent=2), encoding="utf-8")
-        temp_path.replace(NARRATIVE_CACHE_FILE)
-    except (OSError, TypeError, ValueError):
-        pass
+    """Legacy compatibility: investor-specific narrative cache is disabled."""
+    return
 
 
 def _is_rate_limit(err_str: str) -> bool:
@@ -339,89 +357,51 @@ def _safe_exception_code(exc: Exception) -> str | None:
 
 
 def _call_gemini(prompt: str, system_prompt: str = "") -> str:
-    """Generate text using live Gemini model discovery; API usage may be billable."""
-    key = os.getenv("GEMINI_API_KEY", "")
-    if not key:
-        raise ProviderError("Gemini", "GEMINI_API_KEY is not configured.")
-    from google import genai
+    """Gemini is prohibited by the binding free-only policy."""
+    raise ProviderError(
+        "Gemini",
+        "Gemini is disabled by FREE_ONLY policy: zero-cost API pricing cannot be verified.",
+    )
 
-    try:
-        client = genai.Client(api_key=key)
-        models = []
-        for item in client.models.list():
-            name = getattr(item, "name", None)
-            actions = getattr(item, "supported_actions", None)
-            if not isinstance(name, str) or not name.strip():
-                continue
-            if actions and "generateContent" not in actions:
-                continue
-            model_id = name.removeprefix("models/")
-            if model_id.startswith("gemini-") and not any(
-                term in model_id.lower() for term in ("embedding", "aqa")
-            ):
-                models.append(model_id)
-        models = list(dict.fromkeys(models))
-    except Exception as exc:
+
+def call_llm(
+    prompt: str,
+    data_snapshot: str = "",
+    system_instruction: str = "",
+    use_cache: bool = False,
+    append_guardrail: bool = False,
+    external_processing_consent: bool = False,
+) -> str:
+    """Generate qualitative narrative only after explicit per-request consent.
+
+    The legacy use_cache parameter is retained for compatibility but ignored:
+    investor-specific narratives are never persisted in a shared plaintext cache.
+    """
+    if external_processing_consent is not True:
         raise ProviderError(
-            "Gemini", f"Gemini model discovery failed ({type(exc).__name__}).",
-            status_code=_exception_http_status(exc),
-            code=_safe_exception_code(exc),
-        ) from None
-    if not models:
-        raise ProviderError("Gemini", "Gemini returned no generateContent-capable models.")
-    config = {"system_instruction": system_prompt} if system_prompt else None
-    last_error: ProviderError | None = None
-    for model in models[:5]:
-        try:
-            response = client.models.generate_content(
-                model=model, contents=prompt, config=config
-            )
-            result = (response.text or "").strip()
-            if result:
-                return result
-            last_error = ProviderError("Gemini", "Gemini returned an empty response.", model=model)
-        except Exception as exc:
-            last_error = ProviderError(
-                "Gemini", f"Gemini generation failed ({type(exc).__name__}).",
-                status_code=_exception_http_status(exc),
-                code=_safe_exception_code(exc),
-                model=model,
-            )
-            if not _should_try_next_model(last_error):
-                raise last_error from None
-    raise last_error or ProviderError("Gemini", "Gemini had no usable discovered models.")
-
-
-def call_llm(prompt: str, data_snapshot: str = "", system_instruction: str = "",
-             use_cache: bool = True, append_guardrail: bool = False) -> str:
-    """Generate a narrative only; deterministic SIP gates remain authoritative."""
+            "Privacy",
+            "External AI processing is blocked: explicit investor consent is required for this request.",
+        )
     full_prompt = prompt
     if append_guardrail:
         full_prompt = f"{prompt}\n\n{GUARDRAIL}\n\n{OUTPUT_FORMAT_GUARD}"
-    cache_key = _cache_key(full_prompt, data_snapshot)
-    if use_cache:
-        entry = _get_narrative_cache().get(cache_key)
-        if isinstance(entry, dict) and entry.get("text"):
-            if time.time() - float(entry.get("timestamp", 0)) < NARRATIVE_TTL_SECONDS:
-                return str(entry["text"])
+    # Deliberately never read/write investor-specific narrative cache.
+    _ = _cache_key(full_prompt, data_snapshot)
 
-    # Ordered cost preference: free-catalogue providers first; Gemini is the
-    # explicitly authorized final fallback and may incur API charges.
+    # FREE_ONLY: only adapters with explicit zero-cost catalogue evidence are eligible.
     providers = (
         ("OpenRouter", _call_openrouter),
         ("Requesty", _call_requesty),
-        ("Gemini", _call_gemini),
     )
     errors = []
     for name, function in providers:
         try:
             result = function(full_prompt, system_prompt=system_instruction)
             if result:
-                if use_cache:
-                    cache = _get_narrative_cache()
-                    cache[cache_key] = {"text": result, "provider": name, "timestamp": time.time()}
-                    _save_narrative_cache(cache)
                 return result
         except Exception as exc:
             errors.append(f"{name}: {type(exc).__name__}")
-    raise RuntimeError("All configured AI providers failed: " + "; ".join(errors))
+    raise ProviderError(
+        "FreeProviders",
+        "All eligible free narrative providers are unavailable: " + "; ".join(errors),
+    )

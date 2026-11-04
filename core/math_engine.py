@@ -202,7 +202,7 @@ def reconcile_cas_holdings_with_transactions(holdings: List[HoldingItem], transa
     transaction_units: Dict[str, float] = {}
     transaction_names: Dict[str, str] = {}
     supported_types = {"PURCHASE", "SIP", "SWITCH_IN", "STP_IN", "DIVIDEND_REINVEST",
-                       "DIVIDEND", "REDEMPTION", "SWITCH_OUT", "STP_OUT"}
+                       "DIVIDEND", "REDEMPTION", "SWITCH_OUT", "STP_OUT", "CHARGES"}
     for index, transaction in enumerate(data["transactions"]):
         if not isinstance(transaction, dict):
             return {"status": "INVALID_TRANSACTION", "error": f"Transaction row {index} is not an object",
@@ -210,18 +210,20 @@ def reconcile_cas_holdings_with_transactions(holdings: List[HoldingItem], transa
                     "discrepancies": [], "unmatched_transaction_schemes": []}
         scheme_name = transaction.get("scheme")
         scheme_key = key(scheme_name)
-        txn_type = str(transaction.get("type", "PURCHASE")).upper()
+        txn_type = str(transaction.get("type", "UNKNOWN")).upper().strip()
         try:
             units = float(transaction.get("units", 0.0) or 0.0)
+            amount = float(transaction.get("amount", 0.0) or 0.0)
         except (TypeError, ValueError):
             units = float("nan")
         if (not scheme_key or txn_type not in supported_types or not math.isfinite(units)
-                or units < 0.0):
+                or units < 0.0 or not math.isfinite(amount)
+                or (txn_type in {"DIVIDEND", "CHARGES"} and units != 0.0)):
             return {"status": "INVALID_TRANSACTION", "error": f"Invalid scheme, type or units at transaction row {index}",
                     "reconciled_schemes": 0, "total_schemes": len(holdings),
                     "discrepancies": [], "unmatched_transaction_schemes": []}
-        if txn_type == "DIVIDEND":
-            sign = 0.0  # Cash payout does not change mutual-fund units.
+        if txn_type in {"DIVIDEND", "CHARGES"}:
+            sign = 0.0  # Cash-only events do not change mutual-fund units.
         else:
             sign = -1.0 if txn_type in {"REDEMPTION", "SWITCH_OUT", "STP_OUT"} else 1.0
         transaction_units[scheme_key] = transaction_units.get(scheme_key, 0.0) + sign * units
@@ -264,94 +266,106 @@ def calculate_portfolio_xirr(
     as_of_date: Optional[date] = None
 ) -> Optional[float]:
     """
-    Calculate portfolio-level XIRR from transaction history.
-    
-    Supports both Pydantic HoldingItem models and raw dictionary holdings.
-    Handles all CAS transaction types: PURCHASE, SIP, REDEMPTION, SWITCH_IN, SWITCH_OUT, STP_IN, STP_OUT, DIVIDEND.
-    
-    Args:
-        transactions_path: Path to transactions.json
-        holdings: Current holdings (List of HoldingItem or List of dict)
-        cas_invested: Optional pre-aggregated invested amount from CAS
-        cas_current: Optional pre-aggregated current valuation from CAS
-        as_of_date: Valuation date (defaults to max transaction date or today)
-        
-    Returns:
-        Portfolio XIRR as decimal (e.g. 0.1582 for 15.82%), or None if insufficient data
+    Calculate portfolio XIRR only from a structurally complete, supported
+    transaction ledger. Any malformed row makes the result unavailable;
+    silently dropping a cash flow can materially distort investor returns.
     """
     if not transactions_path.exists():
         return None
-    
+
     try:
-        with open(transactions_path, 'r', encoding='utf-8') as f:
+        with open(transactions_path, "r", encoding="utf-8") as f:
             data = json.load(f)
-    except Exception:
+    except (OSError, UnicodeError, json.JSONDecodeError):
         return None
-    
-    transactions = data.get('transactions', [])
-    if not transactions:
+
+    if not isinstance(data, dict):
         return None
-    
+    transactions = data.get("transactions")
+    if not isinstance(transactions, list) or not transactions:
+        return None
+
+    supported_types = {
+        "PURCHASE", "SIP", "REDEMPTION", "SWITCH_IN", "SWITCH_OUT",
+        "STP_IN", "STP_OUT", "DIVIDEND", "SWP", "DIVIDEND_REINVEST", "CHARGES",
+    }
     cashflows = []
     txn_dates = []
-    for txn in transactions:
+    for index, txn in enumerate(transactions, start=1):
+        if not isinstance(txn, dict):
+            return None
+        date_value = txn.get("date")
+        txn_type = str(txn.get("type", "")).strip().upper()
+        if not isinstance(date_value, str) or not date_value.strip() or txn_type not in supported_types:
+            return None
         try:
-            d_str = txn.get('date', '')
-            if not d_str:
-                continue
-            txn_date = datetime.strptime(d_str[:10], '%Y-%m-%d').date()
-            amount = float(txn.get('amount', 0))
-            txn_type = txn.get('type', '').upper()
-            desc = txn.get('description', '').lower()
-            
-            # Skip zero-amount non-financial transactions (address/nominee updates)
-            if amount == 0:
-                continue
-                
-            txn_dates.append(txn_date)
-            is_reversal = any(kw in desc for kw in ('reversal', 'dishonour', 'reject'))
-            
-            # In CAS statements, amounts follow accounting conventions:
-            # - Negative amount: money leaving scheme (redemption, switch out, purchase reversal) -> positive cashflow: -amount
-            # - Positive amount: money entering scheme (purchase, SIP, switch in, redemption reversal) -> negative cashflow: -amount
-            if amount < 0:
-                cf = -amount
-            else:
-                if txn_type in ('REDEMPTION', 'SWITCH_OUT', 'STP_OUT', 'DIVIDEND', 'SWP') and not is_reversal:
-                    cf = abs(amount)
-                else:
-                    cf = -amount
-            cashflows.append((txn_date, cf))
-        except Exception:
+            txn_date = datetime.strptime(date_value[:10], "%Y-%m-%d").date()
+            amount = float(txn.get("amount"))
+        except (TypeError, ValueError, OverflowError):
+            return None
+        if not math.isfinite(amount):
+            return None
+
+        desc = str(txn.get("description", "")).lower()
+        subtype = str(txn.get("subtype", "")).upper()
+        is_reversal = any(kw in desc for kw in ("reversal", "dishonour", "reject"))
+        txn_dates.append(txn_date)
+
+        # A zero amount is only safely ignorable when explicitly identified
+        # as a non-cash administrative event; unsupported rows fail closed.
+        if amount == 0.0:
             continue
-            
-    if not cashflows:
+
+        if txn_type == "CHARGES":
+            # Charges are reconciled as cash-only ledger events, but their
+            # investor cash-flow treatment is not sufficiently specified to
+            # include in XIRR without risk of double-counting purchase costs.
+            return None
+        elif amount < 0:
+            cf = -amount
+        elif txn_type in ("REDEMPTION", "SWITCH_OUT", "STP_OUT", "DIVIDEND", "SWP") and not is_reversal:
+            cf = abs(amount)
+        else:
+            cf = -amount
+        cashflows.append((txn_date, cf))
+
+    # A current wall-clock date is not a substitute for the uploaded CAS
+    # valuation date; without it the terminal portfolio value is undated.
+    if not isinstance(as_of_date, date) or isinstance(as_of_date, datetime):
         return None
-        
-    if as_of_date is None:
-        as_of_date = max(txn_dates) if txn_dates else date.today()
-    
-    # Terminal valuation cashflow (positive = investor's net worth)
-    if cas_current is not None and cas_current > 0:
-        total_value = float(cas_current)
-    else:
-        total_value = 0.0
-        for h in (holdings or []):
-            if isinstance(h, dict):
-                v = float(h.get("value", h.get("current_value", 0.0)) or 0.0)
-            else:
-                v = float(getattr(h, "current_value_inr", 0.0) or 0.0)
-            if v > 0:
-                total_value += v
+    valuation_date = as_of_date
+    if valuation_date < max(txn_dates):
+        return None
+
+    try:
+        if cas_current is not None:
+            total_value = float(cas_current)
+            if not math.isfinite(total_value) or total_value < 0:
+                return None
+        else:
+            total_value = 0.0
+            for holding in (holdings or []):
+                if isinstance(holding, dict):
+                    raw_value = holding.get("value", holding.get("current_value"))
+                else:
+                    raw_value = getattr(holding, "current_value_inr", None)
+                if raw_value is None:
+                    return None
+                value = float(raw_value)
+                if not math.isfinite(value) or value < 0:
+                    return None
+                total_value += value
+    except (TypeError, ValueError, OverflowError):
+        return None
 
     if total_value > 0:
-        cashflows.append((as_of_date, total_value))
-    
+        cashflows.append((valuation_date, total_value))
     if len(cashflows) < 2:
         return None
-    
-    return calculate_xirr(cashflows)
-
+    try:
+        return calculate_xirr(cashflows)
+    except (ValueError, OverflowError, ZeroDivisionError):
+        return None
 
 
 
@@ -1128,50 +1142,22 @@ def load_holdings_from_cas_excel(
             raw_items.append((str(s_name).strip(), str(f_no).strip() if f_no else "", i_float, c_float, u_float, nav_float, str(amc_value or "").strip()))
 
     for scheme_str, folio_str, invested, current, units_val, nav_val, amc_name in raw_items:
-        # Plan detection
-        scheme_lower = scheme_str.lower()
-        plan = PlanType.DIRECT if "direct" in scheme_lower else PlanType.REGULAR
-        is_direct = plan == PlanType.DIRECT
+        # Plan and option are separate instrument attributes. Display-name
+        # fragments are never evidence for either one.
+        plan = PlanType.UNKNOWN
+        is_direct = None
+        plan_option_status = "MISSING"
+        option_type = None
 
-        # Exact identity / reviewed-alias match only. Never invent an equity
-        # classification for an unmatched CAS scheme.
-        matched_metric = _find_matching_metric(scheme_str, metrics_map, aliases_map)
-        if matched_metric is None:
-            raise ValueError(
-                f"CAS scheme {scheme_str!r} has no unambiguous exact match in fund metrics; "
-                "add a reviewed alias or verified scheme identity before SIP analysis."
-            )
-
-        category = matched_metric.get("cat")
-        er = float(matched_metric.get("er", 0.75)) if matched_metric else (0.85 if plan == PlanType.DIRECT else 1.90)
-        
-        # If Regular plan and only Direct ER is in dataset, estimate regular fee = direct ER + 1.05%
-        if plan == PlanType.REGULAR and matched_metric:
-            er = er + 1.05
-
-        top_h = matched_metric.get("h", []) if matched_metric else []
-        sharpe = matched_metric.get("sharpe") if matched_metric else None
-
-        # Market-cap split
-        required_exposure_fields = ("eq", "debt", "lc", "mc", "sc")
-        missing_exposure_fields = [field for field in required_exposure_fields if matched_metric.get(field) is None]
-        if missing_exposure_fields:
-            raise ValueError(
-                f"Fund metrics for CAS scheme {scheme_str!r} are missing exposure fields: "
-                + ", ".join(missing_exposure_fields)
-                + "; portfolio-aware SIP analysis is withheld."
-            )
-        eq_pct = float(matched_metric["eq"])
-        debt_pct = float(matched_metric["debt"])
-        lc_pct = float(matched_metric["lc"])
-        mc_pct = float(matched_metric["mc"])
-        sc_pct = float(matched_metric["sc"])
-
-        asset_class = _infer_asset_class(category, eq_pct, debt_pct, lc_pct, mc_pct, sc_pct)
-
-        fund_id = matched_metric.get("id", scheme_str[:30]) if matched_metric else scheme_str[:30]
-        identity = {"scheme_id": None, "isin": None, "status": "MISSING",
-                    "reason": "No verified scheme master was supplied."}
+        # Resolve stable scheme identity and plan/option independently from
+        # fund performance metrics. Only exact scheme-master fields can
+        # establish Direct/Regular or Growth/IDCW.
+        identity = {
+            "scheme_id": None, "isin": None, "status": "MISSING",
+            "plan_type": None, "option_type": None,
+            "plan_option_status": "MISSING",
+            "reason": "No verified scheme master was supplied.",
+        }
         if scheme_master is not None and scheme_master_source_bytes is not None and amc_name:
             from ingestion.portfolio_disclosure import resolve_scheme_identity
             identity = resolve_scheme_identity(
@@ -1179,6 +1165,66 @@ def load_holdings_from_cas_excel(
                 scheme_master,
                 source_bytes=scheme_master_source_bytes,
             )
+        plan_option_status = identity.get("plan_option_status", "MISSING")
+        option_type = identity.get("option_type")
+        if plan_option_status == "VERIFIED":
+            if identity.get("plan_type") == "DIRECT":
+                plan, is_direct = PlanType.DIRECT, True
+            elif identity.get("plan_type") == "REGULAR":
+                plan, is_direct = PlanType.REGULAR, False
+            else:
+                plan_option_status = "CONFLICTING"
+
+        # Exact identity / reviewed-alias metrics match only. Never infer
+        # classification or substitute default exposures when metrics are absent.
+        matched_metric = _find_matching_metric(scheme_str, metrics_map, aliases_map)
+        if matched_metric is None:
+            category = None
+            er = None
+            top_h = []
+            eq_pct = debt_pct = lc_pct = mc_pct = sc_pct = 0.0
+            asset_class = AssetClass.OTHER
+            metrics_status = "MISSING"
+            fund_id = identity.get("scheme_id") or scheme_str[:30]
+        else:
+            category = matched_metric.get("cat")
+            raw_ter = matched_metric.get("er")
+            ter_plan = str(
+                matched_metric.get("ter_plan", matched_metric.get("plan", ""))
+            ).strip().casefold()
+            expected_plan = (
+                "direct" if plan == PlanType.DIRECT
+                else "regular" if plan == PlanType.REGULAR
+                else None
+            )
+            # TER is plan-specific. Unknown plan identity cannot be assigned
+            # either Direct or Regular TER, and no commission delta is inferred.
+            if raw_ter is None or expected_plan is None or ter_plan != expected_plan:
+                er = None
+            else:
+                er = float(raw_ter)
+                if not math.isfinite(er) or er < 0:
+                    raise ValueError(f"Invalid plan-specific TER evidence for {scheme_str!r}.")
+            top_h = matched_metric.get("h", [])
+            required_exposure_fields = ("eq", "debt", "lc", "mc", "sc")
+            missing_exposure_fields = [
+                field for field in required_exposure_fields
+                if matched_metric.get(field) is None
+            ]
+            if missing_exposure_fields:
+                raise ValueError(
+                    f"Fund metrics for CAS scheme {scheme_str!r} are missing exposure fields: "
+                    + ", ".join(missing_exposure_fields)
+                    + "; portfolio-aware SIP analysis is withheld."
+                )
+            eq_pct = float(matched_metric["eq"])
+            debt_pct = float(matched_metric["debt"])
+            lc_pct = float(matched_metric["lc"])
+            mc_pct = float(matched_metric["mc"])
+            sc_pct = float(matched_metric["sc"])
+            asset_class = _infer_asset_class(category, eq_pct, debt_pct, lc_pct, mc_pct, sc_pct)
+            metrics_status = "VERIFIED"
+            fund_id = matched_metric.get("id", identity.get("scheme_id") or scheme_str[:30])
 
         disclosure = {"constituent_weights": None,
                       "constituent_weights_coverage_pct": None,
@@ -1211,6 +1257,8 @@ def load_holdings_from_cas_excel(
                 folio=folio_str,
                 is_direct=is_direct,
                 plan=plan,
+                plan_option_status=plan_option_status,
+                option_type=option_type,
                 invested_value_inr=invested,
                 current_value_inr=current,
                 asset_class=asset_class,
@@ -1229,7 +1277,8 @@ def load_holdings_from_cas_excel(
                 lookthrough_status=disclosure["status"],
                 lookthrough_reason=disclosure["reason"],
                 amc_name=amc_name or None,
-                risk_tier=_asset_class_to_risk_tier(asset_class),
+                risk_tier=_asset_class_to_risk_tier(asset_class) if metrics_status == "VERIFIED" else None,
+                metrics_status=metrics_status,
             )
         )
 
@@ -1308,46 +1357,24 @@ def _infer_asset_class(cat: str, eq: float, debt: float, lc: float, mc: float, s
     return AssetClass.EQUITY
 
 
-def calculate_fee_bleed(holdings: List[HoldingItem], default_commission_rate: float = 0.0105) -> FeeBleedAnalysis:
+def calculate_fee_bleed(holdings: List[HoldingItem]) -> FeeBleedAnalysis:
+    """Return unavailable until source-backed, plan-specific commission evidence exists.
+
+    A generic commission percentage and assumed future return are not client
+    facts. The function deliberately does not infer commission from TER.
     """
-    Computes exact annual commission drag for Regular plan holdings.
-    Also calculates 10-year compounded opportunity loss at 12% CAGR.
-    """
-    regular_holdings = [h for h in holdings if h.plan == PlanType.REGULAR]
-    total_regular_val = sum(h.current_value_inr for h in regular_holdings)
-
-    details = []
-    annual_bleed = 0.0
-
-    for h in regular_holdings:
-        # Typical distributor trail commission delta is ~1.05% per year
-        fund_bleed = h.current_value_inr * default_commission_rate
-        annual_bleed += fund_bleed
-        details.append({
-            "fund_name": h.fund_name,
-            "folio_no": h.folio,
-            "current_value_inr": round(h.current_value_inr, 2),
-            "estimated_annual_commission_inr": round(fund_bleed, 2),
-            "expense_ratio_pct": round(h.expense_ratio_pct, 2)
-        })
-
-    # Sort details by commission bleed descending
-    details.sort(key=lambda x: x["estimated_annual_commission_inr"], reverse=True)
-
-    # 10-year compounding lost wealth: annuity factor at 12% CAGR over 10 years
-    # Sum_{t=1}^{10} (1.12)^t = 1.12 * ((1.12^10 - 1) / 0.12) = 19.65
-    # Future value of annuity due = Annual * [((1+r)^n - 1)/r] * (1+r)
-    r = 0.12
-    n = 10
-    annuity_factor = (((1.0 + r) ** n - 1.0) / r) * (1.0 + r)
-    ten_year_compounded_loss = annual_bleed * annuity_factor
-
+    regular_count = sum(1 for holding in holdings if holding.plan == PlanType.REGULAR)
     return FeeBleedAnalysis(
-        annual_commission_leakage_inr=round(annual_bleed, 2),
-        ten_year_compounded_loss_inr=round(ten_year_compounded_loss, 2),
-        regular_funds_count=len(regular_holdings),
-        regular_funds=details,
-        direct_alternatives={}
+        annual_commission_leakage_inr=None,
+        ten_year_compounded_loss_inr=None,
+        regular_funds_count=regular_count,
+        regular_funds=[],
+        direct_alternatives={},
+        availability_status="UNAVAILABLE",
+        unavailable_reason=(
+            "No fund-, plan-, distributor- and effective-date-specific commission evidence "
+            "or approved investor-specific projection assumptions were supplied."
+        ),
     )
 
 
@@ -1542,7 +1569,7 @@ def build_fifo_tax_lots(
 
     allowed_types = {
         "PURCHASE", "SIP", "SWITCH_IN", "STP_IN", "DIVIDEND_REINVEST",
-        "REDEMPTION", "SWITCH_OUT", "STP_OUT", "DIVIDEND",
+        "REDEMPTION", "SWITCH_OUT", "STP_OUT", "DIVIDEND", "CHARGES",
     }
     purchase_types = {"PURCHASE", "SIP", "SWITCH_IN", "STP_IN", "DIVIDEND_REINVEST"}
     redemption_types = {"REDEMPTION", "SWITCH_OUT", "STP_OUT"}
@@ -1561,6 +1588,10 @@ def build_fifo_tax_lots(
         if txn_type not in allowed_types:
             raise ValueError(f"Unsupported CAS transaction type at row {index}: {txn_type!r}")
         if amount == 0 and units == 0:
+            continue
+        if txn_type == "CHARGES":
+            if units != 0:
+                raise ValueError(f"Charge row {index} must not change units")
             continue
         if txn_type == "DIVIDEND":
             description = str(txn.get("description", txn.get("desc", "")) or "").casefold()
@@ -1597,8 +1628,11 @@ def build_fifo_tax_lots(
                 )
             )
         elif txn_type in redemption_types:
-            if amount >= 0 or units >= 0:
-                raise ValueError(f"Redemption/switch-out row {index} must have negative amount and units")
+            # Transaction type is the authoritative direction. CAS providers
+            # differ in whether redemption units/amount are signed or reported
+            # as positive magnitudes; both are normalized here.
+            if amount == 0 or units == 0:
+                raise ValueError(f"Redemption/switch-out row {index} requires non-zero amount and units")
             units_to_remove = abs(units)
             lots = fund_lots[fund_id]
             remaining = units_to_remove
@@ -1708,9 +1742,9 @@ def calculate_saa_drift(
             rebalance_required=False,
             equity_gap_inr=0.0,
             debt_gap_inr=0.0,
-            look_through_debt_inr=0.0,
-            look_through_cash_inr=0.0,
-            look_through_stability_buffer_pct=0.0,
+            look_through_debt_inr=None,
+            look_through_cash_inr=None,
+            look_through_stability_buffer_pct=None,
         )
 
     # Compute look-through equity, debt, and cash amounts
@@ -1819,7 +1853,10 @@ def parse_cas(xlsx_path: Path, scheme_master: Optional[Dict[str, Any]] = None, s
                     "folio": vals[hdr.get("Folio No.", 0)],
                     "value": cur_val,
                     "invested": inv_val,
-                    "is_direct": "direct" in scheme_name.lower(),
+                    "is_direct": None,
+                    "plan": None,
+                    "option_type": None,
+                    "plan_option_status": "MISSING",
                     "constituent_weights": None,
                     "constituent_weights_coverage_pct": None,
                     "lookthrough_status": "MISSING",
@@ -1841,6 +1878,14 @@ def parse_cas(xlsx_path: Path, scheme_master: Optional[Dict[str, Any]] = None, s
                         "isin": identity.get("isin"),
                         "scheme_identity_status": identity["status"],
                         "scheme_identity_reason": identity["reason"],
+                        "plan": identity.get("plan_type"),
+                        "option_type": identity.get("option_type"),
+                        "plan_option_status": identity.get("plan_option_status", "MISSING"),
+                        "is_direct": (
+                            identity.get("plan_type") == "DIRECT"
+                            if identity.get("plan_option_status") == "VERIFIED"
+                            else None
+                        ),
                     })
                 holdings.append(holding)
 
@@ -2112,6 +2157,37 @@ def aggregate_fiduciary_facts(
         disclosure_as_of_date=disclosure_as_of_date,
         disclosure_max_age_days=disclosure_max_age_days,
     )
+    
+    # Empty or zero-value holdings are not evidence of a zero-risk, zero-drift
+    # portfolio. Cash-only portfolios require a separately verified cash source.
+    if not holdings:
+        raise ValueError(
+            "Portfolio diagnostics unavailable: CAS contains no verified active holdings; "
+            "zero drift and zero risk cannot be inferred from an empty portfolio."
+        )
+    portfolio_value = sum(float(holding.current_value_inr) for holding in holdings)
+    if not math.isfinite(portfolio_value) or portfolio_value <= 0.0:
+        raise ValueError(
+            "Portfolio diagnostics unavailable: verified active holdings have no positive "
+            "finite portfolio value; HOLD until a supported cash-only or invested portfolio "
+            "snapshot is independently verified."
+        )
+
+    # An empty active-holdings set is not a verified zero-drift portfolio.
+    # A cash-only portfolio needs its own independently verified cash evidence;
+    # IPS config cash values alone are not evidence of an account balance.
+    if not holdings:
+        raise ValueError(
+            "Portfolio diagnostics unavailable: CAS contains no verified active holdings; "
+            "zero drift and zero risk cannot be inferred from an empty portfolio."
+        )
+    portfolio_value = math.fsum(float(holding.current_value_inr) for holding in holdings)
+    if not math.isfinite(portfolio_value) or portfolio_value <= 0.0:
+        raise ValueError(
+            "Portfolio diagnostics unavailable: verified active holdings have no positive "
+            "finite portfolio value; HOLD until a supported cash-only or invested portfolio "
+            "snapshot is independently verified."
+        )
 
     # SIP generation requires an explicit investor mandate. Never manufacture
     # a ₹1 lakh budget or Tier 6 risk profile when client inputs are absent.
@@ -2255,7 +2331,16 @@ def aggregate_fiduciary_facts(
     transactions_path = cas_path.parent / "transactions.json"
     if not transactions_path.exists():
         transactions_path = cas_path.parent.parent / "transactions.json"
-    portfolio_xirr = calculate_portfolio_xirr(transactions_path, holdings)
+    try:
+        cas_valuation_date = _parse_cas_valuation_date(cas_path)
+    except (OSError, ValueError, TypeError):
+        cas_valuation_date = None
+    portfolio_xirr = calculate_portfolio_xirr(
+        transactions_path,
+        holdings,
+        cas_current=tot_cur,
+        as_of_date=cas_valuation_date,
+    )
     cas_recon = reconcile_cas_holdings_with_transactions(holdings, transactions_path)
     tax_lots_summary = None
 
@@ -3134,8 +3219,10 @@ def compute_candidate_portfolio_overlap(
 
 def compute_multi_horizon_fiduciary_score(
     c: Dict[str, Any],
-    category_key: str = "Healthcare",
-    portfolio_overlap_pct: Optional[float] = None
+    category_key: str,
+    portfolio_overlap_pct: Optional[float] = None,
+    *,
+    scoring_weights: Any,
 ) -> float:
     """
     Standardized 6-Pillar Fiduciary Normalized Scoring Engine (0 - 100 Scale):
@@ -3144,7 +3231,9 @@ def compute_multi_horizon_fiduciary_score(
     Incorporates actual candidate-to-portfolio weighted stock look-through overlap.
     """
     from core.candidate_scoring import calculate_candidate_6_pillar_score
-    score, _ = calculate_candidate_6_pillar_score(c, category_key, portfolio_overlap_pct)
+    score, _ = calculate_candidate_6_pillar_score(
+        c, category_key, portfolio_overlap_pct, weights=scoring_weights
+    )
     return score
 
 
@@ -3641,8 +3730,10 @@ def qualifies_as_specified_mutual_fund_under_section_50AA(
 
 def compute_multi_horizon_fiduciary_score(
     c: Dict[str, Any],
-    category_key: str = "Healthcare",
-    portfolio_overlap_pct: Optional[float] = None
+    category_key: str,
+    portfolio_overlap_pct: Optional[float] = None,
+    *,
+    scoring_weights: Any,
 ) -> float:
     """
     Standardized 6-Pillar Fiduciary Normalized Scoring Engine (0 - 100 Scale):
@@ -3651,7 +3742,9 @@ def compute_multi_horizon_fiduciary_score(
     Incorporates actual candidate-to-portfolio weighted stock look-through overlap.
     """
     from core.candidate_scoring import calculate_candidate_6_pillar_score
-    score, _ = calculate_candidate_6_pillar_score(c, category_key, portfolio_overlap_pct)
+    score, _ = calculate_candidate_6_pillar_score(
+        c, category_key, portfolio_overlap_pct, weights=scoring_weights
+    )
     return score
 
 
@@ -4625,7 +4718,7 @@ def compute_deterministic_lumpsum_blueprint(
         stp_total_amount_inr=0.0,
         monthly_stp_total_inr=0.0,
         parking_vehicle="NO_ACTION",
-        tax_savings_vs_debt_fund_inr=0.0,
+        tax_savings_vs_debt_fund_inr=None,
         cash_validation_passed=bank_cash_verified and deployable >= amount,
         cash_validation_message="NO ACTION: " + "; ".join(reasons),
         tranches=[],
@@ -5185,3 +5278,17 @@ classify_specified_mutual_fund = _tax_classification_disabled
 qualifies_as_equity_oriented_under_section_198 = _tax_classification_disabled
 qualifies_as_specified_mutual_fund_under_section_50AA = _tax_classification_disabled
 qualifies_as_specified_mutual_fund_under_section_76 = _tax_classification_disabled
+
+
+
+def _tax_lot_maturity_classification_disabled(*args, **kwargs):
+    raise TaxClassificationDisabledError(
+        "Direct tax-lot maturity classification is disabled pending independent "
+        "Indian tax/legal approval and exact scheme/plan/lot evidence. No "
+        "holding-period, LTCG or STCG classification has been generated."
+    )
+
+
+# Prevent direct class imports from bypassing the module-level FIFO release gate.
+TaxLot.is_long_term = _tax_lot_maturity_classification_disabled
+TaxLot.is_short_term = _tax_lot_maturity_classification_disabled

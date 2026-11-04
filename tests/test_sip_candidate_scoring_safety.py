@@ -2,6 +2,7 @@ import math
 import pytest
 
 from core.candidate_scoring import (
+    LegacyFundSelectorDisabledError,
     ScoringWeights,
     calculate_candidate_6_pillar_score,
     normalize_metric,
@@ -20,8 +21,9 @@ def test_scoring_weights_reject_negative_and_out_of_range_values():
 
 
 def test_scoring_weights_reject_non_finite_values():
-    assert not ScoringWeights(w_alpha=float("nan")).validate()
-    assert not ScoringWeights(w_alpha=float("inf")).validate()
+    base = (0.25, 0.20, 0.15, 0.15, 0.15, 0.10)
+    assert not ScoringWeights(float("nan"), *base[1:]).validate()
+    assert not ScoringWeights(float("inf"), *base[1:]).validate()
 
 
 @pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf"), True])
@@ -42,8 +44,13 @@ def test_negative_one_year_return_is_scored_as_a_bad_return_not_replaced_by_alph
         "sharpe_3y": 0.8,
         "ter_direct_pct": 0.7,
     }
-    _, pillars = calculate_candidate_6_pillar_score(candidate, "Flexi Cap")
-    assert pillars["alpha_return"] == 30.0
+    # Use the only complete legacy category anchor set; Flexi Cap remains
+    # unavailable until its independent 1Y-return anchor is approved.
+    _, pillars = calculate_candidate_6_pillar_score(
+        candidate, "Healthcare",
+        weights=ScoringWeights(0.25, 0.20, 0.15, 0.15, 0.15, 0.10),
+    )
+    assert pillars["alpha_return"] == 24.0
 
 
 
@@ -84,3 +91,28 @@ def test_metrics_loader_rejects_duplicate_fund_identity(tmp_path):
 
 def test_normalizer_uses_validated_numeric_bounds():
     assert normalize_metric("5", "0", "10") == 50.0
+
+
+def test_legacy_named_fund_selector_is_quarantined(tmp_path):
+    import json
+    from core.candidate_scoring import FiduciaryFundSelector
+
+    metrics = tmp_path / "metrics.json"
+    metrics.write_text(json.dumps({"funds": [{"id": "unrelated", "name": "Unrelated"}]}), encoding="utf-8")
+    selector = FiduciaryFundSelector(
+        fund_metrics_path=metrics,
+        weights=ScoringWeights(0.25, 0.20, 0.15, 0.15, 0.15, 0.10),
+    )
+    with pytest.raises(LegacyFundSelectorDisabledError, match="legacy named-fund selector is disabled"):
+        selector.score_flexi_cap_candidates()
+    with pytest.raises(LegacyFundSelectorDisabledError, match="legacy named-fund comparison is disabled"):
+        selector.get_comparison_summary()
+
+
+def test_scoring_requires_explicit_composite_weights_and_category_ter_reference():
+    candidate = {
+        "alpha_3y": 3.0, "return_1y": 10.0,
+        "sharpe_3y": 0.8, "ter_direct_pct": 0.7,
+    }
+    with pytest.raises(ValueError, match="Explicit approved scoring weights"):
+        calculate_candidate_6_pillar_score(candidate, "Healthcare")

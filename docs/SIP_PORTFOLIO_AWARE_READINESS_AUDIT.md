@@ -234,3 +234,20 @@
 - File: `core/candidate_scoring.py`, `normalize_metric`.
 - Correction: reject boolean, non-numeric and non-finite values/bounds, and reversed bounds instead of producing misleading normalized scores.
 - Regression coverage: NaN, infinity, booleans and reversed bounds in `tests/test_sip_candidate_scoring_safety.py`.
+
+
+## New scoring findings brought into the portfolio SIP delivery (#40 / #41)
+
+### 31. Missing overlap cannot receive a neutral composite score — IMPLEMENTED, CI PENDING
+- The scoring function now has an explicit `portfolio_aware=True` mode.
+- Portfolio-aware scoring requires reviewer-attested overlap source bytes and matching SHA-256, stable candidate identity, a current evidence date, a measured overlap percentage and at least 99.5% constituent look-through coverage.
+- Missing overlap raises an unavailable-evidence error. It is not converted to a neutral 50-point pillar. Verified zero overlap remains a valid, separately tested observation.
+- Standalone score diagnostics retain their historical neutral explanatory fallback but are explicitly distinct from portfolio-aware SIP scoring. They cannot be treated as portfolio-aware ranking.
+- The provider contract also requires `score_scope=PORTFOLIO_AWARE`, `missing_overlap_policy=BLOCK_SCORE`, verified overlap status/coverage and a source reference. Existing SIP overlap calculations continue to block candidates when look-through is missing.
+
+### 32. Category-specific scoring anchors must be complete and approved — IMPLEMENTED, CI PENDING
+- Standalone scoring no longer falls back to Healthcare 1Y-return bounds when a category anchor is missing. The category must have all seven metric bounds or scoring fails closed.
+- The current legacy map contains a complete set only for Healthcare; Flexi Cap, Mid Cap and Large Cap lack their own `ret1y` anchor and are now unavailable through the standalone map until those values are independently approved.
+- Portfolio-aware scoring accepts a category-specific anchor set only when the supplied evidence is reviewer-attested and source-byte hashed, current, exact-category matched, benchmark-identified and versioned. All seven finite/increasing bounds are required.
+- The provider contract requires exact category, benchmark, original anchor-source digest, reviewer, effective date and policy version to match each scored candidate. Unsupported categories cannot borrow anchors or use generic defaults.
+- No new numeric category thresholds were invented in this change. Independent review of the actual anchor values and ranking methodology remains a release prerequisite.
