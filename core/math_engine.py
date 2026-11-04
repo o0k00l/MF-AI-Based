@@ -1682,7 +1682,14 @@ def parse_cas(xlsx_path: Path) -> Tuple[str, List[Dict[str, Any]]]:
                     "folio": vals[hdr.get("Folio No.", 0)],
                     "value": cur_val,
                     "invested": inv_val,
-                    "is_direct": "direct" in scheme_name.lower()
+                    "is_direct": "direct" in scheme_name.lower(),
+                    # CAS reports identify scheme-level positions, not underlying
+                    # portfolio constituents. Never imply that look-through data
+                    # was verified merely because a holding was parsed.
+                    "constituent_weights": None,
+                    "constituent_weights_coverage_pct": None,
+                    "lookthrough_status": "MISSING",
+                    "lookthrough_reason": "CAS scheme holdings do not contain stock-level constituent disclosures.",
                 })
 
     if len(dates_found) > 1:
