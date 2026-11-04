@@ -6,6 +6,7 @@ from core.portfolio_sip_controls import (
     PortfolioInputError,
     build_decision_trace,
     calculate_lookthrough_exposure,
+    evaluate_classified_concentration,
     calculate_saa_drift,
     reconcile_total_portfolio,
     route_incremental_sip,
@@ -336,3 +337,51 @@ def test_candidate_sip_allocation_with_zero_remaining_fund_slots_is_fail_closed(
     assert result["status"] == "HOLD"
     assert result["unallocated_budget_inr"] == "5000"
     assert result["rejected_candidates"]["a"] == ["MAX_CORE_FUND_COUNT_REACHED"]
+
+
+def test_classified_concentration_blocks_sector_market_cap_and_theme_breaches():
+    result = evaluate_classified_concentration(
+        {"issuer-a": "30000", "issuer-b": "25000"},
+        {
+            "issuer-a": {"sector": "Financials", "market_cap_bucket": "large_cap", "themes": ["banks"]},
+            "issuer-b": {"sector": "Financials", "market_cap_bucket": "mid_cap", "themes": ["banks", "credit"]},
+        },
+        total_portfolio_inr="100000",
+        as_of_date="2026-11-04",
+        classification_as_of_date="2026-11-01",
+        classification_source_ref="sha256:issuer-classifications",
+        max_evidence_age_days=30,
+        max_sector_pct="50",
+        max_market_cap_pct="40",
+        max_theme_pct="40",
+    )
+    assert result["status"] == "HOLD"
+    assert result["breaches"]["sector"]["Financials"] == "55.00"
+    assert result["breaches"]["theme"]["banks"] == "55.00"
+    assert result["breaches"]["market_cap"]["large_cap"] == "30.00"
+
+
+def test_classified_concentration_holds_on_missing_classification_or_stale_source():
+    missing = evaluate_classified_concentration(
+        {"issuer-a": "10000"}, {},
+        total_portfolio_inr="100000",
+        as_of_date="2026-11-04",
+        classification_as_of_date="2026-11-01",
+        classification_source_ref="sha256:class",
+        max_evidence_age_days=30,
+        max_sector_pct="50", max_market_cap_pct="50", max_theme_pct="50",
+    )
+    stale = evaluate_classified_concentration(
+        {"issuer-a": "10000"},
+        {"issuer-a": {"sector": "IT", "market_cap_bucket": "large_cap", "themes": []}},
+        total_portfolio_inr="100000",
+        as_of_date="2026-11-04",
+        classification_as_of_date="2026-01-01",
+        classification_source_ref="sha256:class",
+        max_evidence_age_days=30,
+        max_sector_pct="50", max_market_cap_pct="50", max_theme_pct="50",
+    )
+    assert missing["status"] == "HOLD"
+    assert missing["unclassified_issuers"] == ["issuer-a"]
+    assert stale["status"] == "HOLD"
+    assert stale["reason"] == "ISSUER_CLASSIFICATION_STALE_OR_FUTURE"
