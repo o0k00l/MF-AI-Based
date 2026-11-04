@@ -1007,3 +1007,64 @@ def test_p0_16_tri_coverage_gate_uses_observed_sessions_not_metadata():
     }
     print("[PASS] P0.16 TRI Coverage Gate Rejects Inflated or Sparse Coverage")
 
+
+
+
+def test_p0_17_tri_release_gate_rejects_boolean_and_nonfinite_observations(tmp_path, monkeypatch):
+    """Release eligibility must independently reject bool/NaN/inf TRI values."""
+    import hashlib
+    import verify_tri_provenance as verifier
+
+    monkeypatch.setattr(verifier, "ROOT", tmp_path)
+    policy_dir = tmp_path / "data" / "policy"
+    policy_dir.mkdir(parents=True)
+    source_dir = tmp_path / "data" / "sources"
+    source_dir.mkdir(parents=True)
+
+    tri_source = source_dir / "tri.csv"
+    tri_source.write_text("date,value\\n2026-01-01,100\\n2026-01-02,101\\n", encoding="utf-8")
+    calendar_source = source_dir / "calendar.csv"
+    calendar_source.write_text("date\\n2026-01-01\\n2026-01-02\\n", encoding="utf-8")
+    digest = lambda path: hashlib.sha256(path.read_bytes()).hexdigest()
+    sessions = ["2026-01-01", "2026-01-02"]
+    calendar = {
+        "exchange": "NSE",
+        "status": "VERIFIED",
+        "sessions": sessions,
+        "provenance": {
+            "source_url": "https://www.nseindia.com/example-calendar.csv",
+            "source_document_file": "data/sources/calendar.csv",
+            "source_document_sha256": digest(calendar_source),
+            "sessions_sha256": verifier._canonical_sha256(sessions),
+            "reviewer_attested": True,
+        },
+    }
+    (policy_dir / "nse_trading_calendar.json").write_text(
+        json.dumps(calendar), encoding="utf-8"
+    )
+
+    levels = {"2026-01-01": 100.0, "2026-01-02": True}
+    fixture = {
+        "provenance": {
+            "frequency": "Daily",
+            "interpolation_used": False,
+            "source_authenticity": "VERIFIED",
+            "release_eligibility": "ELIGIBLE",
+            "historical_source_url": "https://www.niftyindices.com/example-tri.csv",
+            "historical_source_file": "data/sources/tri.csv",
+            "source_document_sha256": digest(tri_source),
+            "independent_reviewer_id": "independent-reviewer",
+        },
+        "benchmarks": {"NIFTY 500 TRI": {"levels": levels}},
+    }
+    fixture_path = policy_dir / "fixture.json"
+    fixture_path.write_text(json.dumps(fixture), encoding="utf-8")
+
+    blockers = verifier.alpha_release_blockers(fixture_path)
+    assert any("boolean TRI value" in blocker for blocker in blockers)
+
+    levels["2026-01-02"] = float("inf")
+    fixture_path.write_text(json.dumps(fixture), encoding="utf-8")
+    blockers = verifier.alpha_release_blockers(fixture_path)
+    assert any("non-finite or non-positive TRI value" in blocker for blocker in blockers)
+
