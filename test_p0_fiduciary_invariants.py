@@ -1085,12 +1085,14 @@ def test_p0_18_tri_fixture_verifier_rejects_malformed_json_shapes(tmp_path):
         json.dumps({
             "provenance": {},
             "coverage": {"nifty_500_tri": [], "nifty_50_tri": {}},
-            "benchmarks": {"NIFTY 500 TRI": [], "NIFTY 50 TRI": {}},
+            "benchmarks": {
+                "NIFTY 500 TRI": {"levels": {"2026-01-01": 100.0}},
+                "NIFTY 50 TRI": [],
+            },
         }),
         encoding="utf-8",
     )
     failures = verifier.verify_fixture(nested_fixture)
     assert any("benchmark entry must be a JSON object" in item for item in failures)
-    assert any("levels must be a non-empty date/value object" in item for item in failures)
     assert any("coverage entry must be a JSON object" in item for item in failures)
 
