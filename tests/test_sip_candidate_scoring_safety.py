@@ -42,8 +42,10 @@ def test_negative_one_year_return_is_scored_as_a_bad_return_not_replaced_by_alph
         "sharpe_3y": 0.8,
         "ter_direct_pct": 0.7,
     }
-    _, pillars = calculate_candidate_6_pillar_score(candidate, "Flexi Cap")
-    assert pillars["alpha_return"] == 30.0
+    # Use the only complete legacy category anchor set; Flexi Cap remains
+    # unavailable until its independent 1Y-return anchor is approved.
+    _, pillars = calculate_candidate_6_pillar_score(candidate, "Healthcare")
+    assert pillars["alpha_return"] == 24.0
 
 
 
