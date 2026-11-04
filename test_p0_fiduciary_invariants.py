@@ -428,7 +428,7 @@ def test_p0_6_multi_horizon_selection_and_peer_evaluation(tmp_path):
 
     # Without verified client-specific candidates, the tactical slot must remain NO_ACTION.
     slots = select_autonomous_blueprint_funds(holdings=[], client_risk_tier=6, thematic_deficit_theme="Pharma")
-    slot4 = slots["Slot 4: Tactical Thematic Satellite"]
+    slot4 = slots["Slot 5: Tactical Thematic Satellite"]
     assert str(slot4["scheme"]).startswith("NO_ACTION")
     assert "NO_ACTION" in slot4["rationale"]
     print("[PASS] P0.6 Multi-Horizon Selection & Peer Evaluation Verified")
@@ -846,8 +846,9 @@ def test_p0_12_all_four_slots_fail_closed_without_verified_candidates():
     for name in (
         "Slot 1: Core Flexi-Cap Compounder",
         "Slot 2: Mid-Cap Alpha Engine",
-        "Slot 3: Large-Cap Bluechip Anchor",
-        "Slot 4: Tactical Thematic Satellite",
+        "Slot 3: Small-Cap Growth Engine",
+        "Slot 4: Large-Cap Bluechip Anchor",
+        "Slot 5: Tactical Thematic Satellite",
         "High-Grade Debt Anchor",
     ):
         slot = slots[name]
@@ -856,7 +857,7 @@ def test_p0_12_all_four_slots_fail_closed_without_verified_candidates():
         assert slot.get("unallocated_pct", 0.0) >= 0.0
         assert "NO_ACTION" in slot.get("rationale", "")
 
-    assert slots["Slot 4: Tactical Thematic Satellite"]["unallocated_pct"] == 0.0
+    assert slots["Slot 5: Tactical Thematic Satellite"]["unallocated_pct"] == 0.0
     print("[PASS] P0.12 No Candidate Universe Fails Closed Without Invented Schemes")
 
 
