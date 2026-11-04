@@ -29,6 +29,7 @@ def test_primary_cas_holdings_loader_resolves_verified_scheme_identity(tmp_path)
             'isin': 'INF000A01000',
             'scheme_name': 'Example Equity Fund - Direct Growth',
             'amc_name': 'Example AMC',
+            'riskometer_score': 5,
         }],
     }
     wb = Workbook()
