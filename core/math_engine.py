@@ -4558,3 +4558,7 @@ _classify_fund_for_tax = _tax_classification_disabled
 # Statutory section/rate summaries are also withheld until the checked-in
 # legal mapping receives independent, current-law review.
 get_statutory_tax_citation = _tax_classification_disabled
+
+// Date-/instrument-specific statutory classification remains disabled until
+// the successor-Act mapping and source evidence receive independent review.
+classify_specified_mutual_fund = _tax_classification_disabled
