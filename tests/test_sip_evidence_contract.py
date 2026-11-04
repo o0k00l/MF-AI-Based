@@ -26,14 +26,19 @@ def valid_payload(tmp_path):
     universe_bytes = b"source candidate universe"
     direct_bytes = b"direct plan factsheet"
     (tmp_path / "direct.pdf").write_bytes(direct_bytes)
+    metrics_bytes = b'{"funds":[]}'
+    metrics_path = tmp_path / "metrics.json"
+    metrics_path.write_bytes(metrics_bytes)
+    metrics_source_bytes = b"original current-holdings metrics source"
     return {
-        "metrics_path": Path(__file__),
+        "metrics_path": metrics_path,
         "aliases_path": None,
         "metrics_source_metadata": {
-            **_source_metadata(b"original current-holdings metrics source"),
+            **_source_metadata(metrics_source_bytes),
             "source_type": "OFFICIAL_FUND_METRICS",
+            "normalized_metrics_sha256": hashlib.sha256(metrics_bytes).hexdigest(),
         },
-        "metrics_source_bytes": b"original current-holdings metrics source",
+        "metrics_source_bytes": metrics_source_bytes,
         "scheme_master": {
             **_source_metadata(master_bytes),
             "status": "VERIFIED",
@@ -247,6 +252,7 @@ def test_contract_validates_optional_original_fund_metrics_source_bytes(tmp_path
     payload["metrics_source_metadata"] = {
         **_source_metadata(metrics_bytes),
         "source_type": "OFFICIAL_FUND_METRICS",
+        "normalized_metrics_sha256": hashlib.sha256(payload["metrics_path"].read_bytes()).hexdigest(),
     }
     payload["metrics_source_bytes"] = metrics_bytes
 
