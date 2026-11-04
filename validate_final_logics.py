@@ -87,7 +87,7 @@ for L in test_lumpsums:
 # =====================================================================
 # TEST 2: Universal 4-Slot Sizing Engine & Tiered Scaling
 # =====================================================================
-print("\n>> [TEST 2] Universal 4-Slot Sizing Engine & Tiered Scaling:")
+print("\n>> [TEST 2] Universal SIP Sleeve Sizing Engine & Tiered Scaling:")
 
 # 2A: Established synthetic portfolio (INR 1,00,000 monthly budget, INR 50L AUM)
 established_plan = compute_deterministic_sip_blueprint(
@@ -98,7 +98,7 @@ established_plan = compute_deterministic_sip_blueprint(
     equity_sip_routing_override=True,
 )
 check("Established Plan Total Budget", established_plan.total_monthly_budget_inr == 100000.0)
-check("Established Plan Item Count", len(established_plan.items) == 4, f"Found {len(established_plan.items)} items")
+check("Established Plan Item Count", len(established_plan.items) == 5, f"Found {len(established_plan.items)} items")
 
 sum_alloc = sum(item.monthly_inr for item in established_plan.items)
 check(
@@ -109,7 +109,7 @@ check(
 
 # Check individual slots
 roles = {item.category_role: item for item in established_plan.items}
-# Policy: very_high saa_targets: flexi=25, mid+small=50, large=20 (sum=95)
+# Policy: very_high saa_targets: flexi=25, mid=25, small=25, large=20 (sum=95)
 # Weights: flexi=25/95=26.3%, mid+small=50/95=52.6%, large=20/95=21.1%, thematic=0%
 check("Slot 1: Core Flexi target weight (26.3%)", roles["Core Flexi-Cap Compounder"].allocation_pct == 26.3)
 check("Slot 2: Mid-Cap Alpha target weight (52.6%)", roles["Mid-Cap Alpha Engine"].allocation_pct == 52.6)
