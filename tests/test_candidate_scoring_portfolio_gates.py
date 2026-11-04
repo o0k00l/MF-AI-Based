@@ -3,7 +3,12 @@ import hashlib
 
 import pytest
 
-from core.candidate_scoring import calculate_candidate_6_pillar_score
+from core.candidate_scoring import ScoringWeights, calculate_candidate_6_pillar_score
+
+
+
+def _weights():
+    return ScoringWeights(0.25, 0.20, 0.15, 0.15, 0.15, 0.10)
 
 
 def _candidate(category="Healthcare"):
@@ -67,6 +72,7 @@ def _portfolio_score(**overrides):
         "approved_category_anchor_evidence": _anchor_evidence(),
         "as_of_date": date.today().isoformat(),
         "max_evidence_age_days": 30,
+        "weights": _weights(),
     }
     values.update(overrides)
     return values
@@ -153,7 +159,7 @@ def test_portfolio_aware_score_rejects_unapproved_stale_or_wrong_category_anchor
 @pytest.mark.parametrize("category", ["Flexi Cap", "Mid Cap", "Large Cap"])
 def test_legacy_category_score_does_not_borrow_missing_healthcare_return_bounds(category):
     with pytest.raises(ValueError, match="no complete approved anchor set"):
-        calculate_candidate_6_pillar_score(_candidate(category), category)
+        calculate_candidate_6_pillar_score(_candidate(category), category, weights=_weights())
 
 
 @pytest.mark.parametrize("category", ["Small Cap", "Multi Cap", "Debt", "Hybrid", "International"])
