@@ -317,9 +317,10 @@ def calculate_portfolio_xirr(
             continue
 
         if txn_type == "CHARGES":
-            # Separately reported fees reduce investor return; they never
-            # acquire or dispose of fund units.
-            cf = -abs(amount)
+            # Charges are reconciled as cash-only ledger events, but their
+            # investor cash-flow treatment is not sufficiently specified to
+            # include in XIRR without risk of double-counting purchase costs.
+            return None
         elif amount < 0:
             cf = -amount
         elif txn_type in ("REDEMPTION", "SWITCH_OUT", "STP_OUT", "DIVIDEND", "SWP") and not is_reversal:
@@ -788,7 +789,6 @@ def calculate_cashflow_matched_benchmark_xirr(
             allowed_types = {
                 "PURCHASE", "SIP", "REDEMPTION", "SWP", "DIVIDEND",
                 "DIVIDEND_REINVEST", "SWITCH_IN", "SWITCH_OUT", "STP_IN", "STP_OUT",
-                "CHARGES",
             }
             if txn_type not in allowed_types:
                 raise ValueError(f"unsupported transaction type {txn_type!r}")
@@ -811,9 +811,7 @@ def calculate_cashflow_matched_benchmark_xirr(
             if txn_type in ("SWITCH_IN", "SWITCH_OUT", "STP_IN", "STP_OUT", "DIVIDEND_REINVEST") or transfer_description:
                 continue
             
-            if txn_type == "CHARGES":
-                cf = -abs(amount)
-            elif amount < 0:
+            if amount < 0:
                 cf = -amount
             else:
                 # DIVIDEND: classify as cash vs reinvested
