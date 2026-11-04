@@ -179,10 +179,16 @@ def alpha_release_blockers(fixture_path: Path) -> list[str]:
 
     sessions_set = set(sessions)
     benchmarks = data.get("benchmarks", {})
+    if not isinstance(benchmarks, dict) or not benchmarks:
+        blockers.append("benchmarks must be a non-empty object")
+        benchmarks = {}
     for index_name, benchmark in benchmarks.items():
+        if not isinstance(benchmark, dict):
+            blockers.append(f"{index_name}: benchmark entry must be an object")
+            continue
         levels = benchmark.get("levels", {})
-        if not isinstance(levels, dict):
-            blockers.append(f"{index_name}: TRI levels must be a date-to-value object")
+        if not isinstance(levels, dict) or not levels:
+            blockers.append(f"{index_name}: TRI levels must be a non-empty date-to-value object")
             continue
         if set(levels) != sessions_set:
             blockers.append(
@@ -191,12 +197,22 @@ def alpha_release_blockers(fixture_path: Path) -> list[str]:
             )
         for day, value in levels.items():
             try:
+                parsed_day = date.fromisoformat(day)
+                if parsed_day.isoformat() != day:
+                    raise ValueError("non-canonical ISO date")
+            except (TypeError, ValueError):
+                blockers.append(f"{index_name}: invalid ISO observation date {day!r}")
+                break
+            if isinstance(value, bool):
+                blockers.append(f"{index_name}: boolean TRI value on {day}")
+                break
+            try:
                 number = float(value)
             except (TypeError, ValueError):
                 blockers.append(f"{index_name}: non-numeric TRI value on {day}")
                 break
-            if not number > 0:
-                blockers.append(f"{index_name}: non-positive TRI value on {day}")
+            if not math.isfinite(number) or number <= 0:
+                blockers.append(f"{index_name}: non-finite or non-positive TRI value on {day}")
                 break
     if not benchmarks:
         blockers.append("no benchmark series supplied")
