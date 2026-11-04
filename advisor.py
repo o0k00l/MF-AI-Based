@@ -43,16 +43,18 @@ def get_default_paths(client_target: str | Path | None = None, *, as_of=None, ma
     from datetime import date
     from ingestion.statement_selection import select_latest_statement
 
-    if as_of is not None and max_statement_age_days is not None:
-        selected = select_latest_statement(
-            candidates,
-            document_type="CAS",
-            as_of=as_of,
-            max_age_days=max_statement_age_days,
+    if as_of is None or max_statement_age_days is None:
+        raise ValueError(
+            "CAS selection requires an explicit decision as_of date and approved maximum statement age; "
+            "no filename, directory-order or first-file fallback is permitted."
         )
-        cas = selected.path
-    else:
-        cas = candidates[0]
+    selected = select_latest_statement(
+        candidates,
+        document_type="CAS",
+        as_of=as_of,
+        max_age_days=max_statement_age_days,
+    )
+    cas = selected.path
     metrics = client_path / "fund_metrics.json"
     config = client_path / "config.json"
     aliases = client_path / "fund_aliases.json"
