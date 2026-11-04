@@ -9,6 +9,8 @@ from typing import Any
 BENCHMARK_UNAVAILABLE = (
     "UNAVAILABLE — approved benchmark mapping or supporting evidence unavailable"
 )
+# Backwards-compatible name retained for existing report consumers.
+BENCHMARK_BLOCKED = BENCHMARK_UNAVAILABLE
 
 
 def _finite_number(value: Any) -> float | None:
