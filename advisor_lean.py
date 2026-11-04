@@ -15,10 +15,13 @@ ROOT = Path(__file__).resolve().parent
 
 
 def main() -> None:
-    """Run the legacy report command only when explicitly invoked."""
-    if str(ROOT) not in sys.path:
-        sys.path.insert(0, str(ROOT))
-    runpy.run_path(str(ROOT / "legacy" / "advisor_lean_cli.py"), run_name="__main__")
+    """Refuse to launch the retired, unvalidated advisory CLI."""
+    raise SystemExit(
+        "The legacy advisor CLI is retired and disabled. It contains unapproved "
+        "tax, exit-load and allocation logic. No client data was read and no report "
+        "or recommendation was generated. Use only a separately release-approved "
+        "application build."
+    )
 
 
 if __name__ == "__main__":
