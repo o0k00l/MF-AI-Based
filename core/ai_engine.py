@@ -1,428 +1,377 @@
-"""
-core/ai_engine.py
-Resilient 3-Tier AI Engine & Dynamic Model Discovery.
-Ported from reference implementation in 'C:\\Users\\l9999\\Documents\\VSworks\\Mutual Funds':
-  1. Provider 1 (PRIMARY): Requesty.ai (Tier 0 zero-cost models, mutex serialized)
-  2. Provider 2 (FALLBACK): OpenRouter (Universal free router with headers)
-  3. Provider 3 (LAST RESORT): Google Gemini (google.genai SDK)
-  4. Dynamic Free Model Discovery with 24-Hour Disk Cache
-  5. Anti-Hallucination & Output Format Guardrails
-  6. Disk-Based Narrative Response Cache (sha256 keyed)
+"""Provider adapters with live model discovery and fail-closed diagnostics.
+
+Model IDs are never invented or injected when a provider catalogue is unavailable.
+The module is for qualitative narrative assistance only; it does not participate in
+SIP eligibility, evidence validation, allocation, or release-gate decisions.
 """
 from __future__ import annotations
 
-import os
-import re
-import json
-import time
 import hashlib
+import json
+import os
 import threading
+import time
+import urllib.error
 import urllib.request
 from pathlib import Path
-from typing import List, Optional, Dict, Any
+from typing import Any
+
 from dotenv import load_dotenv
 
-# Load .env
 load_dotenv()
 
-# Concurrency mutex: Requesty enforces in-flight limit of 1
 _requesty_mutex = threading.Lock()
-
-# Directory configuration
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 CACHE_DIR = PROJECT_ROOT / "cache"
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
 MODEL_CACHE_FILE = CACHE_DIR / "free_models_cache.json"
 NARRATIVE_CACHE_FILE = CACHE_DIR / "narrative_cache.json"
+CACHE_TTL_SECONDS = 3600
+NARRATIVE_TTL_SECONDS = 90 * 86400
 
-CACHE_TTL_SECONDS = 86400  # 24 hours for model discovery
-NARRATIVE_TTL_SECONDS = 90 * 86400  # 90 days for narrative cache
-
-# Verified static fallbacks in priority order
-VERIFIED_REQUESTY_FALLBACKS: List[str] = [
-    "nvidia/nemotron-3-ultra-550b-a55b",
-    "novita/ling-3.1-flash",
-]
-
-VERIFIED_OPENROUTER_FALLBACKS: List[str] = [
-    "nvidia/nemotron-3.5-lightning:free",
-    "minimax/minimax-m3.1-flash:free",
-    "nvidia/nemotron-3-ultra-550b-a55b:free",
-    "google/gemini-2.5-flash",
-]
-
-VERIFIED_GEMINI_FALLBACKS: List[str] = [
-    "gemini-flash-lite-latest",
-    "gemini-flash-latest",
-    "gemini-2.5-flash",
-    "gemini-2.5-pro",
-]
+REQUESTY_BASE_URL = "https://router.requesty.ai/v1"
+OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+REQUESTY_MODELS_URL = REQUESTY_BASE_URL + "/models"
+OPENROUTER_MODELS_URL = OPENROUTER_BASE_URL + "/models"
 
 GUARDRAIL = (
     "Use ONLY the data provided above. If any data point is missing or unclear, "
     "write 'Data not available' instead of guessing. Do not invent any numbers. "
     "Frame every statement as 'The engine indicates...' not 'You should...'."
 )
-
 OUTPUT_FORMAT_GUARD = (
     "OUTPUT FORMAT: Respond with ONLY the final text of the requested section. "
-    "Do not restate these instructions, do not show your reasoning or analysis "
-    "process, do not repeat the payload, and do not add any preamble."
+    "Do not restate these instructions, show reasoning, repeat the payload, or add a preamble."
 )
 
 
-# ---------------------------------------------------------------------------
-# Dynamic Model Discovery (Requesty & OpenRouter)
-# ---------------------------------------------------------------------------
+class ProviderError(RuntimeError):
+    """Safe provider failure metadata; never stores raw response bodies or credentials."""
 
-def _read_model_cache(provider: str) -> Optional[List[str]]:
+    def __init__(self, provider: str, message: str, *, status_code: int | None = None,
+                 code: str | None = None, model: str | None = None):
+        super().__init__(message)
+        self.provider = provider
+        self.status_code = status_code
+        self.code = code
+        self.model = model
+
+
+def _key_fingerprint(key: str) -> str:
+    return hashlib.sha256(key.encode("utf-8")).hexdigest()[:16]
+
+
+def _read_model_cache(provider: str, key: str) -> list[str] | None:
     try:
-        if not MODEL_CACHE_FILE.exists():
-            return None
         data = json.loads(MODEL_CACHE_FILE.read_text(encoding="utf-8"))
-        entry = data.get(provider)
-        if isinstance(entry, dict):
-            ts = entry.get("timestamp", 0)
-            models = entry.get("models", [])
-            if time.time() - ts < CACHE_TTL_SECONDS and models:
+        entry = data.get(provider, {})
+        if (entry.get("key_fingerprint") == _key_fingerprint(key)
+                and time.time() - float(entry.get("timestamp", 0)) < CACHE_TTL_SECONDS):
+            models = entry.get("models")
+            if isinstance(models, list) and models and all(isinstance(x, str) for x in models):
                 return models
-    except Exception:
+    except (OSError, ValueError, TypeError, AttributeError):
         pass
     return None
 
 
-def _write_model_cache(provider: str, models: List[str]) -> None:
+def _write_model_cache(provider: str, key: str, models: list[str]) -> None:
     try:
-        data = {}
-        if MODEL_CACHE_FILE.exists():
-            try:
-                data = json.loads(MODEL_CACHE_FILE.read_text(encoding="utf-8"))
-            except Exception:
-                data = {}
-        data[provider] = {"timestamp": time.time(), "models": models}
-        MODEL_CACHE_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
-    except Exception:
+        try:
+            data = json.loads(MODEL_CACHE_FILE.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            data = {}
+        data[provider] = {
+            "timestamp": time.time(),
+            "key_fingerprint": _key_fingerprint(key),
+            "models": models,
+        }
+        temp_path = MODEL_CACHE_FILE.with_suffix(".tmp")
+        temp_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        temp_path.replace(MODEL_CACHE_FILE)
+    except (OSError, TypeError, ValueError):
+        # Cache failure must not prevent a live provider request.
         pass
 
 
-def discover_requesty_free_models(api_key: str = "", force_refresh: bool = False) -> List[str]:
-    """Dynamically discover Tier 0 zero-cost models from Requesty.ai."""
-    if not force_refresh:
-        cached = _read_model_cache("requesty")
-        if cached:
-            return cached
+def _http_json(url: str, key: str, provider: str) -> dict[str, Any]:
+    request = urllib.request.Request(
+        url,
+        headers={
+            "Authorization": f"Bearer {key}",
+            "HTTP-Referer": "https://fiduciary.engine",
+            "X-Title": "Fiduciary Portfolio Engine",
+            "Accept": "application/json",
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=15) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        raise ProviderError(
+            provider, f"{provider} model discovery failed (HTTP {exc.code}).",
+            status_code=exc.code,
+        ) from None
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        raise ProviderError(provider, f"{provider} model discovery network failure ({type(exc).__name__}).") from None
+    except (UnicodeDecodeError, json.JSONDecodeError, TypeError) as exc:
+        raise ProviderError(provider, f"{provider} returned an invalid model catalogue ({type(exc).__name__}).") from None
+    if not isinstance(payload, dict) or not isinstance(payload.get("data"), list):
+        raise ProviderError(provider, f"{provider} returned an unexpected model catalogue shape.")
+    return payload
 
+
+def _is_zero_price(value: Any) -> bool:
+    try:
+        return float(value) == 0.0
+    except (TypeError, ValueError):
+        return False
+
+
+def _discover_openai_models(provider: str, url: str, key: str) -> list[str]:
+    cached = _read_model_cache(provider, key)
+    if cached:
+        return cached
+    payload = _http_json(url, key, provider)
+    discovered: list[str] = []
+    for item in payload["data"]:
+        if not isinstance(item, dict):
+            continue
+        model_id = item.get("id")
+        if not isinstance(model_id, str) or not model_id.strip():
+            continue
+        if provider == "Requesty":
+            # Requesty exposes per-token prices in its model catalogue. Unknown
+            # pricing is not treated as free.
+            if not (_is_zero_price(item.get("input_price"))
+                    and _is_zero_price(item.get("output_price"))):
+                continue
+        else:
+            pricing = item.get("pricing") or {}
+            if not isinstance(pricing, dict):
+                continue
+            is_free_slug = model_id.endswith(":free")
+            is_zero_price = (
+                _is_zero_price(pricing.get("prompt"))
+                and _is_zero_price(pricing.get("completion"))
+            )
+            if not (is_free_slug or is_zero_price):
+                continue
+        # Only text-capable chat models are useful for this adapter.
+        architecture = item.get("architecture") or {}
+        modality = architecture.get("modality") if isinstance(architecture, dict) else None
+        if modality and "text" not in str(modality).lower():
+            continue
+        if any(term in model_id.lower() for term in (
+            "embedding", "embed", "whisper", "tts", "moderation", "image", "audio"
+        )):
+            continue
+        discovered.append(model_id)
+    discovered = list(dict.fromkeys(discovered))
+    if not discovered:
+        raise ProviderError(provider, f"{provider} returned no eligible free text-generation models.")
+    _write_model_cache(provider, key, discovered)
+    return discovered
+
+
+def discover_requesty_free_models(api_key: str = "", force_refresh: bool = False) -> list[str]:
+    """Return only free model IDs actually returned by the authenticated catalogue."""
     key = api_key or os.getenv("REQUESTY_API_KEY", "")
     if not key:
-        return list(VERIFIED_REQUESTY_FALLBACKS)
-
-    discovered: List[str] = []
-    try:
-        req = urllib.request.Request(
-            "https://router.requesty.ai/v1/models",
-            headers={
-                "Authorization": f"Bearer {key}",
-                "HTTP-Referer": "https://fiduciary.engine",
-                "X-Title": "Fiduciary Portfolio Engine",
-            },
-        )
-        with urllib.request.urlopen(req, timeout=8) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-            for m in data.get("data", []):
-                mid = m.get("id", "")
-                inp = m.get("input_price")
-                out = m.get("output_price")
-                if inp == 0 and out == 0:
-                    low = mid.lower()
-                    if any(x in low for x in ("safety", "moderation", "guard", "tiny", "content")):
-                        continue
-                    discovered.append(mid)
-
-        primary = "nvidia/nemotron-3-ultra-550b-a55b"
-        if primary in discovered:
-            discovered.remove(primary)
-        discovered.insert(0, primary)
-
-        if discovered:
-            _write_model_cache("requesty", discovered)
-            return discovered
-    except Exception:
-        pass
-
-    return list(VERIFIED_REQUESTY_FALLBACKS)
+        raise ProviderError("Requesty", "REQUESTY_API_KEY is not configured.")
+    if force_refresh:
+        try:
+            data = json.loads(MODEL_CACHE_FILE.read_text(encoding="utf-8"))
+            data.pop("requesty", None)
+            MODEL_CACHE_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        except (OSError, ValueError, TypeError):
+            pass
+    return _discover_openai_models("Requesty", REQUESTY_MODELS_URL, key)
 
 
-def discover_openrouter_free_models(api_key: str = "", force_refresh: bool = False) -> List[str]:
-    """Dynamically discover active free chat models on OpenRouter."""
-    if not force_refresh:
-        cached = _read_model_cache("openrouter")
-        if cached:
-            return cached
-
+def discover_openrouter_free_models(api_key: str = "", force_refresh: bool = False) -> list[str]:
+    """Return only free model IDs actually returned by the authenticated catalogue."""
     key = api_key or os.getenv("OPENROUTER_API_KEY", "")
     if not key:
-        return list(VERIFIED_OPENROUTER_FALLBACKS)
+        raise ProviderError("OpenRouter", "OPENROUTER_API_KEY is not configured.")
+    if force_refresh:
+        try:
+            data = json.loads(MODEL_CACHE_FILE.read_text(encoding="utf-8"))
+            data.pop("openrouter", None)
+            MODEL_CACHE_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        except (OSError, ValueError, TypeError):
+            pass
+    return _discover_openai_models("OpenRouter", OPENROUTER_MODELS_URL, key)
 
-    discovered: List[str] = []
-    try:
-        req = urllib.request.Request(
-            "https://openrouter.ai/api/v1/models",
-            headers={
-                "Authorization": f"Bearer {key}",
-                "HTTP-Referer": "https://fiduciary.engine",
-                "X-Title": "Fiduciary Portfolio Engine",
-            },
-        )
-        with urllib.request.urlopen(req, timeout=8) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-            for m in data.get("data", []):
-                mid = m.get("id", "")
-                pricing = m.get("pricing", {})
-                is_free_slug = mid.endswith(":free")
-                is_zero = (
-                    str(pricing.get("prompt", "")).strip() == "0"
-                    and str(pricing.get("completion", "")).strip() == "0"
-                )
-                if is_free_slug or is_zero:
-                    low = mid.lower()
-                    if any(x in low for x in ("safety", "moderation", "guard", "tiny", "content", "embed", "whisper", "tts", "flux", "diffusion", "vl", "vision", "preview", "audio")):
-                        continue
-                    discovered.append(mid)
-
-        # Prioritize lightning and minimax for ultra-fast, high-accuracy completion
-        primary_or = "nvidia/nemotron-3.5-lightning:free"
-        if primary_or in discovered:
-            discovered.remove(primary_or)
-        discovered.insert(0, primary_or)
-
-        secondary_or = "minimax/minimax-m3.1-flash:free"
-        if secondary_or in discovered:
-            discovered.remove(secondary_or)
-            discovered.insert(1, secondary_or)
-
-        if discovered:
-            _write_model_cache("openrouter", discovered)
-            return discovered
-    except Exception:
-        pass
-
-    return list(VERIFIED_OPENROUTER_FALLBACKS)
-
-
-# ---------------------------------------------------------------------------
-# Disk-Based Narrative Cache
-# ---------------------------------------------------------------------------
 
 def _cache_key(prompt: str, data_snapshot: str = "") -> str:
     return hashlib.sha256((prompt + "||" + data_snapshot).encode("utf-8")).hexdigest()
 
 
-def _get_narrative_cache() -> Dict[str, Any]:
+def _get_narrative_cache() -> dict[str, Any]:
     try:
-        if NARRATIVE_CACHE_FILE.exists():
-            return json.loads(NARRATIVE_CACHE_FILE.read_text(encoding="utf-8"))
-    except Exception:
-        pass
-    return {}
+        value = json.loads(NARRATIVE_CACHE_FILE.read_text(encoding="utf-8"))
+        return value if isinstance(value, dict) else {}
+    except (OSError, ValueError, TypeError):
+        return {}
 
 
-def _save_narrative_cache(cache: Dict[str, Any]) -> None:
+def _save_narrative_cache(cache: dict[str, Any]) -> None:
     try:
-        NARRATIVE_CACHE_FILE.write_text(json.dumps(cache, indent=2), encoding="utf-8")
-    except Exception:
+        temp_path = NARRATIVE_CACHE_FILE.with_suffix(".tmp")
+        temp_path.write_text(json.dumps(cache, indent=2), encoding="utf-8")
+        temp_path.replace(NARRATIVE_CACHE_FILE)
+    except (OSError, TypeError, ValueError):
         pass
 
-
-# ---------------------------------------------------------------------------
-# Provider Call Implementations
-# ---------------------------------------------------------------------------
 
 def _is_rate_limit(err_str: str) -> bool:
-    err_upper = err_str.upper()
-    return "429" in err_upper or "402" in err_upper or "RATE LIMIT" in err_upper or "QUOTA" in err_upper or "RESOURCE_EXHAUSTED" in err_upper
+    upper = err_str.upper()
+    return any(term in upper for term in ("429", "402", "RATE LIMIT", "QUOTA", "RESOURCE_EXHAUSTED"))
+
+
+def _openai_exception(provider: str, exc: Exception, model: str) -> ProviderError:
+    status = getattr(exc, "status_code", None)
+    code = getattr(exc, "code", None)
+    if code is not None:
+        code = str(code)[:80]
+    return ProviderError(
+        provider, f"{provider} request failed ({type(exc).__name__}).",
+        status_code=status if isinstance(status, int) else None,
+        code=code, model=model,
+    )
+
+
+def _call_openai_compatible(provider: str, base_url: str, prompt: str,
+                            system_prompt: str = "") -> str:
+    env_name = "REQUESTY_API_KEY" if provider == "Requesty" else "OPENROUTER_API_KEY"
+    key = os.getenv(env_name, "")
+    if not key:
+        raise ProviderError(provider, f"{env_name} is not configured.")
+    models = (discover_requesty_free_models(key) if provider == "Requesty"
+              else discover_openrouter_free_models(key))
+    from openai import OpenAI
+    client = OpenAI(base_url=base_url, api_key=key, max_retries=0, timeout=60,
+                    default_headers={"HTTP-Referer": "https://fiduciary.engine",
+                                     "X-Title": "Fiduciary Portfolio Engine"})
+    messages = []
+    if system_prompt:
+        messages.append({"role": "system", "content": system_prompt})
+    messages.append({"role": "user", "content": prompt})
+    last_error: ProviderError | None = None
+    lock = _requesty_mutex if provider == "Requesty" else _NullLock()
+    with lock:
+        for model in models:
+            try:
+                # Intentionally send only the portable required fields. Do not
+                # assume temperature, seed, max_tokens, or other optional knobs.
+                response = client.chat.completions.create(model=model, messages=messages)
+                result = (response.choices[0].message.content or "").strip()
+                if result:
+                    return result
+                last_error = ProviderError(provider, f"{provider} returned an empty response.", model=model)
+            except Exception as exc:
+                failure = _openai_exception(provider, exc, model)
+                if failure.status_code in (401, 403):
+                    raise failure from None
+                last_error = failure
+                continue
+    raise last_error or ProviderError(provider, f"{provider} had no usable discovered models.")
+
+
+class _NullLock:
+    def __enter__(self):
+        return self
+    def __exit__(self, exc_type, exc, tb):
+        return False
 
 
 def _call_requesty(prompt: str, system_prompt: str = "") -> str:
-    """Provider 1: Requesty.ai (Free Tier 0 zero-cost models)."""
-    key = os.getenv("REQUESTY_API_KEY", "")
-    if not key:
-        raise RuntimeError("REQUESTY_API_KEY not set")
-
-    from openai import OpenAI
-    client = OpenAI(
-        base_url="https://router.requesty.ai/v1",
-        api_key=key,
-        max_retries=0,
-        default_headers={"HTTP-Referer": "https://fiduciary.engine", "X-Title": "Fiduciary Portfolio Engine"}
-    )
-    models = discover_requesty_free_models(api_key=key)
-    
-    with _requesty_mutex:
-        for model in models[:2]:
-            try:
-                messages = []
-                if system_prompt:
-                    messages.append({"role": "system", "content": system_prompt})
-                messages.append({"role": "user", "content": prompt})
-
-                resp = client.chat.completions.create(
-                    model=model,
-                    messages=messages,
-                    temperature=0.0,
-                    seed=42,
-                    max_tokens=4000,
-                    timeout=60
-                )
-                text = (resp.choices[0].message.content or "").strip()
-                if text:
-                    print(f"  ✅ [Requesty.ai] Success via model: {model}", flush=True)
-                    return text
-            except Exception as e:
-                err = str(e)
-                print(f"  [Requesty/{model}] Error: {err[:70]}", flush=True)
-                if _is_rate_limit(err):
-                    print("  [..] Requesty rate/credit limited. Breaking to fallback provider...", flush=True)
-                    break
-                continue
-
-    raise RuntimeError("Requesty provider unavailable.")
+    return _call_openai_compatible("Requesty", REQUESTY_BASE_URL, prompt, system_prompt)
 
 
 def _call_openrouter(prompt: str, system_prompt: str = "") -> str:
-    """Provider 2: OpenRouter (Universal free router with headers)."""
-    key = os.getenv("OPENROUTER_API_KEY", "")
-    if not key:
-        raise RuntimeError("OPENROUTER_API_KEY not set")
-
-    from openai import OpenAI
-    client = OpenAI(
-        base_url="https://openrouter.ai/api/v1",
-        api_key=key,
-        max_retries=0,
-        default_headers={"HTTP-Referer": "https://fiduciary.engine", "X-Title": "Fiduciary Portfolio Engine"}
-    )
-    models = discover_openrouter_free_models(api_key=key)
-
-    for model in models[:3]:
-        try:
-            messages = []
-            if system_prompt:
-                messages.append({"role": "system", "content": system_prompt})
-            messages.append({"role": "user", "content": prompt})
-
-            resp = client.chat.completions.create(
-                model=model,
-                messages=messages,
-                temperature=0.0,
-                seed=42,
-                max_tokens=4000,
-                timeout=60
-            )
-            text = (resp.choices[0].message.content or "").strip()
-            if text:
-                print(f"  ✅ [OpenRouter] Success via model: {model}", flush=True)
-                return text
-        except Exception as e:
-            err = str(e)
-            print(f"  [OpenRouter/{model}] Error: {err[:70]}", flush=True)
-            if _is_rate_limit(err):
-                print("  [..] OpenRouter rate/credit limited. Breaking to fallback provider...", flush=True)
-                break
-            continue
-
-    raise RuntimeError("OpenRouter provider unavailable.")
+    return _call_openai_compatible("OpenRouter", OPENROUTER_BASE_URL, prompt, system_prompt)
 
 
 def _call_gemini(prompt: str, system_prompt: str = "") -> str:
-    """Provider 3: Google Gemini (google.genai SDK)."""
     key = os.getenv("GEMINI_API_KEY", "")
     if not key:
-        raise RuntimeError("GEMINI_API_KEY not set")
-
+        raise ProviderError("Gemini", "GEMINI_API_KEY is not configured.")
     from google import genai
     client = genai.Client(api_key=key)
-    
-    cfg = {"temperature": 0.0, "seed": 42, "max_output_tokens": 8192}
-    if system_prompt:
-        cfg["system_instruction"] = system_prompt
-
-    for model in VERIFIED_GEMINI_FALLBACKS:
+    try:
+        models = []
+        for item in client.models.list():
+            name = getattr(item, "name", None)
+            actions = getattr(item, "supported_actions", None)
+            if not isinstance(name, str) or not name:
+                continue
+            if actions and "generateContent" not in actions:
+                continue
+            model_id = name.removeprefix("models/")
+            if model_id.startswith("gemini-"):
+                models.append(model_id)
+        models = list(dict.fromkeys(models))
+    except Exception as exc:
+        status = getattr(exc, "code", None)
+        raise ProviderError("Gemini", f"Gemini model discovery failed ({type(exc).__name__}).",
+                            status_code=status if isinstance(status, int) else None) from None
+    if not models:
+        raise ProviderError("Gemini", "Gemini returned no generateContent-capable models.")
+    config = {"system_instruction": system_prompt} if system_prompt else None
+    last_error: ProviderError | None = None
+    for model in models:
         try:
-            resp = client.models.generate_content(model=model, contents=prompt, config=cfg)
-            text = (resp.text or "").strip()
-            if text:
-                print(f"  ✅ [Gemini] Success via model: {model}", flush=True)
-                return text
-        except Exception as e:
-            err = str(e)
-            print(f"  [Gemini/{model}] Error: {err[:70]}", flush=True)
-            if _is_rate_limit(err):
-                print("  [..] Gemini quota/rate limited. Trying next model...", flush=True)
+            response = client.models.generate_content(
+                model=model, contents=prompt, config=config
+            )
+            result = (response.text or "").strip()
+            if result:
+                return result
+            last_error = ProviderError("Gemini", "Gemini returned an empty response.", model=model)
+        except Exception as exc:
+            status = getattr(exc, "code", None)
+            last_error = ProviderError(
+                "Gemini", f"Gemini generation failed ({type(exc).__name__}).",
+                status_code=status if isinstance(status, int) else None,
+                code=str(getattr(exc, "status", ""))[:80] or None,
+                model=model,
+            )
+            if last_error.status_code in (401, 403):
+                raise last_error from None
             continue
+    raise last_error or ProviderError("Gemini", "Gemini had no usable discovered models.")
 
-    raise RuntimeError("Gemini provider unavailable.")
 
-
-# ---------------------------------------------------------------------------
-# Master Fiduciary LLM Dispatcher
-# ---------------------------------------------------------------------------
-
-def call_llm(
-    prompt: str,
-    data_snapshot: str = "",
-    system_instruction: str = "",
-    use_cache: bool = True,
-    append_guardrail: bool = False
-) -> str:
-    """
-    Master 3-Tier AI Caller:
-      1. Cache lookup (sha256 of prompt + data snapshot)
-      2. Requesty.ai (Tier 0 zero-cost, mutex locked)
-      3. OpenRouter (Free models with required headers)
-      4. Google Gemini (google.genai fallback)
-    """
+def call_llm(prompt: str, data_snapshot: str = "", system_instruction: str = "",
+             use_cache: bool = True, append_guardrail: bool = False) -> str:
+    """Generate a narrative only; deterministic SIP gates remain authoritative."""
     full_prompt = prompt
     if append_guardrail:
         full_prompt = f"{prompt}\n\n{GUARDRAIL}\n\n{OUTPUT_FORMAT_GUARD}"
-
-    ckey = _cache_key(full_prompt, data_snapshot)
-
-    # 1. Cache Check
+    cache_key = _cache_key(full_prompt, data_snapshot)
     if use_cache:
-        cache = _get_narrative_cache()
-        entry = cache.get(ckey)
-        if entry and isinstance(entry, dict) and entry.get("text"):
-            ts = entry.get("timestamp", 0)
-            if time.time() - ts < NARRATIVE_TTL_SECONDS:
-                print(f"  ⚡ [Cache Hit] Returning cached narrative ({entry.get('provider', 'cached')})", flush=True)
-                return entry["text"]
+        entry = _get_narrative_cache().get(cache_key)
+        if isinstance(entry, dict) and entry.get("text"):
+            if time.time() - float(entry.get("timestamp", 0)) < NARRATIVE_TTL_SECONDS:
+                return str(entry["text"])
 
-    # 2. Provider Cascade (Gemini primary for full 8k token depth, OpenRouter/Requesty fallback)
-    providers = [
+    providers = (
         ("Gemini", _call_gemini),
         ("OpenRouter", _call_openrouter),
-        ("Requesty.ai", _call_requesty),
-    ]
-
-    last_error = None
-    for name, fn in providers:
+        ("Requesty", _call_requesty),
+    )
+    errors = []
+    for name, function in providers:
         try:
-            print(f"  [..] Calling {name}...", flush=True)
-            result = fn(full_prompt, system_prompt=system_instruction)
+            result = function(full_prompt, system_prompt=system_instruction)
             if result:
-                # Update Cache
                 if use_cache:
                     cache = _get_narrative_cache()
-                    cache[ckey] = {
-                        "text": result,
-                        "provider": name,
-                        "timestamp": time.time()
-                    }
+                    cache[cache_key] = {"text": result, "provider": name, "timestamp": time.time()}
                     _save_narrative_cache(cache)
                 return result
-        except Exception as e:
-            last_error = e
-            print(f"  [!!] {name} failed: {str(e)[:70]}", flush=True)
-            continue
-
-    raise RuntimeError(f"All 3 AI providers failed! Last error: {last_error}")
+        except Exception as exc:
+            errors.append(f"{name}: {type(exc).__name__}")
+    raise RuntimeError("All configured AI providers failed: " + "; ".join(errors))
