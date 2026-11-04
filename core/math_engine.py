@@ -2336,7 +2336,8 @@ def aggregate_fiduciary_facts(
         neglected_themes.sort(key=lambda x: x.dedicated_funds_pct + x.look_through_stocks_pct)
         deficit_theme = neglected_themes[0].theme_name
     else:
-        deficit_theme = "Pharma"
+        # Unknown thematic taxonomy is not evidence of a Pharma deficit.
+        deficit_theme = "UNAVAILABLE"
 
     equity_only_sip_authorized = _validated_equity_only_sip_authorization(
         ips, client_risk_tier
@@ -3051,155 +3052,33 @@ def calculate_thematic_exposures(
     metrics_path: Optional[Path] = None,
     aliases_path: Optional[Path] = None,
 ) -> List[ThematicExposureItem]:
-    """Calculate thematic exposure only from exact, verified weighted disclosures.
+    """Return unavailable until an independently approved issuer taxonomy exists.
 
-    The legacy metrics/alias parameters remain for call compatibility but are
-    deliberately ignored: top-holdings lists and equal-weight proxies are not
-    evidence of portfolio stock weights.
+    Verified constituent weights alone do not establish issuer-to-theme
+    classification or policy thresholds. The former hardcoded issuer lists,
+    name-based dedicated-fund matching and fixed 2/3/4 percent thresholds
+    must not produce client-facing thematic amounts or deficit labels.
     """
-    themes_def = {
-        "Defence Thematic": {
-            "stocks": {
-                "Hindustan Aeronautics", "Bharat Electronics", "Bharat Forge",
-                "Solar Industries", "Mazagon Dock", "Astra Microwave", "BEML",
-                "MTAR Technologies", "Cochin Shipyard", "Bharat Dynamics", "Data Patterns"
-            },
-            "keywords": ("defence", "defense"),
-        },
-        "Commodities / Metals": {
-            "stocks": {
-                "Coal India", "Lloyds Metals", "Jindal Steel", "Vedanta",
-                "Dalmia Bharat", "Ultratech Cement", "Multi Commodity Exch"
-            },
-            "keywords": ("commodity", "commodities", "metal", "gold", "silver"),
-        },
-        "PSU & CPSE Themes": {
-            "stocks": {
-                "State Bank of India", "NTPC", "Power Grid", "Coal India",
-                "ONGC", "GAIL", "Bharat Petroleum", "HPCL", "Indian Bank",
-                "Bharat Heavy Electricals", "Petronet LNG", "Gujarat Energy",
-                "Hindustan Aeronautics", "Bharat Electronics", "Mazagon Dock"
-            },
-            "keywords": ("psu", "cpse"),
-        },
-        "Pharma & Healthcare": {
-            "stocks": {
-                "Sun Pharma", "Cipla", "Dr. Reddy", "Divi", "Apollo Hospitals",
-                "Aurobindo Pharma", "Ipca Laboratories", "Glenmark Pharma",
-                "Fortis Healthcare", "Gland Pharma", "Ajanta Pharma", "Torrent Pharma", "Lupin"
-            },
-            "keywords": ("pharma", "healthcare"),
-        },
-        "Power & Infrastructure": {
-            "stocks": {
-                "Larsen & Toubro", "NTPC", "Power Grid", "Adani Power",
-                "Adani Green Energy", "Bharat Heavy Electricals", "Thermax",
-                "Kalpataru Projects", "Premier Energies", "JSW Infrastructure",
-                "IRB Developers", "Kei Industries"
-            },
-            "keywords": ("infrastructure", "infra", "energy", "power"),
-        },
-    }
-
-    def normalize_name(value: Any) -> str:
-        return re.sub(r"[^a-z0-9]", "", str(value or "").casefold())
-
-    if not holdings:
-        return []
-    total_val = 0.0
-    dedicated_values = {name: 0.0 for name in themes_def}
-    validated_holdings = []
-    complete_lookthrough = True
-    for holding in holdings:
-        try:
-            value = float(holding.current_value_inr)
-        except (TypeError, ValueError, AttributeError) as exc:
-            raise ValueError("Thematic exposure requires valid current holding values") from exc
-        if not math.isfinite(value) or value < 0.0:
-            raise ValueError("Thematic exposure requires finite non-negative current holding values")
-        total_val += value
-        scheme_name = str(getattr(holding, "scheme", "") or "")
-        normalized_scheme = scheme_name.casefold()
-        for theme_name, definition in themes_def.items():
-            if any(keyword in normalized_scheme for keyword in definition["keywords"]):
-                dedicated_values[theme_name] += value
-
-        raw_weights = getattr(holding, "constituent_weights", None)
-        raw_coverage = getattr(holding, "constituent_weights_coverage_pct", None)
-        status = getattr(holding, "lookthrough_status", "MISSING")
-        try:
-            coverage = float(raw_coverage)
-            weights = {
-                normalize_name(key): float(weight)
-                for key, weight in raw_weights.items()
-            } if isinstance(raw_weights, dict) else {}
-        except (TypeError, ValueError, AttributeError):
-            coverage, weights = float("nan"), {}
-        if (
-            status != "VERIFIED"
-            or not math.isfinite(coverage)
-            or not 99.5 <= coverage <= 100.0
-            or not weights
-            or any(not key or not math.isfinite(weight) or not 0.0 <= weight <= 100.0
-                   for key, weight in weights.items())
-            or not 99.5 <= sum(weights.values()) <= 100.5
-        ):
-            complete_lookthrough = False
-        try:
-            equity_pct = float(getattr(holding, "equity_pct", 0.0) or 0.0)
-        except (TypeError, ValueError):
-            equity_pct = float("nan")
-        if not math.isfinite(equity_pct) or not 0.0 <= equity_pct <= 100.0:
-            complete_lookthrough = False
-        validated_holdings.append((value, equity_pct, weights))
-
-    if not math.isfinite(total_val) or total_val <= 0.0:
-        return []
-
-    items = []
-    for theme_name, definition in themes_def.items():
-        dedicated_inr = dedicated_values[theme_name]
-        dedicated_pct = dedicated_inr / total_val * 100.0
-        look_through_inr = 0.0
-        key_stocks_found = set()
-        if complete_lookthrough:
-            theme_stock_labels = {
-                normalize_name(stock): stock for stock in definition["stocks"]
-            }
-            theme_stocks = set(theme_stock_labels)
-            for value, equity_pct, weights in validated_holdings:
-                for stock_key, weight_pct in weights.items():
-                    if stock_key in theme_stocks:
-                        look_through_inr += value * (equity_pct / 100.0) * (weight_pct / 100.0)
-                        key_stocks_found.add(theme_stock_labels[stock_key])
-            look_through_pct = look_through_inr / total_val * 100.0
-            if dedicated_pct > 3.0 or look_through_pct > 4.0:
-                status = "FULL"
-            elif look_through_pct < 2.0 and dedicated_pct == 0.0:
-                status = "BY_DESIGN_MINIMAL" if theme_name == "Commodities / Metals" else "NEGLECTED"
-            else:
-                status = "ADEQUATE"
-            reported_lookthrough_inr = round(look_through_inr, 2)
-            reported_lookthrough_pct = round(look_through_pct, 2)
-        else:
-            status = "UNAVAILABLE"
-            reported_lookthrough_inr = None
-            reported_lookthrough_pct = None
-
-        items.append(
-            ThematicExposureItem(
-                theme_name=theme_name,
-                dedicated_funds_inr=round(dedicated_inr, 2),
-                dedicated_funds_pct=round(dedicated_pct, 2),
-                look_through_stocks_inr=reported_lookthrough_inr,
-                look_through_stocks_pct=reported_lookthrough_pct,
-                coverage_status=status,
-                key_underlying_holdings=sorted(key_stocks_found),
-            )
+    _ = (holdings, metrics_path, aliases_path)
+    themes = (
+        "Defence Thematic",
+        "Commodities / Metals",
+        "PSU & CPSE Themes",
+        "Pharma & Healthcare",
+        "Power & Infrastructure",
+    )
+    return [
+        ThematicExposureItem(
+            theme_name=name,
+            dedicated_funds_inr=None,
+            dedicated_funds_pct=None,
+            look_through_stocks_inr=None,
+            look_through_stocks_pct=None,
+            coverage_status="UNAVAILABLE",
+            key_underlying_holdings=[],
         )
-    return items
-
-
+        for name in themes
+    ]
 
 
 def _parse_sebi_risk_tier(risk_tier: str) -> int:
