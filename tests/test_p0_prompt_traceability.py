@@ -109,7 +109,7 @@ def test_cash_sip_prompt_fails_closed_without_deterministic_plans(monkeypatch):
         is_actionable_order=False,
     )
     monkeypatch.setattr(prompt_advisor, "_build_dynamic_selection_dossier", lambda _: "Synthetic dossier")
-    monkeypatch.setattr(prompt_advisor, "_call_llm_with_retry", lambda prompt: prompt)
+    monkeypatch.setattr(prompt_advisor, "_call_llm_with_retry", lambda prompt, **kwargs: prompt)
 
     prompt = prompt_advisor.generate_cash_and_sip_plan(facts)
 
@@ -183,7 +183,7 @@ def test_switch_report_fails_closed_without_tax_or_cost_evidence(monkeypatch):
         is_actionable_order=False,
         no_action=None,
     )
-    monkeypatch.setattr(prompt_advisor, "_call_llm_with_retry", lambda prompt: prompt)
+    monkeypatch.setattr(prompt_advisor, "_call_llm_with_retry", lambda prompt, **kwargs: prompt)
 
     prompt = prompt_advisor.generate_switch_and_consolidation_plan(facts)
 
@@ -253,7 +253,7 @@ def test_unvalidated_lumpsum_tranches_are_not_exposed_in_report(monkeypatch):
         is_actionable_order=False,
     )
     monkeypatch.setattr(prompt_advisor, "_build_dynamic_selection_dossier", lambda _: "Synthetic dossier")
-    monkeypatch.setattr(prompt_advisor, "_call_llm_with_retry", lambda prompt: prompt)
+    monkeypatch.setattr(prompt_advisor, "_call_llm_with_retry", lambda prompt, **kwargs: prompt)
 
     prompt = prompt_advisor.generate_cash_and_sip_plan(facts)
 
