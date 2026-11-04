@@ -5,6 +5,7 @@ core/fund_classifier.py - Standardized SEBI Mutual Fund Classifier & Passive Alt
 from __future__ import annotations
 
 import json
+import hashlib
 from pathlib import Path
 from typing import Dict, List, Any, Optional
 
@@ -53,7 +54,9 @@ def is_verified_passive_scheme(
     fund_name: str = "",
     category: str = "",
     scheme_master: Optional[Dict[str, Any]] = None,
-    require_scheme_master: bool = True
+    require_scheme_master: bool = True,
+    scheme_master_source_bytes: Optional[bytes] = None,
+    trust_registry: Optional[Dict[str, Any]] = None,
 ) -> bool:
     """
     Strict, non-sloppy verification of passive index fund or ETF product structure.
@@ -74,26 +77,81 @@ def is_verified_passive_scheme(
     if fund_data is None:
         fund_data = {}
     
-    # Try to load scheme master if not provided
+    # The checked-in map is a sample fixture, not a trust root. A strict
+    # Gate 4 caller must supply an independently reviewed source envelope.
     if scheme_master is None:
         scheme_master = _load_scheme_master()
-    
+
     isin = fund_data.get("isin", "") or fund_data.get("ISIN", "")
-    
-    # GATE 4: Scheme master is REQUIRED for passive scheme verification
-    # If require_scheme_master=True (default for Gate 4), fail safe -- do NOT fall back to heuristics
-    if isin and scheme_master:
-        # Authoritative lookup by ISIN
-        scheme_info = scheme_master.get(isin)
-        if scheme_info:
-            is_passive = scheme_info.get("is_passive", False)
-            benchmark_index = scheme_info.get("benchmark_index", "")
-            mandate = scheme_info.get("mandate", "")
-            if is_passive:
-                return True
-            # If ISIN found but not passive, explicitly return False (not heuristic)
-            return False
-    
+
+    if require_scheme_master:
+        if not isinstance(scheme_master, dict) or scheme_master.get("status") != "VERIFIED":
+            raise InsufficientDataError(
+                "A source-verified passive scheme-master envelope is required; sample/raw mappings are rejected.",
+                missing_data="verified passive scheme-master envelope",
+                required_source="independently reviewed SEBI/AMFI scheme master and detached reviewer approval",
+            )
+        required_fields = (
+            "source_url", "source_document_sha256", "effective_date",
+            "reviewer_approval_envelope", "schemes_by_isin",
+        )
+        if any(not scheme_master.get(field) for field in required_fields):
+            raise InsufficientDataError(
+                "Passive scheme-master provenance, source bytes, or reviewer approval is incomplete.",
+                missing_data="scheme-master provenance and detached approval",
+                required_source="independently administered reviewer trust registry",
+            )
+        if (not isinstance(scheme_master_source_bytes, bytes) or not scheme_master_source_bytes
+                or hashlib.sha256(scheme_master_source_bytes).hexdigest().lower()
+                != str(scheme_master["source_document_sha256"]).lower()):
+            raise InsufficientDataError(
+                "Passive scheme-master original source bytes do not match the declared digest.",
+                missing_data="matching original scheme-master source bytes",
+                required_source="official SEBI/AMFI scheme-master source document",
+            )
+        if not isinstance(scheme_master["source_url"], str) or not scheme_master["source_url"].startswith("https://"):
+            raise InsufficientDataError("Passive scheme-master source URL must be HTTPS.")
+        try:
+            from datetime import date, datetime, timezone
+            from services.sip_reviewer_approval import load_sip_reviewer_trust_registry, verify_sip_reviewer_approval
+            effective_date = date.fromisoformat(scheme_master["effective_date"])
+            registry = trust_registry if trust_registry is not None else load_sip_reviewer_trust_registry()
+            records = scheme_master["schemes_by_isin"]
+            if not isinstance(records, dict) or not records:
+                raise ValueError("schemes_by_isin must be a non-empty mapping")
+            normalized_records = [records[key] for key in sorted(records)]
+            approval = verify_sip_reviewer_approval(
+                scheme_master["reviewer_approval_envelope"], registry,
+                expected_scope="SIP_SCHEME_MASTER",
+                expected_source_sha256=scheme_master["source_document_sha256"],
+                structured_records=normalized_records,
+                now=datetime.combine(effective_date, datetime.min.time(), tzinfo=timezone.utc),
+            )
+            if not approval.ok:
+                raise ValueError("; ".join(approval.errors))
+        except (OSError, TypeError, ValueError, KeyError) as exc:
+            raise InsufficientDataError(
+                f"Passive scheme-master reviewer verification failed ({type(exc).__name__}).",
+                missing_data="valid detached reviewer approval",
+                required_source="independently administered reviewer trust registry",
+            ) from None
+        if not isin:
+            raise InsufficientDataError("An exact ISIN is required for passive scheme verification.")
+        scheme_info = records.get(isin)
+        if not isinstance(scheme_info, dict) or scheme_info.get("isin") != isin:
+            raise InsufficientDataError(
+                f"ISIN {isin!r} is not present in the verified passive scheme master.",
+                missing_data=f"verified scheme-master entry for {isin}",
+                required_source="SEBI/AMFI scheme master",
+            )
+        if not isinstance(scheme_info.get("is_passive"), bool):
+            raise InsufficientDataError("Verified scheme-master passive mandate must be an explicit boolean.")
+        if not isinstance(scheme_info.get("benchmark_index"), str) or not scheme_info["benchmark_index"].strip():
+            raise InsufficientDataError("Verified passive scheme record requires an exact benchmark identity.")
+        if not isinstance(scheme_info.get("mandate"), str) or not scheme_info["mandate"].strip():
+            raise InsufficientDataError("Verified passive scheme record requires an exact mandate.")
+        return scheme_info["is_passive"]
+
     # If ISIN provided but not found in scheme master, or no scheme master available
     if isin:
         raise InsufficientDataError(
