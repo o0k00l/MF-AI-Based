@@ -282,3 +282,22 @@ def test_three_tier_saa_allocations_reconcile_to_one_hundred_percent():
     for tier in (RiskTier.CONSERVATIVE, RiskTier.MODERATE, RiskTier.AGGRESSIVE):
         target = SAA_POLICY_MAP[tier]
         assert target.equity_pct + target.debt_pct + target.cash_pct == 100.0
+
+
+
+def test_tier6_equity_only_sip_authorization_is_explicit_and_tier_scoped():
+    import pytest
+    from core.math_engine import _validated_equity_only_sip_authorization
+
+    assert _validated_equity_only_sip_authorization({}, "Tier 6 (Very High)") is False
+    assert _validated_equity_only_sip_authorization(
+        {"equity_only_sip_authorized": True}, "Tier 6 (Very High)"
+    ) is True
+    with pytest.raises(ValueError, match="explicit boolean"):
+        _validated_equity_only_sip_authorization(
+            {"equity_only_sip_authorized": "true"}, "Tier 6 (Very High)"
+        )
+    with pytest.raises(ValueError, match="only for SEBI Tier 6"):
+        _validated_equity_only_sip_authorization(
+            {"equity_only_sip_authorized": True}, "Tier 4 (Moderately High)"
+        )
