@@ -334,6 +334,9 @@ def test_legacy_tax_transition_and_switch_advice_fail_closed():
         lambda: planner.bogleheads_circuit_breaker(1000, 10000, 0.5, 5),
         lambda: planner.compare_switch_vs_stop_sip(10000, 1000, 0, 1, 0.5),
         lambda: planner.compute_exit_load_amortization(10000, 1),
+        lambda: planner.calculate_exit_load(None, 1, None, 100, 1),
+        lambda: planner.Lot("fund", "folio", date(2024, 1, 1), 1, 100, 100, "synthetic").is_long_term(date(2026, 1, 2)),
+        lambda: planner.Lot("fund", "folio", date(2024, 1, 1), 1, 100, 100, "synthetic").is_long_term_given(date(2026, 1, 2)),
     ]
 
     for invoke in blocked_calls:
