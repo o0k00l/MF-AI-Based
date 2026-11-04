@@ -43,6 +43,9 @@ def test_negative_one_year_return_is_scored_as_a_bad_return_not_replaced_by_alph
         "return_1y": -5.0,
         "sharpe_3y": 0.8,
         "ter_direct_pct": 0.7,
+        "cash_debt_buffer_pct": 0.0,
+        "international_equity_pct": 0.0,
+        "overlap_pct": 0.0,
     }
     # Use the only complete legacy category anchor set; Flexi Cap remains
     # unavailable until its independent 1Y-return anchor is approved.
@@ -170,6 +173,31 @@ def test_portfolio_aware_score_blocks_missing_defensive_and_international_eviden
             portfolio_overlap_evidence=evidence["overlap"],
             approved_category_anchor_evidence=evidence["anchors"],
             as_of_date="2026-11-04",
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "message"),
+    [
+        ("cash_debt_buffer_pct", "cash/debt buffer"),
+        ("international_equity_pct", "international exposure"),
+        ("overlap_pct", "portfolio overlap"),
+    ],
+)
+def test_standalone_candidate_score_blocks_missing_explanatory_evidence(field, message):
+    candidate = {
+        "alpha_3y": 2.0, "return_1y": 5.0,
+        "sharpe_3y": 0.8, "ter_direct_pct": 0.8,
+        "cash_debt_buffer_pct": 10.0,
+        "international_equity_pct": 0.0,
+        "overlap_pct": 5.0,
+    }
+    candidate.pop(field)
+
+    with pytest.raises(ValueError, match=message):
+        calculate_candidate_6_pillar_score(
+            candidate, "Healthcare",
+            weights=ScoringWeights(0.25, 0.20, 0.15, 0.15, 0.15, 0.10),
         )
 
 
