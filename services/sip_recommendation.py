@@ -171,6 +171,7 @@ def _assess_complete_portfolio_context(
     monthly_budget_inr: float,
     risk_profile: str,
     existing_lookthrough: dict[str, Any],
+    cas_holdings_total_inr: float,
 ) -> dict[str, Any]:
     """Orchestrate portfolio, suitability, affordability and candidate gates.
 
@@ -204,17 +205,28 @@ def _assess_complete_portfolio_context(
         policy = json.loads(policy_path.read_text(encoding="utf-8"))
         profile_key = _SAA_POLICY_PROFILE_BY_RISK[risk_profile]
         profile = policy["behavioral_risk_profiles"][profile_key]
-        policy_map = {
-            "large_cap_pct": "large_cap", "mid_cap_pct": "mid_cap",
-            "small_cap_pct": "small_cap", "flexi_multi_cap_pct": "flexi_multi_cap",
-            "debt_liquid_pct": "debt_liquid",
-        }
-        raw_targets = profile["saa_targets"]
-        if set(raw_targets) != set(policy_map):
-            raise PortfolioInputError("approved SAA policy schema mismatch")
-        targets = {bucket: raw_targets[key] for key, bucket in policy_map.items()}
+        ips = context["ips"]
+        ips_date = date.fromisoformat(ips["effective_date"])
+        valuation_date = date.fromisoformat(as_of)
+        if (
+            ips.get("approved") is not True
+            or not isinstance(ips.get("source_ref"), str) or not ips["source_ref"].strip()
+            or ips_date > valuation_date
+        ):
+            raise PortfolioInputError("approved, dated client IPS evidence is required")
+        if risk_profile == "Aggressive" and profile_key == "very_high" and ips.get("tier6_equity_only_authorized") is not True:
+            raise PortfolioInputError("Tier 6 equity-only routing requires explicit IPS authorization")
+        targets = ips["target_weights_pct"]
+        if not isinstance(targets, dict) or set(targets) != set(_TOTAL_PORTFOLIO_SLEEVES):
+            raise PortfolioInputError("client IPS must specify all five SAA sleeves")
+        tolerance = ips["tolerance_band_pct"]
+        cas_value_in_perimeter = sum(
+            float(row["value_inr"]) for row in assets if row.get("asset_class") == "cas_mutual_fund"
+        )
+        if abs(cas_value_in_perimeter - cas_holdings_total_inr) > 0.01:
+            raise PortfolioInputError("CAS holdings do not reconcile to declared CAS asset perimeter")
         drift = calculate_saa_drift(
-            current, targets, tolerance_band_pct=profile["tolerance_band_pct"],
+            current, targets, tolerance_band_pct=tolerance,
             portfolio_total_inr=total,
         )
 
@@ -298,7 +310,7 @@ def _assess_complete_portfolio_context(
         })
         routing = route_incremental_sip(
             monthly_budget_inr, current, targets, portfolio_total_inr=total,
-            tolerance_band_pct=profile["tolerance_band_pct"],
+            tolerance_band_pct=tolerance,
             eligible_sleeves=eligible_sleeves,
             rounding_increment_inr=candidate_policy.get("rounding_increment_inr", "500"),
         )
@@ -306,8 +318,14 @@ def _assess_complete_portfolio_context(
         # Concentration is measured against the reconciled total portfolio.
         concentration_policy = context.get("concentration_policy", {})
         max_issuer_pct = float(concentration_policy.get("max_issuer_pct_of_portfolio", 0))
-        if not 0 < max_issuer_pct <= 100:
-            raise PortfolioInputError("an approved max_issuer_pct_of_portfolio policy is required")
+        concentration_date = date.fromisoformat(concentration_policy.get("effective_date", ""))
+        if (
+            not 0 < max_issuer_pct <= 100
+            or not isinstance(concentration_policy.get("source_ref"), str)
+            or not concentration_policy["source_ref"].strip()
+            or concentration_date > valuation_date
+        ):
+            raise PortfolioInputError("approved, dated issuer concentration policy is required")
         existing_issuer_values = {}
         if existing_lookthrough.get("status") == "CALCULATED":
             existing_issuer_values = {
@@ -374,7 +392,8 @@ def _assess_complete_portfolio_context(
             and bool(eligible_ids)
             and freshness["status"] == "CURRENT"
             and routing["status"] in {"ROUTED", "HOLD"}
-            and all(item.get("status") == "ASSESSED" for item in overlap_results.values())
+            and all(overlap_results.get(candidate_id, {}).get("status") == "ASSESSED"
+                    for candidate_id in eligible_ids)
         )
         return {
             "status": "ASSESSMENT_COMPLETE" if all_gates_pass else "HOLD",
@@ -633,6 +652,7 @@ def recommend_sip(
                 monthly_budget_inr=budget,
                 risk_profile=risk_profile,
                 existing_lookthrough=portfolio_assessment.get("lookthrough", {}),
+                cas_holdings_total_inr=sum(float(holding.current_value_inr) for holding in holdings),
             )
         portfolio_assessment["total_portfolio_context"] = context_assessment
     portfolio_assessment["decision_trace"] = _build_sip_decision_trace(
