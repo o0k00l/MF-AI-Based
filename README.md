@@ -28,9 +28,9 @@ The current policy uses a 60% Flexi-cap / 40% Mid-Small-cap equity split when AU
 | `core/math_engine.py` | Deterministic calculations, SAA/SIP policy handling, benchmark calculations and plan construction |
 | `core/eligibility.py` | Candidate-universe ingestion and binary eligibility checks |
 | `core/fund_classifier.py` | Scheme/category identification and passive alternatives |
-| `tax/transition_planner.py` | CAS lot ingestion, FIFO reconstruction and tax-aware transition planning |
+| `tax/transition_planner.py` | Legacy CAS lot parsing only; all tax, exit-load, transition and switch-advice entry points are disabled pending independent approval |
 | `data/policy/asset_allocation.json` | Central SAA and new-SIP policy |
-| `data/policy/tax_rules.json` | Date-versioned tax rule data; statutory review remains mandatory |
+| `data/policy/tax_rules.json` | Provisional reference data only; not approved for investor-facing tax calculations or advice |
 | `data/policy/benchmark_tri_series*.json` | TRI fixtures for integrity and algorithm tests, not verified performance claims |
 | `verify_tri_provenance.py` | Fixture checksum and benchmark release-eligibility checks |
 | `advisor.py`, `advisor_lean.py` | Local-data report entry points; not trade-execution tools |
