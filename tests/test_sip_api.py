@@ -1,0 +1,113 @@
+from pathlib import Path
+
+from fastapi.testclient import TestClient
+
+from api import sip
+
+
+def _upload(client, **data):
+    return client.post(
+        "/v1/sip/recommendations",
+        files={"cas_file": ("portfolio.xlsx", b"synthetic cas bytes", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+        data=data,
+    )
+
+
+def test_api_without_evidence_provider_returns_hold_and_full_budget():
+    client = TestClient(sip.create_sip_app())
+
+    response = _upload(
+        client,
+        monthly_budget_inr="25000",
+        risk_profile="Aggressive",
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "HOLD"
+    assert body["decision"] == "NO_ACTION"
+    assert body["unallocated_budget_inr"] == 25000
+
+
+def test_api_passes_temporary_cas_to_evidence_provider_and_removes_it(monkeypatch):
+    seen = {}
+
+    def provider(**kwargs):
+        seen["path"] = kwargs["cas_path"]
+        assert kwargs["cas_path"].is_file()
+        assert kwargs["cas_path"].read_bytes() == b"synthetic cas bytes"
+        return {
+            "metrics_path": None,
+            "aliases_path": None,
+            "scheme_master": {"status": "VERIFIED"},
+            "scheme_master_source_bytes": b"master bytes",
+            "portfolio_disclosures_by_scheme_id": {},
+            "portfolio_disclosure_source_bytes_by_scheme_id": {},
+            "disclosure_as_of_date": None,
+            "candidate_universe": [],
+        }
+
+    monkeypatch.setattr(
+        sip,
+        "recommend_sip",
+        lambda **kwargs: {
+            "status": "HOLD",
+            "decision": "NO_ACTION",
+            "reasons": ["Synthetic API integration test."],
+            "unallocated_budget_inr": kwargs["monthly_budget_inr"],
+        },
+    )
+    client = TestClient(sip.create_sip_app(evidence_provider=provider))
+
+    response = _upload(
+        client,
+        monthly_budget_inr="15000",
+        risk_profile="Moderate",
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "HOLD"
+    assert response.json()["unallocated_budget_inr"] == 15000
+    assert isinstance(seen["path"], Path)
+    assert not seen["path"].exists()
+
+
+def test_api_rejects_non_xlsx_without_invoking_provider():
+    called = []
+    client = TestClient(sip.create_sip_app(evidence_provider=lambda **kwargs: called.append(kwargs)))
+
+    response = client.post(
+        "/v1/sip/recommendations",
+        files={"cas_file": ("portfolio.pdf", b"not xlsx", "application/pdf")},
+        data={"monthly_budget_inr": "10000", "risk_profile": "Aggressive"},
+    )
+
+    assert response.status_code == 415
+    assert response.json()["decision"] == "NO_ACTION"
+    assert called == []
+
+
+def test_api_rejects_provider_override_of_user_request(monkeypatch):
+    client = TestClient(
+        sip.create_sip_app(
+            evidence_provider=lambda **kwargs: {
+                "cas_path": Path("/tmp/attacker.xlsx"),
+                "metrics_path": None,
+            }
+        )
+    )
+    monkeypatch.setattr(
+        sip,
+        "recommend_sip",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("Must not call service")),
+    )
+
+    response = _upload(
+        client,
+        monthly_budget_inr="12000",
+        risk_profile="Conservative",
+    )
+
+    assert response.status_code == 200
+    assert response.json()["decision"] == "NO_ACTION"
+    assert "Evidence preparation failed closed" in response.json()["reasons"][0]
