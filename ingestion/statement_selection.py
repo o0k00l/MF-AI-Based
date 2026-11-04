@@ -1,0 +1,177 @@
+"""Fail-closed CAS/CGS statement discovery using embedded dates and source digests."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import date, datetime
+import hashlib
+from pathlib import Path
+import re
+from typing import Iterable
+
+import openpyxl
+
+
+_DATE_LABELS = {
+    "as on date", "to date", "statement date", "report date",
+    "period end date", "statement period end", "generated on",
+}
+_DATE_FORMATS = (
+    "%d-%b-%Y", "%d-%B-%Y", "%d-%m-%Y", "%d/%m/%Y",
+    "%Y-%m-%d", "%d.%m.%Y", "%m/%d/%Y",
+)
+
+
+@dataclass(frozen=True)
+class StatementEvidence:
+    path: Path
+    document_type: str
+    embedded_date: date
+    sha256: str
+    rationale: str
+
+
+def _parse_date(value) -> date | None:
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    for fmt in _DATE_FORMATS:
+        try:
+            return datetime.strptime(text, fmt).date()
+        except ValueError:
+            continue
+    match = re.search(r"(?<!\\d)(\\d{1,2}[-/ ][A-Za-z]{3,9}[-/ ]\\d{4}|\\d{4}-\\d{2}-\\d{2})(?!\\d)", text)
+    if match:
+        for fmt in _DATE_FORMATS:
+            try:
+                return datetime.strptime(match.group(1), fmt).date()
+            except ValueError:
+                continue
+    return None
+
+
+def _embedded_statement_date(workbook) -> date | None:
+    found: set[date] = set()
+    for sheet in workbook.worksheets:
+        for row in sheet.iter_rows(values_only=True):
+            for index, value in enumerate(row):
+                label = " ".join(str(value or "").casefold().replace("_", " ").split()).rstrip(":")
+                if label in _DATE_LABELS and index + 1 < len(row):
+                    parsed = _parse_date(row[index + 1])
+                    if parsed:
+                        found.add(parsed)
+                if isinstance(value, str):
+                    parsed_label = re.match(
+                        r"\\s*(?:as on date|to date|statement date|report date|period end date|generated on)\\s*[:\\-]\\s*(.+?)\\s*$",
+                        value,
+                        re.IGNORECASE,
+                    )
+                    if parsed_label:
+                        parsed = _parse_date(parsed_label.group(1))
+                        if parsed:
+                            found.add(parsed)
+    if len(found) != 1:
+        return None
+    return next(iter(found))
+
+
+def _validate_document(path: Path, document_type: str) -> tuple[date, str]:
+    try:
+        workbook = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    except Exception as exc:
+        raise ValueError(f"Unreadable {document_type} workbook: {path.name}") from exc
+    try:
+        names = set(workbook.sheetnames)
+        if document_type == "CAS":
+            if "Portfolio Details" not in names:
+                raise ValueError(f"Not a supported CAS workbook: {path.name}")
+            sheet = workbook["Portfolio Details"]
+            headers = {
+                str(cell.value).strip()
+                for row in sheet.iter_rows(values_only=False)
+                for cell in row
+                if cell.value is not None
+            }
+            required = {"Scheme Name", "Current Value", "Invested Value", "Units", "Folio No."}
+            if not required.issubset(headers):
+                raise ValueError(f"CAS workbook lacks required identity/holding headers: {path.name}")
+        elif document_type == "CGS":
+            if not ({"Summary", "Scheme_Level_Summary", "TransactionDetails"} & names):
+                raise ValueError(f"Not a supported CGS workbook: {path.name}")
+        else:
+            raise ValueError("document_type must be CAS or CGS")
+        embedded = _embedded_statement_date(workbook)
+    finally:
+        workbook.close()
+    if embedded is None:
+        raise ValueError(f"{document_type} statement has missing or conflicting embedded dates: {path.name}")
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    return embedded, digest
+
+
+def select_latest_statement(
+    candidates: Iterable[Path],
+    *,
+    document_type: str,
+    as_of: date,
+    max_age_days: int,
+) -> StatementEvidence:
+    """Select a uniquely newest, fresh statement; ambiguity is a hard error."""
+    if not isinstance(as_of, date) or isinstance(as_of, datetime):
+        raise ValueError("An explicit decision as_of date is required")
+    if isinstance(max_age_days, bool) or not isinstance(max_age_days, int) or max_age_days < 0:
+        raise ValueError("max_age_days must be a non-negative policy integer")
+
+    unique_paths = sorted({Path(path).resolve() for path in candidates if Path(path).is_file()})
+    if not unique_paths:
+        raise FileNotFoundError(f"No {document_type} statement candidates found")
+
+    verified: list[StatementEvidence] = []
+    rejected: list[str] = []
+    for path in unique_paths:
+        try:
+            embedded, digest = _validate_document(path, document_type)
+            verified.append(StatementEvidence(
+                path=path,
+                document_type=document_type,
+                embedded_date=embedded,
+                sha256=digest,
+                rationale="Selected by uniquely newest validated embedded statement date.",
+            ))
+        except (OSError, ValueError) as exc:
+            rejected.append(str(exc))
+
+    if not verified:
+        raise ValueError(
+            f"No verifiable {document_type} statement candidate; HOLD. "
+            + "; ".join(rejected)
+        )
+    latest_date = max(item.embedded_date for item in verified)
+    latest = [item for item in verified if item.embedded_date == latest_date]
+    distinct_digests = {item.sha256 for item in latest}
+    if len(distinct_digests) > 1:
+        raise ValueError(
+            f"Conflicting {document_type} statements share embedded date {latest_date}; HOLD."
+        )
+    if latest_date > as_of:
+        raise ValueError(f"{document_type} statement date is in the future; HOLD.")
+    age_days = (as_of - latest_date).days
+    if age_days > max_age_days:
+        raise ValueError(
+            f"{document_type} statement is stale ({age_days} days; policy maximum {max_age_days}); HOLD."
+        )
+    chosen = latest[0]
+    return StatementEvidence(
+        path=chosen.path,
+        document_type=chosen.document_type,
+        embedded_date=chosen.embedded_date,
+        sha256=chosen.sha256,
+        rationale=(
+            f"Unique newest validated embedded date {chosen.embedded_date}; "
+            f"SHA-256 {chosen.sha256}; age {age_days} days within {max_age_days}-day policy."
+        ),
+    )
