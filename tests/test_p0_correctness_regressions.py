@@ -1696,7 +1696,9 @@ def test_selector_slot_targets_are_policy_weighted_and_not_hardcoded(monkeypatch
         assert result[slot_name]["allocation_pct"] == target
         assert result[slot_name]["gate_passed"] is True
         assert result[slot_name]["allocation_basis"] == "percent_of_equity_budget"
-    assert result["High-Grade Debt Anchor"]["allocation_pct"] == pytest.approx(float(saa["debt_liquid_pct"]))
+    assert result["High-Grade Debt Anchor"]["allocation_pct"] == 0.0
+    assert result["High-Grade Debt Anchor"]["unallocated_pct"] == pytest.approx(float(saa["debt_liquid_pct"]))
+    assert "no supported debt-specific ranking model" in result["High-Grade Debt Anchor"]["rationale"]
     assert result["High-Grade Debt Anchor"]["allocation_basis"] == "percent_of_total_portfolio"
     assert scored_categories == ["Flexi Cap", "Mid Cap", "Large Cap"]
     assert result["High-Grade Debt Anchor"]["gate_passed"] is False
