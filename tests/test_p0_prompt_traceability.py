@@ -400,8 +400,15 @@ def test_reporting_ignores_unverified_tax_lot_and_switch_cost_payloads(monkeypat
         "warning": "none",
     }
     facts = SimpleNamespace(
+        client_name="Synthetic Investor",
         holdings=[],
-        fee_bleed=SimpleNamespace(details=[], annual_bleed_inr=0, ten_year_compounded_loss_inr=0),
+        fee_bleed=SimpleNamespace(
+            details=[],
+            annual_bleed_inr=0,
+            ten_year_compounded_loss_inr=0,
+            regular_funds_count=0,
+            regular_portfolio_value_inr=0,
+        ),
         overlap_matrix=[],
         weighted_overlap=[],
         switch_costs=[spoofed_cost],
