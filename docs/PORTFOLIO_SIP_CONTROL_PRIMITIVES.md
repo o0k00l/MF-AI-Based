@@ -12,6 +12,10 @@ This module adds a deterministic, fail-closed foundation for portfolio-level SIP
 | Eligibility before scoring | `screen_candidates_before_scoring` | Requires exact scheme identity, dated evidence, evidence reference and PASS for every mandatory gate |
 | Look-through aggregation | `calculate_lookthrough_exposure` | Portfolio-weights issuer exposures and returns HOLD below caller-supplied approved coverage |
 | Decision trace | `build_decision_trace` | Hashes a versioned source/policy/engine/decision record deterministically |
+| Goal suitability inputs | `validate_goal_mandate` | Requires approved goal, target date, target amount, liabilities, source and approved horizon policy |
+| Liquidity reserve | `assess_liquidity_and_sip_surplus` | Separates verified cash reserve/obligations from recurring monthly income surplus; missing/stale evidence holds |
+| Affordability stress | `stress_test_sip_affordability` | Runs only caller-supplied income/expense shock scenarios; no assumed income growth |
+| Scheme operations | `validate_scheme_operational_feasibility` | Requires current scheme status, exact identity, minimum SIP and evidence for exit load, lock-in and subscription status
 
 ## Important boundaries
 
@@ -20,7 +24,7 @@ This module adds a deterministic, fail-closed foundation for portfolio-level SIP
 - A portfolio perimeter marked complete is an explicit upstream attestation, not a conclusion inferred from CAS data.
 - Candidate screening returns eligible identifiers only; it does not rank funds or create a positive recommendation.
 - Look-through outputs are exposure calculations only. Candidate incremental exposure and concentration policy still require a separate approved policy integration.
-- Goal suitability, emergency reserve verification, affordability stress, scheme operational availability and monitoring lifecycle are tracked separately in issues #30–#34.
+- Monitoring, drift alerts and immutable recommendation lifecycle remain a separate implementation in issue #33.
 - The module is not wired into `api/sip.py` in this tranche. The existing API must continue to return HOLD / NO_ACTION until source-provider, TRI/calendar, research and independent release gates are satisfied.
 - No orders, switches, redemptions or broker actions are generated.
 
