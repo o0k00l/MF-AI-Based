@@ -535,18 +535,18 @@ def answer_interactive_query(facts: FiduciaryFactsPayload, user_query: str, chat
     # Intent 1: Switch / Transition / Commission Bleed
     if any(k in q_lower for k in ("should i switch", "is switching worth it", "switch plan", "commission bleed", "broker fee", "regular vs direct", "switch cost")):
         f1 = facts.fee_bleed
-        top_leaks = "\\n".join(
+        top_leaks = "\n".join(
             f"- **{item.get('fund_name', 'Scheme')}**: "
             f"INR {item.get('annual_bleed_inr', 0):,.2f}/yr (current value "
             f"INR {item.get('current_value_inr', 0):,.2f})"
             for item in f1.details[:4]
         )
         return (
-            "### Regular-versus-Direct review\\n\\n"
-            f"- Regular-plan holdings reported: {f1.regular_funds_count}.\\n"
-            f"- Reported Regular-plan value: INR {f1.regular_portfolio_value_inr:,.2f}.\\n"
-            f"- Estimated annual expense difference in supplied analysis: INR {f1.annual_bleed_inr:,.2f}.\\n"
-            f"- Largest reported differences:\\n{top_leaks}\\n\\n"
+            "### Regular-versus-Direct review\n\n"
+            f"- Regular-plan holdings reported: {f1.regular_funds_count}.\n"
+            f"- Reported Regular-plan value: INR {f1.regular_portfolio_value_inr:,.2f}.\n"
+            f"- Estimated annual expense difference in supplied analysis: INR {f1.annual_bleed_inr:,.2f}.\n"
+            f"- Largest reported differences:\n{top_leaks}\n\n"
             "These figures are estimates from the supplied fee analysis, not guaranteed returns or "
             "risk-free gains. A switch must be evaluated scheme-by-scheme for current Direct/Regular "
             "TER evidence, exit load, tax lots, transaction costs, mandate and investor constraints. "
@@ -599,11 +599,11 @@ def answer_interactive_query(facts: FiduciaryFactsPayload, user_query: str, chat
             lump_status += " No tax-saving or statutory tax conclusion is asserted."
 
         return (
-            "### Fresh-money deployment review\\n\\n"
-            "**Monthly SIP plan:**\\n" + "\\n".join(sip_rows) + "\\n\\n"
-            "**Lumpsum plan:**\\n" + lump_status + "\\n"
-            + ("\\n".join(lump_rows) if lump_rows else "- NO ACTION: no validated tranche supplied.")
-            + "\\n\\nAll figures are proposals only. Do not infer a deployment split, STP, parking "
+            "### Fresh-money deployment review\n\n"
+            "**Monthly SIP plan:**\n" + "\n".join(sip_rows) + "\n\n"
+            "**Lumpsum plan:**\n" + lump_status + "\n"
+            + ("\n".join(lump_rows) if lump_rows else "- NO ACTION: no validated tranche supplied.")
+            + "\n\nAll figures are proposals only. Do not infer a deployment split, STP, parking "
             "instrument, tax benefit, destination scheme or execution authority beyond the supplied "
             "deterministic plan and mandate controls."
         )
