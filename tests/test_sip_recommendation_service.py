@@ -204,3 +204,152 @@ def test_verified_cas_holdings_return_policy_saa_diagnostic_but_never_route_budg
     assert result["decision"] == "NO_ACTION"
     assert result["plan"]["items"] == []
     assert result["plan"]["unallocated_budget_inr"] == 10000
+
+
+def _complete_portfolio_context():
+    as_of = date.today().isoformat()
+    evidence_refs = {
+        key: "sha256:" + key
+        for key in ("cash", "reserve", "obligations", "income", "expenses", "debt_service")
+    }
+    evidence_refs["as_of_dates"] = {
+        key: as_of
+        for key in ("cash", "reserve", "obligations", "income", "expenses", "debt_service")
+    }
+    return {
+        "as_of_date": as_of,
+        "perimeter_complete": True,
+        "assets": [
+            {"asset_id": "mf-large", "asset_class": "mutual_fund", "saa_bucket": "large_cap",
+             "value_inr": "100000", "source_ref": "sha256:cas", "owner_scope": "household", "as_of_date": as_of},
+            {"asset_id": "mid", "asset_class": "mutual_fund", "saa_bucket": "mid_cap",
+             "value_inr": "250000", "source_ref": "sha256:cas", "owner_scope": "household", "as_of_date": as_of},
+            {"asset_id": "small", "asset_class": "mutual_fund", "saa_bucket": "small_cap",
+             "value_inr": "250000", "source_ref": "sha256:cas", "owner_scope": "household", "as_of_date": as_of},
+            {"asset_id": "flexi", "asset_class": "mutual_fund", "saa_bucket": "flexi_multi_cap",
+             "value_inr": "250000", "source_ref": "sha256:cas", "owner_scope": "household", "as_of_date": as_of},
+            {"asset_id": "debt", "asset_class": "deposit", "saa_bucket": "debt_liquid",
+             "value_inr": "150000", "source_ref": "sha256:bank", "owner_scope": "household", "as_of_date": as_of},
+        ],
+        "excluded_assets": [],
+        "goal_policy": {
+            "max_evidence_age_days": 30,
+            "minimum_horizon_days_by_asset_class": {"equity": 3650},
+        },
+        "goals": [{
+            "goal_id": "education", "mandate_approved": True, "source_ref": "sha256:goal",
+            "evidence_as_of_date": as_of, "target_amount_inr": "2500000",
+            "liabilities_inr": "100000", "target_date": f"{date.today().year + 11}-11-04",
+            "asset_class": "equity", "approved_risk_profile": "Aggressive",
+        }],
+        "liquidity": {
+            "verified_cash_inr": "200000", "approved_reserve_target_inr": "50000",
+            "near_term_obligations_inr": "10000", "monthly_net_income_inr": "100000",
+            "essential_monthly_expenses_inr": "40000", "monthly_debt_service_inr": "10000",
+            "evidence_refs": evidence_refs, "max_evidence_age_days": 30,
+        },
+        "stress_scenarios": [{
+            "scenario_id": "income-shock", "income_reduction_pct": "10",
+            "expense_increase_pct": "5",
+        }],
+        "candidate_policy": {
+            "max_evidence_age_days": 30,
+            "mandatory_gates": [
+                "direct_plan", "source_authenticity", "scheme_identity",
+                "risk", "constituent_coverage", "operational",
+            ],
+            "candidate_sleeves": {"CANDIDATE-1": "large_cap"},
+            "rounding_increment_inr": "500",
+        },
+        "candidate_gate_results": {
+            "CANDIDATE-1": {
+                "direct_plan": "PASS", "source_authenticity": "PASS",
+                "scheme_identity": "PASS", "risk": "PASS",
+                "constituent_coverage": "PASS", "operational": "PASS",
+            },
+        },
+        "operational_evidence_by_candidate_id": {
+            "CANDIDATE-1": {
+                "scheme_identity": {
+                    "scheme_id": "CANDIDATE-SCHEME-1", "isin": "INF000000010",
+                    "plan": "Direct", "option": "Growth", "amc": "Example AMC",
+                },
+                "evidence_ref": "sha256:ops", "evidence_as_of_date": as_of,
+                "scheme_status": "ACTIVE", "minimum_monthly_sip_inr": "500",
+                "exit_load_evidence_ref": "sha256:exit",
+                "lockin_evidence_ref": "sha256:lock",
+                "subscription_status_evidence_ref": "sha256:subscription",
+            },
+        },
+        "concentration_policy": {"max_issuer_pct_of_portfolio": "20"},
+        "freshness": {
+            "recommendation_as_of_date": as_of, "max_age_days": 90,
+            "event_flags": {"manager_change": False, "life_event": False},
+        },
+    }
+
+
+def test_complete_portfolio_workflow_integrates_issues_23_to_34_without_authorizing_orders(
+    tmp_path, monkeypatch
+):
+    args = _inputs(tmp_path)
+    candidate = {
+        "fund_id": "CANDIDATE-1", "scheme_id": "CANDIDATE-SCHEME-1",
+        "isin": "INF000000010", "amc_name": "Example AMC",
+        "category": "Large Cap", "benchmark": "Nifty 100 TRI",
+        "is_direct": True, "constituent_weights": {"ISSUER-A": 60, "ISSUER-C": 40},
+        "constituent_weights_coverage_pct": 100,
+        "direct_plan_evidence": {
+            "scheme_id": "CANDIDATE-SCHEME-1", "isin": "INF000000010",
+            "plan": "Direct", "option": "Growth", "amc_name": "Example AMC",
+            "benchmark": "Nifty 100 TRI", "reviewed_at": date.today().isoformat(),
+            "source_document_sha256": "a" * 64,
+        },
+    }
+    args["candidate_universe"] = [candidate]
+    monkeypatch.setattr(service, "load_holdings_from_cas_excel", lambda *a, **k: [_holding()])
+    monkeypatch.setattr(
+        service, "compute_deterministic_sip_blueprint",
+        lambda **kwargs: SimpleNamespace(items=[SimpleNamespace(monthly_inr=10000)]),
+    )
+
+    result = service.recommend_sip(**args, portfolio_context=_complete_portfolio_context())
+
+    context = result["portfolio_assessment"]["total_portfolio_context"]
+    assert context["status"] == "ASSESSMENT_COMPLETE"
+    assert context["portfolio_reconciliation"]["total_value_inr"] == "1000000"
+    assert context["saa"]["drift"]["underweight_sleeves"] == ["large_cap"]
+    assert context["goal_suitability"]["status"] == "VALIDATED"
+    assert context["liquidity_and_affordability"]["status"] == "AFFORDABLE"
+    assert context["affordability_stress"]["all_scenarios_sustainable"] is True
+    assert context["candidate_screening"]["eligible_candidate_ids"] == ["CANDIDATE-1"]
+    assert context["scheme_operational_feasibility"]["CANDIDATE-1"]["status"] == "FEASIBLE_FOR_REVIEW"
+    assert context["candidate_overlap_diagnostics"]["CANDIDATE-1"]["status"] == "ASSESSED"
+    assert context["candidate_overlap_diagnostics"]["CANDIDATE-1"]["shared_issuers"] == ["ISSUER-A"]
+    assert context["incremental_sip_routing_simulation"]["allocations_inr"] == {"large_cap": "10000"}
+    assert context["freshness"]["status"] == "CURRENT"
+    assert context["recommendation_authorized"] is False
+    assert context["execution_authorized"] is False
+    assert result["status"] == "HOLD"
+    assert result["decision"] == "NO_ACTION"
+    assert result["plan"]["items"] == []
+    assert result["plan"]["unallocated_budget_inr"] == 10000
+
+
+def test_incomplete_total_portfolio_context_holds_and_keeps_budget_unallocated(tmp_path, monkeypatch):
+    args = _inputs(tmp_path)
+    monkeypatch.setattr(service, "load_holdings_from_cas_excel", lambda *a, **k: [_holding()])
+    monkeypatch.setattr(
+        service, "compute_deterministic_sip_blueprint",
+        lambda **kwargs: SimpleNamespace(items=[]),
+    )
+    context = _complete_portfolio_context()
+    context["perimeter_complete"] = False
+
+    result = service.recommend_sip(**args, portfolio_context=context)
+
+    assessment = result["portfolio_assessment"]["total_portfolio_context"]
+    assert assessment["status"] == "HOLD"
+    assert assessment["portfolio_reconciliation"]["reason"] == "PORTFOLIO_PERIMETER_NOT_ATTESTED"
+    assert result["plan"]["unallocated_budget_inr"] == 10000
+    assert result["plan"]["items"] == []
