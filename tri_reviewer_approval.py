@@ -46,7 +46,7 @@ REQUIRED_PAYLOAD_FIELDS = {
     "reviewer_key_id", "issued_at", "expires_at", "repository",
     "commit_sha", "tri_fixture_sha256", "tri_source_documents",
     "calendar_source_path", "calendar_source_url", "calendar_source_sha256",
-    "calendar_sessions_sha256", "review_attestation",
+    "calendar_sessions_sha256", "review_attestation", "source_reconciliation_attestation",
 }
 
 
@@ -122,6 +122,8 @@ def verify_approval(
             raise ValueError("approval_id is missing")
         if payload["review_attestation"] is not True:
             raise ValueError("review_attestation must be explicitly true")
+        if payload["source_reconciliation_attestation"] is not True:
+            raise ValueError("source_reconciliation_attestation must explicitly confirm source-to-fixture reconciliation")
         issued, expires = _utc(payload["issued_at"]), _utc(payload["expires_at"])
         clock = now or datetime.now(timezone.utc)
         if clock.tzinfo is None:
