@@ -13,6 +13,27 @@ def _upload(client, **data):
     )
 
 
+def test_readiness_distinguishes_live_api_from_missing_evidence_provider():
+    client = TestClient(sip.create_sip_app())
+    assert client.get("/health").json()["status"] == "ok"
+    response = client.get("/ready")
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "not_ready",
+        "service": "sip-decision-support",
+        "checks": {"evidence_provider": "not_configured"},
+        "recommendations_enabled": False,
+    }
+
+
+def test_readiness_reports_configured_provider_without_claiming_evidence_validity():
+    client = TestClient(sip.create_sip_app(evidence_provider=lambda **kwargs: {}))
+    response = client.get("/ready")
+    assert response.status_code == 200
+    assert response.json()["status"] == "ready_for_evidence_validation"
+    assert response.json()["recommendations_enabled"] is True
+
+
 def test_api_without_evidence_provider_returns_hold_and_full_budget():
     client = TestClient(sip.create_sip_app())
 
