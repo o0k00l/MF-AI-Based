@@ -18,7 +18,7 @@ def _synthetic_tax_evidence_kwargs():
 
 from core.eligibility import _finite_number, _risk_tier_to_int, check_eligibility_gates
 from types import SimpleNamespace
-from core.math_engine import compute_candidate_portfolio_overlap, select_autonomous_blueprint_funds
+from core.math_engine import _sip_operational_constraint_violations, compute_candidate_portfolio_overlap, select_autonomous_blueprint_funds
 from core.models import AssetAllocationTarget, DeterministicSIPPlan, DeterministicSIPRecommendation, RiskTier
 from tax.transition_planner import Lot, FundSellPlan, plan_fy_tranches, classify_fund_for_tax
 
@@ -2103,3 +2103,48 @@ def test_sip_plan_rejects_non_finite_budget():
             debt_sip_pct=0.0,
             items=[],
         )
+
+
+def _sip_policy_fixture():
+    return {
+        "max_fund_allocation_pct": 20.0,
+        "min_sip_per_fund_inr": 1000.0,
+        "sip_increment_inr": 500.0,
+        "max_core_fund_count": 6,
+    }
+
+
+def _sip_item(role="Core Flexi-Cap", amount=1000.0, pct=10.0):
+    return SimpleNamespace(category_role=role, monthly_inr=amount, allocation_pct=pct)
+
+
+def test_sip_operational_constraints_accept_valid_line():
+    assert _sip_operational_constraint_violations(
+        [_sip_item(amount=1500.0, pct=15.0)], _sip_policy_fixture()
+    ) == []
+
+
+@pytest.mark.parametrize(
+    ("item", "expected"),
+    [
+        (_sip_item(amount=2500.0, pct=25.0), "per-fund cap"),
+        (_sip_item(amount=500.0, pct=5.0), "minimum ticket"),
+        (_sip_item(amount=1250.0, pct=12.5), "SIP increment"),
+    ],
+)
+def test_sip_operational_constraints_reject_invalid_lines(item, expected):
+    violations = _sip_operational_constraint_violations([item], _sip_policy_fixture())
+    assert any(expected in violation for violation in violations)
+
+
+def test_sip_operational_constraints_enforce_core_fund_count():
+    items = [_sip_item(role=f"Core {i}") for i in range(7)]
+    violations = _sip_operational_constraint_violations(items, _sip_policy_fixture())
+    assert any("maximum of 6" in violation for violation in violations)
+
+
+def test_sip_operational_constraints_reject_invalid_policy():
+    policy = _sip_policy_fixture()
+    policy["sip_increment_inr"] = 0.0
+    with pytest.raises(ValueError, match="finite and positive"):
+        _sip_operational_constraint_violations([_sip_item()], policy)
