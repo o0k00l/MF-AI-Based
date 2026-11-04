@@ -2172,6 +2172,28 @@ def aggregate_fiduciary_facts(
     portfolio_xirr = calculate_portfolio_xirr(transactions_path, holdings)
     cas_recon = reconcile_cas_holdings_with_transactions(holdings, transactions_path)
     tax_lots_summary = None
+
+    # Transaction history is optional for a CAS-only portfolio snapshot. If a
+    # supplied history is malformed or does not reconcile, however, it cannot
+    # be ignored while issuing a portfolio-aware SIP proposal.
+    if transactions_path.exists() and cas_recon.get("status") != "VERIFIED_RECONCILED":
+        det_sip_plan.unallocated_budget_inr = det_sip_plan.total_monthly_budget_inr
+        for sip_item in det_sip_plan.items:
+            sip_item.monthly_inr = 0.0
+            sip_item.fiduciary_rationale = (
+                "NO ACTION — complete SIP budget withheld because supplied transaction "
+                "history did not reconcile to CAS holdings. "
+                + str(cas_recon.get("status"))
+                + ". No redistribution is permitted. "
+                + sip_item.fiduciary_rationale
+            )
+        det_sip_plan.execution_status = "HOLD_CAS_TRANSACTION_RECONCILIATION"
+        det_sip_plan.is_execution_authorized = False
+        det_sip_plan.is_actionable_order = False
+        det_sip_plan.enforcement_notice = (
+            "RUNTIME INVARIANT ENFORCED: supplied transaction history failed CAS reconciliation; "
+            "the full monthly SIP budget remains unallocated."
+        )
     
     # A single equity index is not a valid comparator for a mixed-asset
     # portfolio. Until an IPS-weighted composite benchmark (with explicit
