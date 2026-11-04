@@ -17,7 +17,6 @@ DEFAULT_ENV_FILE = PROJECT_ROOT / ".env"
 AI_PROVIDER_KEYS = {
     "Requesty.ai": "REQUESTY_API_KEY",
     "OpenRouter": "OPENROUTER_API_KEY",
-    "Google Gemini": "GEMINI_API_KEY",
 }
 
 
