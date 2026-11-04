@@ -29,12 +29,15 @@ A version-1 bundle uses a UTF-8 `manifest.json`:
   },
   "candidate_universe_file": "records/candidate_universe.json",
   "candidate_universe_metadata_file": "records/candidate_universe_metadata.json",
-  "candidate_universe_source_file": "originals/candidate_universe.csv"
+  "candidate_universe_source_file": "originals/candidate_universe.csv",
+  "portfolio_context_file": "records/total_portfolio_context.json",
+  "portfolio_context_metadata_file": "records/total_portfolio_context_metadata.json",
+  "portfolio_context_source_file": "originals/total_portfolio_context.xlsx"
 }
 ```
 
 All paths are relative to the bundle root. The optional `aliases_file` may be
-null. Every other referenced file must exist. Paths that escape the bundle,
+null. The three `portfolio_context_*` fields are optional, but if one is present all three are required. Every referenced file must exist. Paths that escape the bundle,
 absolute paths, symlink escapes and bundles located inside the Git checkout
 are rejected.
 
@@ -64,6 +67,18 @@ are rejected.
   and freshness before the evidence contract accepts the bundle.
 - `aliases_file`: optional reviewed exact-alias mapping; fuzzy matching is
   not supported.
+- `portfolio_context_file`: optional provider-supplied total-portfolio context
+  JSON. It must include the dated, owner-scoped perimeter, reconciled CAS row,
+  approved IPS, goals, cash/reserve/obligation evidence, candidate policy,
+  operational evidence, concentration policy and freshness inputs required by
+  the portfolio service. Client-entered `portfolio_context_json` is diagnostic
+  only and cannot replace this provider bundle.
+- `portfolio_context_metadata_file` and `portfolio_context_source_file`:
+  source metadata and unchanged original publisher/export bytes. The metadata
+  must include HTTPS `source_url`, matching SHA-256, `reviewer_attested: true`,
+  `effective_date` and `source_type`. All three context fields are loaded
+  together and validated before the service can treat the context as
+  provider-attested.
 
 The provider checks bundle path safety and structure. The API then runs the
 existing evidence contract, including source-byte hash, date/freshness,
@@ -85,7 +100,15 @@ reviewer.
 5. Mount the bundle read-only and restrict access to the deployment identity.
 6. Rotate and update the bundle through a reviewed operational process. Do not
    modify evidence files during a request.
-7. Treat `/ready` as provider-configuration readiness only. The API continues
+7. The optional total-portfolio context bundle is required for portfolio-aware
+   positive routing. Do not populate it with synthetic or investor-entered
+   declarations; missing or stale external assets, IPS, goal, liquidity,
+   candidate-score or operational evidence must leave the budget unallocated.
+8. Deploy the explicit ASGI entry point `api.sip_production:app` only after the
+   external bundle is mounted. The `api.sip:app` entry point remains a
+   development-safe HOLD default. Neither entry point enables recommendations
+   until the separate research release gate is approved.
+9. Treat `/ready` as provider-configuration readiness only. The API continues
    to return HOLD / NO_ACTION while authenticated daily TRI, independent NSE
    calendar and research-release approval remain outstanding.
 
