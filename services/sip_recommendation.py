@@ -28,6 +28,14 @@ from core.portfolio_sip_controls import (
     build_decision_trace,
     calculate_lookthrough_exposure,
     calculate_saa_drift,
+    reconcile_total_portfolio,
+    route_incremental_sip,
+    screen_candidates_before_scoring,
+    validate_goal_mandate,
+    assess_liquidity_and_sip_surplus,
+    stress_test_sip_affordability,
+    validate_scheme_operational_feasibility,
+    evaluate_recommendation_freshness,
 )
 
 
@@ -150,6 +158,226 @@ def _build_cas_portfolio_assessment(holdings: list[Any], risk_profile: str) -> d
 
 
 
+
+_TOTAL_PORTFOLIO_SLEEVES = (
+    "large_cap", "mid_cap", "small_cap", "flexi_multi_cap", "debt_liquid"
+)
+
+
+def _assess_complete_portfolio_context(
+    context: dict[str, Any],
+    *,
+    candidate_universe: list[dict[str, Any]],
+    monthly_budget_inr: float,
+    risk_profile: str,
+) -> dict[str, Any]:
+    """Orchestrate portfolio, suitability, affordability and candidate gates.
+
+    This returns diagnostics and a routing simulation only. It never authorizes
+    an allocation; the independent research/TRI release gate remains separate.
+    """
+    try:
+        as_of = context["as_of_date"]
+        assets = context["assets"]
+        if not isinstance(assets, list) or not assets:
+            raise PortfolioInputError("complete portfolio asset rows are required")
+        for row in assets:
+            if not isinstance(row, dict) or row.get("saa_bucket") not in _TOTAL_PORTFOLIO_SLEEVES:
+                raise PortfolioInputError("every asset requires an explicit approved SAA sleeve mapping")
+        reconciliation = reconcile_total_portfolio(
+            assets,
+            perimeter_complete=context.get("perimeter_complete") is True,
+            as_of_date=as_of,
+            excluded_assets=context.get("excluded_assets", []),
+        )
+        if reconciliation["status"] != "RECONCILED":
+            return {"status": "HOLD", "portfolio_reconciliation": reconciliation,
+                    "reason": reconciliation.get("reason", "TOTAL_PORTFOLIO_RECONCILIATION_FAILED")}
+        total = float(reconciliation["total_value_inr"])
+        current = {sleeve: 0.0 for sleeve in _TOTAL_PORTFOLIO_SLEEVES}
+        for row in assets:
+            current[row["saa_bucket"]] += float(row["value_inr"])
+        if abs(sum(current.values()) - total) > 0.01:
+            raise PortfolioInputError("SAA sleeve values do not reconcile to total portfolio")
+        policy_path = Path(__file__).resolve().parents[1] / "data" / "policy" / "asset_allocation.json"
+        policy = json.loads(policy_path.read_text(encoding="utf-8"))
+        profile_key = _SAA_POLICY_PROFILE_BY_RISK[risk_profile]
+        profile = policy["behavioral_risk_profiles"][profile_key]
+        policy_map = {
+            "large_cap_pct": "large_cap", "mid_cap_pct": "mid_cap",
+            "small_cap_pct": "small_cap", "flexi_multi_cap_pct": "flexi_multi_cap",
+            "debt_liquid_pct": "debt_liquid",
+        }
+        raw_targets = profile["saa_targets"]
+        if set(raw_targets) != set(policy_map):
+            raise PortfolioInputError("approved SAA policy schema mismatch")
+        targets = {bucket: raw_targets[key] for key, bucket in policy_map.items()}
+        drift = calculate_saa_drift(
+            current, targets, tolerance_band_pct=profile["tolerance_band_pct"],
+            portfolio_total_inr=total,
+        )
+
+        goal_policy = context["goal_policy"]
+        goals = validate_goal_mandate(
+            context.get("goals", []), as_of_date=as_of,
+            max_evidence_age_days=int(goal_policy["max_evidence_age_days"]),
+            minimum_horizon_days_by_asset_class=goal_policy["minimum_horizon_days_by_asset_class"],
+        )
+        liquidity_input = context["liquidity"]
+        liquidity = assess_liquidity_and_sip_surplus(
+            verified_cash_inr=liquidity_input["verified_cash_inr"],
+            approved_reserve_target_inr=liquidity_input["approved_reserve_target_inr"],
+            near_term_obligations_inr=liquidity_input["near_term_obligations_inr"],
+            monthly_net_income_inr=liquidity_input["monthly_net_income_inr"],
+            essential_monthly_expenses_inr=liquidity_input["essential_monthly_expenses_inr"],
+            monthly_debt_service_inr=liquidity_input["monthly_debt_service_inr"],
+            proposed_monthly_sip_inr=monthly_budget_inr,
+            evidence_refs=liquidity_input["evidence_refs"],
+            as_of_date=as_of,
+            max_evidence_age_days=int(liquidity_input["max_evidence_age_days"]),
+        )
+        stress = stress_test_sip_affordability(
+            monthly_net_income_inr=liquidity_input["monthly_net_income_inr"],
+            essential_monthly_expenses_inr=liquidity_input["essential_monthly_expenses_inr"],
+            monthly_debt_service_inr=liquidity_input["monthly_debt_service_inr"],
+            proposed_monthly_sip_inr=monthly_budget_inr,
+            scenarios=context.get("stress_scenarios", []),
+        )
+
+        candidate_policy = context["candidate_policy"]
+        gate_results = context["candidate_gate_results"]
+        operational_evidence = context["operational_evidence_by_candidate_id"]
+        prepared_candidates = []
+        operational_results = {}
+        for candidate in candidate_universe:
+            candidate_id = str(candidate.get("fund_id") or candidate.get("scheme_id") or "")
+            direct = candidate.get("direct_plan_evidence") or {}
+            identity = {
+                "scheme_id": candidate.get("scheme_id") or direct.get("scheme_id"),
+                "isin": candidate.get("isin") or direct.get("isin"),
+                "plan": direct.get("plan", "Direct" if candidate.get("is_direct") else ""),
+                "option": direct.get("option", "Growth"),
+                "amc": candidate.get("amc_name") or direct.get("amc_name"),
+                "category": candidate.get("category"),
+                "benchmark": candidate.get("benchmark") or direct.get("benchmark"),
+            }
+            prepared_candidates.append({
+                "candidate_id": candidate_id,
+                "scheme_identity": identity,
+                "evidence_as_of_date": direct.get("reviewed_at") or direct.get("effective_date"),
+                "evidence_ref": direct.get("source_document_sha256"),
+                "gates": gate_results.get(candidate_id, {}),
+            })
+            operational = operational_evidence.get(candidate_id)
+            if isinstance(operational, dict):
+                operational_results[candidate_id] = validate_scheme_operational_feasibility(
+                    operational, requested_monthly_sip_inr=monthly_budget_inr,
+                    as_of_date=as_of,
+                    max_evidence_age_days=int(candidate_policy["max_evidence_age_days"]),
+                )
+            else:
+                operational_results[candidate_id] = {
+                    "status": "HOLD", "execution_authorized": False,
+                    "reasons": ["OPERATIONAL_EVIDENCE_MISSING"],
+                }
+        screening = screen_candidates_before_scoring(
+            prepared_candidates, as_of_date=as_of,
+            max_evidence_age_days=int(candidate_policy["max_evidence_age_days"]),
+            mandatory_gates=candidate_policy["mandatory_gates"],
+        )
+        eligible_ids = set(screening["eligible_candidate_ids"])
+        eligible_ids = {
+            candidate_id for candidate_id in eligible_ids
+            if operational_results.get(candidate_id, {}).get("status") == "FEASIBLE_FOR_REVIEW"
+        }
+        eligible_sleeves = sorted({
+            candidate_policy.get("candidate_sleeves", {}).get(candidate_id)
+            for candidate_id in eligible_ids
+            if candidate_policy.get("candidate_sleeves", {}).get(candidate_id) in _TOTAL_PORTFOLIO_SLEEVES
+        })
+        routing = route_incremental_sip(
+            monthly_budget_inr, current, targets, portfolio_total_inr=total,
+            tolerance_band_pct=profile["tolerance_band_pct"],
+            eligible_sleeves=eligible_sleeves,
+            rounding_increment_inr=candidate_policy.get("rounding_increment_inr", "500"),
+        )
+        # Candidate incremental exposure is shown as a per-ticket diagnostic.
+        # No threshold is invented; unknown or absent constituents remain HOLD.
+        existing_exposure = _build_cas_portfolio_assessment([], risk_profile)
+        existing_issuer_values: dict[str, float] = {}
+        overlap_results = {}
+        for candidate in candidate_universe:
+            candidate_id = str(candidate.get("fund_id") or candidate.get("scheme_id") or "")
+            if candidate_id not in eligible_ids:
+                overlap_results[candidate_id] = {"status": "HOLD", "reason": "CANDIDATE_NOT_ELIGIBLE_FOR_REVIEW"}
+                continue
+            constituents = candidate.get("constituent_weights")
+            coverage = candidate.get("constituent_weights_coverage_pct")
+            if not isinstance(constituents, dict) or coverage is None:
+                overlap_results[candidate_id] = {"status": "HOLD", "reason": "CANDIDATE_LOOKTHROUGH_MISSING"}
+                continue
+            candidate_exposure = calculate_lookthrough_exposure(
+                [{"holding_value_inr": str(monthly_budget_inr),
+                  "coverage_pct": coverage, "constituents": constituents}],
+                required_coverage_pct="99.5",
+            )
+            if candidate_exposure.get("status") != "CALCULATED":
+                overlap_results[candidate_id] = candidate_exposure
+                continue
+            issuers = candidate_exposure["issuer_exposure_inr"]
+            overlap_results[candidate_id] = {
+                "status": "DIAGNOSTIC_ONLY",
+                "ticket_basis_inr": monthly_budget_inr,
+                "shared_issuers": sorted(issuers),
+                "candidate_issuer_exposure_inr": issuers,
+                "concentration_limit_applied": False,
+                "reason": "Issuer overlap is visible; approved issuer/sector thresholds are not configured.",
+            }
+        freshness_input = context["freshness"]
+        freshness = evaluate_recommendation_freshness(
+            recommendation_as_of_date=freshness_input["recommendation_as_of_date"],
+            current_as_of_date=as_of,
+            max_age_days=int(freshness_input["max_age_days"]),
+            event_flags=freshness_input.get("event_flags", {}),
+        )
+        all_gates_pass = (
+            goals["status"] == "VALIDATED"
+            and liquidity["status"] == "AFFORDABLE"
+            and stress["all_scenarios_sustainable"]
+            and screening["scoring_permitted"]
+            and bool(eligible_ids)
+            and freshness["status"] == "CURRENT"
+            and routing["status"] in {"ROUTED", "HOLD"}
+        )
+        return {
+            "status": "ASSESSMENT_COMPLETE" if all_gates_pass else "HOLD",
+            "scope": "DECLARED_TOTAL_PORTFOLIO",
+            "portfolio_reconciliation": reconciliation,
+            "saa": {"current_sleeve_values_inr": current, "target_weights_pct": targets,
+                    "drift": drift, "policy_as_of": policy.get("as_of")},
+            "goal_suitability": goals,
+            "liquidity_and_affordability": liquidity,
+            "affordability_stress": stress,
+            "candidate_screening": screening,
+            "scheme_operational_feasibility": operational_results,
+            "candidate_overlap_diagnostics": overlap_results,
+            "incremental_sip_routing_simulation": routing,
+            "freshness": freshness,
+            "all_input_gates_pass": all_gates_pass,
+            "recommendation_authorized": False,
+            "execution_authorized": False,
+            "important_limit": "Research/TRI release, approved client IPS, and independently approved concentration thresholds remain separate release gates.",
+        }
+    except (KeyError, TypeError, ValueError, OSError) as exc:
+        return {
+            "status": "HOLD",
+            "scope": "DECLARED_TOTAL_PORTFOLIO",
+            "reason": f"PORTFOLIO_CONTEXT_INVALID_OR_INCOMPLETE:{type(exc).__name__}",
+            "recommendation_authorized": False,
+            "execution_authorized": False,
+        }
+
+
 def _build_sip_decision_trace(
     *,
     cas_path: Path,
@@ -159,6 +387,7 @@ def _build_sip_decision_trace(
     candidate_universe: list[dict[str, Any]],
     monthly_budget_inr: float,
     portfolio_assessment: dict[str, Any],
+    context_assessment: dict[str, Any] | None = None,
 ) -> dict[str, str]:
     """Hash the source and diagnostic inputs that led to a fail-closed SIP result."""
     candidate_source_hashes = {}
@@ -195,6 +424,7 @@ def _build_sip_decision_trace(
             "scope": portfolio_assessment.get("scope"),
             "saa_drift": portfolio_assessment.get("saa_drift"),
             "lookthrough": portfolio_assessment.get("lookthrough"),
+            "total_portfolio_context": context_assessment,
         },
         "allocation": {
             "requested_budget_inr": monthly_budget_inr,
@@ -251,6 +481,7 @@ def recommend_sip(
     disclosure_max_age_days: int = 45,
     thematic_satellite_authorized: bool = False,
     thematic_satellite_pct_of_equity: float = 0.0,
+    portfolio_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build a fail-closed portfolio-aware SIP decision from explicit evidence.
 
@@ -361,6 +592,21 @@ def recommend_sip(
             portfolio_assessment,
         )
 
+    context_assessment = None
+    if portfolio_context is not None:
+        if not isinstance(portfolio_context, dict):
+            context_assessment = {
+                "status": "HOLD", "reason": "PORTFOLIO_CONTEXT_MUST_BE_AN_OBJECT",
+                "recommendation_authorized": False, "execution_authorized": False,
+            }
+        else:
+            context_assessment = _assess_complete_portfolio_context(
+                portfolio_context,
+                candidate_universe=candidate_universe,
+                monthly_budget_inr=budget,
+                risk_profile=risk_profile,
+            )
+        portfolio_assessment["total_portfolio_context"] = context_assessment
     portfolio_assessment["decision_trace"] = _build_sip_decision_trace(
         cas_path=cas_path,
         scheme_master_source_bytes=scheme_master_source_bytes,
@@ -369,6 +615,7 @@ def recommend_sip(
         candidate_universe=candidate_universe,
         monthly_budget_inr=budget,
         portfolio_assessment=portfolio_assessment,
+        context_assessment=context_assessment,
     )
     return _hold_plan(budget, [
         "Evidence reached the deterministic SIP engine, but the independent benchmark/research release gate is not approved.",
