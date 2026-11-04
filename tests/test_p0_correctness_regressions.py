@@ -2370,3 +2370,63 @@ def test_cas_scheme_identity_requires_verified_master_and_exact_scheme_amc(tmp_p
     parsed = parse_cas_xlsx(path, scheme_master=master, scheme_master_source_bytes=source_bytes)
     assert parsed["holdings"][0]["scheme_identity_status"] == "MISSING"
     assert parsed["holdings"][0]["scheme_id"] is None
+
+
+
+def test_tri_calculation_never_substitutes_nifty_500_for_missing_requested_benchmark(tmp_path):
+    import json
+    from core.math_engine import calculate_cashflow_matched_benchmark_xirr
+    from core.models import TriProvenanceError
+
+    tri_path = tmp_path / "tri.json"
+    tx_path = tmp_path / "transactions.json"
+    calendar_path = tmp_path / "calendar.json"
+    tri_path.write_text(json.dumps({
+        "provenance": {},
+        "benchmarks": {
+            "NIFTY 500 TRI": {"levels": {"2026-11-02": 100.0}}
+        },
+    }), encoding="utf-8")
+    tx_path.write_text(json.dumps({"transactions": []}), encoding="utf-8")
+    calendar_path.write_text("{}", encoding="utf-8")
+
+    with pytest.raises(TriProvenanceError) as error:
+        calculate_cashflow_matched_benchmark_xirr(
+            transactions_path=tx_path,
+            benchmark_key="NIFTY MIDCAP 150 TRI",
+            benchmark_series_path=tri_path,
+            trading_calendar_path=calendar_path,
+        )
+
+    assert error.value.validation_stage == "benchmark_missing"
+
+
+def test_tri_calculation_rejects_unapproved_benchmark_without_checksum_contract(tmp_path):
+    import hashlib
+    import json
+    from core.math_engine import calculate_cashflow_matched_benchmark_xirr
+    from core.models import TriProvenanceError
+
+    levels = {"2026-11-02": 100.0}
+    checksum = hashlib.sha256(
+        json.dumps(levels, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    tri_path = tmp_path / "tri.json"
+    tx_path = tmp_path / "transactions.json"
+    calendar_path = tmp_path / "calendar.json"
+    tri_path.write_text(json.dumps({
+        "provenance": {"checksum_sha256_unapproved_tri": checksum},
+        "benchmarks": {"UNAPPROVED TRI": {"levels": levels}},
+    }), encoding="utf-8")
+    tx_path.write_text(json.dumps({"transactions": []}), encoding="utf-8")
+    calendar_path.write_text("{}", encoding="utf-8")
+
+    with pytest.raises(TriProvenanceError) as error:
+        calculate_cashflow_matched_benchmark_xirr(
+            transactions_path=tx_path,
+            benchmark_key="UNAPPROVED TRI",
+            benchmark_series_path=tri_path,
+            trading_calendar_path=calendar_path,
+        )
+
+    assert error.value.validation_stage == "benchmark_not_approved"
