@@ -1298,7 +1298,7 @@ def _validate_sip_metrics_exposures(metric: Dict[str, Any], *, scheme_id: str) -
         if not math.isfinite(value) or not 0.0 <= value <= 100.0:
             raise ValueError(f"Fund metrics {field} exposure is outside 0-100 for {scheme_id!r}.")
         values[field] = value
-    if values["eq"] + values["debt"] > 100.0 + 0.5:
+    if values["eq"] + values["debt"] > 100.0 + 1e-9:
         raise ValueError(f"Fund metrics equity plus debt exposure exceeds 100% for {scheme_id!r}.")
 
 
