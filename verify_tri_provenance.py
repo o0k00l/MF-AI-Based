@@ -256,6 +256,13 @@ def alpha_release_blockers(fixture_path: Path) -> list[str]:
         blockers.append("no benchmark series supplied")
     if not provenance.get("independent_reviewer_id"):
         blockers.append("independent reviewer identity is not recorded in provenance")
+    # These metadata fields and local hashes are self-asserted. This verifier
+    # has no trusted publisher signature or independently authenticated
+    # reviewer attestation to validate, so they must never unlock release.
+    blockers.append(
+        "external release approval is still required: source authenticity and reviewer identity "
+        "are not cryptographically authenticated by this verifier"
+    )
     return blockers
 
 
@@ -292,9 +299,9 @@ def main(argv: list[str] | None = None) -> int:
         print("A fixture checksum proves local file integrity only; it does not by itself establish publisher authenticity.")
         return 2 if args.require_alpha_release else 0
 
-    print("TRI alpha release eligibility: METADATA AND LOCAL SOURCE-INTEGRITY GATES MET")
-    print("Independent human review remains a release approval requirement.")
-    return 0
+    print("TRI alpha release eligibility: BLOCKED")
+    print("Metadata and local checksums cannot authenticate the publisher or independent reviewer.")
+    return 2 if args.require_alpha_release else 0
 
 
 if __name__ == "__main__":
