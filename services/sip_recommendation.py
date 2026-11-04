@@ -222,6 +222,18 @@ def _assess_complete_portfolio_context(
         if not isinstance(targets, dict) or set(targets) != set(_TOTAL_PORTFOLIO_SLEEVES):
             raise PortfolioInputError("client IPS must specify all five SAA sleeves")
         tolerance = ips["tolerance_band_pct"]
+        equity_target = sum(float(targets[key]) for key in (
+            "large_cap", "mid_cap", "small_cap", "flexi_multi_cap"
+        ))
+        mid_small_target = float(targets["mid_cap"]) + float(targets["small_cap"])
+        debt_target = float(targets["debt_liquid"])
+        if (
+            equity_target > float(profile["max_equity_pct"])
+            or mid_small_target > float(profile["max_mid_small_pct"])
+            or debt_target < float(profile["min_debt_pct"])
+            or debt_target > float(profile["max_debt_pct"])
+        ):
+            raise PortfolioInputError("client IPS targets conflict with approved risk-profile limits")
         cas_value_in_perimeter = sum(
             float(row["value_inr"]) for row in assets if row.get("asset_class") == "cas_mutual_fund"
         )
@@ -238,6 +250,18 @@ def _assess_complete_portfolio_context(
             max_evidence_age_days=int(goal_policy["max_evidence_age_days"]),
             minimum_horizon_days_by_asset_class=goal_policy["minimum_horizon_days_by_asset_class"],
         )
+        mismatched_goal_profiles = [
+            goal.get("goal_id", "UNKNOWN_GOAL")
+            for goal in context.get("goals", [])
+            if goal.get("approved_risk_profile") != risk_profile
+        ]
+        if mismatched_goal_profiles:
+            goals = {
+                "status": "HOLD",
+                "goals": goals.get("goals", []),
+                "reason": "GOAL_RISK_PROFILE_CONFLICT",
+                "affected_goal_ids": mismatched_goal_profiles,
+            }
         liquidity_input = context["liquidity"]
         liquidity = assess_liquidity_and_sip_surplus(
             verified_cash_inr=liquidity_input["verified_cash_inr"],
