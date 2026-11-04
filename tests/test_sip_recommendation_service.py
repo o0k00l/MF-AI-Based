@@ -657,7 +657,7 @@ def test_combined_selected_funds_cannot_collectively_breach_sector_cap(tmp_path,
     allocation = assessment["candidate_level_sip_allocation_simulation"]
     assert individual["status"] == "ASSESSED"
     assert combined["status"] == "HOLD"
-    assert combined["sector_market_cap_theme"]["breaches"]["sector"]["Financials"] > "12.8"
+    assert float(combined["sector_market_cap_theme"]["breaches"]["sector"]["Financials"]) > 12.8
     assert allocation["status"] == "HOLD"
     assert allocation["allocated_budget_inr"] == "0"
     assert allocation["unallocated_budget_inr"] == "10000"
