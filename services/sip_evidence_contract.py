@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+from pathlib import Path
 from decimal import Decimal, InvalidOperation
 from datetime import date, datetime
 from typing import Any
@@ -175,6 +176,25 @@ def validate_evidence_provider_payload(payload: Any) -> dict[str, Any]:
             payload["metrics_source_metadata"], payload["metrics_source_bytes"],
             label="Fund metrics", as_of=as_of,
         )
+        metrics_path = payload["metrics_path"]
+        if not isinstance(metrics_path, Path) or metrics_path.is_symlink() or not metrics_path.is_file():
+            raise EvidenceProviderContractError(
+                "Fund metrics normalized file must be a regular, non-symlink file."
+            )
+        if metrics_path.stat().st_size <= 0 or metrics_path.stat().st_size > 50 * 1024 * 1024:
+            raise EvidenceProviderContractError(
+                "Fund metrics normalized file is empty or exceeds the 50 MiB limit."
+            )
+        normalized_digest = payload["metrics_source_metadata"].get("normalized_metrics_sha256")
+        if not isinstance(normalized_digest, str) or not re.fullmatch(r"[0-9a-fA-F]{64}", normalized_digest):
+            raise EvidenceProviderContractError(
+                "Fund metrics metadata requires normalized_metrics_sha256."
+            )
+        actual_normalized_digest = hashlib.sha256(metrics_path.read_bytes()).hexdigest()
+        if actual_normalized_digest != normalized_digest.lower():
+            raise EvidenceProviderContractError(
+                "Fund metrics normalized file SHA-256 does not match reviewed metadata."
+            )
     if portfolio_context_present:
         if not isinstance(payload["portfolio_context"], dict):
             raise EvidenceProviderContractError("portfolio_context must be a mapping.")
