@@ -402,6 +402,7 @@ def test_p0_6_multi_horizon_selection_and_peer_evaluation(tmp_path):
     No real-client fund metrics are required by this unit test.
     """
     from core.math_engine import compute_multi_horizon_fiduciary_score, select_autonomous_blueprint_funds
+    from core.candidate_scoring import ScoringWeights
 
     metrics_path = tmp_path / "fund_metrics.json"
     def peer(fid, name, ret_1y, ret_6m, ret_3y, alpha, sharpe, ter, downside, upside):
