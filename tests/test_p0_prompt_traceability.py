@@ -437,3 +437,20 @@ def test_legacy_taxlot_model_maturity_helper_is_disabled():
     )
     with pytest.raises(RuntimeError, match="Tax-lot maturity classification is disabled"):
         lot.is_long_term_given(datetime(2026, 11, 4).date())
+
+
+def test_legacy_cli_stops_before_reading_client_data_or_generating_reports():
+    import runpy
+    import pytest
+
+    legacy_cli = Path(__file__).resolve().parents[1] / "legacy" / "advisor_lean_cli.py"
+    with pytest.raises(SystemExit, match="Legacy advisor CLI is disabled"):
+        runpy.run_path(str(legacy_cli), run_name="__main__")
+
+
+def test_legacy_advisor_wrapper_does_not_delegate_to_retired_cli():
+    import pytest
+    import advisor_lean
+
+    with pytest.raises(SystemExit, match="legacy advisor CLI is retired and disabled"):
+        advisor_lean.main()
