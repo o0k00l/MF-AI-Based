@@ -58,13 +58,13 @@ No payload field may be treated as true merely because it is signed: the verifie
 ## Verification sequence
 
 1. Load the trust registry only from the separately administered trust configuration.
-2. Parse the envelope with duplicate JSON keys rejected; validate exact schema and bounded input sizes.
+2. Parse the envelope with duplicate JSON keys and non-standard JSON constants rejected; validate exact schema and bounded input sizes.
 3. Resolve reviewer_key_id; require the key to be active for the approval's issuance time and not revoked.
 4. Canonicalize the payload with the repository's RFC 8785 implementation and verify the Ed25519 signature.
 5. Check reviewer identity, allowed scope, repository and exact commit SHA.
 6. Enforce issued/expiry times using an injectable UTC clock in tests.
-7. Recompute fixture, source-document and normalized calendar digests from files inside the repository boundary.
-8. Independently validate fixture benchmark identifiers, daily frequency, no interpolation, observation values and exact equality to the verified NSE session calendar. The source-document hashes establish byte integrity, not semantic equivalence between each raw source document and parsed fixture observations; the signed independent-review attestation must explicitly attest that this source-to-fixture reconciliation was performed.
+7. Recompute fixture, source-document and normalized calendar digests from non-empty, size-bounded files inside the repository boundary; reject fixture/calendar symlinks and paths escaping the checkout.
+8. Validate fixture benchmark identifiers, daily frequency, no interpolation, observation values and exact equality to the verified NSE session calendar. Independently reconcile raw source observations with the normalized fixture before signing; the verifier checks the signed attestation but does not parse every publisher-specific raw CSV format. The source-document hashes establish byte integrity, not semantic equivalence between each raw source document and parsed fixture observations; the signed independent-review attestation must explicitly attest that this source-to-fixture reconciliation was performed.
 9. Return a structured verification result with the approval ID, reviewer ID, key ID and evidence digests. Never return eligible if any check fails.
 10. Keep publisher authenticity as a separate gate: a reviewer signature attests to review; it does not magically prove that a publisher's source document is genuine.
 
