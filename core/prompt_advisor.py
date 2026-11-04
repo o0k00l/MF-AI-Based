@@ -206,29 +206,18 @@ def generate_switch_and_consolidation_plan(facts: FiduciaryFactsPayload) -> str:
         weighted_rows.append("- NO DATA: no weighted look-through overlap evidence supplied.")
 
     switch_costs = getattr(facts, "switch_costs", []) or []
+    # Caller-supplied "available" flags are not evidence of independent
+    # approval, lot reconciliation, or scheme-specific exit-load verification.
+    # The production tax/switch-cost gate remains closed; never echo amounts.
     switch_cost_rows = [
-        (
-            f"- {item.get('fund_name', 'Unidentified scheme')}: "
-            f"NO ACTION — switch cost unavailable; {item.get('unavailable_reason') or item.get('warning', 'evidence not supplied')}."
-            if item.get("available") is not True
-            else (
-                f"- {item.get('fund_name', 'Unidentified scheme')}: "
-                f"reported cost INR {item.get('switch_cost_inr')}; "
-                f"reported cost ratio {item.get('switch_cost_pct')}."
-            )
-        )
-        for item in switch_costs
+        "- NO ACTION: switch-cost figures supplied to the report are unverified and are not displayed."
+    ] if switch_costs else [
+        "- NO ACTION: scheme/plan/lot-specific exit-load and independently approved tax evidence is unavailable."
     ]
-    if not switch_cost_rows:
-        switch_cost_rows.append("- NO ACTION: scheme-level exit-load and tax cost evidence is unavailable.")
 
-    tax_lots = getattr(facts, "tax_lots_summary", None)
-    if tax_lots is not None and hasattr(tax_lots, "model_dump"):
-        tax_lot_summary = tax_lots.model_dump()
-    elif isinstance(tax_lots, dict):
-        tax_lot_summary = tax_lots
-    else:
-        tax_lot_summary = None
+    # Tax-lot summaries have no approved provenance contract in this reporting
+    # interface. Presence or shape alone must never make them trusted.
+    tax_lot_summary = None
 
     mandate_state = facts.mandate_state.value if hasattr(facts.mandate_state, "value") else str(facts.mandate_state)
     is_execution_authorized = getattr(facts, "is_execution_authorized", False)
