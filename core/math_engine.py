@@ -2025,6 +2025,18 @@ def compute_fifo_tax_lots(
     }
 
 
+def _build_portfolio_gate_summary(holdings: List[HoldingItem]) -> List[Dict[str, Any]]:
+    """Preserve the AMC identity/value fields required by candidate AMC gates."""
+    return [
+        {
+            "scheme": holding.scheme,
+            "value": holding.current_value_inr,
+            "amc_name": holding.amc_name,
+        }
+        for holding in holdings
+    ]
+
+
 def aggregate_fiduciary_facts(
     cas_path: Path,
     metrics_path: Path,
@@ -2106,9 +2118,8 @@ def aggregate_fiduciary_facts(
     
     # Convert SAA Drift Minimizer to SAADriftAnalysis for backward compatibility
     total_equity_val = sum(h.current_value_inr for h in holdings if h.asset_class in (
-        AssetClass.LARGE_CAP, AssetClass.MID_CAP, AssetClass.SMALL_CAP,
-        AssetClass.FLEXI_CAP, AssetClass.MULTI_CAP, AssetClass.LARGE_CAP,
-        AssetClass.INTERNATIONAL
+        AssetClass.EQUITY, AssetClass.LARGE_CAP, AssetClass.MID_CAP, AssetClass.SMALL_CAP,
+        AssetClass.FLEXI_CAP, AssetClass.MULTI_CAP, AssetClass.INTERNATIONAL
     ))
     total_debt_val = sum(h.current_value_inr for h in holdings if h.asset_class in (
         AssetClass.DEBT, AssetClass.DEBT_LIQUID,
@@ -2323,14 +2334,7 @@ def aggregate_fiduciary_facts(
                 disclosure_as_of_date=disclosure_as_of_date,
                 disclosure_max_age_days=disclosure_max_age_days,
             )
-    current_portfolio_summary = [
-        {
-            "scheme": h.scheme,
-            "value": h.current_value_inr,
-            "amc_name": h.amc_name,
-        }
-        for h in holdings
-    ]
+    current_portfolio_summary = _build_portfolio_gate_summary(holdings)
     tier_num = _parse_sebi_risk_tier(client_risk_tier)
 
     eligible_candidates = []
@@ -2678,8 +2682,6 @@ def calculate_saa_drift_minimizer(
             current_alloc["Equity"] += equity_val
             current_alloc["Debt"] += debt_val
             continue
-        elif h.asset_class in (AssetClass.INTERNATIONAL,):
-            alloc_category = "International"
         else:
             alloc_category = "Other"
         
