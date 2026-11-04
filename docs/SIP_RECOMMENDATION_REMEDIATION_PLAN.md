@@ -29,7 +29,7 @@ The principal deterministic path is:
 | SIP-006 | P1 | The candidate selector evaluates the AMC concentration gate using existing holdings, but the SIP pipeline must prove that the holding data supplied to it is complete and reconciled before treating the gate as passed. | Missing AMC attribution can cause false comfort or blanket rejection; the source/reconciliation state must be explicit. |
 | SIP-007 | P1 | The six-pillar score uses fixed category anchors and rewards defensive buffer and international exposure as generic positive factors for every equity category. | Score design may favour the wrong characteristics and is not a validated category-relative fund-selection model. |
 | SIP-008 | P1 | The policy's stated 30-candidate minimum, 20% per-fund cap and default sleeve targets are not yet shown to be mutually feasible. | A policy contradiction may make valid SIP construction impossible or encourage silent reallocation. |
-| SIP-009 | P1 | The final plan checks missing Direct status only for positive rounded monthly amounts; the plan model does not itself enforce allocated + unallocated = requested budget or exact percentage reconciliation. | Edge cases involving small budgets, rounding or malformed plan construction need explicit invariants. |
+| SIP-009 | P1 | `DeterministicSIPPlan` now validates finite/non-negative amounts, allocated + unallocated budget reconciliation, percentage bounds and item-percentage reconciliation. | Runtime test suite must confirm all existing construction paths satisfy the stricter contract; sub-paise/cent rounding tolerance remains 0.01 INR and 0.11 percentage points. |
 | SIP-010 | P0 — partially fixed | Selector and SIP-plan construction now have distinct mid-cap and small-cap sleeves, with SAA-based split for established portfolios and SAA-proportional split of the starter combined mid/small budget. | The new small-cap category currently has no approved category scoring anchor, so candidates remain unscorable and the dependent plan must stay on hold until a defensible small-cap research model is approved. |
 
 ## 3. Implementation progress on `main`
@@ -46,7 +46,7 @@ The principal deterministic path is:
 | SIP-006 | Open. | Prove holdings/AMC attribution completeness and reconciliation before concentration gates can pass. |
 | SIP-007 | Open. | Replace arbitrary anchors/weights with an investor-approved, benchmark-consistent research model. |
 | SIP-008 | Open. | Resolve the policy contradiction between sleeve weights and the 20% per-fund cap. |
-| SIP-009 | Open. | Add plan-level exact amount and percentage invariants. |
+| SIP-009 | Implemented in model. | Added plan-level budget and percentage invariants; CI validation pending for all callers. |
 | SIP-010 | Partially fixed — P0. | Separate mid-cap and small-cap allocations are now routed as distinct slots. |
 
 **Mid/small sleeve implementation:** commits `2526d25`, `b23ace6`, `6ad94d2`, `38a8fcd`, `9de9147` and `b16049e` add separate Mid Cap and Small Cap selector slots, pass them into SIP plan construction, preserve the starter combined mid/small policy while splitting by SAA proportions, and require fail-closed verification for each positively weighted sleeve. The selector unit test uses a stub scorer to verify category routing; it does **not** validate a real small-cap scoring model. The current scoring anchor table has no `Small Cap` entry, intentionally preventing a live small-cap ranking from being invented. The production SIP therefore remains blocked for any mandate with a positive small-cap target until the benchmark-consistent small-cap research model is validated.
@@ -97,3 +97,6 @@ A SIP recommendation may be marked research-ready only when all of the following
 ## 7. Current conclusion
 
 The SIP code has a deterministic allocation builder, eligibility checks and a report path, but the current ranking path does not yet use the promised category and portfolio-fit context, policy constraints are not fully enforced, and universe/constituent evidence requirements are not complete. Therefore it is **not ready to issue actionable or production SIP recommendations**.
+
+
+**SIP plan reconciliation implementation:** commits `2551127`, `ed63c0b` and `d15be2d` add model-level checks that all monetary values and allocation percentages are finite and non-negative, percentage fields stay within bounds, item percentages reconcile to equity + debt SIP percentages, and allocated plus explicitly unallocated monthly amounts reconcile to the requested budget. Regression cases cover mismatch, valid full hold/unallocated budget, and non-finite budget values. This is not proof of full end-to-end feasibility: fund caps, minimum tickets, increments and category-level SAA compatibility remain separate open controls.
