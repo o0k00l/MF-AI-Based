@@ -322,3 +322,17 @@ def test_candidate_sip_allocation_rejects_stale_scores_and_caps_fund_count():
     )
     assert len(result["allocations"]) == 1
     assert result["rejected_candidates"]["b"] == ["MAX_CORE_FUND_COUNT_REACHED"]
+
+
+def test_candidate_sip_allocation_with_zero_remaining_fund_slots_is_fail_closed():
+    result = allocate_candidate_sip(
+        {"large_cap": "5000"},
+        [{"candidate_id": "a", "sleeve": "large_cap", "eligibility_status": "ELIGIBLE",
+          "overlap_status": "ASSESSED", "operational_status": "FEASIBLE_FOR_REVIEW",
+          "rank_score": "2", "score_evidence_ref": "sha256:a", "score_as_of_date": "2026-11-04"}],
+        as_of_date="2026-11-04", min_sip_per_fund_inr="1000",
+        rounding_increment_inr="500", max_funds=0,
+    )
+    assert result["status"] == "HOLD"
+    assert result["unallocated_budget_inr"] == "5000"
+    assert result["rejected_candidates"]["a"] == ["MAX_CORE_FUND_COUNT_REACHED"]
