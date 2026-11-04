@@ -176,6 +176,9 @@ def alpha_release_blockers(fixture_path: Path) -> list[str]:
         blockers.append(f"NSE trading calendar cannot be read: {exc}")
         return blockers
 
+    if not isinstance(calendar, dict):
+        blockers.append("NSE calendar root must be a JSON object")
+        return blockers
     if calendar.get("exchange") != "NSE" or str(calendar.get("status", "")).upper() != "VERIFIED":
         blockers.append("NSE calendar must identify exchange=NSE and status=VERIFIED")
     sessions = calendar.get("sessions")
@@ -184,9 +187,13 @@ def alpha_release_blockers(fixture_path: Path) -> list[str]:
         sessions = []
     if sessions != sorted(set(sessions)):
         blockers.append("NSE calendar sessions must be sorted and unique")
-    if not isinstance(calendar, dict):
-        blockers.append("NSE calendar root must be a JSON object")
-        return blockers
+    for day in sessions:
+        try:
+            if date.fromisoformat(day).isoformat() != day:
+                raise ValueError("non-canonical ISO date")
+        except ValueError:
+            blockers.append(f"NSE calendar contains invalid ISO session date {day!r}")
+            break
     cal_provenance = calendar.get("provenance", {})
     if not isinstance(cal_provenance, dict):
         blockers.append("NSE calendar provenance must be a JSON object")
