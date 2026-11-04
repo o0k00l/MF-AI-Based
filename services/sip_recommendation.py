@@ -102,17 +102,22 @@ def recommend_sip(
     if isinstance(disclosure_max_age_days, bool) or not isinstance(disclosure_max_age_days, int) or disclosure_max_age_days < 0:
         raise ValueError("disclosure_max_age_days must be a non-negative integer")
 
-    holdings = load_holdings_from_cas_excel(
-        cas_path,
-        metrics_path,
-        aliases_path,
-        scheme_master=scheme_master,
-        scheme_master_source_bytes=scheme_master_source_bytes,
-        portfolio_disclosures_by_scheme_id=portfolio_disclosures_by_scheme_id,
-        portfolio_disclosure_source_bytes_by_scheme_id=portfolio_disclosure_source_bytes_by_scheme_id,
-        disclosure_as_of_date=disclosure_as_of_date,
-        disclosure_max_age_days=disclosure_max_age_days,
-    )
+    try:
+        holdings = load_holdings_from_cas_excel(
+            cas_path,
+            metrics_path,
+            aliases_path,
+            scheme_master=scheme_master,
+            scheme_master_source_bytes=scheme_master_source_bytes,
+            portfolio_disclosures_by_scheme_id=portfolio_disclosures_by_scheme_id,
+            portfolio_disclosure_source_bytes_by_scheme_id=portfolio_disclosure_source_bytes_by_scheme_id,
+            disclosure_as_of_date=disclosure_as_of_date,
+            disclosure_max_age_days=disclosure_max_age_days,
+        )
+    except (OSError, ValueError, TypeError, KeyError) as exc:
+        return _hold_plan(budget, [
+            f"CAS or evidence validation failed closed ({type(exc).__name__})."
+        ])
     if not holdings:
         return _hold_plan(budget, ["CAS produced no active holdings; portfolio reconciliation cannot proceed."])
 
@@ -125,9 +130,16 @@ def recommend_sip(
             evidence_gaps.append(
                 f"{scheme_label}: constituent disclosure is {holding.lookthrough_status}."
             )
-        coverage = holding.constituent_weights_coverage_pct
-        if coverage is None or not math.isfinite(float(coverage)) or float(coverage) < 99.5:
-            evidence_gaps.append(f"{scheme_label}: constituent-weight coverage is incomplete.")
+        try:
+            coverage = float(holding.constituent_weights_coverage_pct)
+            current_value = float(holding.current_value_inr)
+        except (TypeError, ValueError, AttributeError):
+            evidence_gaps.append(f"{scheme_label}: coverage or current valuation is missing or malformed.")
+            continue
+        if not math.isfinite(coverage) or not 99.5 <= coverage <= 100.0:
+            evidence_gaps.append(f"{scheme_label}: constituent-weight coverage is incomplete or invalid.")
+        if not math.isfinite(current_value) or current_value <= 0:
+            evidence_gaps.append(f"{scheme_label}: current holding valuation is missing or invalid.")
     if evidence_gaps:
         return _hold_plan(budget, evidence_gaps)
 

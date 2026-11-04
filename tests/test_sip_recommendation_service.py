@@ -89,7 +89,6 @@ def test_verified_evidence_reaches_engine_but_provisional_allocations_are_suppre
     result = service.recommend_sip(**args)
 
     assert captured["holdings"][0].scheme_id == "SCHEME-1"
-    assert captured["scheme_master"] if "scheme_master" in captured else True
     assert captured["portfolio_disclosures_by_scheme_id"] is args["portfolio_disclosures_by_scheme_id"]
     assert captured["portfolio_disclosure_source_bytes_by_scheme_id"] is args[
         "portfolio_disclosure_source_bytes_by_scheme_id"
@@ -112,3 +111,38 @@ def test_custom_risk_profile_is_not_silently_mapped(tmp_path, monkeypatch):
 
     assert result["status"] == "HOLD"
     assert any("Custom" in reason for reason in result["reasons"])
+
+
+def test_malformed_coverage_fails_closed_without_raising(tmp_path, monkeypatch):
+    args = _inputs(tmp_path)
+    holding = _holding()
+    holding.constituent_weights_coverage_pct = "not-a-number"
+    monkeypatch.setattr(service, "load_holdings_from_cas_excel", lambda *a, **k: [holding])
+    monkeypatch.setattr(
+        service, "compute_deterministic_sip_blueprint",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("Engine must not run")),
+    )
+
+    result = service.recommend_sip(**args)
+
+    assert result["status"] == "HOLD"
+    assert result["decision"] == "NO_ACTION"
+    assert result["plan"]["items"] == []
+    assert result["plan"]["unallocated_budget_inr"] == 10000
+    assert any("malformed" in reason for reason in result["reasons"])
+
+
+def test_cas_parser_errors_fail_closed_without_leaking_exception_text(tmp_path, monkeypatch):
+    args = _inputs(tmp_path)
+    monkeypatch.setattr(
+        service, "load_holdings_from_cas_excel",
+        lambda *a, **k: (_ for _ in ()).throw(ValueError("private parser detail")),
+    )
+
+    result = service.recommend_sip(**args)
+
+    assert result["status"] == "HOLD"
+    assert result["decision"] == "NO_ACTION"
+    assert result["plan"]["unallocated_budget_inr"] == 10000
+    assert "ValueError" in result["reasons"][0]
+    assert "private parser detail" not in result["reasons"][0]
