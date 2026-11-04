@@ -98,11 +98,9 @@ The precise values and boundaries are maintained in `data/policy/asset_allocatio
 
 ## Tax treatment
 
-The code keeps equity-oriented classification separate from specified-mutual-fund and market-linked-debenture classification. Effective date, acquisition date, transfer date, scheme structure and the legally prescribed observation method all matter.
+Tax classification is deliberately unavailable in the current release. Public APIs for equity-oriented, specified-mutual-fund, Section 198, Section 50AA and Section 76 classification; FIFO tax maturation; lot-level exit-load calculation; tax-rate lookup; and tax-aware transition/redemption planning all fail closed pending independent legal review and verified scheme/plan/lot evidence.
 
-The automated tests use synthetic fixtures to exercise calculations and boundaries. Synthetic fixtures do not prove that a statutory interpretation is legally correct or that a real scheme qualifies. Current monthly/daily coverage objects are reviewer-attested diagnostics, not source authentication; their classification status remains provisional. Obtain current legal review and independently authenticated scheme-composition evidence before any tax treatment is relied upon.
-
-The equity-only transition planner does not currently provide a complete tax engine for every non-equity asset class. It must refuse unsupported classifications rather than applying equity exemption assumptions.
+Transaction parsing may be used only for controlled data preparation. It does not authenticate statutory treatment or authorize a sale. Synthetic tests validate the fail-closed boundary and selected data-integrity helpers; they do not establish that a statutory interpretation is legally correct or that a real scheme qualifies.
 
 ## Benchmark status
 
