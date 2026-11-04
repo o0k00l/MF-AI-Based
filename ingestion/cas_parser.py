@@ -85,6 +85,8 @@ def _iso_date(text: str) -> str | None:
 def _num(v):
     if v is None or v == "":
         return None
+    if isinstance(v, bool):
+        raise ValueError("boolean is not a financial numeric value")
     try:
         value = float(v) if isinstance(v, (int, float, Decimal)) else float(str(v).replace(",", "").strip())
     except (TypeError, ValueError, OverflowError) as exc:
