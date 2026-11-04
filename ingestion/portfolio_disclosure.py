@@ -19,6 +19,8 @@ def validate_portfolio_disclosure(
     *,
     as_of: date,
     max_age_days: int,
+    trust_registry: Optional[Dict[str, Any]] = None,
+    require_reviewer_signature: bool = False,
 ) -> Dict[str, Any]:
     """Return VERIFIED only when provenance, freshness and weight coverage pass."""
     def missing(reason: str) -> Dict[str, Any]:
@@ -74,6 +76,33 @@ def validate_portfolio_disclosure(
                    for key, value in weights.items())
             or not 99.5 <= sum(weights.values()) <= 100.5):
         return missing("Constituent weights must reconcile to 99.5–100.5% with at least 99.5% coverage.")
+
+    envelope = disclosure.get("reviewer_approval_envelope")
+    if require_reviewer_signature or envelope is not None or trust_registry is not None:
+        if envelope is None:
+            return missing("Independent reviewer approval signature is required; plain reviewer_attested boolean is withheld.")
+        if trust_registry is None:
+            return missing("Trust registry is required to verify independent reviewer signature.")
+        from services.sip_reviewer_approval import verify_sip_reviewer_approval
+        from datetime import datetime, timezone
+        as_of_dt = datetime.combine(as_of, datetime.min.time(), tzinfo=timezone.utc)
+        appr_res = verify_sip_reviewer_approval(
+            envelope,
+            trust_registry,
+            expected_scope="SIP_PORTFOLIO_DISCLOSURE",
+            expected_source_sha256=actual_hash,
+            structured_records={"constituent_weights": weights, "coverage_pct": coverage},
+            expected_scheme_id=scheme_id.strip(),
+            now=as_of_dt,
+        )
+        if not appr_res.ok:
+            return {
+                "status": "CONFLICTING",
+                "reason": f"Reviewer signature verification failed: {'; '.join(appr_res.errors)}",
+                "constituent_weights": None,
+                "constituent_weights_coverage_pct": None,
+            }
+
     return {"status": "VERIFIED", "reason": "Hash, reviewer, date and constituent coverage checks passed.",
             "scheme_id": scheme_id.strip(), "effective_date": effective_date.isoformat(),
             "source_url": source_url, "source_document_sha256": actual_hash,
@@ -123,6 +152,8 @@ def resolve_scheme_identity(
     scheme_master: Dict[str, Any],
     *,
     source_bytes: bytes,
+    trust_registry: Optional[Dict[str, Any]] = None,
+    require_reviewer_signature: bool = False,
 ) -> Dict[str, Any]:
     """Resolve CAS identity only against a separately verified scheme master.
 
@@ -149,6 +180,23 @@ def resolve_scheme_identity(
     records = scheme_master.get("schemes")
     if not isinstance(records, list):
         return unresolved("Verified scheme master has no schemes list.")
+
+    envelope = scheme_master.get("reviewer_approval_envelope")
+    if require_reviewer_signature or envelope is not None or trust_registry is not None:
+        if envelope is None:
+            return unresolved("Independent reviewer approval signature is required; plain reviewer_attested boolean is withheld.")
+        if trust_registry is None:
+            return unresolved("Trust registry is required to verify independent reviewer signature.")
+        from services.sip_reviewer_approval import verify_sip_reviewer_approval
+        appr_res = verify_sip_reviewer_approval(
+            envelope,
+            trust_registry,
+            expected_scope="SIP_SCHEME_MASTER",
+            expected_source_sha256=expected_hash,
+            structured_records=records,
+        )
+        if not appr_res.ok:
+            return unresolved(f"Reviewer signature verification failed: {'; '.join(appr_res.errors)}")
     matches = []
     for record in records:
         if not isinstance(record, dict):
