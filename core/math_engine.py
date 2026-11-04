@@ -156,81 +156,101 @@ def calculate_xirr(cashflows: List[Tuple[date, float]]) -> Optional[float]:
     return (rate_low + rate_high) / 2
 
 
-def reconcile_cas_holdings_with_transactions(
-    holdings: List[HoldingItem],
-    transactions_path: Path
-) -> Dict[str, Any]:
+def reconcile_cas_holdings_with_transactions(holdings: List[HoldingItem], transactions_path: Path) -> Dict[str, Any]:
+    """Reconcile aggregated CAS units to transaction history by exact normalized scheme name.
+
+    Rows across multiple folios are aggregated before comparison. Substring/fuzzy
+    matching is deliberately prohibited: unresolved identities are discrepancies.
     """
-    Cross-reconciles CAS statement holdings against cumulative transaction history units.
-    Flags any unrecorded corporate actions, external transfers, or unit discrepancies.
-    """
+    import re
+
     if not transactions_path.exists():
-        return {
-            "status": "NO_TRANSACTION_FILE",
-            "reconciled_schemes": 0,
-            "total_schemes": len(holdings),
-            "discrepancies": []
-        }
-
+        return {"status": "NO_TRANSACTION_FILE", "reconciled_schemes": 0,
+                "total_schemes": len(holdings), "discrepancies": [],
+                "unmatched_transaction_schemes": []}
     try:
-        with open(transactions_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        txs = data.get("transactions", [])
-    except Exception as e:
-        return {
-            "status": f"READ_ERROR: {e}",
-            "reconciled_schemes": 0,
-            "total_schemes": len(holdings),
-            "discrepancies": []
-        }
+        with open(transactions_path, "r", encoding="utf-8") as handle:
+            data = json.load(handle)
+        if not isinstance(data, dict) or not isinstance(data.get("transactions"), list):
+            raise ValueError("transactions.json must contain a transactions array")
+    except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as exc:
+        return {"status": "READ_ERROR", "error": str(exc), "reconciled_schemes": 0,
+                "total_schemes": len(holdings), "discrepancies": [],
+                "unmatched_transaction_schemes": []}
 
-    net_units_by_scheme: Dict[str, float] = {}
-    for tx in txs:
-        s_norm = tx.get("scheme", "").strip().lower()
-        u = float(tx.get("units", 0.0) or 0.0)
-        t_type = tx.get("type", "PURCHASE").upper()
-        if t_type in ("PURCHASE", "SIP", "SWITCH_IN", "STP_IN", "DIVIDEND_REINVEST"):
-            net_units_by_scheme[s_norm] = net_units_by_scheme.get(s_norm, 0.0) + u
-        elif t_type in ("REDEMPTION", "SWITCH_OUT", "STP_OUT"):
-            net_units_by_scheme[s_norm] = net_units_by_scheme.get(s_norm, 0.0) - u
+    def key(value: Any) -> str:
+        return re.sub(r"[^a-z0-9]", "", str(value or "").casefold())
+
+    cas_units: Dict[str, float] = {}
+    cas_names: Dict[str, str] = {}
+    for holding in holdings:
+        scheme_name = getattr(holding, "scheme", None)
+        scheme_key = key(scheme_name)
+        try:
+            units = float(getattr(holding, "units"))
+        except (TypeError, ValueError, AttributeError):
+            return {"status": "INVALID_CAS_UNITS", "reconciled_schemes": 0,
+                    "total_schemes": len(holdings), "discrepancies": [],
+                    "unmatched_transaction_schemes": []}
+        if not scheme_key or not math.isfinite(units) or units < 0:
+            return {"status": "INVALID_CAS_UNITS", "reconciled_schemes": 0,
+                    "total_schemes": len(holdings), "discrepancies": [],
+                    "unmatched_transaction_schemes": []}
+        cas_units[scheme_key] = cas_units.get(scheme_key, 0.0) + units
+        cas_names.setdefault(scheme_key, str(scheme_name))
+
+    transaction_units: Dict[str, float] = {}
+    transaction_names: Dict[str, str] = {}
+    supported_types = {"PURCHASE", "SIP", "SWITCH_IN", "STP_IN", "DIVIDEND_REINVEST",
+                       "REDEMPTION", "SWITCH_OUT", "STP_OUT"}
+    for index, transaction in enumerate(data["transactions"]):
+        if not isinstance(transaction, dict):
+            return {"status": "INVALID_TRANSACTION", "error": f"Transaction row {index} is not an object",
+                    "reconciled_schemes": 0, "total_schemes": len(holdings),
+                    "discrepancies": [], "unmatched_transaction_schemes": []}
+        scheme_name = transaction.get("scheme")
+        scheme_key = key(scheme_name)
+        txn_type = str(transaction.get("type", "PURCHASE")).upper()
+        try:
+            units = float(transaction.get("units", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            units = float("nan")
+        if (not scheme_key or txn_type not in supported_types or not math.isfinite(units)
+                or units < 0.0):
+            return {"status": "INVALID_TRANSACTION", "error": f"Invalid scheme, type or units at transaction row {index}",
+                    "reconciled_schemes": 0, "total_schemes": len(holdings),
+                    "discrepancies": [], "unmatched_transaction_schemes": []}
+        sign = -1.0 if txn_type in {"REDEMPTION", "SWITCH_OUT", "STP_OUT"} else 1.0
+        transaction_units[scheme_key] = transaction_units.get(scheme_key, 0.0) + sign * units
+        transaction_names.setdefault(scheme_key, str(scheme_name))
 
     discrepancies = []
     reconciled_count = 0
-    for h in holdings:
-        h_norm = h.scheme.strip().lower()
-        cas_u = round(float(h.units), 3)
-        matched_tx_u = None
-        for s_key, t_u in net_units_by_scheme.items():
-            if s_key == h_norm or (len(s_key) > 10 and (s_key in h_norm or h_norm in s_key)):
-                matched_tx_u = round(t_u, 3)
-                break
-
-        if matched_tx_u is not None:
-            diff = abs(cas_u - matched_tx_u)
-            if diff <= 0.05:
-                reconciled_count += 1
-            else:
-                discrepancies.append({
-                    "scheme": h.scheme,
-                    "cas_units": cas_u,
-                    "transaction_units": matched_tx_u,
-                    "difference": round(cas_u - matched_tx_u, 3)
-                })
+    for scheme_key, cas_total in cas_units.items():
+        if scheme_key not in transaction_units:
+            discrepancies.append({"scheme": cas_names[scheme_key], "cas_units": round(cas_total, 3),
+                                  "transaction_units": None, "difference": None,
+                                  "reason": "NO_EXACT_TRANSACTION_SCHEME_MATCH"})
+            continue
+        tx_total = transaction_units[scheme_key]
+        difference = cas_total - tx_total
+        if abs(difference) <= 0.05:
+            reconciled_count += 1
         else:
-            discrepancies.append({
-                "scheme": h.scheme,
-                "cas_units": cas_u,
-                "transaction_units": 0.0,
-                "difference": cas_u
-            })
+            discrepancies.append({"scheme": cas_names[scheme_key], "cas_units": round(cas_total, 3),
+                                  "transaction_units": round(tx_total, 3),
+                                  "difference": round(difference, 3), "reason": "UNIT_MISMATCH"})
 
-    status = "VERIFIED_RECONCILED" if not discrepancies else "PARTIALLY_RECONCILED"
-    return {
-        "status": status,
-        "reconciled_schemes": reconciled_count,
-        "total_schemes": len(holdings),
-        "discrepancies": discrepancies
-    }
+    unmatched_active = []
+    for scheme_key, tx_total in transaction_units.items():
+        if scheme_key not in cas_units and abs(tx_total) > 0.05:
+            unmatched_active.append({"scheme": transaction_names[scheme_key],
+                                     "transaction_units": round(tx_total, 3),
+                                     "reason": "ACTIVE_TRANSACTION_SCHEME_NOT_IN_CAS"})
+    status = "VERIFIED_RECONCILED" if not discrepancies and not unmatched_active else "PARTIALLY_RECONCILED"
+    return {"status": status, "reconciled_schemes": reconciled_count,
+            "total_schemes": len(cas_units), "discrepancies": discrepancies,
+            "unmatched_transaction_schemes": unmatched_active}
 
 
 def calculate_portfolio_xirr(
