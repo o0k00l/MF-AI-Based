@@ -121,11 +121,21 @@ def create_sip_app(
                     risk_profile=risk_profile,
                 )
                 evidence = validate_evidence_provider_payload(evidence)
+                # The validated provider envelope also carries provenance-only
+                # fields used at this boundary. Pass only the service's explicit
+                # input contract; never forward the envelope wholesale.
                 result = recommend_sip(
                     cas_path=cas_path,
+                    metrics_path=evidence["metrics_path"],
+                    aliases_path=evidence["aliases_path"],
                     monthly_budget_inr=monthly_budget_inr,
                     risk_profile=risk_profile,
-                    **evidence,
+                    scheme_master=evidence["scheme_master"],
+                    scheme_master_source_bytes=evidence["scheme_master_source_bytes"],
+                    portfolio_disclosures_by_scheme_id=evidence["portfolio_disclosures_by_scheme_id"],
+                    portfolio_disclosure_source_bytes_by_scheme_id=evidence["portfolio_disclosure_source_bytes_by_scheme_id"],
+                    disclosure_as_of_date=evidence["disclosure_as_of_date"],
+                    candidate_universe=evidence["candidate_universe"],
                 )
             except Exception as exc:
                 # Do not expose exception text, local paths, source records or
