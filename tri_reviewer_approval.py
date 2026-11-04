@@ -31,15 +31,18 @@ OFFICIAL_HOSTS = {"nseindia.com", "www.nseindia.com", "niftyindices.com", "www.n
 
 
 def _official_https_url(value: Any) -> bool:
-    parsed = urlparse(value if isinstance(value, str) else "")
-    host = (parsed.hostname or "").lower()
-    return (
-        parsed.scheme == "https"
-        and host in OFFICIAL_HOSTS
-        and parsed.username is None
-        and parsed.password is None
-        and parsed.port in (None, 443)
-    )
+    try:
+        parsed = urlparse(value if isinstance(value, str) else "")
+        host = (parsed.hostname or "").lower()
+        return (
+            parsed.scheme == "https"
+            and host in OFFICIAL_HOSTS
+            and parsed.username is None
+            and parsed.password is None
+            and parsed.port in (None, 443)
+        )
+    except ValueError:
+        return False
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 REQUIRED_PAYLOAD_FIELDS = {
