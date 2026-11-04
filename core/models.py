@@ -314,11 +314,11 @@ class TaxLot(BaseModel):
     folio_name: str = "UNKNOWN"
 
     def is_long_term_given(self, as_of_date, lt_holding_months: int = 12) -> bool:
-        """Check if the lot is long-term as of the given date based on holding period."""
-        from datetime import date
-        purchase = date.fromisoformat(self.purchase_date)
-        holding_days = (as_of_date - purchase).days
-        return holding_days >= lt_holding_months * 30
+        """Disabled legacy tax classification; use only an approved lot-level tax engine."""
+        raise RuntimeError(
+            "Tax-lot maturity classification is disabled pending independently "
+            "approved statutory rules and verified scheme/plan/lot evidence."
+        )
 
 
 class TaxLotSummary(BaseModel):
