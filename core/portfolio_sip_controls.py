@@ -246,11 +246,19 @@ def screen_candidates_before_scoring(
 ) -> dict[str, Any]:
     """Only fully evidenced candidates enter ranking; no score is synthesized."""
     today = _date(as_of_date, "as_of_date")
-    if isinstance(max_evidence_age_days, bool) or max_evidence_age_days < 0:
-        raise PortfolioInputError("max_evidence_age_days must be non-negative")
-    gates = tuple(mandatory_gates)
-    if not gates or len(set(gates)) != len(gates):
-        raise PortfolioInputError("mandatory_gates must be non-empty and unique")
+    if (isinstance(max_evidence_age_days, bool)
+            or not isinstance(max_evidence_age_days, int)
+            or max_evidence_age_days < 0):
+        raise PortfolioInputError("max_evidence_age_days must be a non-negative integer")
+    if isinstance(mandatory_gates, (str, bytes)):
+        raise PortfolioInputError("mandatory_gates must be an iterable of gate names, not a string")
+    try:
+        gates = tuple(mandatory_gates)
+    except TypeError:
+        raise PortfolioInputError("mandatory_gates must be an iterable of gate names") from None
+    if (not gates or any(not isinstance(gate, str) or not gate.strip() for gate in gates)
+            or len(set(gates)) != len(gates)):
+        raise PortfolioInputError("mandatory_gates must contain non-empty, unique gate names")
     results = []
     eligible = []
     for row in candidates:
