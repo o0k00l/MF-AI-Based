@@ -115,6 +115,7 @@ def test_p0_1_universal_4_slot_sizing_invariant():
         risk_tier="Tier 6 (Very High)",
         stability_buffer_pct=7.54,
         client_aum=5000000.0,
+        client_aum_verified=True,
         equity_sip_routing_override=True,
     )
     assert plan_t6.equity_sip_pct == 100.0
@@ -136,7 +137,8 @@ def test_p0_1_universal_4_slot_sizing_invariant():
         monthly_budget=budget,
         risk_tier="Tier 5 (High)",
         stability_buffer_pct=3.0,
-        client_aum=5000000.0
+        client_aum=5000000.0,
+        client_aum_verified=True,
     )
     assert plan_t5.equity_sip_pct == 95.0
     assert plan_t5.debt_sip_pct == 5.0
@@ -159,6 +161,7 @@ def test_p0_1_universal_4_slot_sizing_invariant():
         risk_tier="Tier 6 (Very High)",
         stability_buffer_pct=7.54,
         client_aum=200000.0,  # Starter
+        client_aum_verified=True,
         equity_sip_routing_override=True,
     )
     assert plan_starter.equity_sip_pct == 100.0
