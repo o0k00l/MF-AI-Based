@@ -127,6 +127,12 @@ def validate_evidence_provider_payload(payload: Any) -> dict[str, Any]:
         raise EvidenceProviderContractError(
             "Portfolio context, source metadata and original source bytes must be supplied together."
         )
+    metrics_fields = {"metrics_source_metadata", "metrics_source_bytes"}
+    metrics_present = supplied & metrics_fields
+    if metrics_present != metrics_fields:
+        raise EvidenceProviderContractError(
+            "Fund metrics source metadata and original source bytes are mandatory and must be supplied together."
+        )
     if missing:
         raise EvidenceProviderContractError(
             "Provider response is missing required fields: " + ", ".join(sorted(missing))
@@ -134,12 +140,6 @@ def validate_evidence_provider_payload(payload: Any) -> dict[str, Any]:
     if unexpected:
         raise EvidenceProviderContractError(
             "Provider response contains unsupported fields: " + ", ".join(sorted(unexpected))
-        )
-    metrics_fields = {"metrics_source_metadata", "metrics_source_bytes"}
-    metrics_present = supplied & metrics_fields
-    if metrics_present != metrics_fields:
-        raise EvidenceProviderContractError(
-            "Fund metrics source metadata and original source bytes are mandatory and must be supplied together."
         )
     score_source_fields = {"candidate_score_source_metadata", "candidate_score_source_bytes"}
     score_source_present = optional_present & score_source_fields
