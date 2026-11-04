@@ -2430,3 +2430,50 @@ def test_tri_calculation_rejects_unapproved_benchmark_without_checksum_contract(
         )
 
     assert error.value.validation_stage == "benchmark_not_approved"
+
+
+
+@pytest.mark.parametrize(
+    "statement_date, expected",
+    [
+        ("2026-09-09", date(2026, 9, 9)),
+        ("09-Sep-2026", date(2026, 9, 9)),
+        ("09/09/2026", date(2026, 9, 9)),
+        ("09-09-2026", date(2026, 9, 9)),
+    ],
+)
+def test_tri_audit_uses_explicit_cas_valuation_date(tmp_path, statement_date, expected):
+    from openpyxl import Workbook
+    from core.math_engine import _parse_cas_valuation_date
+
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Portfolio Details"
+    sheet.append(["To Date", statement_date])
+    path = tmp_path / "cas.xlsx"
+    workbook.save(path)
+
+    assert _parse_cas_valuation_date(path) == expected
+
+
+def test_tri_audit_rejects_missing_or_ambiguous_cas_valuation_date(tmp_path):
+    from openpyxl import Workbook
+    from core.math_engine import _parse_cas_valuation_date
+
+    workbook = Workbook()
+    workbook.active.title = "Portfolio Details"
+    path = tmp_path / "cas_missing_date.xlsx"
+    workbook.save(path)
+
+    with pytest.raises(ValueError, match="does not contain a valuation date"):
+        _parse_cas_valuation_date(path)
+
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Portfolio Details"
+    sheet.append(["To Date", "not-a-date"])
+    path = tmp_path / "cas_invalid_date.xlsx"
+    workbook.save(path)
+
+    with pytest.raises(ValueError, match="unsupported format"):
+        _parse_cas_valuation_date(path)
