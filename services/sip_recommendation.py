@@ -930,6 +930,10 @@ def recommend_sip(
         scheme_label = holding.scheme or holding.fund_id
         if not holding.scheme_id:
             evidence_gaps.append(f"{scheme_label}: exact scheme identity is missing.")
+        if getattr(holding, "plan_option_status", "MISSING") != "VERIFIED":
+            evidence_gaps.append(
+                f"{scheme_label}: Direct/Regular plan and Growth/IDCW option identity is missing or conflicting."
+            )
         if getattr(holding, "metrics_status", "MISSING") != "VERIFIED":
             evidence_gaps.append(
                 f"{scheme_label}: fund category/risk/exposure metrics are MISSING or unverified."
