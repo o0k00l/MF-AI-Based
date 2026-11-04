@@ -44,7 +44,7 @@ def valid_payload():
             "scheme_id": "scheme-1", "isin": "INF000000001",
             "amc_name": "Example AMC", "category": "Flexi Cap",
         }],
-        "candidate_universe_source": _source_metadata(universe_bytes),
+        "candidate_universe_source": {**_source_metadata(universe_bytes), "universe_complete": True, "coverage_scope": "All eligible open-ended equity and debt schemes"},
         "candidate_universe_source_bytes": universe_bytes,
     }
 
@@ -134,4 +134,20 @@ def test_contract_rejects_candidate_missing_required_identity_field():
     payload["candidate_universe"][0].pop("amc_name")
 
     with pytest.raises(EvidenceProviderContractError, match="requires amc_name"):
+        validate_evidence_provider_payload(payload)
+
+
+def test_contract_rejects_unattested_incomplete_candidate_universe():
+    payload = valid_payload()
+    payload["candidate_universe_source"]["universe_complete"] = False
+
+    with pytest.raises(EvidenceProviderContractError, match="explicitly reviewer-attested as complete"):
+        validate_evidence_provider_payload(payload)
+
+
+def test_contract_rejects_stale_candidate_universe_source():
+    payload = valid_payload()
+    payload["candidate_universe_source"]["effective_date"] = "2026-08-01"
+
+    with pytest.raises(EvidenceProviderContractError, match="source is stale"):
         validate_evidence_provider_payload(payload)
