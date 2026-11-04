@@ -21,7 +21,7 @@ def _signed_case(tmp_path):
     policy = root / "data/policy"
     policy.mkdir(parents=True)
     fixture = policy / "fixture.json"
-    fixture.write_text('{"test":true}', encoding="utf-8")
+    fixture.write_text(json.dumps({"provenance": {"independent_reviewer_id": "reviewer-test"}}), encoding="utf-8")
     source = policy / "nifty500.csv"
     source.write_text("date,tri\n2026-01-01,100\n", encoding="utf-8")
     source2 = policy / "multicap.csv"
