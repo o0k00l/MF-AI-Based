@@ -1914,12 +1914,26 @@ def aggregate_fiduciary_facts(
     metrics_path: Path,
     config_path: Path,
     aliases_path: Optional[Path] = None,
+    scheme_master: Optional[Dict[str, Any]] = None,
+    scheme_master_source_bytes: Optional[bytes] = None,
+    portfolio_disclosures_by_scheme_id: Optional[Dict[str, Dict[str, Any]]] = None,
+    portfolio_disclosure_source_bytes_by_scheme_id: Optional[Dict[str, bytes]] = None,
+    disclosure_as_of_date: Optional[date] = None,
+    disclosure_max_age_days: int = 45,
 ) -> FiduciaryFactsPayload:
     """
     Full pipeline aggregator: runs deterministic math on statements and config.
     Returns complete FiduciaryFactsPayload.
     """
-    holdings = load_holdings_from_cas_excel(cas_path, metrics_path, aliases_path)
+    holdings = load_holdings_from_cas_excel(
+        cas_path, metrics_path, aliases_path,
+        scheme_master=scheme_master,
+        scheme_master_source_bytes=scheme_master_source_bytes,
+        portfolio_disclosures_by_scheme_id=portfolio_disclosures_by_scheme_id,
+        portfolio_disclosure_source_bytes_by_scheme_id=portfolio_disclosure_source_bytes_by_scheme_id,
+        disclosure_as_of_date=disclosure_as_of_date,
+        disclosure_max_age_days=disclosure_max_age_days,
+    )
 
     # Load client config
     client_name = "Client"
@@ -2035,7 +2049,11 @@ def aggregate_fiduciary_facts(
         stability_buffer_pct=stability_buf.total_stability_buffer_pct,
         holdings=holdings,
         client_aum=tot_cur,
-        thematic_deficit_theme=deficit_theme
+        thematic_deficit_theme=deficit_theme,
+        portfolio_disclosures_by_scheme_id=portfolio_disclosures_by_scheme_id,
+        portfolio_disclosure_source_bytes_by_scheme_id=portfolio_disclosure_source_bytes_by_scheme_id,
+        disclosure_as_of_date=disclosure_as_of_date,
+        disclosure_max_age_days=disclosure_max_age_days,
     )
 
     det_lumpsum_plan = compute_deterministic_lumpsum_blueprint(
