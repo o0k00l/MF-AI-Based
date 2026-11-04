@@ -358,7 +358,7 @@ def test_classified_concentration_blocks_sector_market_cap_and_theme_breaches():
     assert result["status"] == "HOLD"
     assert result["breaches"]["sector"]["Financials"] == "55.00"
     assert result["breaches"]["theme"]["banks"] == "55.00"
-    assert result["breaches"]["market_cap"]["large_cap"] == "30.00"
+    assert float(result["breaches"]["market_cap"]["large_cap"]) == 30.0
 
 
 def test_classified_concentration_holds_on_missing_classification_or_stale_source():
