@@ -83,15 +83,19 @@ def _iso_date(text: str) -> str | None:
 
 
 def _num(v):
-    """Parse a finite numeric cell; booleans, NaN and infinities are invalid."""
     if v is None or v == "":
         return None
+    if isinstance(v, (int, float)):
+        return float(v)
+    return float(str(v).replace(",", "").strip())
+
+
+def _finite_num(v):
+    """Parse a finite financial cell; booleans, NaN and infinities are invalid."""
     if isinstance(v, bool):
         raise ValueError("boolean is not a financial numeric value")
-    number = float(v) if isinstance(v, (int, float, Decimal)) else float(
-        str(v).replace(",", "").strip()
-    )
-    if not math.isfinite(number):
+    number = _num(v)
+    if number is not None and not math.isfinite(number):
         raise ValueError("financial numeric value must be finite")
     return number
 
@@ -174,7 +178,7 @@ def parse_cas_xlsx(source, scheme_master=None, scheme_master_source_bytes=None) 
             if pos < len(follow) and follow[pos] is not None:
                 raw_total = follow[pos]
                 try:
-                    stated_total = _num(raw_total)
+                    stated_total = _finite_num(raw_total)
                     if stated_total is None or stated_total < 0:
                         raise ValueError("stated portfolio total must be non-negative")
                 except (TypeError, ValueError, OverflowError) as exc:
@@ -214,7 +218,7 @@ def parse_cas_xlsx(source, scheme_master=None, scheme_master_source_bytes=None) 
             continue
         raw_current = cell("current_value")
         try:
-            current = _num(raw_current)
+            current = _finite_num(raw_current)
             if current is None:
                 raise ValueError("current value is blank")
             if current < 0:
@@ -243,7 +247,7 @@ def parse_cas_xlsx(source, scheme_master=None, scheme_master_source_bytes=None) 
             if raw_value is None or raw_value == "":
                 continue
             try:
-                value = _num(raw_value)
+                value = _finite_num(raw_value)
                 if value is None:
                     continue
                 if key in {"invested", "units"} and value < 0:
@@ -305,7 +309,7 @@ def parse_cas_xlsx(source, scheme_master=None, scheme_master_source_bytes=None) 
             
             if sn_col is not None and dt_col is not None and amt_col is not None:
                 last_scheme = ""
-                for r in tx_rows[hdr_idx + 1:]:
+                for tx_row_number, r in enumerate(tx_rows[hdr_idx + 1:], start=hdr_idx + 2):
                     if not any(r): continue
                     sn = r[sn_col]
                     if sn and str(sn).strip():
@@ -313,9 +317,9 @@ def parse_cas_xlsx(source, scheme_master=None, scheme_master_source_bytes=None) 
                     dt = str(r[dt_col] or "").strip()
                     raw_amount = r[amt_col]
                     try:
-                        amt = _num(raw_amount)
-                        units = _num(r[unt_col]) if unt_col is not None else None
-                        nav = _num(r[nav_col]) if nav_col is not None else None
+                        amt = _finite_num(raw_amount)
+                        units = _finite_num(r[unt_col]) if unt_col is not None else None
+                        nav = _finite_num(r[nav_col]) if nav_col is not None else None
                         if units is not None and units < 0:
                             raise ValueError("transaction units must be non-negative")
                         if nav is not None and nav <= 0:
@@ -324,7 +328,7 @@ def parse_cas_xlsx(source, scheme_master=None, scheme_master_source_bytes=None) 
                             raise ValueError("transaction amount is blank")
                     except (TypeError, ValueError, OverflowError) as exc:
                         out["rejected"].append({
-                            "row": tx_rows.index(r) + 1,
+                            "row": tx_row_number,
                             "scheme": last_scheme or None,
                             "raw_cells": {
                                 "amount": repr(raw_amount),
