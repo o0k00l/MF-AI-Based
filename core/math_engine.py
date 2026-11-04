@@ -1015,60 +1015,72 @@ def load_holdings_from_cas_excel(
     holdings: List[HoldingItem] = []
     raw_items = []
 
-    # Dynamic header lookup
+    # Parse only an explicit, complete header contract. Never fall back to
+    # positional columns: a different workbook layout could otherwise turn
+    # unrelated cells into invested/current values without an obvious error.
     hdr = None
-    start_row = 1
+    start_row = None
     for row_idx, row in enumerate(sheet.iter_rows(values_only=True), start=1):
-        vals = [str(c).strip() if c else "" for c in row]
-        if vals and "Scheme Name" in vals:
+        vals = [str(c).strip() if c is not None else "" for c in row]
+        if "Scheme Name" in vals:
+            non_empty = [name for name in vals if name]
+            if len(non_empty) != len(set(non_empty)):
+                raise ValueError("Invalid CAS workbook: duplicate column headers in 'Portfolio Details'.")
             hdr = {name: i for i, name in enumerate(vals) if name}
             start_row = row_idx + 1
             break
 
-    if hdr and "Scheme Name" in hdr:
-        col_scheme = hdr["Scheme Name"]
-        col_folio = hdr.get("Folio No.", 3)
-        col_inv = hdr.get("Invested Value", 4)
-        col_cur = hdr.get("Current Value", 5)
-        col_units = hdr.get("Units", 7)
-        col_amc = hdr.get("AMC Name")
+    required_headers = {"Scheme Name", "Folio No.", "Invested Value", "Current Value", "Units"}
+    if hdr is None:
+        raise ValueError("Invalid CAS workbook: no 'Scheme Name' header found in 'Portfolio Details'.")
+    missing_headers = sorted(required_headers - set(hdr))
+    if missing_headers:
+        raise ValueError(
+            "Invalid CAS workbook: missing required 'Portfolio Details' columns: "
+            + ", ".join(missing_headers)
+        )
 
-        for row in sheet.iter_rows(min_row=start_row, values_only=True):
-            if not row or len(row) <= col_scheme or not row[col_scheme]:
-                continue
-            s_name = row[col_scheme]
-            f_no = row[col_folio] if len(row) > col_folio else ""
-            i_val = row[col_inv] if len(row) > col_inv else 0.0
-            c_val = row[col_cur] if len(row) > col_cur else 0.0
-            u_val = row[col_units] if len(row) > col_units else 0.0
-            try:
-                c_float = float(c_val) if c_val else 0.0
-                i_float = float(i_val) if i_val else 0.0
-                u_float = float(u_val) if u_val else 0.0
-            except (ValueError, TypeError):
-                continue
-            if c_float > 0.0:
-                nav_float = round(c_float / u_float, 4) if u_float > 0 else 0.0
-                amc_value = row[col_amc] if col_amc is not None and len(row) > col_amc else ""
-                raw_items.append((str(s_name).strip(), str(f_no).strip() if f_no else "", i_float, c_float, u_float, nav_float, str(amc_value or "").strip()))
-    else:
-        for r in range(13, sheet.max_row + 1):
-            s_name = sheet.cell(row=r, column=1).value
-            f_no = sheet.cell(row=r, column=4).value
-            i_val = sheet.cell(row=r, column=5).value
-            c_val = sheet.cell(row=r, column=6).value
-            u_val = sheet.cell(row=r, column=8).value
-            if not c_val:
-                continue
-            try:
-                c_float = float(c_val)
-                i_float = float(i_val) if i_val else 0.0
-                u_float = float(u_val) if u_val else 0.0
-            except (ValueError, TypeError):
-                continue
-            if c_float > 0.0:
-                nav_float = round(c_float / u_float, 4) if u_float > 0 else 0.0
-                raw_items.append((str(s_name).strip(), str(f_no).strip() if f_no else "", i_float, c_float, u_float, nav_float, ""))
+    col_scheme = hdr["Scheme Name"]
+    col_folio = hdr["Folio No."]
+    col_inv = hdr["Invested Value"]
+    col_cur = hdr["Current Value"]
+    col_units = hdr["Units"]
+    col_amc = hdr.get("AMC Name")
+
+    for row in sheet.iter_rows(min_row=start_row, values_only=True):
+        if not row or len(row) <= col_scheme or not row[col_scheme]:
+            continue
+        s_name = row[col_scheme]
+        f_no = row[col_folio] if len(row) > col_folio else ""
+        i_val = row[col_inv] if len(row) > col_inv else None
+        c_val = row[col_cur] if len(row) > col_cur else None
+        u_val = row[col_units] if len(row) > col_units else None
+        try:
+            if i_val is None or c_val is None or u_val is None:
+                raise ValueError("blank financial cell")
+            c_float = float(c_val)
+            i_float = float(i_val)
+            u_float = float(u_val)
+        except (ValueError, TypeError) as exc:
+            raise ValueError(
+                f"Invalid CAS workbook: malformed financial values for scheme {str(s_name).strip()!r}."
+            ) from exc
+        if not all(math.isfinite(value) for value in (i_float, c_float, u_float)):
+            raise ValueError(
+                f"Invalid CAS workbook: non-finite financial values for scheme {str(s_name).strip()!r}."
+            )
+        if i_float < 0 or c_float < 0 or u_float < 0:
+            raise ValueError(
+                f"Invalid CAS workbook: negative financial values for scheme {str(s_name).strip()!r}."
+            )
+        if c_float > 0.0:
+            if u_float <= 0.0:
+                raise ValueError(
+                    f"Invalid CAS workbook: positive current value requires positive units for scheme {str(s_name).strip()!r}."
+                )
+            nav_float = round(c_float / u_float, 4)
+            amc_value = row[col_amc] if col_amc is not None and len(row) > col_amc else ""
+            raw_items.append((str(s_name).strip(), str(f_no).strip() if f_no else "", i_float, c_float, u_float, nav_float, str(amc_value or "").strip()))
 
     for scheme_str, folio_str, invested, current, units_val, nav_val, amc_name in raw_items:
         # Plan detection
