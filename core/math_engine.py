@@ -3760,7 +3760,8 @@ def select_autonomous_blueprint_funds(
         saa = profile["saa_targets"]
         equity_parts = {
             "flexi": float(saa["flexi_multi_cap_pct"]),
-            "mid_small": float(saa["mid_cap_pct"]) + float(saa["small_cap_pct"]),
+            "mid": float(saa["mid_cap_pct"]),
+            "small": float(saa["small_cap_pct"]),
             "large": float(saa["large_cap_pct"]),
         }
         equity_total = sum(equity_parts.values())
@@ -3792,13 +3793,15 @@ def select_autonomous_blueprint_funds(
     core_budget_pct = 100.0 - satellite_pct
     slot_targets = {
         "Slot 1: Core Flexi-Cap Compounder": round(core_budget_pct * equity_parts["flexi"] / equity_total, 1) if equity_total else 0.0,
-        "Slot 2: Mid-Cap Alpha Engine": round(core_budget_pct * equity_parts["mid_small"] / equity_total, 1) if equity_total else 0.0,
-        "Slot 3: Large-Cap Bluechip Anchor": 0.0,
+        "Slot 2: Mid-Cap Alpha Engine": round(core_budget_pct * equity_parts["mid"] / equity_total, 1) if equity_total else 0.0,
+        "Slot 3: Small-Cap Growth Engine": round(core_budget_pct * equity_parts["small"] / equity_total, 1) if equity_total else 0.0,
+        "Slot 4: Large-Cap Bluechip Anchor": 0.0,
     }
-    slot_targets["Slot 3: Large-Cap Bluechip Anchor"] = round(
+    slot_targets["Slot 4: Large-Cap Bluechip Anchor"] = round(
         core_budget_pct
         - slot_targets["Slot 1: Core Flexi-Cap Compounder"]
-        - slot_targets["Slot 2: Mid-Cap Alpha Engine"],
+        - slot_targets["Slot 2: Mid-Cap Alpha Engine"]
+        - slot_targets["Slot 3: Small-Cap Growth Engine"],
         1,
     )
 
@@ -3893,6 +3896,7 @@ def select_autonomous_blueprint_funds(
                 "Flexi Cap Equity": "Flexi Cap",
                 "Mid Cap Equity": "Mid Cap",
                 "Large Cap Equity": "Large Cap",
+                "Small Cap Equity": "Small Cap",
             }
             score_category_key = scoring_categories.get(classified_category)
             if score_category_key is None and detect_fund_theme(name, category) == "Healthcare":
@@ -3952,9 +3956,16 @@ def select_autonomous_blueprint_funds(
         "no Direct Mid Cap candidate passed all eligibility gates",
         "percent_of_equity_budget",
     )
-    blueprint["Slot 3: Large-Cap Bluechip Anchor"] = choose_candidate(
-        "Slot 3: Large-Cap Bluechip Anchor",
-        slot_targets["Slot 3: Large-Cap Bluechip Anchor"],
+    blueprint["Slot 3: Small-Cap Growth Engine"] = choose_candidate(
+        "Slot 3: Small-Cap Growth Engine",
+        slot_targets["Slot 3: Small-Cap Growth Engine"],
+        lambda candidate, name, category: classify_fund_category(name, category, candidate) == "Small Cap Equity",
+        "no Direct Small Cap candidate passed all eligibility gates",
+        "percent_of_equity_budget",
+    )
+    blueprint["Slot 4: Large-Cap Bluechip Anchor"] = choose_candidate(
+        "Slot 4: Large-Cap Bluechip Anchor",
+        slot_targets["Slot 4: Large-Cap Bluechip Anchor"],
         lambda candidate, name, category: classify_fund_category(name, category, candidate) == "Large Cap Equity",
         "no Direct Large Cap candidate passed all eligibility gates",
         "percent_of_equity_budget",
@@ -3962,15 +3973,15 @@ def select_autonomous_blueprint_funds(
 
     thematic_target = satellite_pct
     if not thematic_satellite_authorized or thematic_target <= 0.0:
-        blueprint["Slot 4: Tactical Thematic Satellite"] = no_action(
-            "Slot 4: Tactical Thematic Satellite",
+        blueprint["Slot 5: Tactical Thematic Satellite"] = no_action(
+            "Slot 5: Tactical Thematic Satellite",
             0.0,
             "thematic satellite is disabled or not explicitly authorized by the IPS",
             "percent_of_equity_budget",
         )
     else:
-        blueprint["Slot 4: Tactical Thematic Satellite"] = choose_candidate(
-            "Slot 4: Tactical Thematic Satellite",
+        blueprint["Slot 5: Tactical Thematic Satellite"] = choose_candidate(
+            "Slot 5: Tactical Thematic Satellite",
             thematic_target,
             lambda candidate, name, category: detect_fund_theme(name, category) == canonical_theme,
             f"no Direct {thematic_deficit_theme} candidate passed all eligibility gates",
