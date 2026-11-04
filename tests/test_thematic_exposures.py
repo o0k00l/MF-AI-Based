@@ -19,57 +19,32 @@ def _holding(**overrides):
     return SimpleNamespace(**values)
 
 
-def test_thematic_exposure_uses_actual_verified_constituent_weights():
+def test_thematic_exposures_remain_unavailable_without_approved_issuer_taxonomy():
     result = calculate_thematic_exposures([_holding()])
-    pharma = next(item for item in result if item.theme_name == "Pharma & Healthcare")
+    assert result
+    assert all(item.coverage_status == "UNAVAILABLE" for item in result)
+    assert all(item.look_through_stocks_inr is None for item in result)
+    assert all(item.look_through_stocks_pct is None for item in result)
+    assert all(item.dedicated_funds_inr is None for item in result)
+    assert all(item.key_underlying_holdings == [] for item in result)
 
-    assert pharma.look_through_stocks_inr == 8000.0
-    assert pharma.look_through_stocks_pct == 8.0
-    assert pharma.coverage_status == "FULL"
-    assert pharma.key_underlying_holdings == ["Sun Pharma"]
+
+def test_missing_or_stale_constituent_weights_cannot_be_reported_as_zero_theme_exposure():
+    result = calculate_thematic_exposures([
+        _holding(
+            lookthrough_status="MISSING",
+            constituent_weights=None,
+            constituent_weights_coverage_pct=None,
+        )
+    ])
+    assert all(item.coverage_status == "UNAVAILABLE" for item in result)
+    assert all(item.look_through_stocks_inr is None for item in result)
 
 
-def test_thematic_exposure_does_not_use_top_ten_or_equal_weight_proxy():
-    holding = _holding(
-        lookthrough_status="MISSING",
-        constituent_weights=None,
-        constituent_weights_coverage_pct=None,
-    )
+def test_legacy_metrics_and_alias_files_do_not_enable_thematic_heuristics():
     result = calculate_thematic_exposures(
-        [holding],
+        [_holding()],
         metrics_path=None,
         aliases_path=None,
     )
-    pharma = next(item for item in result if item.theme_name == "Pharma & Healthcare")
-
-    assert pharma.look_through_stocks_inr is None
-    assert pharma.look_through_stocks_pct is None
-    assert pharma.coverage_status == "UNAVAILABLE"
-
-
-def test_thematic_exposure_withholds_aggregate_if_any_holding_lacks_coverage():
-    result = calculate_thematic_exposures([
-        _holding(),
-        _holding(
-            scheme="Second Equity Fund",
-            current_value_inr=50000.0,
-            lookthrough_status="STALE",
-        ),
-    ])
-    pharma = next(item for item in result if item.theme_name == "Pharma & Healthcare")
-
-    assert pharma.look_through_stocks_inr is None
-    assert pharma.coverage_status == "UNAVAILABLE"
-
-
-def test_thematic_exposure_matches_exact_normalized_company_name_only():
-    result = calculate_thematic_exposures([
-        _holding(constituent_weights={
-            "SUN PHARMA LTD": 10.0,
-            "Other Company": 90.0,
-        })
-    ])
-    pharma = next(item for item in result if item.theme_name == "Pharma & Healthcare")
-
-    assert pharma.look_through_stocks_inr == 0.0
-    assert pharma.key_underlying_holdings == []
+    assert all(item.coverage_status == "UNAVAILABLE" for item in result)
