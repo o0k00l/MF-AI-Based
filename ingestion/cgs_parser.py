@@ -61,6 +61,16 @@ def parse_cgs_excel(cgs_path: str | Path) -> Dict[str, Any]:
     if not path.exists() or not path.is_file():
         raise FileNotFoundError(f"CGS statement not found at: {path}")
 
+    from ingestion.statement_selection import _validate_document
+    try:
+        statement_as_of_date, validated_source_sha256 = _validate_document(path, "CGS")
+        if validated_source_sha256 != hashlib.sha256(path.read_bytes()).hexdigest():
+            raise ValueError("CGS source digest changed during validation")
+        statement_selection_error = None
+    except (OSError, ValueError, TypeError) as exc:
+        statement_as_of_date = None
+        statement_selection_error = str(exc)
+
     wb = openpyxl.load_workbook(path, data_only=True)
     summary_data = {
         "stcg_inr": None,
@@ -69,6 +79,8 @@ def parse_cgs_excel(cgs_path: str | Path) -> Dict[str, Any]:
         "total_cost": None,
     }
     parse_errors: list[str] = []
+    if statement_selection_error:
+        parse_errors.append(f"Statement identity/date validation: {statement_selection_error}")
     schemes: list[dict[str, Any]] = []
     transactions: list[dict[str, Any]] = []
 
@@ -173,6 +185,9 @@ def parse_cgs_excel(cgs_path: str | Path) -> Dict[str, Any]:
         "statement_path": str(path),
         "filename": path.name,
         "source_sha256": source_sha256,
+        "statement_as_of_date": (
+            statement_as_of_date.isoformat() if statement_as_of_date is not None else None
+        ),
         "summary": summary_data,
         "schemes": schemes,
         "transactions": transactions,
