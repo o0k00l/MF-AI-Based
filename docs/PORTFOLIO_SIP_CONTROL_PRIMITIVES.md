@@ -22,10 +22,10 @@ This module adds a deterministic, fail-closed foundation for portfolio-level SIP
 - This code does not authenticate an evidence publisher or independently attest that a declared portfolio perimeter is complete.
 - The caller must supply the approved SAA, tolerance, evidence-freshness limit, look-through threshold and candidate eligibility gates. No new investment-policy threshold is invented here.
 - A portfolio perimeter marked complete is an explicit upstream attestation, not a conclusion inferred from CAS data.
-- Candidate screening returns eligible identifiers only; it does not rank funds or create a positive recommendation.
+- Candidate screening returns eligible identifiers only; it does not rank funds or create a positive recommendation. Candidate-specific eligibility and SIP routing are not yet integrated into the API.
 - Look-through outputs are exposure calculations only. Candidate incremental exposure and concentration policy still require a separate approved policy integration.
 - Automated scheduling/notification and CAS ingestion remain future work; the current lifecycle helper only evaluates supplied dates/events and state transitions.
-- The module is not wired into `api/sip.py` in this tranche. The existing API must continue to return HOLD / NO_ACTION until source-provider, TRI/calendar, research and independent release gates are satisfied.
+- `calculate_saa_drift`, `calculate_lookthrough_exposure` and `build_decision_trace` are now used by the live `services/sip_recommendation.py` path and returned as CAS-only diagnostics by `POST /v1/sip/recommendations`. The API still returns HOLD / NO_ACTION and does not route budget because external assets, cash, liabilities, CAS valuation date, client IPS and research/TRI release gates are not yet reconciled.
 - No orders, switches, redemptions or broker actions are generated.
 
 ## Validation
