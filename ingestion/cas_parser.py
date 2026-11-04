@@ -89,7 +89,7 @@ def _num(v):
     return float(str(v).replace(",", "").strip())
 
 
-def parse_cas_xlsx(source) -> dict:
+def parse_cas_xlsx(source, scheme_master=None, scheme_master_source_bytes=None) -> dict:
     """
     Parse a CAS .xlsx from a path or bytes.
 
@@ -207,12 +207,17 @@ def parse_cas_xlsx(source) -> dict:
                "folio_no": str(cell("folio_no") or "").strip(),
                "amc_name": (str(cell("amc_name") or "").strip() or None),
                "category": (str(cell("category") or "").strip() or None),
-               # CAS identifies scheme-level positions, not underlying securities.
-               # A disclosure must be attached later using a stable scheme ID.
                "constituent_weights": None,
                "constituent_weights_coverage_pct": None,
                "lookthrough_status": "MISSING",
-               "lookthrough_reason": "CAS does not contain stock-level constituent disclosures."}
+               "lookthrough_reason": "CAS does not contain stock-level constituent disclosures.",
+               "scheme_id": None, "isin": None, "scheme_identity_status": "MISSING"}
+        if scheme_master is not None and scheme_master_source_bytes is not None:
+            from ingestion.portfolio_disclosure import resolve_scheme_identity
+            identity = resolve_scheme_identity(rec, scheme_master, source_bytes=scheme_master_source_bytes)
+            rec.update({"scheme_id": identity.get("scheme_id"), "isin": identity.get("isin"),
+                        "scheme_identity_status": identity["status"],
+                        "scheme_identity_reason": identity["reason"]})
         for opt, key in (("invested_value", "invested"),
                          ("returns", "returns"), ("units", "units")):
             try:
