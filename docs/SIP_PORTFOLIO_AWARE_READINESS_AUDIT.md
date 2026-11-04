@@ -183,3 +183,12 @@
 - Regression tests added for all three mappings and 100% reconciliation in `tests/test_sip_portfolio_overlap.py`.
 - Commits: `1780600` (code), `a508cc1` (tests).
 - Limitation: tests have not yet been executed. This aligns the SAA values; it does not itself prove that every API/UI route passes the same normalized risk label.
+
+
+### 26. Tier 6 equity-only SIP authorization was not passed from IPS into the SIP engine — FIXED IN CODE; EXECUTION NOT YET VERIFIED
+- File: `core/math_engine.py`, IPS validation and `aggregate_fiduciary_facts` SIP call.
+- Previous behaviour: the low-level split calculator supported explicit Tier 6 equity-only routing, but the portfolio aggregator never forwarded the investor's authorization. An authorized client therefore remained on the default strategic equity/debt split.
+- Correction: the aggregator now reads `ips.equity_only_sip_authorized`, requires a real boolean, permits `true` only for SEBI Tier 6, and passes the validated value to `compute_deterministic_sip_blueprint`. Missing authorization remains false.
+- Regression tests cover default-off, explicit Tier 6 authorization, non-boolean rejection and non-Tier-6 rejection.
+- Commits: `743e812` (code), `815f31e` (tests).
+- Limitation: tests have not been executed. This is an authorization wiring fix, not an endorsement of 100% equity for any particular investor; the IPS and suitability review must still justify it.
