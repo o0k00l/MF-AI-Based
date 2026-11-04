@@ -436,14 +436,16 @@ class WeightedOverlapResult(BaseModel):
 
 
 class RiskDistribution(BaseModel):
-    """Ordinal risk tier distribution - not cardinal scores."""
-    risk_tier_distribution: Dict[str, int] = Field(default_factory=dict)  # tier -> count
-    risk_tier_values: Dict[str, float] = Field(default_factory=dict)  # tier -> portfolio_weight_pct
+    """Scheme Riskometer distribution; unknown coverage is explicit."""
+    risk_tier_distribution: Dict[str, int] = Field(default_factory=dict)
+    risk_tier_values: Dict[str, float] = Field(default_factory=dict)
+    availability_status: str = "UNAVAILABLE"
+    verified_coverage_pct: Optional[float] = None
+    unknown_value_inr: Optional[float] = None
     portfolio_beta: Optional[float] = None
     max_drawdown_pct: Optional[float] = None
     downside_capture_ratio: Optional[float] = None
     volatility_annualized_pct: Optional[float] = None
-    # No single cardinal risk score
 
 
 class SwitchCostAnalysis(BaseModel):
