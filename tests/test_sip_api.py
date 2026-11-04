@@ -332,6 +332,8 @@ def test_api_runs_portfolio_saa_diagnostic_end_to_end_and_keeps_budget_on_hold(m
     as_of = date.today()
     source_bytes = b"synthetic source"
     candidate_source_bytes = b"synthetic candidate universe"
+    metrics_source_bytes = b"reviewed fund metrics source"
+    rank_score_source_bytes = b"reviewed candidate ranking scores"
 
     def metadata(raw, url, source_type):
         return {
@@ -365,6 +367,10 @@ def test_api_runs_portfolio_saa_diagnostic_end_to_end_and_keeps_budget_on_hold(m
             "amc_name": "Example AMC",
             "reviewed_at": as_of.isoformat(),
         },
+        "rank_score": "3.25",
+        "rank_score_source_ref": "sha256:" + hashlib.sha256(rank_score_source_bytes).hexdigest(),
+        "rank_score_as_of_date": as_of.isoformat(),
+        "rank_score_methodology_version": "risk-quality-v1",
     }
     provider = lambda **kwargs: {
         "metrics_path": Path(__file__),
@@ -388,8 +394,21 @@ def test_api_runs_portfolio_saa_diagnostic_end_to_end_and_keeps_budget_on_hold(m
             **metadata(candidate_source_bytes, "https://amfiindia.com/candidates", "REVIEWED_CANDIDATE_UNIVERSE"),
             "universe_complete": True,
             "coverage_scope": "Synthetic API integration fixture",
+            "normalized_candidate_universe_sha256": hashlib.sha256(
+                __import__("json").dumps([candidate], sort_keys=True, separators=(",", ":")).encode("utf-8")
+            ).hexdigest(),
         },
         "candidate_universe_source_bytes": candidate_source_bytes,
+        "candidate_score_source_metadata": {
+            **metadata(rank_score_source_bytes, "https://amfiindia.com/ranking-scores", "REVIEWED_CANDIDATE_RANKING"),
+            "methodology_version": "risk-quality-v1",
+        },
+        "candidate_score_source_bytes": rank_score_source_bytes,
+        "metrics_source_metadata": {
+            **metadata(metrics_source_bytes, "https://amfiindia.com/fund-metrics", "OFFICIAL_FUND_METRICS"),
+            "normalized_metrics_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+        },
+        "metrics_source_bytes": metrics_source_bytes,
     }
 
     holding = SimpleNamespace(
@@ -423,7 +442,15 @@ def test_api_runs_portfolio_saa_diagnostic_end_to_end_and_keeps_budget_on_hold(m
     assert body["portfolio_assessment"]["saa_drift"]["current_weights_pct"]["large_cap"] == "100"
     assert body["portfolio_assessment"]["sip_routing"]["status"] == "HOLD"
     assert body["portfolio_assessment"]["lookthrough"]["status"] == "CALCULATED"
-    assert len(body["portfolio_assessment"]["decision_trace"]["sha256"]) == 64
+    trace = body["portfolio_assessment"]["decision_trace"]
+    assert len(trace["sha256"]) == 64
+    import json
+    trace_record = json.loads(trace["canonical_record"])
+    assert trace_record["source_digests"]["metrics_source_sha256"] == hashlib.sha256(metrics_source_bytes).hexdigest()
+    assert trace_record["source_digests"]["candidate_universe_source_sha256"] == hashlib.sha256(candidate_source_bytes).hexdigest()
+    assert trace_record["source_digests"]["candidate_score_source_sha256"] == hashlib.sha256(rank_score_source_bytes).hexdigest()
+    assert trace_record["source_digests"]["metrics_normalized_sha256"] == hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+    assert trace_record["eligibility"]["candidate_rank_evidence"]["fund-api-saa"]["rank_score_methodology_version"] == "risk-quality-v1"
     assert body["plan"]["items"] == []
     assert body["plan"]["unallocated_budget_inr"] == 10000
 
