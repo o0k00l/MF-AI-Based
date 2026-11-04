@@ -139,11 +139,17 @@ def test_api_passes_temporary_cas_to_evidence_provider_and_removes_it(monkeypatc
         portfolio_disclosure_source_bytes_by_scheme_id,
         disclosure_as_of_date,
         candidate_universe,
+        portfolio_context=None,
     ):
         assert cas_path.is_file()
         assert metrics_path == Path(__file__)
         assert risk_profile == "Moderate"
         assert candidate_universe[0]["is_direct"] is True
+        assert portfolio_context == {
+            "as_of_date": date.today().isoformat(),
+            "perimeter_complete": False,
+            "_client_supplied_unverified": True,
+        }
         return {
             "status": "HOLD",
             "decision": "NO_ACTION",
@@ -158,6 +164,7 @@ def test_api_passes_temporary_cas_to_evidence_provider_and_removes_it(monkeypatc
         client,
         monthly_budget_inr="15000",
         risk_profile="Moderate",
+        portfolio_context_json='{"as_of_date":"' + date.today().isoformat() + '","perimeter_complete":false}',
     )
 
     assert response.status_code == 200
@@ -315,3 +322,178 @@ def test_api_real_service_ingests_cas_and_holds_on_missing_portfolio_disclosure(
     assert body["plan"]["total_monthly_budget_inr"] == 25000.0
     assert body["plan"]["unallocated_budget_inr"] == 25000.0
     assert any("constituent disclosure is MISSING" in reason for reason in body["reasons"])
+
+
+def test_api_runs_portfolio_saa_diagnostic_end_to_end_and_keeps_budget_on_hold(monkeypatch):
+    import hashlib
+    from types import SimpleNamespace
+    from services import sip_recommendation as service
+
+    as_of = date.today()
+    source_bytes = b"synthetic source"
+    candidate_source_bytes = b"synthetic candidate universe"
+    metrics_source_bytes = b"reviewed fund metrics source"
+    rank_score_source_bytes = b"reviewed candidate ranking scores"
+    category_anchor_source_bytes = b"approved large-cap benchmark anchor source"
+
+    def metadata(raw, url, source_type):
+        return {
+            "source_url": url,
+            "source_document_sha256": hashlib.sha256(raw).hexdigest(),
+            "reviewer_attested": True,
+            "effective_date": as_of.isoformat(),
+            "source_type": source_type,
+        }
+
+    candidate_bytes = Path(__file__).read_bytes()
+    candidate = {
+        "fund_id": "fund-api-saa",
+        "fund_name": "Example Direct Growth",
+        "scheme_id": "scheme-api-saa",
+        "isin": "INF000000003",
+        "amc_name": "Example AMC",
+        "category": "Large Cap",
+        "is_direct": True,
+        "_evidence_root": str(Path(__file__).parent),
+        "direct_plan_evidence": {
+            "source_file": Path(__file__).name,
+            "source_document_sha256": hashlib.sha256(candidate_bytes).hexdigest(),
+            "source_url": "https://amfiindia.com/example-direct-factsheet.pdf",
+            "source_type": "AMC_FACTSHEET",
+            "reviewer_attested": True,
+            "plan": "Direct",
+            "scheme_name": "Example Direct Growth",
+            "scheme_id": "scheme-api-saa",
+            "isin": "INF000000003",
+            "amc_name": "Example AMC",
+            "reviewed_at": as_of.isoformat(),
+        },
+        "rank_score": "3.25",
+        "rank_score_source_ref": "sha256:" + hashlib.sha256(rank_score_source_bytes).hexdigest(),
+        "rank_score_as_of_date": as_of.isoformat(),
+        "rank_score_methodology_version": "risk-quality-v1",
+        "rank_score_scope": "PORTFOLIO_AWARE",
+        "rank_score_portfolio_overlap_status": "VERIFIED",
+        "rank_score_portfolio_overlap_pct": "18.5",
+        "rank_score_portfolio_overlap_coverage_pct": "99.8",
+        "rank_score_portfolio_overlap_source_ref": "sha256:" + hashlib.sha256(b"portfolio overlap source").hexdigest(),
+        "rank_score_category_anchor_source_ref": "sha256:" + hashlib.sha256(category_anchor_source_bytes).hexdigest(),
+        "rank_score_category_anchor_policy_version": "category-anchor-v1",
+        "rank_score_benchmark_identity": "Nifty 100 TRI",
+    }
+    provider = lambda **kwargs: {
+        "metrics_path": Path(__file__),
+        "aliases_path": None,
+        "scheme_master": {
+            "status": "VERIFIED",
+            "schemes": [{
+                "scheme_id": "scheme-api-saa",
+                "isin": "INF000000003",
+                "scheme_name": "Example Direct Growth",
+                "amc_name": "Example AMC",
+            }],
+            **metadata(source_bytes, "https://amfiindia.com/scheme-master", "OFFICIAL_SCHEME_MASTER"),
+        },
+        "scheme_master_source_bytes": source_bytes,
+        "portfolio_disclosures_by_scheme_id": {},
+        "portfolio_disclosure_source_bytes_by_scheme_id": {},
+        "disclosure_as_of_date": as_of,
+        "candidate_universe": [candidate],
+        "candidate_universe_source": {
+            **metadata(candidate_source_bytes, "https://amfiindia.com/candidates", "REVIEWED_CANDIDATE_UNIVERSE"),
+            "universe_complete": True,
+            "coverage_scope": "Synthetic API integration fixture",
+            "normalized_candidate_universe_sha256": hashlib.sha256(
+                __import__("json").dumps([candidate], sort_keys=True, separators=(",", ":")).encode("utf-8")
+            ).hexdigest(),
+        },
+        "candidate_universe_source_bytes": candidate_source_bytes,
+        "candidate_score_source_metadata": {
+            **metadata(rank_score_source_bytes, "https://amfiindia.com/ranking-scores", "REVIEWED_CANDIDATE_RANKING"),
+            "methodology_version": "risk-quality-v1",
+            "score_scope": "PORTFOLIO_AWARE",
+            "missing_overlap_policy": "BLOCK_SCORE",
+        },
+        "candidate_score_source_bytes": rank_score_source_bytes,
+        "category_anchor_source_metadata": {
+            **metadata(category_anchor_source_bytes, "https://amfiindia.com/benchmark-anchors", "APPROVED_CATEGORY_BENCHMARK_ANCHORS"),
+            "reviewer_id": "independent-reviewer",
+            "policy_version": "category-anchor-v1",
+            "category_anchors": {
+                "Large Cap": {
+                    "status": "APPROVED",
+                    "benchmark_identity": "Nifty 100 TRI",
+                    "reviewer_id": "independent-reviewer",
+                    "policy_version": "category-anchor-v1",
+                    "effective_date": as_of.isoformat(),
+                    "anchor_set": {
+                        "alpha": [0, 5], "ret1y": [0, 30], "sharpe": [0.2, 1.0],
+                        "ter": [0.1, 1.0], "buffer": [0, 15], "intl": [0, 10],
+                        "overlap": [0, 100],
+                    },
+                }
+            },
+        },
+        "category_anchor_source_bytes": category_anchor_source_bytes,
+        "metrics_source_metadata": {
+            **metadata(metrics_source_bytes, "https://amfiindia.com/fund-metrics", "OFFICIAL_FUND_METRICS"),
+            "normalized_metrics_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+        },
+        "metrics_source_bytes": metrics_source_bytes,
+    }
+
+    holding = SimpleNamespace(
+        scheme="Example Direct Growth",
+        fund_id="FUND-API-SAA",
+        scheme_id="scheme-api-saa",
+        lookthrough_status="VERIFIED",
+        metrics_status="VERIFIED",
+        constituent_weights_coverage_pct=100.0,
+        current_value_inr=125000.0,
+        asset_class="Large_Cap",
+        equity_pct=100.0,
+        constituent_weights={"ISSUER-A": 60.0, "ISSUER-B": 40.0},
+    )
+    monkeypatch.setattr(service, "load_holdings_from_cas_excel", lambda *a, **k: [holding])
+    monkeypatch.setattr(
+        service,
+        "compute_deterministic_sip_blueprint",
+        lambda **kwargs: SimpleNamespace(items=[SimpleNamespace(monthly_inr=10000)]),
+    )
+
+    client = TestClient(sip.create_sip_app(evidence_provider=provider))
+    response = _upload(client, monthly_budget_inr="10000", risk_profile="Aggressive")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "HOLD"
+    assert body["decision"] == "NO_ACTION"
+    assert body["portfolio_assessment"]["status"] == "DIAGNOSTIC_ONLY"
+    assert body["portfolio_assessment"]["scope"] == "CAS_MUTUAL_FUND_HOLDINGS_ONLY"
+    assert body["portfolio_assessment"]["saa_drift"]["current_weights_pct"]["large_cap"] == "100"
+    assert body["portfolio_assessment"]["sip_routing"]["status"] == "HOLD"
+    assert body["portfolio_assessment"]["lookthrough"]["status"] == "CALCULATED"
+    trace = body["portfolio_assessment"]["decision_trace"]
+    assert len(trace["sha256"]) == 64
+    import json
+    trace_record = json.loads(trace["canonical_record"])
+    assert trace_record["source_digests"]["metrics_source_sha256"] == hashlib.sha256(metrics_source_bytes).hexdigest()
+    assert trace_record["source_digests"]["candidate_universe_source_sha256"] == hashlib.sha256(candidate_source_bytes).hexdigest()
+    assert trace_record["source_digests"]["candidate_score_source_sha256"] == hashlib.sha256(rank_score_source_bytes).hexdigest()
+    assert trace_record["source_digests"]["category_anchor_source_sha256"] == hashlib.sha256(category_anchor_source_bytes).hexdigest()
+    assert trace_record["source_digests"]["metrics_normalized_sha256"] == hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+    assert trace_record["eligibility"]["candidate_rank_evidence"]["fund-api-saa"]["rank_score_methodology_version"] == "risk-quality-v1"
+    assert body["plan"]["items"] == []
+    assert body["plan"]["unallocated_budget_inr"] == 10000
+
+
+def test_api_rejects_malformed_portfolio_context_before_calling_provider():
+    called = []
+    client = TestClient(sip.create_sip_app(evidence_provider=lambda **kwargs: called.append(kwargs)))
+    response = _upload(
+        client, monthly_budget_inr="10000", risk_profile="Moderate",
+        portfolio_context_json="{not-json",
+    )
+    assert response.status_code == 422
+    assert response.json()["decision"] == "NO_ACTION"
+    assert called == []

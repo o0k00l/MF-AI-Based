@@ -75,9 +75,8 @@ def test_openai_request_omits_optional_generation_parameters(monkeypatch):
     assert calls == [{"model": "vendor/model", "messages": [{"role": "user", "content": "test"}]}]
 
 
-def test_gemini_requires_api_key_when_enabled(monkeypatch):
-    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
-    with pytest.raises(ai_engine.ProviderError, match="GEMINI_API_KEY"):
+def test_gemini_fails_closed_when_zero_cost_pricing_is_unverifiable():
+    with pytest.raises(ai_engine.ProviderError, match="FREE_ONLY"):
         ai_engine._call_gemini("test")
 
 
@@ -92,7 +91,7 @@ def test_narrative_provider_chain_excludes_gemini(monkeypatch):
     monkeypatch.setattr(ai_engine, "_call_openrouter", unavailable)
     monkeypatch.setattr(ai_engine, "_call_requesty", requesty)
     monkeypatch.setattr(ai_engine, "_get_narrative_cache", lambda: {})
-    assert ai_engine.call_llm("test", use_cache=False) == "READY"
+    assert ai_engine.call_llm("test", use_cache=False, external_processing_consent=True) == "READY"
     assert attempted == ["openrouter", "requesty"]
 
 
