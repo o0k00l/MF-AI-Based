@@ -563,3 +563,31 @@ def test_candidate_allocator_enforces_configured_score_freshness_window():
     assert result["status"] == "HOLD"
     assert result["unallocated_budget_inr"] == "5000"
     assert result["rejected_candidates"]["stale"] == ["RANK_SCORE_STALE_OR_FUTURE"]
+
+def test_incremental_sip_routing_respects_saa_tolerance_deadband():
+    within_band = route_incremental_sip(
+        "10000",
+        {"equity": "58000", "debt": "42000"},
+        {"equity": "60", "debt": "40"},
+        portfolio_total_inr="100000",
+        tolerance_band_pct="5",
+        eligible_sleeves={"equity"},
+    )
+    assert within_band["status"] == "HOLD"
+    assert within_band["allocations_inr"] == {}
+    assert within_band["unallocated_budget_inr"] == "10000"
+    assert within_band["reason"] == "NO_ELIGIBLE_UNDERWEIGHT_SLEEVE"
+
+    beyond_band = route_incremental_sip(
+        "10000",
+        {"equity": "50000", "debt": "50000"},
+        {"equity": "60", "debt": "40"},
+        portfolio_total_inr="100000",
+        tolerance_band_pct="5",
+        eligible_sleeves={"equity"},
+    )
+    # 10 percentage-point shortfall less 5-point tolerance = 5-point gap.
+    assert beyond_band["status"] == "ROUTED"
+    assert beyond_band["allocations_inr"] == {"equity": "10000"}
+    assert beyond_band["unallocated_budget_inr"] == "0"
+    assert beyond_band["reconciliation_ok"] is True
