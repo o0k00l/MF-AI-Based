@@ -535,3 +535,64 @@ def validate_scheme_operational_feasibility(
             reasons.append(f"MISSING_{key.upper()}")
     return {"status": "FEASIBLE_FOR_REVIEW" if not reasons else "HOLD",
             "reasons": reasons, "execution_authorized": False}
+
+
+def evaluate_recommendation_freshness(
+    *,
+    recommendation_as_of_date: str,
+    current_as_of_date: str,
+    max_age_days: int,
+    event_flags: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Flag expired or event-invalidated recommendations; never mutate a SIP."""
+    original = _date(recommendation_as_of_date, "recommendation_as_of_date")
+    current = _date(current_as_of_date, "current_as_of_date")
+    if current < original:
+        raise PortfolioInputError("current review date cannot precede recommendation date")
+    if isinstance(max_age_days, bool) or max_age_days < 0:
+        raise PortfolioInputError("max_age_days must be non-negative")
+    age = (current - original).days
+    triggered = sorted(str(k) for k, value in event_flags.items() if value is True)
+    reasons = []
+    if age > max_age_days:
+        reasons.append("RECOMMENDATION_EXPIRED")
+    if triggered:
+        reasons.append("MATERIAL_REVIEW_EVENT:" + ",".join(triggered))
+    return {"status": "REVIEW_REQUIRED" if reasons else "CURRENT",
+            "age_days": age, "reasons": reasons,
+            "execution_authorized": False}
+
+
+def transition_recommendation_lifecycle(
+    *,
+    current_state: str,
+    requested_state: str,
+    decision_trace_sha256: str,
+    author_id: str,
+    reviewer_id: str | None = None,
+) -> dict[str, Any]:
+    """Enforce a monotonic review state machine with independent reviewer separation."""
+    allowed = {
+        "DRAFT": {"REVIEWED", "WITHDRAWN"},
+        "REVIEWED": {"SUPERSEDED", "WITHDRAWN"},
+        "SUPERSEDED": set(),
+        "WITHDRAWN": set(),
+    }
+    if current_state not in allowed or requested_state not in allowed:
+        raise PortfolioInputError("unknown recommendation lifecycle state")
+    if requested_state not in allowed[current_state]:
+        raise PortfolioInputError("invalid or non-monotonic lifecycle transition")
+    if not isinstance(decision_trace_sha256, str) or len(decision_trace_sha256) != 64:
+        raise PortfolioInputError("a SHA-256 decision trace is required")
+    try:
+        int(decision_trace_sha256, 16)
+    except ValueError:
+        raise PortfolioInputError("decision trace must be hexadecimal SHA-256") from None
+    if requested_state == "REVIEWED":
+        if not isinstance(author_id, str) or not author_id.strip():
+            raise PortfolioInputError("author identity is required")
+        if not isinstance(reviewer_id, str) or not reviewer_id.strip() or reviewer_id == author_id:
+            raise PortfolioInputError("independent reviewer identity is required")
+    return {"previous_state": current_state, "state": requested_state,
+            "decision_trace_sha256": decision_trace_sha256,
+            "execution_authorized": False}
