@@ -2545,3 +2545,43 @@ def test_sip_builder_requires_explicit_risk_profile_and_verified_aum():
         compute_deterministic_sip_blueprint(10000)
     with pytest.raises(ValueError, match="Verified reconciled client AUM"):
         compute_deterministic_sip_blueprint(10000, risk_tier="Moderate")
+
+
+def test_tier6_equity_only_policy_requires_literal_true_authorization(monkeypatch):
+    import json
+    from pathlib import Path
+    from core.math_engine import calculate_universal_tier_split
+
+    original = Path.read_text
+
+    def read_text(path, *args, **kwargs):
+        if path.name == "asset_allocation.json":
+            policy = json.loads(original(path, *args, **kwargs))
+            policy["behavioral_risk_profiles"]["very_high"]["new_sip_allocation"].pop(
+                "requires_explicit_ips_authorization", None
+            )
+            return json.dumps(policy)
+        return original(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", read_text)
+    with pytest.raises(ValueError, match="Invalid allocation policy"):
+        calculate_universal_tier_split(6)
+
+
+def test_tier6_equity_only_requires_both_policy_and_investor_authorization():
+    from core.math_engine import calculate_universal_tier_split
+
+    # Tier 6 policy explicitly requires IPS authorization. Without the investor
+    # flag, the strategic SAA split applies; only literal True enables 100/0.
+    assert calculate_universal_tier_split(6, equity_sip_routing_override=False) == (95.0, 5.0)
+    assert calculate_universal_tier_split(6, equity_sip_routing_override=True) == (100.0, 0.0)
+
+
+def test_default_passive_verifier_rejects_checked_in_sample_scheme_master():
+    from core.fund_classifier import _load_scheme_master, is_verified_passive_scheme, get_fund_passive_alternatives
+    from core.models import InsufficientDataError
+
+    assert _load_scheme_master() is None
+    with pytest.raises(InsufficientDataError):
+        is_verified_passive_scheme({"isin": "TEST004"})
+    assert get_fund_passive_alternatives("Large Cap Equity") == []
