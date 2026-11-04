@@ -11,6 +11,7 @@ This repository contains no intended client portfolio records. Client data must 
 
 - **Evidence before recommendation:** Every fund metric, scheme identity, portfolio constituent, benchmark observation and tax classification requires source, date, coverage and integrity metadata.
 - **Fail closed:** Missing, stale, conflicting or incomplete required data leads to NO ACTION / HOLD. The system must not invent funds, scheme names, tax categories, yields or portfolio exposures.
+- **Traceability integrity:** Decision hashes use RFC 8785/JCS canonical UTF-8 bytes plus SHA-256, with a versioned hash contract. Exact Decimal money values remain JSON strings to avoid precision loss.
 - **Separate policy concepts:** Strategic asset allocation (SAA), new-SIP routing, current portfolio exposures and authorized satellite allocations are different inputs and must not be substituted for one another.
 - **Whole-plan gating:** If a required positive-allocation sleeve lacks a verified Direct-plan candidate, the entire budget remains unallocated. Do not partially invest or silently redistribute it.
 - **Tax-lot awareness:** Acquisition date, transfer date, current NAV, scheme-specific exit load and statutory classification must be validated independently for each lot.
