@@ -211,3 +211,25 @@ def test_force_refresh_bypasses_stale_cache_even_when_cache_is_readable(monkeypa
 
     assert result == ["vendor/current-free"]
     assert len(fetched) == 1
+
+
+def test_gemini_key_never_activates_fallback_when_all_free_providers_fail(monkeypatch):
+    attempted = []
+    monkeypatch.setenv("GEMINI_API_KEY", "configured-but-prohibited")
+    monkeypatch.setattr(
+        ai_engine, "_call_openrouter",
+        lambda *args, **kwargs: (_ for _ in ()).throw(ai_engine.ProviderError("OpenRouter", "offline")),
+    )
+    monkeypatch.setattr(
+        ai_engine, "_call_requesty",
+        lambda *args, **kwargs: (_ for _ in ()).throw(ai_engine.ProviderError("Requesty", "offline")),
+    )
+    monkeypatch.setattr(
+        ai_engine, "_call_gemini",
+        lambda *args, **kwargs: attempted.append("gemini") or "SHOULD_NOT_RUN",
+    )
+    with pytest.raises(ai_engine.ProviderError, match="All eligible free narrative providers are unavailable"):
+        ai_engine.call_llm(
+            "test", external_processing_consent=True,
+        )
+    assert attempted == []
