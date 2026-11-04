@@ -1257,22 +1257,39 @@ def _find_matching_metric(scheme: str, metrics: Dict[str, Any], aliases: Dict[st
 
 
 def _infer_asset_class(cat: str, eq: float, debt: float, lc: float, mc: float, sc: float) -> AssetClass:
-    cat_lower = cat.lower()
-    if "debt" in cat_lower or "liquid" in cat_lower or debt >= 75.0:
+    """Classify from explicit scheme category before using allocation heuristics.
+
+    Equity percentage alone cannot distinguish flexi-cap, multi-cap and
+    large-cap funds: all can hold more than 80% equity.
+    """
+    cat_lower = str(cat or "").casefold().replace("_", " ").replace("-", " ")
+    if any(token in cat_lower for token in ("debt", "liquid", "money market", "gilt", "bond")) or debt >= 75.0:
         return AssetClass.DEBT_LIQUID
-    if "balanced" in cat_lower or "hybrid" in cat_lower or "daa" in cat_lower or debt >= 20.0:
+    if any(token in cat_lower for token in ("balanced", "hybrid", "dynamic asset", "multi asset")) or debt >= 20.0:
         return AssetClass.HYBRID_BALANCED
-    if "mid cap" in cat_lower or mc >= 50.0:
-        return AssetClass.MID_CAP
-    if "small cap" in cat_lower or sc >= 50.0:
+    if "international" in cat_lower or "overseas" in cat_lower or "global equity" in cat_lower:
+        return AssetClass.INTERNATIONAL
+    if "small cap" in cat_lower:
         return AssetClass.SMALL_CAP
-    # Check for Flexi Cap specifically (since Flexi Cap falls under "flexi" which could match "large cap" incorrectly)
-    if "flexi" in cat_lower or eq >= 80.0:  # Flexi Cap typically has high equity allocation
-        return AssetClass.FLEXI_CAP
-    # Check for Multi Cap (less specific than Flexi Cap)
-    if "multi cap" in cat_lower or (eq >= 60.0 and eq < 80.0):  # Multi Cap typically has high but not maximum equity
+    if "mid cap" in cat_lower:
+        return AssetClass.MID_CAP
+    if "multi cap" in cat_lower or "multicap" in cat_lower:
         return AssetClass.MULTI_CAP
-    return AssetClass.LARGE_CAP
+    if "flexi cap" in cat_lower or "flexicap" in cat_lower:
+        return AssetClass.FLEXI_CAP
+    if "large cap" in cat_lower or "largecap" in cat_lower or "bluechip" in cat_lower:
+        return AssetClass.LARGE_CAP
+    # Only use disclosed market-cap weights when the scheme category is absent
+    # or genuinely generic. Never infer Flexi Cap from a high equity percentage.
+    if sc >= 50.0:
+        return AssetClass.SMALL_CAP
+    if mc >= 50.0:
+        return AssetClass.MID_CAP
+    if lc >= 50.0:
+        return AssetClass.LARGE_CAP
+    if eq <= 0.0 and debt > 0.0:
+        return AssetClass.DEBT_LIQUID
+    return AssetClass.EQUITY
 
 
 def calculate_fee_bleed(holdings: List[HoldingItem], default_commission_rate: float = 0.0105) -> FeeBleedAnalysis:
@@ -2054,6 +2071,8 @@ def aggregate_fiduciary_facts(
         raise ValueError("An explicit investor risk_tolerance or risk_tier is required for SIP analysis")
     if "monthly_sip_budget" not in ips:
         raise ValueError("Explicit ips.monthly_sip_budget is required; no default SIP budget is permitted")
+    if any(isinstance(ips.get(key), bool) for key in ("monthly_sip_budget", "lumpsum_budget", "emergency_months") if key in ips):
+        raise ValueError("IPS monetary and emergency-month inputs must not be booleans")
     try:
         monthly_sip = float(ips["monthly_sip_budget"])
         lumpsum_budget = float(ips.get("lumpsum_budget", 0.0))
@@ -2092,7 +2111,7 @@ def aggregate_fiduciary_facts(
         AssetClass.INTERNATIONAL
     ))
     total_debt_val = sum(h.current_value_inr for h in holdings if h.asset_class in (
-        AssetClass.DEBT,
+        AssetClass.DEBT, AssetClass.DEBT_LIQUID,
     ))
     total_cash_val = sum(h.current_value_inr for h in holdings if h.asset_class in (
         AssetClass.CASH,
@@ -2304,7 +2323,14 @@ def aggregate_fiduciary_facts(
                 disclosure_as_of_date=disclosure_as_of_date,
                 disclosure_max_age_days=disclosure_max_age_days,
             )
-    current_portfolio_summary = [{"scheme": h.scheme, "value": h.current_value_inr} for h in holdings]
+    current_portfolio_summary = [
+        {
+            "scheme": h.scheme,
+            "value": h.current_value_inr,
+            "amc_name": h.amc_name,
+        }
+        for h in holdings
+    ]
     tier_num = _parse_sebi_risk_tier(client_risk_tier)
 
     eligible_candidates = []
@@ -2630,10 +2656,14 @@ def calculate_saa_drift_minimizer(
     for h in holdings:
         asset = h.asset_class.value if hasattr(h.asset_class, 'value') else str(h.asset_class)
         # Map AssetClass to allocation categories
-        if h.asset_class in (AssetClass.LARGE_CAP, AssetClass.MID_CAP, AssetClass.SMALL_CAP, 
-                             AssetClass.FLEXI_CAP, AssetClass.MULTI_CAP, AssetClass.LARGE_CAP):
+        if h.asset_class in (
+            AssetClass.EQUITY, AssetClass.LARGE_CAP, AssetClass.MID_CAP,
+            AssetClass.SMALL_CAP, AssetClass.FLEXI_CAP, AssetClass.MULTI_CAP,
+            AssetClass.INTERNATIONAL,
+        ):
+            # International equity is still equity for total-portfolio SAA.
             alloc_category = "Equity"
-        elif h.asset_class in (AssetClass.DEBT,):
+        elif h.asset_class in (AssetClass.DEBT, AssetClass.DEBT_LIQUID):
             alloc_category = "Debt"
         elif h.asset_class in (AssetClass.CASH,):
             alloc_category = "Cash"
