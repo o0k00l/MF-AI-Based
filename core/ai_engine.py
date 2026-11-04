@@ -91,14 +91,33 @@ def _read_model_cache(provider: str, key: str) -> list[str] | None:
         if (entry.get("key_fingerprint") == _key_fingerprint(key)
                 and time.time() - float(entry.get("timestamp", 0)) < CACHE_TTL_SECONDS):
             models = entry.get("models")
-            if isinstance(models, list) and models and all(isinstance(x, str) for x in models):
+            pricing_evidence = entry.get("pricing_evidence")
+            if (isinstance(models, list) and models
+                    and isinstance(pricing_evidence, dict)
+                    and all(isinstance(x, str) and x in pricing_evidence for x in models)):
+                for m in models:
+                    ev = pricing_evidence[m]
+                    if not isinstance(ev, dict):
+                        return None
+                    if provider == "Requesty":
+                        if not (_is_zero_price(ev.get("input_price")) and _is_zero_price(ev.get("output_price"))):
+                            return None
+                    else:
+                        if not (_is_zero_price(ev.get("prompt")) and _is_zero_price(ev.get("completion"))):
+                            return None
                 return models
     except (OSError, ValueError, TypeError, AttributeError):
         pass
     return None
 
 
-def _write_model_cache(provider: str, key: str, models: list[str]) -> None:
+def _write_model_cache(
+    provider: str,
+    key: str,
+    models: list[str],
+    pricing_evidence: dict[str, Any] | None = None,
+    catalogue_digest: str | None = None,
+) -> None:
     if MODEL_CACHE_FILE is None:
         return
     try:
@@ -110,6 +129,8 @@ def _write_model_cache(provider: str, key: str, models: list[str]) -> None:
             "timestamp": time.time(),
             "key_fingerprint": _key_fingerprint(key),
             "models": models,
+            "pricing_evidence": pricing_evidence or {},
+            "catalogue_digest": catalogue_digest,
         }
         temp_path = MODEL_CACHE_FILE.with_suffix(".tmp")
         temp_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
@@ -166,6 +187,7 @@ def _discover_openai_models(
         return cached
     payload = _http_json(url, key, provider)
     discovered: list[str] = []
+    pricing_evidence: dict[str, Any] = {}
     for item in payload["data"]:
         if not isinstance(item, dict):
             continue
@@ -175,9 +197,15 @@ def _discover_openai_models(
         if provider == "Requesty":
             # Requesty exposes per-token prices in its model catalogue. Unknown
             # pricing is not treated as free.
-            if not (_is_zero_price(item.get("input_price"))
-                    and _is_zero_price(item.get("output_price"))):
+            in_p = item.get("input_price")
+            out_p = item.get("output_price")
+            if not (_is_zero_price(in_p) and _is_zero_price(out_p)):
                 continue
+            pricing_evidence[model_id] = {
+                "input_price": float(in_p),
+                "output_price": float(out_p),
+                "verified_at": time.time(),
+            }
         else:
             pricing = item.get("pricing") or {}
             if not isinstance(pricing, dict):
@@ -185,12 +213,19 @@ def _discover_openai_models(
             # A `:free` suffix is a catalogue label, not sufficient
             # billing evidence. Require explicit zero prompt AND completion
             # prices for every model, including models carrying that suffix.
+            prompt_p = pricing.get("prompt")
+            comp_p = pricing.get("completion")
             is_zero_price = (
-                _is_zero_price(pricing.get("prompt"))
-                and _is_zero_price(pricing.get("completion"))
+                _is_zero_price(prompt_p)
+                and _is_zero_price(comp_p)
             )
             if not is_zero_price:
                 continue
+            pricing_evidence[model_id] = {
+                "prompt": float(prompt_p),
+                "completion": float(comp_p),
+                "verified_at": time.time(),
+            }
         # Only text-capable chat models are useful for this adapter.
         architecture = item.get("architecture") or {}
         modality = architecture.get("modality") if isinstance(architecture, dict) else None
@@ -204,7 +239,8 @@ def _discover_openai_models(
     discovered = list(dict.fromkeys(discovered))
     if not discovered:
         raise ProviderError(provider, f"{provider} returned no eligible free text-generation models.")
-    _write_model_cache(provider, key, discovered)
+    cat_digest = hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()
+    _write_model_cache(provider, key, discovered, pricing_evidence=pricing_evidence, catalogue_digest=cat_digest)
     return discovered
 
 
