@@ -625,5 +625,5 @@ def validate_evidence_provider_payload(
 
     # The completeness flag is an attestation, not an independent proof that
     # every eligible scheme in the stated market scope has been enumerated.
-    # Publisher authenticity and reviewer identity also remain external checks.
+    # Publisher authenticity and complete-market coverage still require independent release review.
     return dict(payload)
