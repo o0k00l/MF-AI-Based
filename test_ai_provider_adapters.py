@@ -86,3 +86,50 @@ def test_provider_http_error_preserves_status_without_body():
     error = ai_engine.ProviderError("OpenRouter", "request failed", status_code=401)
     assert error.status_code == 401
     assert "secret" not in str(error).lower()
+
+
+@pytest.mark.parametrize("status,expected", [
+    (400, False),
+    (401, False),
+    (402, False),
+    (403, False),
+    (429, False),
+    (404, True),
+    (408, True),
+    (409, True),
+    (500, True),
+    (503, True),
+    (None, False),
+])
+def test_retry_policy_is_failure_aware(status, expected):
+    error = ai_engine.ProviderError("test", "provider request failed", status_code=status)
+    assert ai_engine._should_try_next_model(error) is expected
+
+
+def test_retry_policy_allows_network_failures_without_http_status():
+    error = ai_engine.ProviderError("test", "provider request failed (APIConnectionError)")
+    assert ai_engine._should_try_next_model(error) is True
+
+
+def test_openai_does_not_try_other_models_after_quota_failure(monkeypatch):
+    attempted = []
+
+    class Completions:
+        def create(self, **kwargs):
+            attempted.append(kwargs["model"])
+            raise ai_engine.ProviderError("OpenRouter", "quota exhausted", status_code=429)
+
+    class Client:
+        def __init__(self, **kwargs):
+            self.chat = SimpleNamespace(completions=Completions())
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setattr(
+        ai_engine, "discover_openrouter_free_models",
+        lambda key: ["vendor/model-a", "vendor/model-b", "vendor/model-c"],
+    )
+    monkeypatch.setitem(__import__("sys").modules, "openai", SimpleNamespace(OpenAI=Client))
+    with pytest.raises(ai_engine.ProviderError) as caught:
+        ai_engine._call_openrouter("test")
+    assert caught.value.status_code == 429
+    assert attempted == ["vendor/model-a"]
