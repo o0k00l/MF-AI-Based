@@ -312,6 +312,12 @@ def test_api_real_service_ingests_cas_and_holds_on_missing_portfolio_disclosure(
         return {
             "metrics_path": metrics_path,
             "aliases_path": None,
+            "metrics_source_metadata": source_metadata(
+                b"synthetic metrics source bytes",
+                "https://amfiindia.com/example-fund-metrics",
+                "OFFICIAL_FUND_METRICS",
+            ),
+            "metrics_source_bytes": b"synthetic metrics source bytes",
             "scheme_master": {
                 "status": "VERIFIED",
                 "schemes": [{
