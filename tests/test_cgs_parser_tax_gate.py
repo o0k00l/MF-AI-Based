@@ -47,3 +47,46 @@ def test_cgs_parser_does_not_output_hardcoded_tax_exemption_or_headroom(tmp_path
     assert "source_sha256" in result
     assert len(result["source_sha256"]) == 64
 
+
+
+def test_cgs_missing_summary_rows_remain_unavailable_not_zero(tmp_path):
+    wb = openpyxl.Workbook()
+    sheet = wb.active
+    sheet.title = "Summary"
+    sheet.append(["Capital Gains Statement Summary"])
+    sheet.append(["Short Term Capital Gain/Loss", 0.0])
+    path = tmp_path / "partial_cgs.xlsx"
+    wb.save(path)
+
+    result = parse_ingestion_cgs(path)
+    assert result["summary"]["stcg_inr"] == 0.0
+    assert result["summary"]["ltcg_inr"] is None
+    assert result["summary"]["total_outflows"] is None
+    assert result["summary"]["total_cost"] is None
+    assert result["parse_status"] == "INCOMPLETE"
+    assert result["stcg_loss_available"] == 0.0
+
+
+def test_cgs_malformed_transaction_row_is_not_silently_dropped(tmp_path):
+    wb = openpyxl.Workbook()
+    summary = wb.active
+    summary.title = "Summary"
+    summary.append(["Capital Gains Statement Summary"])
+    summary.append(["Short Term Capital Gain/Loss", 1.0])
+    summary.append(["LongTermWithoutIndex-CapitalGain/Loss", 2.0])
+    summary.append(["Full Value Consideration", 3.0])
+    summary.append(["Cost of Acquisition", 4.0])
+    tx = wb.create_sheet("TransactionDetails")
+    tx.append(["header"] * 20)
+    tx.append(["header"] * 20)
+    tx.append(["header"] * 20)
+    tx.append(["header"] * 20)
+    tx.append(["header"] * 20)
+    tx.append([None, None, "FOLIO", "SCHEME"])
+    path = tmp_path / "malformed_cgs.xlsx"
+    wb.save(path)
+
+    result = parse_ingestion_cgs(path)
+    assert result["transactions"] == []
+    assert result["parse_status"] == "INCOMPLETE"
+    assert any("missing required columns" in error for error in result["parse_errors"])
