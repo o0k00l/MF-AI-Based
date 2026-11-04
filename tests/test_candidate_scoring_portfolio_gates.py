@@ -24,6 +24,7 @@ def _overlap_evidence(*, as_of=None, coverage=99.8, overlap=20.0, source_bytes=b
     digest = hashlib.sha256(source_bytes).hexdigest()
     return {
         "status": "VERIFIED",
+        "reviewer_attested": True,
         "candidate_id": "fund-1",
         "overlap_pct": overlap,
         "coverage_pct": coverage,
@@ -38,6 +39,7 @@ def _anchor_evidence(*, category="Healthcare", as_of=None, anchor_set=None, sour
     digest = hashlib.sha256(source_bytes).hexdigest()
     return {
         "status": "APPROVED",
+        "reviewer_attested": True,
         "category": category,
         "benchmark_identity": "Example Category TRI",
         "effective_date": as_of or date.today().isoformat(),
