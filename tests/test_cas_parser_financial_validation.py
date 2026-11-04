@@ -63,11 +63,11 @@ def test_invalid_current_value_is_rejected_not_dormant(tmp_path, value):
 @pytest.mark.parametrize(
     "field,value",
     [
-        ("invested", float("nan")),
-        ("invested", float("inf")),
+        ("invested", "NaN"),
+        ("invested", "Infinity"),
         ("invested", -1.0),
-        ("returns", float("-inf")),
-        ("units", float("nan")),
+        ("returns", "-Infinity"),
+        ("units", "NaN"),
         ("units", -1.0),
     ],
 )
@@ -78,7 +78,8 @@ def test_invalid_optional_holding_financial_values_reject_whole_row(tmp_path, fi
     assert parsed["holdings"] == []
     assert parsed["dormant"] == []
     assert parsed["rejected"]
-    assert field in parsed["rejected"][0]["raw_cells"]
+    raw_key = {"invested": "invested_value", "returns": "returns", "units": "units"}[field]
+    assert raw_key in parsed["rejected"][0]["raw_cells"]
     assert reconcile(parsed)["agrees"] is False
 
 
@@ -103,10 +104,10 @@ def test_zero_current_value_remains_a_valid_dormant_holding(tmp_path):
 @pytest.mark.parametrize(
     "amount,units,nav",
     [
-        (float("nan"), 1.0, 10.0),
-        (100.0, float("inf"), 10.0),
+        ("NaN", 1.0, 10.0),
+        (100.0, "Infinity", 10.0),
         (100.0, -1.0, 10.0),
-        (100.0, 1.0, float("nan")),
+        (100.0, 1.0, "NaN"),
         (100.0, 1.0, 0.0),
     ],
 )
