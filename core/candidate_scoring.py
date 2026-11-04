@@ -86,6 +86,14 @@ CATEGORY_BENCHMARK_ANCHORS: Dict[str, Dict[str, Tuple[float, float]]] = {
         "buffer": (0.0, 15.0),
         "intl": (0.0, 10.0),
         "overlap": (20.0, 60.0)
+    },
+    "Small Cap": {
+        "alpha": (0.0, 10.0),
+        "sharpe": (0.40, 1.30),
+        "ter": (0.40, 1.25),
+        "buffer": (0.0, 15.0),
+        "intl": (0.0, 5.0),
+        "overlap": (5.0, 35.0)
     }
 }
 
@@ -236,7 +244,7 @@ def _validate_portfolio_score_evidence(
 
 def calculate_candidate_6_pillar_score(
     cand: Dict[str, Any],
-    category_key: str = "Healthcare",
+    category_key: str,
     portfolio_overlap_pct: Optional[float] = None,
     weights: Optional[ScoringWeights] = None,
     *,
@@ -251,6 +259,8 @@ def calculate_candidate_6_pillar_score(
     Pillar 1 blends 3Y Jensen's Alpha (60%) with 1Y Total Return (40%) to reward outperformance
     while capping momentum contribution to 25% of total score.
     """
+    if not isinstance(category_key, str) or not category_key.strip():
+        raise ValueError("Explicit approved category_key is required; defaulting to Healthcare is prohibited.")
     if not isinstance(weights, ScoringWeights):
         raise ValueError("Explicit approved scoring weights are required; no default composite is permitted.")
 
@@ -491,7 +501,9 @@ class FiduciaryFundSelector:
     """Evaluates candidates using the institutional 6-pillar framework."""
     def __init__(self, fund_metrics_path: Optional[Path] = None, weights: Optional[ScoringWeights] = None):
         if fund_metrics_path is None:
-            fund_metrics_path = Path(__file__).resolve().parents[1] / "data" / "lalit_portfolio" / "fund_metrics.json"
+            raise ValueError(
+                "fund_metrics_path is required; defaulting to repository-local client data is prohibited."
+            )
         self.fund_metrics_path = fund_metrics_path
         self.weights = weights
         self.fund_metrics = self._load_metrics()

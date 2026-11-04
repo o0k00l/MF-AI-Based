@@ -199,7 +199,7 @@ def validate_cas_excel(file_bytes: bytes, file_name: str) -> StatementValidation
     elif "mfcentral" in full_text:
         res.rta_source = "MFCentral"
     else:
-        res.rta_source = "CAMS / AMFI Certified"
+        res.rta_source = "Unknown"
 
     res.is_valid = True
     return res
@@ -252,7 +252,19 @@ def validate_cgs_excel(file_bytes: bytes, file_name: str) -> StatementValidation
         return res
 
     res.is_valid = True
-    res.rta_source = "CAMS / KFintech Tax Statement"
+    cgs_text = " ".join([
+        " ".join([str(c).lower() for c in r if c is not None])
+        for sheet_name in wb.sheetnames
+        for r in wb[sheet_name].iter_rows(values_only=True, max_row=15)
+    ])
+    if "cams" in cgs_text or "computer age" in cgs_text:
+        res.rta_source = "CAMS"
+    elif "kfintech" in cgs_text or "karvy" in cgs_text:
+        res.rta_source = "KFintech"
+    elif "mfcentral" in cgs_text:
+        res.rta_source = "MFCentral"
+    else:
+        res.rta_source = "Unknown"
     return res
 
 
@@ -325,7 +337,7 @@ def validate_cas_pdf(file_bytes: bytes, file_name: str, password: Optional[str] 
     elif "mfcentral" in extracted_text:
         res.rta_source = "MFCentral"
     else:
-        res.rta_source = "Generic Mutual Fund CAS"
+        res.rta_source = "Unknown"
 
     # Search for PAN pattern
     pan_match = re.search(r"\b([A-Z]{5}[0-9]{4}[A-Z])\b", extracted_text.upper())

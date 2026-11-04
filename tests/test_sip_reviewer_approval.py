@@ -396,6 +396,7 @@ def test_direct_plan_evidence_requires_signature_when_configured(tmp_path):
         "isin": "INF000000001",
         "amc_name": "Test AMC",
         "plan": "Direct",
+        "as_of_date": date.today(),
         "_evidence_root": str(tmp_path),
         "direct_plan_evidence": {
             "source_file": "plan_source.pdf",

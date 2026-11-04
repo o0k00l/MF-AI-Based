@@ -12,6 +12,7 @@ def _fund(tmp_path: Path):
     (tmp_path / "factsheet.pdf").write_bytes(source)
     return {
         "_evidence_root": tmp_path,
+        "as_of_date": date.today(),
         "fund_name": "Example Direct Growth",
         "scheme_id": "123456",
         "isin": "INF000000001",

@@ -9,6 +9,7 @@ Parses CAMS, KFintech, and MFCentral CGS Excel reports ('cgs_detailed_report_*.x
 from __future__ import annotations
 import openpyxl
 from pathlib import Path
+import hashlib
 from typing import Dict, List, Any, Optional
 import warnings
 
@@ -69,8 +70,6 @@ def parse_cgs_excel(cgs_path: str | Path) -> Dict[str, Any]:
         "ltcg_inr": 0.0,
         "total_outflows": 0.0,
         "total_cost": 0.0,
-        "exemption_limit": 125000.0,
-        "remaining_ltcg_exemption": 125000.0,
     }
     schemes = []
     transactions = []
@@ -163,19 +162,18 @@ def parse_cgs_excel(cgs_path: str | Path) -> Dict[str, Any]:
                 except (ValueError, TypeError, IndexError):
                     pass
 
-    # Calculate remaining LTCG tax-free exemption
-    realized_ltcg = summary_data["ltcg_inr"]
-    remaining = max(0.0, 125000.0 - max(0.0, realized_ltcg))
-    summary_data["remaining_ltcg_exemption"] = remaining
+    source_sha256 = hashlib.sha256(path.read_bytes()).hexdigest()
 
     return {
         "statement_path": str(path),
         "filename": path.name,
+        "source_sha256": source_sha256,
         "summary": summary_data,
         "schemes": schemes,
         "transactions": transactions,
         "has_cgs": True,
         "stcg_loss_available": abs(summary_data["stcg_inr"]) if summary_data["stcg_inr"] < 0 else 0.0,
-        "headroom_status": f"INR {remaining:,.0f} tax-free LTCG room remaining this FY"
+        "tax_advice_enabled": False,
+        "headroom_status": "Tax headroom and statutory exemption calculation is disabled pending independent tax review.",
     }
 
