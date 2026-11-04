@@ -1727,8 +1727,11 @@ def build_fifo_tax_lots(
     return {fund_id: lots for fund_id, lots in fund_lots.items() if lots}
 def calculate_overlap_matrix(holdings: List[HoldingItem], threshold_pct: float = 25.0) -> List[OverlapPair]:
     """
-    Computes pairwise stock overlap among equity funds holding stock disclosures.
-    Flags pairs with overlap >= threshold_pct (default 25%).
+    Legacy top-holdings count proxy only; not weighted constituent overlap.
+
+    Results are explicitly serialized with evidence_basis=TOP_HOLDINGS_COUNT_PROXY
+    and verification_status=HEURISTIC. SIP decisions must use
+    calculate_weighted_lookthrough_overlap with complete verified weights.
     """
     # Group unique funds by fund_id
     fund_stocks: Dict[str, set] = {}
