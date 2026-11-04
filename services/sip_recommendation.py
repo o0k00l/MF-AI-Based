@@ -344,6 +344,38 @@ def _assess_complete_portfolio_context(
             }
         elif existing_lookthrough.get("status") != "HOLD":
             raise PortfolioInputError("existing portfolio look-through state is invalid")
+        external_equity_rows = []
+        external_equity_missing = []
+        for row in assets:
+            if row.get("asset_class") not in {"equity", "direct_equity", "external_mutual_fund"}:
+                continue
+            constituents = row.get("constituent_weights")
+            coverage = row.get("constituent_weights_coverage_pct")
+            if not isinstance(constituents, dict) or coverage is None:
+                external_equity_missing.append(row.get("asset_id", "UNKNOWN_ASSET"))
+                continue
+            external_equity_rows.append({
+                "holding_value_inr": row["value_inr"],
+                "coverage_pct": coverage,
+                "constituents": constituents,
+            })
+        if external_equity_missing:
+            external_lookthrough = {
+                "status": "HOLD", "reason": "EXTERNAL_EQUITY_LOOKTHROUGH_MISSING",
+                "unverified_asset_ids": sorted(external_equity_missing),
+            }
+        elif external_equity_rows:
+            external_lookthrough = calculate_lookthrough_exposure(
+                external_equity_rows, required_coverage_pct="99.5"
+            )
+        else:
+            external_lookthrough = {
+                "status": "CALCULATED", "coverage_pct": "100",
+                "issuer_exposure_inr": {}, "scope": "NO_EXTERNAL_EQUITY_ASSETS_DECLARED",
+            }
+        if external_lookthrough.get("status") == "CALCULATED":
+            for issuer, value in external_lookthrough.get("issuer_exposure_inr", {}).items():
+                existing_issuer_values[issuer] = existing_issuer_values.get(issuer, 0.0) + float(value)
         overlap_results = {}
         for candidate in candidate_universe:
             candidate_id = str(candidate.get("fund_id") or candidate.get("scheme_id") or "")
@@ -406,6 +438,7 @@ def _assess_complete_portfolio_context(
             and bool(eligible_ids)
             and freshness["status"] == "CURRENT"
             and routing["status"] in {"ROUTED", "HOLD"}
+            and external_lookthrough.get("status") == "CALCULATED"
             and all(overlap_results.get(candidate_id, {}).get("status") == "ASSESSED"
                     for candidate_id in eligible_ids)
         )
@@ -423,6 +456,7 @@ def _assess_complete_portfolio_context(
             "candidate_screening": screening,
             "scheme_operational_feasibility": operational_results,
             "candidate_overlap_diagnostics": overlap_results,
+            "external_asset_lookthrough": external_lookthrough,
             "incremental_sip_routing_simulation": routing,
             "freshness": freshness,
             "all_input_gates_pass": all_gates_pass,
