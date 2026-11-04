@@ -4531,3 +4531,23 @@ def compute_deterministic_sip_blueprint(
 
 # Re-export personal redemption engine
 from core.redemption_engine import compute_personal_redemption_plan
+
+# P0 SAFETY GATE: the legacy summary classifier applies a blanket >365-day
+# holding test and a generic 1% exit-load assumption. It is not approved for
+# investor-facing tax or redemption outputs. Keep build_fifo_tax_lots available
+# as transaction-lot preparation; disable the summary that turns lots into
+# tax/exit-load classifications until a date-/scheme-/lot-specific engine is
+# independently approved.
+class TaxClassificationDisabledError(RuntimeError):
+    """Raised when provisional legacy tax/exit-load classification is invoked."""
+
+
+def _tax_classification_disabled(*args, **kwargs):
+    raise TaxClassificationDisabledError(
+        "Legacy FIFO tax/exit-load classification is disabled: the generic "
+        "365-day and 1% exit-load assumptions are not approved. No tax or "
+        "redemption classification has been generated."
+    )
+
+
+compute_fifo_tax_lots = _tax_classification_disabled
