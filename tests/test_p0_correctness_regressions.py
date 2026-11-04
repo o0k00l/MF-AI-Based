@@ -17,6 +17,8 @@ def _synthetic_tax_evidence_kwargs():
     }
 
 from core.eligibility import _finite_number, _risk_tier_to_int, check_eligibility_gates
+from types import SimpleNamespace
+from core.math_engine import compute_candidate_portfolio_overlap
 from tax.transition_planner import Lot, FundSellPlan, plan_fy_tranches, classify_fund_for_tax
 
 
@@ -1957,3 +1959,57 @@ def test_sip_selector_holds_all_slots_when_candidate_universe_is_below_policy_mi
         assert slot["allocation_pct"] == 0.0
         assert slot["unallocated_pct"] > 0.0
         assert "candidate universe insufficient (29 < 30)" in slot["rationale"]
+
+
+
+def _lookthrough_holding(fund_id, value, equity_pct, weights=None, coverage=100.0):
+    return SimpleNamespace(
+        fund_id=fund_id,
+        current_value_inr=value,
+        equity_pct=equity_pct,
+        constituent_weights=weights,
+        constituent_weights_coverage_pct=coverage if weights is not None else None,
+    )
+
+
+def test_candidate_portfolio_overlap_uses_actual_constituent_weights():
+    holding = _lookthrough_holding("existing-1", 1000.0, 100.0, {"issuer-a": 60.0, "issuer-b": 40.0})
+    candidate = {
+        "constituent_weights": {"issuer-a": 30.0, "issuer-c": 70.0},
+        "constituent_weights_coverage_pct": 100.0,
+    }
+    assert compute_candidate_portfolio_overlap(candidate, [holding]) == 30.0
+
+
+def test_candidate_portfolio_overlap_value_weights_multiple_existing_funds():
+    holdings = [
+        _lookthrough_holding("existing-1", 750.0, 100.0, {"issuer-a": 100.0}),
+        _lookthrough_holding("existing-2", 250.0, 100.0, {"issuer-b": 100.0}),
+    ]
+    candidate = {
+        "constituent_weights": {"issuer-a": 50.0, "issuer-b": 50.0},
+        "constituent_weights_coverage_pct": 100.0,
+    }
+    assert compute_candidate_portfolio_overlap(candidate, holdings) == 50.0
+
+
+def test_candidate_portfolio_overlap_returns_unknown_for_missing_or_partial_evidence():
+    candidate = {
+        "constituent_weights": {"issuer-a": 100.0},
+        "constituent_weights_coverage_pct": 100.0,
+    }
+    assert compute_candidate_portfolio_overlap(candidate, None) is None
+    assert compute_candidate_portfolio_overlap(candidate, [_lookthrough_holding("existing-1", 1000, 100, None)]) is None
+    partial = _lookthrough_holding("existing-1", 1000, 100, {"issuer-a": 100.0}, coverage=80.0)
+    assert compute_candidate_portfolio_overlap(candidate, [partial]) is None
+    assert compute_candidate_portfolio_overlap({"constituent_weights": {"issuer-a": 100.0}}, [_lookthrough_holding("existing-1", 1000, 100, {"issuer-a": 100.0})]) is None
+
+
+def test_candidate_portfolio_overlap_zero_is_only_confirmed_empty_or_disjoint():
+    candidate = {
+        "constituent_weights": {"issuer-a": 100.0},
+        "constituent_weights_coverage_pct": 100.0,
+    }
+    holding = _lookthrough_holding("existing-1", 1000.0, 100.0, {"issuer-b": 100.0})
+    assert compute_candidate_portfolio_overlap(candidate, []) == 0.0
+    assert compute_candidate_portfolio_overlap(candidate, [holding]) == 0.0
