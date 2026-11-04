@@ -962,6 +962,7 @@ def recommend_sip(
             portfolio_disclosure_source_bytes_by_scheme_id=portfolio_disclosure_source_bytes_by_scheme_id,
             disclosure_as_of_date=disclosure_as_of_date,
             disclosure_max_age_days=disclosure_max_age_days,
+            require_exact_metric_identity=True,
         )
     except (OSError, ValueError, TypeError, KeyError) as exc:
         return _hold_plan(budget, [
