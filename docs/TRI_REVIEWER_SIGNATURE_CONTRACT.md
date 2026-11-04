@@ -51,7 +51,8 @@ Required payload fields:
 | calendar_source_path, calendar_source_url | Exact repository-relative source path and official HTTPS URL for the original calendar document. |
 | calendar_source_sha256 | SHA-256 of the original calendar source document. |
 | calendar_sessions_sha256 | SHA-256 of JCS(normalized sorted session-date array). |
-| review_attestation | Explicit reviewer attestation that source identity, index identifiers, observations, corrections, session coverage and parsing were independently checked. |\n| source_reconciliation_attestation | Must be exactly true; explicitly attests that each raw official source document was reconciled to the corresponding normalized fixture series. |
+| review_attestation | Explicit reviewer attestation that source identity, index identifiers, observations, corrections, session coverage and parsing were independently checked. |
+| source_reconciliation_attestation | Must be exactly true; explicitly attests that each raw official source document was reconciled to the corresponding normalized fixture series. |
 
 No payload field may be treated as true merely because it is signed: the verifier must independently recompute every digest and validate the underlying evidence and schema.
 
