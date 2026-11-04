@@ -16,8 +16,8 @@ def test_normative_architecture_specification_is_present_and_complete():
     assert arch_path.is_file(), "ARCHITECTURE.md must exist in repository root."
 
     content = arch_path.read_text(encoding="utf-8")
-    assert "Specification Version: 1.0.0" in content
-    assert "Authority: Normative architecture baseline" in content
+    assert "**Specification Version:** 1.0.0" in content
+    assert "Normative architecture baseline" in content
     assert "NOT APPROVED FOR PRODUCTION" in content
     assert "Execution Authority: NONE" in content
 
