@@ -12,7 +12,7 @@
 - Requesty and OpenRouter use their OpenAI-compatible chat-completions endpoints. Their candidate models now come only from the authenticated live catalogue; no hard-coded model IDs are injected when discovery fails.
 - Requesty catalogue discovery is authenticated at `/v1/models`. Its current 403 is an account/key permission failure until Requesty confirms otherwise.
 - OpenRouter catalogue discovery is authenticated at `/api/v1/models`. Its current 401 is an authentication failure until the key is corrected.
-- Gemini model IDs are discovered through the installed Google Gen AI SDK's model-list API. Generation now omits optional `seed`, temperature and token-limit settings unless a future compatibility test explicitly adds them.
+- Gemini is disabled from the runtime provider chain and removed from the supported settings UI because the available API model catalogue does not prove zero-cost usage.
 - Model discovery cache entries are scoped to a one-way fingerprint of the API key, expire after one hour, and never store the raw key. Each adapter attempts at most five discovered models.
 - Provider failures retain safe status/code/model metadata; raw provider response bodies and credentials are not included in the smoke-test output.
 
@@ -28,7 +28,7 @@
 
 **Do not wire AI provider credentials into the SIP evidence-provider slot.** LLM availability is not source evidence and cannot establish scheme identity, portfolio constituents, benchmark TRI authenticity, candidate eligibility or release approval.
 
-The current repository has no reviewed production evidence-provider factory to inject into `create_sip_app`. Therefore deployment wiring is intentionally left fail-closed. Adding a generic environment-variable import or pointing the SIP API at `core.ai_engine.call_llm` would weaken the evidence boundary and create a false impression of production readiness.
+The current repository has no reviewed production evidence-provider factory to inject into `create_sip_app`. The checked-in module-level app is therefore permanently HOLD-only until an approved factory is implemented and explicitly injected. Adding a generic environment-variable import or pointing the SIP API at `core.ai_engine.call_llm` would weaken the evidence boundary and create a false impression of production readiness.
 
 ## Required prerequisites before API deployment
 
@@ -41,4 +41,4 @@ The current repository has no reviewed production evidence-provider factory to i
 
 ## Verification boundary
 
-The latest recorded live provider run (run ID `41781807609`, commit `33bbd71c95d7f970a6fbf4e78bd184845e9882bc`) failed with Requesty 403, OpenRouter 401 and Gemini 400. The adapter changes address the model-selection and request-compatibility defects; they do not prove the credentials are valid. A fresh live run is required to establish provider connectivity after the changes.
+The latest recorded live provider run (run ID `41781807609`, commit `33bbd71c95d7f970a6fbf4e78bd184845e9882bc`) failed with Requesty 403, OpenRouter 401 and Gemini 400. The free-only adapter changes do not prove the credentials are valid. The latest live run (run ID `41783857358`, commit `99475790453c8e985820b9eeb914a400dc823e97`) failed with Requesty 403 and OpenRouter 401. Both enabled provider credentials need provider-side verification. Gemini is disabled pending authoritative zero-cost verification.
