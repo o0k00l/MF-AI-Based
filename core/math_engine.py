@@ -2091,6 +2091,8 @@ def aggregate_fiduciary_facts(
         disclosure_as_of_date=disclosure_as_of_date,
         disclosure_max_age_days=disclosure_max_age_days,
     )
+    if not holdings:
+        raise ValueError("Portfolio diagnostics unavailable: CAS contains no verified active holdings; no zero-drift report can be produced")
 
     # SIP generation requires an explicit investor mandate. Never manufacture
     # a ₹1 lakh budget or Tier 6 risk profile when client inputs are absent.
