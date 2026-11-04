@@ -414,3 +414,36 @@ def test_candidate_allocator_preserves_first_candidate_per_routed_sleeve():
     assert {row["candidate_id"] for row in result["allocations"]} == {
         "large-a", "mid-a", "debt-a",
     }
+
+
+def test_sip_routing_does_not_redistribute_an_ineligible_sleeve_gap():
+    result = route_incremental_sip(
+        "10000",
+        {"large_cap": "100000", "flexi_multi_cap": "100000"},
+        {"large_cap": "40", "flexi_multi_cap": "40", "debt_liquid": "20"},
+        portfolio_total_inr="200000",
+        tolerance_band_pct="0",
+        eligible_sleeves={"large_cap"},
+        rounding_increment_inr="500",
+    )
+    assert result["status"] == "ROUTED"
+    assert result["allocations_inr"] == {"large_cap": "2500"}
+    assert result["allocated_budget_inr"] == "2500"
+    assert result["unallocated_budget_inr"] == "7500"
+    assert result["unallocated_by_sleeve_inr"]["flexi_multi_cap"] == "5000"
+    assert result["reconciliation_ok"] is True
+
+
+def test_sip_routing_rounding_remainder_remains_unallocated():
+    result = route_incremental_sip(
+        "1000",
+        {"large_cap": "50000", "mid_cap": "50000"},
+        {"large_cap": "60", "mid_cap": "40"},
+        portfolio_total_inr="100000",
+        tolerance_band_pct="0",
+        eligible_sleeves={"large_cap", "mid_cap"},
+        rounding_increment_inr="500",
+    )
+    assert result["allocated_budget_inr"] == "500"
+    assert result["unallocated_budget_inr"] == "500"
+    assert result["reconciliation_ok"] is True
