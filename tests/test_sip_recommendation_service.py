@@ -319,6 +319,7 @@ def _complete_portfolio_context():
                 "scheme_identity": {
                     "scheme_id": f"CANDIDATE-SCHEME-{i}", "isin": f"INF000000{i:03d}",
                     "plan": "Direct", "option": "Growth", "amc": "Example AMC",
+                    "category": "Large Cap", "benchmark": "Nifty 100 TRI",
                 },
                 "evidence_ref": "sha256:ops", "evidence_as_of_date": as_of,
                 "scheme_status": "ACTIVE", "minimum_monthly_sip_inr": "500",
