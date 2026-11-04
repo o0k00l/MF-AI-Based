@@ -93,6 +93,7 @@ A release is assessed against one exact commit SHA. Evidence from older commits,
 - [ ] Supported Python version and runtime platform are pinned and verified.
 - [x] Dependency vulnerability review: `pip-audit` reports no known vulnerabilities in the hash-locked dependency tree on latest fully verified `main` SHA (Security run `41770329933`).
 - [x] Decision traceability uses RFC 8785/JCS canonical UTF-8 bytes plus SHA-256, with explicit `RFC8785-JCS-SHA256-v1` hash metadata and RFC number/string/UTF-16 property-order test vectors (CI run `41770329852`).
+- [ ] Existing pre-JCS decision hashes are inventoried; a legacy verification/migration policy is approved before old records are recomputed or compared with JCS hashes.
 - [ ] Static analysis, formatting, type checking and independent secret scanning pass.
 - [x] CycloneDX dependency SBOM is generated and retained as a GitHub Actions artifact (digest recorded above).
 - [ ] Production release artifact digest and independent reviewer sign-off are retained.
