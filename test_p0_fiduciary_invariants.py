@@ -115,9 +115,10 @@ def test_p0_1_universal_4_slot_sizing_invariant():
     assert plan_t6.debt_sip_pct == 0.0
     roles = {item.category_role: item for item in plan_t6.items}
     # Policy: very_high saa_targets: flexi=25, mid=25, small=25, large=20 (sum=95)
-    # Weights: flexi=25/95=26.3%, mid+small=50/95=52.6%, large=20/95=21.1%, thematic=0%
+    # Weights: flexi=25/95=26.3%, mid=25/95=26.3%, small=25/95=26.3%, large=20/95=21.1%, thematic=0%
     assert roles["Core Flexi-Cap Compounder"].allocation_pct == 26.3
-    assert roles["Mid-Cap Alpha Engine"].allocation_pct == 52.6
+    assert roles["Mid-Cap Alpha Engine"].allocation_pct == 26.3
+    assert roles["Small-Cap Growth Engine"].allocation_pct == 26.3
     assert roles["Large-Cap Bluechip Anchor"].allocation_pct == 21.1
     assert roles["Tactical Thematic Satellite"].allocation_pct == 0.0
     assert sum(it.monthly_inr for it in plan_t6.items) + plan_t6.unallocated_budget_inr == budget
