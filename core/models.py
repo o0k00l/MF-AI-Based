@@ -110,6 +110,9 @@ class HoldingItem(BaseModel):
     lookthrough_status: str = "MISSING"
     lookthrough_reason: Optional[str] = "No verified stock-level disclosure attached."
     risk_tier: Optional[str] = None
+    # Metrics are independent of scheme identity. MISSING/INCOMPLETE metrics
+    # must never be interpreted as zero exposure or used for SIP scoring.
+    metrics_status: str = "MISSING"
     xirr_pct: Optional[float] = None
     expense_ratio_pct: float = 0.0
 
