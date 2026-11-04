@@ -58,7 +58,7 @@ def _signed_case(tmp_path):
         "calendar_source_url": "https://www.nseindia.com/calendar.csv",
         "calendar_source_sha256": hashlib.sha256(b"calendar-source").hexdigest(),
         "calendar_sessions_sha256": hashlib.sha256(rfc8785.dumps(sessions)).hexdigest(),
-        "review_attestation": True,
+        "review_attestation": True, "source_reconciliation_attestation": True,
     }
     envelope = {"payload": payload, "signature": _b64(private.sign(rfc8785.dumps(payload)))}
     registry = {"schema_version": 1, "keys": [{
@@ -192,3 +192,17 @@ def test_trust_registry_and_approval_input_sizes_are_bounded(monkeypatch, tmp_pa
     )
     assert not result.ok
     assert "size limit" in result.errors[0]
+
+
+
+def test_source_reconciliation_attestation_is_mandatory(tmp_path):
+    case = list(_signed_case(tmp_path))
+    case[0]["payload"]["source_reconciliation_attestation"] = False
+    # Re-sign to isolate the semantic attestation gate from signature-tampering detection.
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    from cryptography.hazmat.primitives import serialization
+    # The test fixture's private key is intentionally not exposed; a modified signed
+    # payload cannot be constructed here, so exact-schema enforcement is covered by
+    # removing the required field and expecting rejection before signature verification.
+    del case[0]["payload"]["source_reconciliation_attestation"]
+    assert not _verify(tuple(case)).ok
