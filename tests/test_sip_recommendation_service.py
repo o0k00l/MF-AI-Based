@@ -32,7 +32,7 @@ def _inputs(tmp_path):
         "scheme_master_source_bytes": b"scheme master source",
         "portfolio_disclosures_by_scheme_id": {"SCHEME-1": {"scheme_id": "SCHEME-1"}},
         "portfolio_disclosure_source_bytes_by_scheme_id": {"SCHEME-1": b"disclosure source"},
-        "disclosure_as_of_date": date(2026, 11, 4),
+        "disclosure_as_of_date": date.today(),
         "candidate_universe": [{"fund_id": "CANDIDATE-1", "scheme_id": "CANDIDATE-SCHEME-1"}],
     }
 
@@ -241,6 +241,7 @@ def _complete_portfolio_context():
     return {
         "evidence_attested_by_provider": True,
         "as_of_date": as_of,
+        "cas_valuation_date": as_of,
         "perimeter_complete": True,
         "assets": [
             {"asset_id": "cas-mf", "asset_class": "cas_mutual_fund", "saa_bucket": "large_cap",
@@ -347,6 +348,7 @@ def test_complete_portfolio_workflow_integrates_issues_23_to_34_without_authoriz
     context = result["portfolio_assessment"]["total_portfolio_context"]
     assert context["status"] == "ASSESSMENT_COMPLETE"
     assert context["portfolio_reconciliation"]["total_value_inr"] == "1000000"
+    assert context["cas_valuation_date_verified"] is True
     assert context["saa"]["drift"]["underweight_sleeves"] == ["flexi_multi_cap", "large_cap"]
     assert context["goal_suitability"]["status"] == "VALIDATED"
     assert context["liquidity_and_affordability"]["status"] == "AFFORDABLE"
