@@ -52,16 +52,31 @@ def verify_fixture(path: Path) -> list[str]:
     except (OSError, json.JSONDecodeError) as exc:
         return [f"{path}: unable to read valid JSON: {exc}"]
     label = path.relative_to(ROOT) if path.is_relative_to(ROOT) else path
+    failures: list[str] = []
+    if not isinstance(data, dict):
+        return [f"{label}: fixture root must be a JSON object"]
     provenance = data.get("provenance", {})
     coverage = data.get("coverage", {})
     benchmarks = data.get("benchmarks", {})
-    failures: list[str] = []
+    if not isinstance(provenance, dict):
+        failures.append(f"{label}: provenance must be a JSON object")
+        provenance = {}
+    if not isinstance(coverage, dict):
+        failures.append(f"{label}: coverage must be a JSON object")
+        coverage = {}
+    if not isinstance(benchmarks, dict):
+        failures.append(f"{label}: benchmarks must be a JSON object")
+        benchmarks = {}
     specs = (
         ("NIFTY 500 TRI", "nifty_500_tri", "checksum_sha256_nifty_500_tri"),
         ("NIFTY 50 TRI", "nifty_50_tri", "checksum_sha256_nifty_50_tri"),
     )
     for index_name, coverage_key, checksum_key in specs:
-        levels = benchmarks.get(index_name, {}).get("levels", {})
+        benchmark = benchmarks.get(index_name, {})
+        if not isinstance(benchmark, dict):
+            failures.append(f"{label}: {index_name}: benchmark entry must be a JSON object")
+            continue
+        levels = benchmark.get("levels", {})
         if not isinstance(levels, dict) or not levels:
             failures.append(f"{label}: {index_name}: levels must be a non-empty date/value object")
             continue
@@ -93,9 +108,15 @@ def verify_fixture(path: Path) -> list[str]:
                 failures.append(f"{label}: {index_name}: invalid TRI level at {observation_date}")
                 break
         dates = list(levels)
-        if dates != sorted(dates) or len(dates) != len(set(dates)):
+        if any(not isinstance(day, str) for day in dates):
+            failures.append(f"{label}: {index_name}: date keys must be strings")
+        elif dates != sorted(dates) or len(dates) != len(set(dates)):
             failures.append(f"{label}: {index_name}: dates must be sorted and unique")
-        declared_count = coverage.get(coverage_key, {}).get("provided_data_points")
+        coverage_entry = coverage.get(coverage_key, {})
+        if not isinstance(coverage_entry, dict):
+            failures.append(f"{label}: {index_name}: coverage entry must be a JSON object")
+            coverage_entry = {}
+        declared_count = coverage_entry.get("provided_data_points")
         if isinstance(declared_count, bool) or declared_count != len(levels):
             failures.append(
                 f"{label}: {index_name}: declared point count {declared_count!r} "
@@ -120,7 +141,11 @@ def alpha_release_blockers(fixture_path: Path) -> list[str]:
     except (OSError, json.JSONDecodeError) as exc:
         return [f"high-coverage TRI fixture cannot be read: {exc}"]
 
+    if not isinstance(data, dict):
+        return ["high-coverage TRI fixture root must be a JSON object"]
     provenance = data.get("provenance", {})
+    if not isinstance(provenance, dict):
+        return ["high-coverage TRI fixture provenance must be a JSON object"]
     if not str(provenance.get("frequency", "")).strip().lower().startswith("daily"):
         blockers.append(f"series frequency is not Daily: {provenance.get('frequency')!r}")
     if provenance.get("interpolation_used") is not False:
@@ -159,7 +184,13 @@ def alpha_release_blockers(fixture_path: Path) -> list[str]:
         sessions = []
     if sessions != sorted(set(sessions)):
         blockers.append("NSE calendar sessions must be sorted and unique")
+    if not isinstance(calendar, dict):
+        blockers.append("NSE calendar root must be a JSON object")
+        return blockers
     cal_provenance = calendar.get("provenance", {})
+    if not isinstance(cal_provenance, dict):
+        blockers.append("NSE calendar provenance must be a JSON object")
+        cal_provenance = {}
     if cal_provenance.get("sessions_sha256") != _canonical_sha256(sessions):
         blockers.append("NSE calendar sessions checksum is missing or mismatched")
     if not _is_approved_official_url(cal_provenance.get("source_url")):
