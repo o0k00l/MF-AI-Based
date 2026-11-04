@@ -1153,6 +1153,7 @@ def load_holdings_from_cas_excel(
                 top_holdings=top_h,
                 expense_ratio_pct=er,
                 scheme_id=identity.get("scheme_id"),
+                isin=identity.get("isin"),
                 constituent_weights=disclosure.get("constituent_weights"),
                 constituent_weights_coverage_pct=disclosure.get("constituent_weights_coverage_pct"),
                 lookthrough_status=disclosure["status"],
