@@ -239,3 +239,29 @@ def test_cas_uses_header_positions_not_fixed_legacy_column_positions(tmp_path):
     assert holdings[0].invested_value_inr == 90000.0
     assert holdings[0].current_value_inr == 100000.0
     assert holdings[0].units == 1000.0
+
+
+def test_recommendation_surfaces_invalid_cas_as_hold_with_full_budget(tmp_path):
+    workbook = openpyxl.Workbook()
+    sheet = workbook.active
+    sheet.title = "Portfolio Details"
+    sheet.append(["Synthetic CAS with unsupported columns"])
+    sheet.append(["Scheme", "Folio", "Value"])
+    sheet.append(["Example Equity Fund", "FOLIO-INVALID", 100000.0])
+    cas_path = tmp_path / "invalid-cas.xlsx"
+    workbook.save(cas_path)
+    scheme_master, scheme_master_bytes = _scheme_master()
+
+    result = _recommendation(
+        cas_path, scheme_master, scheme_master_bytes, {}, {}
+    )
+
+    assert result["status"] == "HOLD"
+    assert result["decision"] == "NO_ACTION"
+    assert result["plan"]["items"] == []
+    assert result["plan"]["total_monthly_budget_inr"] == 25000.0
+    assert result["plan"]["unallocated_budget_inr"] == 25000.0
+    assert any(
+        "CAS or evidence validation failed closed (ValueError)" in reason
+        for reason in result["reasons"]
+    )
