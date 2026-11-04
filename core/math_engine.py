@@ -1133,43 +1133,9 @@ def load_holdings_from_cas_excel(
         plan = PlanType.DIRECT if "direct" in scheme_lower else PlanType.REGULAR
         is_direct = plan == PlanType.DIRECT
 
-        # Exact identity / reviewed-alias match only. Never invent an equity
-        # classification for an unmatched CAS scheme.
-        matched_metric = _find_matching_metric(scheme_str, metrics_map, aliases_map)
-        if matched_metric is None:
-            raise ValueError(
-                f"CAS scheme {scheme_str!r} has no unambiguous exact match in fund metrics; "
-                "add a reviewed alias or verified scheme identity before SIP analysis."
-            )
-
-        category = matched_metric.get("cat")
-        er = float(matched_metric.get("er", 0.75)) if matched_metric else (0.85 if plan == PlanType.DIRECT else 1.90)
-        
-        # If Regular plan and only Direct ER is in dataset, estimate regular fee = direct ER + 1.05%
-        if plan == PlanType.REGULAR and matched_metric:
-            er = er + 1.05
-
-        top_h = matched_metric.get("h", []) if matched_metric else []
-        sharpe = matched_metric.get("sharpe") if matched_metric else None
-
-        # Market-cap split
-        required_exposure_fields = ("eq", "debt", "lc", "mc", "sc")
-        missing_exposure_fields = [field for field in required_exposure_fields if matched_metric.get(field) is None]
-        if missing_exposure_fields:
-            raise ValueError(
-                f"Fund metrics for CAS scheme {scheme_str!r} are missing exposure fields: "
-                + ", ".join(missing_exposure_fields)
-                + "; portfolio-aware SIP analysis is withheld."
-            )
-        eq_pct = float(matched_metric["eq"])
-        debt_pct = float(matched_metric["debt"])
-        lc_pct = float(matched_metric["lc"])
-        mc_pct = float(matched_metric["mc"])
-        sc_pct = float(matched_metric["sc"])
-
-        asset_class = _infer_asset_class(category, eq_pct, debt_pct, lc_pct, mc_pct, sc_pct)
-
-        fund_id = matched_metric.get("id", scheme_str[:30]) if matched_metric else scheme_str[:30]
+        # Resolve stable scheme identity independently from fund performance
+        # metrics. A scheme master identifies the instrument; it does not supply
+        # category, risk or exposure metrics.
         identity = {"scheme_id": None, "isin": None, "status": "MISSING",
                     "reason": "No verified scheme master was supplied."}
         if scheme_master is not None and scheme_master_source_bytes is not None and amc_name:
@@ -1179,6 +1145,45 @@ def load_holdings_from_cas_excel(
                 scheme_master,
                 source_bytes=scheme_master_source_bytes,
             )
+
+        # Exact identity / reviewed-alias metrics match only. Never infer
+        # classification or substitute default exposures when metrics are absent.
+        matched_metric = _find_matching_metric(scheme_str, metrics_map, aliases_map)
+        if matched_metric is None:
+            category = None
+            er = 0.0
+            top_h = []
+            eq_pct = debt_pct = lc_pct = mc_pct = sc_pct = 0.0
+            asset_class = AssetClass.OTHER
+            metrics_status = "MISSING"
+            fund_id = identity.get("scheme_id") or scheme_str[:30]
+        else:
+            category = matched_metric.get("cat")
+            er = float(matched_metric.get("er", 0.0))
+            if plan == PlanType.REGULAR:
+                # Preserve the existing regular-plan fee adjustment only when
+                # a verified matching metrics record exists.
+                er += 1.05
+            top_h = matched_metric.get("h", [])
+            required_exposure_fields = ("eq", "debt", "lc", "mc", "sc")
+            missing_exposure_fields = [
+                field for field in required_exposure_fields
+                if matched_metric.get(field) is None
+            ]
+            if missing_exposure_fields:
+                raise ValueError(
+                    f"Fund metrics for CAS scheme {scheme_str!r} are missing exposure fields: "
+                    + ", ".join(missing_exposure_fields)
+                    + "; portfolio-aware SIP analysis is withheld."
+                )
+            eq_pct = float(matched_metric["eq"])
+            debt_pct = float(matched_metric["debt"])
+            lc_pct = float(matched_metric["lc"])
+            mc_pct = float(matched_metric["mc"])
+            sc_pct = float(matched_metric["sc"])
+            asset_class = _infer_asset_class(category, eq_pct, debt_pct, lc_pct, mc_pct, sc_pct)
+            metrics_status = "VERIFIED"
+            fund_id = matched_metric.get("id", identity.get("scheme_id") or scheme_str[:30])
 
         disclosure = {"constituent_weights": None,
                       "constituent_weights_coverage_pct": None,
@@ -1229,7 +1234,8 @@ def load_holdings_from_cas_excel(
                 lookthrough_status=disclosure["status"],
                 lookthrough_reason=disclosure["reason"],
                 amc_name=amc_name or None,
-                risk_tier=_asset_class_to_risk_tier(asset_class),
+                risk_tier=_asset_class_to_risk_tier(asset_class) if metrics_status == "VERIFIED" else None,
+                metrics_status=metrics_status,
             )
         )
 
