@@ -466,3 +466,20 @@ def test_signed_source_validation_uses_utc_aware_review_time(tmp_path, monkeypat
     assert captured["scope"] == "SIP_TEST_SOURCE"
     assert captured["now"].isoformat() == "2026-11-04T00:00:00+00:00"
     assert captured["now"].utcoffset().total_seconds() == 0
+
+
+def test_production_contract_requires_independent_signature_for_scheme_master(tmp_path):
+    payload = valid_payload(tmp_path)
+    with pytest.raises(EvidenceProviderContractError, match="verifiable independent reviewer signature"):
+        validate_evidence_provider_payload(payload, require_reviewer_signature=True)
+
+
+def test_production_contract_rejects_missing_independent_trust_registry(tmp_path):
+    payload = valid_payload(tmp_path)
+    payload["scheme_master"]["reviewer_approval_envelope"] = {
+        "payload": {}, "signature": "invalid"
+    }
+    with pytest.raises(EvidenceProviderContractError, match="independently administered trust registry"):
+        validate_evidence_provider_payload(
+            payload, trust_registry=None, require_reviewer_signature=True
+        )
