@@ -2032,6 +2032,49 @@ def test_candidate_portfolio_overlap_zero_is_only_confirmed_empty_or_disjoint():
     assert compute_candidate_portfolio_overlap(candidate, [holding]) == 0.0
 
 
+def test_portfolio_overlap_sensitivity_changes_with_actual_holdings_not_fund_labels():
+    mid_cap_candidate = {
+        "category": "Mid Cap",
+        "constituent_weights": {"mid-issuer-a": 60.0, "mid-issuer-b": 40.0},
+        "constituent_weights_coverage_pct": 100.0,
+    }
+    large_cap_candidate = {
+        "category": "Large Cap",
+        "constituent_weights": {"large-issuer-a": 60.0, "large-issuer-b": 40.0},
+        "constituent_weights_coverage_pct": 100.0,
+    }
+    mid_heavy_portfolio = [
+        _lookthrough_holding(
+            "existing-mid-fund", 1000.0, 100.0,
+            {"mid-issuer-a": 60.0, "mid-issuer-b": 40.0},
+        )
+    ]
+    large_heavy_portfolio = [
+        _lookthrough_holding(
+            "existing-large-fund", 1000.0, 100.0,
+            {"large-issuer-a": 60.0, "large-issuer-b": 40.0},
+        )
+    ]
+
+    mid_candidate_overlap_mid_heavy = compute_candidate_portfolio_overlap(
+        mid_cap_candidate, mid_heavy_portfolio
+    )
+    mid_candidate_overlap_large_heavy = compute_candidate_portfolio_overlap(
+        mid_cap_candidate, large_heavy_portfolio
+    )
+    large_candidate_overlap_mid_heavy = compute_candidate_portfolio_overlap(
+        large_cap_candidate, mid_heavy_portfolio
+    )
+    large_candidate_overlap_large_heavy = compute_candidate_portfolio_overlap(
+        large_cap_candidate, large_heavy_portfolio
+    )
+
+    assert mid_candidate_overlap_mid_heavy == 100.0
+    assert mid_candidate_overlap_large_heavy == 0.0
+    assert large_candidate_overlap_mid_heavy == 0.0
+    assert large_candidate_overlap_large_heavy == 100.0
+
+
 
 def test_custom_investor_risk_profile_never_defaults_to_sebi_tier_six():
     with pytest.raises(ValueError, match="explicitly approved custom SAA"):
