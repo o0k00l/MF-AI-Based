@@ -16,14 +16,42 @@ import warnings
 warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
 
 
-def discover_cgs_report(client_dir: Path) -> Optional[Path]:
-    """Auto-discovers the latest CGS Excel statement for a client."""
-    candidates = []
-    stmts_dir = client_dir / "statements"
-    if stmts_dir.is_dir():
-        candidates.extend(sorted(stmts_dir.glob("*cgs*.xlsx")))
-    candidates.extend(sorted(client_dir.glob("*cgs*.xlsx")))
-    return candidates[-1] if candidates else None
+def discover_cgs_report_evidence(
+    client_dir: Path,
+    *,
+    as_of=None,
+    max_statement_age_days=None,
+):
+    """Return validated CGS selection evidence; missing policy is a hard HOLD."""
+    from datetime import date
+    from ingestion.statement_selection import select_latest_statement
+
+    if not isinstance(as_of, date):
+        raise ValueError("An explicit decision as_of date is required for CGS statement selection")
+    if max_statement_age_days is None:
+        raise ValueError("An approved maximum CGS statement age policy is required")
+    candidates = list((client_dir / "statements").glob("*cgs*.xlsx"))
+    candidates.extend(client_dir.glob("*cgs*.xlsx"))
+    return select_latest_statement(
+        candidates,
+        document_type="CGS",
+        as_of=as_of,
+        max_age_days=max_statement_age_days,
+    )
+
+
+def discover_cgs_report(
+    client_dir: Path,
+    *,
+    as_of=None,
+    max_statement_age_days=None,
+) -> Optional[Path]:
+    """Return the uniquely newest fresh CGS statement by embedded date."""
+    return discover_cgs_report_evidence(
+        client_dir,
+        as_of=as_of,
+        max_statement_age_days=max_statement_age_days,
+    )
 
 
 def parse_cgs_excel(cgs_path: str | Path) -> Dict[str, Any]:
