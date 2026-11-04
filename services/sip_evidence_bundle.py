@@ -221,11 +221,21 @@ def build_sip_evidence_provider(
         })
 
     if supplied_portfolio_context_fields:
-        portfolio_context = _read_json(root, manifest["portfolio_context_file"], label="portfolio_context_file")
+        portfolio_context_path = _resolve_bundle_file(
+            root, manifest["portfolio_context_file"], label="portfolio_context_file"
+        )
+        portfolio_context_normalized_bytes = portfolio_context_path.read_bytes()
+        portfolio_context = _json_no_duplicates(
+            portfolio_context_normalized_bytes, label="portfolio_context_file"
+        )
         portfolio_context_metadata = _read_json(root, manifest["portfolio_context_metadata_file"], label="portfolio_context_metadata_file")
         portfolio_context_source = _resolve_bundle_file(root, manifest["portfolio_context_source_file"], label="portfolio_context_source_file").read_bytes()
         if not isinstance(portfolio_context, dict):
             raise ValueError("portfolio_context_file must contain a JSON object.")
+        if not isinstance(portfolio_context_metadata, dict) or portfolio_context_metadata.get(
+            "normalized_portfolio_context_sha256"
+        ) != hashlib.sha256(portfolio_context_normalized_bytes).hexdigest():
+            raise ValueError("Normalized portfolio context SHA-256 does not match the reviewed metadata.")
         if not isinstance(portfolio_context_metadata, dict):
             raise ValueError("portfolio_context_metadata_file must contain a JSON object.")
         payload.update({
