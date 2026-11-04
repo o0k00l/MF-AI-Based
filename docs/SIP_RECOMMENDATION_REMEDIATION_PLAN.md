@@ -102,3 +102,54 @@ The SIP code has a deterministic allocation builder, eligibility checks and a re
 **SIP plan reconciliation implementation:** commits `2551127`, `ed63c0b` and `d15be2d` add model-level checks that all monetary values and allocation percentages are finite and non-negative, percentage fields stay within bounds, item percentages reconcile to equity + debt SIP percentages, and allocated plus explicitly unallocated monthly amounts reconcile to the requested budget. Regression cases cover mismatch, valid full hold/unallocated budget, and non-finite budget values. This is not proof of full end-to-end feasibility: fund caps, minimum tickets, increments and category-level SAA compatibility remain separate open controls.
 
 **SIP-005 implementation note (commits `a94803e` and `3a7413f`):** positive SIP lines are checked against the configured per-fund percentage cap, minimum rupee ticket, rupee increment and maximum core-fund count. Any violation withholds the entire monthly budget and sets all line amounts to zero; no rejected amount is redistributed. The `max_new_funds_per_12_months` control is deliberately not guessed from current holdings: the present request contract does not provide a verified dated history of new-fund introductions. SIP-008 remains open because current one-fund-per-sleeve sizing can exceed the 20% cap; the system now blocks such a plan instead of silently breaching policy.
+
+
+## 8. Additional portfolio-awareness and release requirements
+
+The following requirements are added to the acceptance criteria. They are release-blocking; category-level allocation awareness alone is not sufficient.
+
+### 8.1 Holdings-level look-through and overlap
+
+- Reconcile CAS/CGS holdings and transaction history to the same effective-date portfolio snapshot before computing portfolio fit.
+- Calculate current exposures using actual holding market values and verified scheme identities.
+- Where current, source-backed constituent disclosures are available, calculate stock-level look-through across all existing funds and each proposed candidate. Aggregate duplicate securities by stable identifiers (prefer ISIN), not display names.
+- Measure sector and other supported exposures from verified constituent/security classifications. Do not infer missing constituents, equal-weight holdings, or treat unknown coverage as zero.
+- Record disclosure effective dates, constituent coverage, mapping coverage and reconciliation status. If required coverage is missing, stale, conflicting or below the configured policy threshold, mark portfolio fit UNKNOWN and withhold the affected recommendation.
+- A candidate must not be treated as a meaningful diversifier merely because its scheme category or fund name differs from existing holdings.
+
+### 8.2 Deficit, adequacy and zero-allocation outcomes
+
+- Compare current reconciled exposure with the investor's approved target allocation and applicable policy bands before routing fresh SIP money.
+- Support three distinct states per category: deficit, within/adequately funded band, and overweight. A category within its adequate band may receive zero incremental SIP; an overweight category should normally receive zero unless an explicit, documented IPS override applies.
+- Zero allocation is a valid result, not a missing-value error. The engine must not redistribute a zeroed category's amount to another category unless the approved routing policy explicitly permits that redistribution and the resulting plan independently passes all gates.
+- Risk tolerance is a maximum permitted risk boundary, not a target to maximize equity or small/mid-cap exposure. Aggressive/Very High suitability must not create a positive small-cap or mid-cap allocation in the absence of a portfolio deficit and an eligible, evidence-backed candidate.
+
+### 8.3 Policy classification and traceability
+
+- Limits such as maximum new funds over 12 months, maximum core-fund count and maximum allocation per fund must be identified as investor-policy or operational constraints, not universal investment laws or statutory requirements unless a separate authoritative source establishes that status.
+- Each applied constraint must carry its source, version, effective date, scope and override authority. A policy conflict must produce a hold/unallocated outcome, never silent relaxation.
+
+### 8.4 Tax and lot-aware transition warnings
+
+- The fresh-money SIP path must not initiate or imply a redemption, switch or consolidation as a prerequisite to implementing its recommendation.
+- If any proposed implementation or accompanying transition suggestion would require selling or switching existing units, the report must explicitly flag that tax and exit-load consequences are unassessed or provide a separately verified lot-level assessment.
+- A transition assessment, when in scope, must use the authoritative transaction/CAS ledger, acquisition lots, holding periods, applicable tax regime and current statutory rules. It must not infer tax from aggregate scheme gains or NAV snapshots.
+- If lot-level evidence is unavailable or unreconciled, mark transition impact UNKNOWN and prohibit presenting the switch/redemption as an executable instruction. This warning requirement does not expand the SIP engine into an autonomous redemption or tax-planning engine.
+
+### 8.5 End-to-end and sensitivity acceptance tests
+
+Before portfolio-aware SIP recommendations can leave HOLD/NO ACTION, add tests using controlled, materially different portfolios:
+
+1. **Real-data integration:** ingest a representative CAS plus transaction-history fixture; reconcile scheme identities, units, values and effective dates; verify that the resulting holdings feed through allocation, overlap, eligibility, scoring and final SIP construction.
+2. **Holdings perturbation:** change only the holdings/transactions while keeping investor mandate, budget, risk profile, candidate universe and research evidence fixed. Assert that the resulting portfolio-fit calculations and SIP routing change where the changed holdings alter deficits, overweights or constituent overlap.
+3. **Sensitivity pair:** use at least two deliberately different reconciled portfolios (for example, mid-cap-heavy and large-cap-heavy) under the same mandate and budget. Assert directionally appropriate differences in category-level fresh-money allocations and/or candidate rankings. Identical outputs are acceptable only where a documented constraint or evidence gap explains them; labels alone are not sufficient evidence of sensitivity.
+4. **Duplicate-stock case:** create two funds with different category labels but materially overlapping verified constituents; assert that the overlap is detected and affects portfolio-fit evaluation.
+5. **Adequate/overweight case:** set a category at or above its approved adequate/overweight band; assert that its incremental SIP can be exactly zero and is not silently topped up because of the investor's risk tier.
+6. **No-action gate:** remove or invalidate required holdings, constituent, universe, scoring, reconciliation or policy evidence; assert that the engine emits HOLD/NO ACTION with zero actionable allocations and a clear reason.
+7. **Transition warning:** include a recommendation narrative that implies a switch/redemption and assert that a tax/lot warning is emitted; with missing lot data, assert UNKNOWN and non-executable status.
+
+The release gate is not satisfied by unit tests alone. These tests must exercise the actual public SIP request path and report output on one exact `main` commit. Synthetic tests establish behavioural properties; a private-data integration run is still required before production approval.
+
+## 9. Updated release posture
+
+Until the end-to-end integration and sensitivity tests above pass, and all P0 scoring, universe, look-through and research-validation gaps are closed, the SIP recommendation path must remain in **HOLD / NO ACTION** mode. It may explain missing evidence and show non-actionable diagnostics, but it must not emit a positive actionable allocation. A passing CI suite is necessary software evidence, not proof of investment merit, suitability, or production readiness.
