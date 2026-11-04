@@ -228,7 +228,7 @@ def test_p0_3_all_10_binary_eligibility_gates(tmp_path):
         {"amc_name": "TEST AMC", "current_value_inr": 200000.0},
         {"amc_name": "OTHER AMC", "current_value_inr": 800000.0},
     ]
-    res_clean = check_eligibility_gates(base_good_fund, portfolio_holdings=base_holdings)
+    res_clean = check_eligibility_gates(base_good_fund, portfolio_holdings=base_holdings, client_risk_tier_num=6)
     assert res_clean.passed is True
     assert len(res_clean.failed_gates) == 0
 
@@ -326,7 +326,8 @@ def test_p0_4_candidate_universe_and_no_action_branch(tmp_path):
         candidate_funds=[
             {"fund_id": "C1", "fund_name": "Low Alpha Fund", "eligibility": {"passed": True}, "composite_score": 2.5}
         ],
-        min_improvement_threshold=5.0
+        min_improvement_threshold=5.0,
+        client_risk_tier_num=6,
     )
     assert no_act.action == "NO_ACTION"
     assert no_act.current_portfolio_adequate is True
@@ -692,7 +693,7 @@ def test_p0_10_gate4_fail_closed_and_missing_metrics(tmp_path):
         {"amc_name": "TEST AMC", "current_value_inr": 200000.0},
         {"amc_name": "OTHER AMC", "current_value_inr": 800000.0},
     ]
-    res_clean = check_eligibility_gates(base_active, portfolio_holdings=base_holdings)
+    res_clean = check_eligibility_gates(base_active, portfolio_holdings=base_holdings, client_risk_tier_num=6)
     assert res_clean.sharpe_alpha_gate is True
     assert res_clean.passed is True
 
