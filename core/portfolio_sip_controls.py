@@ -188,8 +188,8 @@ def route_incremental_sip(
         if sleeve not in eligible:
             unallocated_by_sleeve[sleeve] = raw
             continue
-        rounded = (raw / increment).quantize(Decimal("1"), rounding=ROUND_HALF_UP) * increment
-        allocations[sleeve] = min(rounded, raw)
+        rounded = (raw / increment).quantize(Decimal("1"), rounding=ROUND_DOWN) * increment
+        allocations[sleeve] = rounded
         unallocated_by_sleeve[sleeve] = raw - allocations[sleeve]
 
     # Rounding may create fractional remainder. Never spill it into another
