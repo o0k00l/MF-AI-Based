@@ -3864,6 +3864,43 @@ def select_autonomous_blueprint_funds(
     if not isinstance(candidate_universe, list):
         raise TypeError("candidate_universe must be a list of candidate records")
 
+    if portfolio_disclosures_by_scheme_id is not None:
+        from ingestion.portfolio_disclosure import validate_portfolio_disclosure
+        source_map = portfolio_disclosure_source_bytes_by_scheme_id or {}
+        enriched_candidates = []
+        for candidate in candidate_universe:
+            if not isinstance(candidate, dict):
+                enriched_candidates.append(candidate)
+                continue
+            scheme_id = candidate.get("scheme_id")
+            disclosure = portfolio_disclosures_by_scheme_id.get(scheme_id) if scheme_id else None
+            source_bytes = source_map.get(scheme_id) if scheme_id else None
+            if disclosure is None or source_bytes is None or disclosure_as_of_date is None:
+                result = {"constituent_weights": None,
+                          "constituent_weights_coverage_pct": None,
+                          "status": "MISSING",
+                          "reason": "No exact-ID disclosure and source evidence available at SIP decision time."}
+            else:
+                result = validate_portfolio_disclosure(
+                    disclosure, source_bytes,
+                    as_of=disclosure_as_of_date,
+                    max_age_days=disclosure_max_age_days,
+                )
+                if result.get("scheme_id") != scheme_id:
+                    result = {"constituent_weights": None,
+                              "constituent_weights_coverage_pct": None,
+                              "status": "CONFLICTING",
+                              "reason": "Disclosure scheme identifier does not match candidate."}
+            enriched = dict(candidate)
+            enriched.update({
+                "constituent_weights": result.get("constituent_weights"),
+                "constituent_weights_coverage_pct": result.get("constituent_weights_coverage_pct"),
+                "lookthrough_status": result["status"],
+                "lookthrough_reason": result["reason"],
+            })
+            enriched_candidates.append(enriched)
+        candidate_universe = enriched_candidates
+
     policy_path = Path(__file__).resolve().parents[1] / "data" / "policy" / "asset_allocation.json"
     if not policy_path.is_file():
         raise FileNotFoundError(f"Required allocation policy is missing: {policy_path}")
