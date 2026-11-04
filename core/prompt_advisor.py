@@ -126,7 +126,7 @@ INPUT FACT PAYLOAD:
 - Regular Plan Count: {facts.fee_bleed.regular_funds_count} funds
 - Regular Plan Total Value: {_fmt_inr(facts.fee_bleed.regular_portfolio_value_inr)}
 - Annual Commission Drag: {_fmt_inr(facts.fee_bleed.annual_bleed_inr)} per year
-- 10-Year Fee-Difference Scenario Estimate: {_fmt_inr(facts.fee_bleed.ten_year_compounded_loss_inr)} (scenario only; do not present as guaranteed loss or realized saving)
+- 10-Year Fee-Difference Scenario Estimate: {_fmt_inr(facts.fee_bleed.ten_year_compounded_loss_inr)} (unavailable unless approved scenario assumptions are supplied)
 - Current Asset Allocation: {facts.saa_drift.current_equity_pct}% Equity, {facts.saa_drift.current_debt_pct}% Debt, {facts.saa_drift.current_cash_pct}% Cash
 - Target Allocation: {facts.saa_drift.target_equity_pct}% Equity, {facts.saa_drift.target_debt_pct}% Debt
 - Look-Through Stability Buffer: {stability_info}
@@ -164,7 +164,7 @@ STRUCTURE YOUR REPORT AS FOLLOWS:
 - **Interpretation:** Explain what this means for the investor — e.g., "HOLD_PENDING_TRI_VALIDATION means all audit findings and recommendations are PROPOSED ONLY and require explicit written client authorization before execution."
 
 1. Executive Summary: Describe supplied performance, cost, overlap and risk facts. Do not invent a composite score or ranking unless a validated scoring output is explicitly supplied.
-2. Regular-plan Expense Difference: Explain the reported {_fmt_inr(facts.fee_bleed.annual_bleed_inr)}/yr estimate and the {_fmt_inr(facts.fee_bleed.ten_year_compounded_loss_inr)} 10-year scenario estimate. Clearly label both as estimates, not guaranteed savings or realized losses. Include the supplied scheme details only.
+2. Regular-plan Cost Evidence: Report commission and future projection as UNAVAILABLE unless the payload includes independently verified plan-/distributor-/effective-date-specific evidence and explicitly approved scenario assumptions. Do not infer a fee advantage from a generic percentage. Include the supplied scheme details only.
 3. Weighted Look-Through Overlap Analysis: Contrast the weighted look-through overlap methodology against naive Jaccard. Report the top weighted overlap pairs and shared stocks.
 4. Ordinal Risk Distribution: Report SEBI risk-o-meter tier distribution (explaining why cardinal averages like 5.84/6.00 are mathematically invalid for ordinal data).
 5. Scheme Overlap & Duplication Analysis: Use the actual holdings count and supplied overlap evidence. Do not assume that overlap is high or that consolidation is required.
@@ -552,8 +552,8 @@ def answer_interactive_query(
         return (
             "### Regular-versus-Direct review\n\n"
             f"- Regular-plan holdings reported: {f1.regular_funds_count}.\n"
-            f"- Reported Regular-plan value: INR {f1.regular_portfolio_value_inr:,.2f}.\n"
-            f"- Estimated annual expense difference in supplied analysis: INR {f1.annual_bleed_inr:,.2f}.\n"
+            f"- Reported Regular-plan value: {_fmt_inr(f1.regular_portfolio_value_inr)}.\n"
+            f"- Verified annual commission: {_fmt_inr(f1.annual_bleed_inr)}.\n"
             f"- Largest reported differences:\n{top_leaks}\n\n"
             "These figures are estimates from the supplied fee analysis, not guaranteed returns or "
             "risk-free gains. A switch must be evaluated scheme-by-scheme for current Direct/Regular "
