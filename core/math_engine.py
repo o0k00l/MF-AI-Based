@@ -1700,9 +1700,9 @@ def calculate_saa_drift(
             rebalance_required=False,
             equity_gap_inr=0.0,
             debt_gap_inr=0.0,
-            look_through_debt_inr=0.0,
-            look_through_cash_inr=0.0,
-            look_through_stability_buffer_pct=0.0,
+            look_through_debt_inr=None,
+            look_through_cash_inr=None,
+            look_through_stability_buffer_pct=None,
         )
 
     # Compute look-through equity, debt, and cash amounts
@@ -4625,7 +4625,7 @@ def compute_deterministic_lumpsum_blueprint(
         stp_total_amount_inr=0.0,
         monthly_stp_total_inr=0.0,
         parking_vehicle="NO_ACTION",
-        tax_savings_vs_debt_fund_inr=0.0,
+        tax_savings_vs_debt_fund_inr=None,
         cash_validation_passed=bank_cash_verified and deployable >= amount,
         cash_validation_message="NO ACTION: " + "; ".join(reasons),
         tranches=[],
