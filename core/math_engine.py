@@ -2025,6 +2025,30 @@ def compute_fifo_tax_lots(
     }
 
 
+def _validated_ips_numeric_inputs(ips: Dict[str, Any]) -> Tuple[float, float, float]:
+    """Validate investor-entered SIP/lumpsum/reserve inputs without bool coercion."""
+    if not isinstance(ips, dict):
+        raise ValueError("IPS inputs must be an object")
+    if "monthly_sip_budget" not in ips:
+        raise ValueError("Explicit ips.monthly_sip_budget is required; no default SIP budget is permitted")
+    keys = ("monthly_sip_budget", "lumpsum_budget", "emergency_months")
+    if any(isinstance(ips.get(key), bool) for key in keys if key in ips):
+        raise ValueError("IPS monetary and emergency-month inputs must not be booleans")
+    try:
+        monthly_sip = float(ips["monthly_sip_budget"])
+        lumpsum_budget = float(ips.get("lumpsum_budget", 0.0))
+        emergency_months = float(ips.get("emergency_months", 6.0))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("IPS SIP, lumpsum and emergency-month inputs must be numeric") from exc
+    if not math.isfinite(monthly_sip) or monthly_sip <= 0.0:
+        raise ValueError("IPS monthly_sip_budget must be finite and greater than zero")
+    if not math.isfinite(lumpsum_budget) or lumpsum_budget < 0.0:
+        raise ValueError("IPS lumpsum_budget must be finite and non-negative")
+    if not math.isfinite(emergency_months) or emergency_months < 0.0:
+        raise ValueError("IPS emergency_months must be finite and non-negative")
+    return monthly_sip, lumpsum_budget, emergency_months
+
+
 def _build_portfolio_gate_summary(holdings: List[HoldingItem]) -> List[Dict[str, Any]]:
     """Preserve the AMC identity/value fields required by candidate AMC gates."""
     return [
@@ -2081,22 +2105,7 @@ def aggregate_fiduciary_facts(
     client_risk_tier = cfg.get("risk_tier") or ips.get("risk_tolerance")
     if not isinstance(client_risk_tier, str) or not client_risk_tier.strip():
         raise ValueError("An explicit investor risk_tolerance or risk_tier is required for SIP analysis")
-    if "monthly_sip_budget" not in ips:
-        raise ValueError("Explicit ips.monthly_sip_budget is required; no default SIP budget is permitted")
-    if any(isinstance(ips.get(key), bool) for key in ("monthly_sip_budget", "lumpsum_budget", "emergency_months") if key in ips):
-        raise ValueError("IPS monetary and emergency-month inputs must not be booleans")
-    try:
-        monthly_sip = float(ips["monthly_sip_budget"])
-        lumpsum_budget = float(ips.get("lumpsum_budget", 0.0))
-        emergency_months = float(ips.get("emergency_months", 6.0))
-    except (TypeError, ValueError) as exc:
-        raise ValueError("IPS SIP, lumpsum and emergency-month inputs must be numeric") from exc
-    if not math.isfinite(monthly_sip) or monthly_sip <= 0.0:
-        raise ValueError("IPS monthly_sip_budget must be finite and greater than zero")
-    if not math.isfinite(lumpsum_budget) or lumpsum_budget < 0.0:
-        raise ValueError("IPS lumpsum_budget must be finite and non-negative")
-    if not math.isfinite(emergency_months) or emergency_months < 0.0:
-        raise ValueError("IPS emergency_months must be finite and non-negative")
+    monthly_sip, lumpsum_budget, emergency_months = _validated_ips_numeric_inputs(ips)
     target_saa = cfg.get("target_allocation", {})
 
     tot_cur = sum(h.current_value_inr for h in holdings)
