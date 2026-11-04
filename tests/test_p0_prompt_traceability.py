@@ -366,3 +366,12 @@ def test_legacy_tax_classifier_cannot_be_bypassed_with_caller_supplied_rules():
             SimpleNamespace(equity_pct=99.0),
             {"classification_test": {"equity_oriented_threshold_pct": 65.0}},
         )
+
+
+def test_unreviewed_statutory_tax_citations_are_withheld():
+    import pytest
+    from datetime import date
+    from core import math_engine
+
+    with pytest.raises(math_engine.TaxClassificationDisabledError):
+        math_engine.get_statutory_tax_citation(date(2026, 11, 4))
