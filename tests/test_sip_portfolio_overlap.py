@@ -1,0 +1,73 @@
+"""Portfolio-aware SIP candidate overlap regressions."""
+import pytest
+
+from core.eligibility import _portfolio_weighted_constituent_overlap_pct, filter_candidates
+
+
+def _disclosure(weights):
+    return {
+        "lookthrough_status": "VERIFIED",
+        "constituent_weights_coverage_pct": 100.0,
+        "constituent_weights": weights,
+    }
+
+
+def test_overlap_is_weighted_by_existing_equity_value_not_equal_fund_count():
+    portfolio = [
+        {
+            **_disclosure({"ALPHA LTD": 50.0, "BETA LTD": 50.0}),
+            "current_value_inr": 900.0,
+            "equity_pct": 100.0,
+            "asset_class": "LARGE_CAP",
+        },
+        {
+            **_disclosure({"ALPHA LTD": 100.0}),
+            "current_value_inr": 100.0,
+            "equity_pct": 100.0,
+            "asset_class": "MID_CAP",
+        },
+    ]
+    candidate = _disclosure({"ALPHA LTD": 60.0, "BETA LTD": 40.0})
+
+    # Existing portfolio exposure is 55% ALPHA / 45% BETA after value weighting.
+    assert _portfolio_weighted_constituent_overlap_pct(candidate, portfolio) == pytest.approx(95.0)
+
+
+def test_missing_existing_holding_lookthrough_is_not_treated_as_zero_overlap():
+    portfolio = [
+        {
+            "current_value_inr": 1000.0,
+            "equity_pct": 100.0,
+            "asset_class": "FLEXI_CAP",
+            "lookthrough_status": "MISSING",
+            "constituent_weights_coverage_pct": None,
+            "constituent_weights": None,
+        }
+    ]
+    candidate = _disclosure({"ALPHA LTD": 100.0})
+
+    assert _portfolio_weighted_constituent_overlap_pct(candidate, portfolio) is None
+
+
+def test_candidate_without_verified_lookthrough_is_not_rankable_for_portfolio_fit():
+    portfolio = [
+        {
+            **_disclosure({"ALPHA LTD": 100.0}),
+            "current_value_inr": 1000.0,
+            "equity_pct": 100.0,
+            "asset_class": "LARGE_CAP",
+        }
+    ]
+    candidate = {
+        "lookthrough_status": "MISSING",
+        "constituent_weights_coverage_pct": None,
+        "constituent_weights": None,
+    }
+
+    assert _portfolio_weighted_constituent_overlap_pct(candidate, portfolio) is None
+
+
+@pytest.mark.parametrize("limit", [-0.1, 100.1, float("nan"), True, "not-a-number"])
+def test_candidate_filter_rejects_invalid_overlap_limit(limit):
+    with pytest.raises(ValueError):
+        filter_candidates([], [], max_overlap_limit_pct=limit)
