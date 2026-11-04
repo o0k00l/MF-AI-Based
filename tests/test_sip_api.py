@@ -65,7 +65,7 @@ def test_api_passes_temporary_cas_to_evidence_provider_and_removes_it(monkeypatc
         assert kwargs["cas_path"].is_file()
         assert kwargs["cas_path"].read_bytes() == b"synthetic cas bytes"
         return {
-            "metrics_path": None,
+            "metrics_path": Path(__file__),
             "aliases_path": None,
             "scheme_master": {
                 "status": "VERIFIED",
