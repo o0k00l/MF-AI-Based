@@ -79,3 +79,8 @@ def test_metrics_loader_rejects_duplicate_fund_identity(tmp_path):
     ]}), encoding="utf-8")
     with pytest.raises(ValueError, match="Duplicate"):
         FiduciaryFundSelector(fund_metrics_path=path)
+
+
+
+def test_normalizer_uses_validated_numeric_bounds():
+    assert normalize_metric("5", "0", "10") == 50.0
