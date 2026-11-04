@@ -84,6 +84,6 @@ No payload field may be treated as true merely because it is signed: the verifie
 
 - Add a maintained Ed25519-capable dependency and pin it in both requirements.txt and the hash-locked requirements.lock. Regenerate the lock using the repository's documented process; do not hand-edit hashes.
 - Add a standalone verifier module and CLI tests. Keep ordinary CI able to test fixture integrity without production keys, but make the release gate require a valid external trust registry and signed approval.
-- Configure both TRI_REVIEWER_TRUST_REGISTRY_JSON and TRI_REVIEWER_APPROVAL_JSON as separately administered GitHub Actions variables. Restrict and audit their administration. The registry and detached approval are public material, not private secrets.
+- Configure a GitHub Actions Environment named production with required independent deployment reviewers, protected tag/deployment restrictions and audited administrators. Store TRI_REVIEWER_TRUST_REGISTRY_JSON and TRI_REVIEWER_APPROVAL_JSON as environment-scoped Actions secrets so the release workflow cannot silently fall back to ordinary repository variables. Their contents are public cryptographic material, not private signing keys; the secrets mechanism is used to enforce protected release access.
 - Add a key ceremony and reviewer operating procedure before any real approval is issued.
 - Until implementation, deployment configuration, signed evidence and independent source/calendar validation all exist, the alpha release gate must continue to fail and aggregate benchmark XIRR/alpha must remain unavailable.

@@ -12,6 +12,7 @@ jobs:
   release-gates:
     timeout-minutes: 45
     name: Release / production evidence gates
+    environment: production
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -54,6 +55,6 @@ jobs:
           retention-days: 90
       - name: Require signed production-grade TRI evidence
         env:
-          TRI_REVIEWER_TRUST_REGISTRY_JSON: ${{ vars.TRI_REVIEWER_TRUST_REGISTRY_JSON }}
-          TRI_REVIEWER_APPROVAL_JSON: ${{ vars.TRI_REVIEWER_APPROVAL_JSON }}
+          TRI_REVIEWER_TRUST_REGISTRY_JSON: ${{ secrets.TRI_REVIEWER_TRUST_REGISTRY_JSON }}
+          TRI_REVIEWER_APPROVAL_JSON: ${{ secrets.TRI_REVIEWER_APPROVAL_JSON }}
         run: python verify_tri_provenance.py --require-alpha-release --expected-commit ${{ github.sha }}
