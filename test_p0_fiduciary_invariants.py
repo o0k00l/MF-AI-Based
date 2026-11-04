@@ -136,9 +136,10 @@ def test_p0_1_universal_4_slot_sizing_invariant():
     assert plan_t5.debt_sip_pct == 5.0
     roles5 = {item.category_role: item for item in plan_t5.items}
     # Policy: high saa_targets: flexi=20, mid=25, small=20, large=25 (sum=90)
-    # Weights: flexi=20/90, mid+small=45/90, large=25/90 of 95% equity SIP; thematic=0%
+    # Weights: flexi=20/90, mid=25/90, small=20/90, large=25/90 of 95% equity SIP; thematic=0%
     assert roles5["Core Flexi-Cap Compounder"].allocation_pct == 21.1
-    assert roles5["Mid-Cap Alpha Engine"].allocation_pct == 47.5
+    assert roles5["Mid-Cap Alpha Engine"].allocation_pct == 26.4
+    assert roles5["Small-Cap Growth Engine"].allocation_pct == 21.1
     assert roles5["Large-Cap Bluechip Anchor"].allocation_pct == 26.4
     assert roles5["Tactical Thematic Satellite"].allocation_pct == 0.0
     assert roles5["High-Grade Debt Cushion"].allocation_pct == 5.0
@@ -146,7 +147,7 @@ def test_p0_1_universal_4_slot_sizing_invariant():
     if plan_t5.unallocated_budget_inr > 0:
         assert all(it.monthly_inr == 0 for it in plan_t5.items)
 
-    # Starter Portfolio (< 5L AUM): 60/40 Core/Mid, 0% Large, 0% Thematic (hardcoded starter logic)
+    # Starter Portfolio (< 5L AUM): 60% Flexi / 40% mid-small, split by SAA proportions.
     plan_starter = compute_deterministic_sip_blueprint(
         monthly_budget=20000.0,
         risk_tier="Tier 6 (Very High)",
@@ -157,13 +158,14 @@ def test_p0_1_universal_4_slot_sizing_invariant():
     assert plan_starter.equity_sip_pct == 100.0
     roles_starter = {item.category_role: item for item in plan_starter.items}
     assert roles_starter["Core Flexi-Cap Compounder"].allocation_pct == 60.0
-    assert roles_starter["Mid-Cap Alpha Engine"].allocation_pct == 40.0
+    assert roles_starter["Mid-Cap Alpha Engine"].allocation_pct == 20.0
+    assert roles_starter["Small-Cap Growth Engine"].allocation_pct == 20.0
     assert "Large-Cap Bluechip Anchor" not in roles_starter
     assert "Tactical Thematic Satellite" not in roles_starter
     assert sum(it.monthly_inr for it in plan_starter.items) + plan_starter.unallocated_budget_inr == 20000.0
     if plan_starter.unallocated_budget_inr > 0:
         assert all(it.monthly_inr == 0 for it in plan_starter.items)
-    print("[PASS] P0.1 Universal 4-Slot Sizing Invariant Verified")
+    print("[PASS] P0.1 Universal SIP Sleeve Sizing Invariant Verified")
 
 
 
