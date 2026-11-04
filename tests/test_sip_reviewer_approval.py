@@ -335,6 +335,7 @@ def test_scheme_identity_resolution_requires_signature_when_configured():
         "amc_name": "Axis Mutual Fund",
         "plan_type": "Direct",
         "option_type": "Growth",
+        "riskometer_score": 5,
     }]
     cas_holding = {
         "scheme": "Axis Bluechip Fund Direct Growth",
