@@ -328,8 +328,12 @@ def calculate_portfolio_xirr(
             cf = -amount
         cashflows.append((txn_date, cf))
 
-    valuation_date = as_of_date or date.today()
-    if not isinstance(valuation_date, date) or valuation_date < max(txn_dates):
+    # A current wall-clock date is not a substitute for the uploaded CAS
+    # valuation date; without it the terminal portfolio value is undated.
+    if not isinstance(as_of_date, date) or isinstance(as_of_date, datetime):
+        return None
+    valuation_date = as_of_date
+    if valuation_date < max(txn_dates):
         return None
 
     try:
@@ -2292,7 +2296,10 @@ def aggregate_fiduciary_facts(
     transactions_path = cas_path.parent / "transactions.json"
     if not transactions_path.exists():
         transactions_path = cas_path.parent.parent / "transactions.json"
-    cas_valuation_date = _parse_cas_valuation_date(cas_path)
+    try:
+        cas_valuation_date = _parse_cas_valuation_date(cas_path)
+    except (OSError, ValueError, TypeError):
+        cas_valuation_date = None
     portfolio_xirr = calculate_portfolio_xirr(
         transactions_path,
         holdings,
