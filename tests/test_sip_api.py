@@ -1,3 +1,4 @@
+import json
 from datetime import date
 from pathlib import Path
 
@@ -256,7 +257,11 @@ def test_api_real_service_ingests_cas_and_holds_on_missing_portfolio_disclosure(
     cas_bytes = stream.getvalue()
 
     metrics_path = tmp_path / "metrics.json"
-    metrics_path.write_text('{"funds": []}', encoding="utf-8")
+    metrics_path.write_text(json.dumps({"funds": [{
+        "id": "fund-api-e2e", "scheme": scheme_name, "name": scheme_name,
+        "cat": "Flexi Cap", "er": 0.65, "eq": 100.0, "debt": 0.0,
+        "lc": 50.0, "mc": 30.0, "sc": 20.0, "h": [],
+    }]}), encoding="utf-8")
     direct_source = Path(__file__)
     direct_bytes = direct_source.read_bytes()
     master_bytes = b"synthetic scheme master bytes"
@@ -522,4 +527,24 @@ def test_api_rejects_malformed_portfolio_context_before_calling_provider():
     )
     assert response.status_code == 422
     assert response.json()["decision"] == "NO_ACTION"
+
+
+def test_api_rejects_custom_until_custom_saa_contract_is_implemented():
+    called = []
+    client = TestClient(
+        sip.create_sip_app(evidence_provider=lambda **kwargs: called.append(kwargs))
+    )
+
+    response = _upload(
+        client,
+        monthly_budget_inr="25000",
+        risk_profile="Custom",
+    )
+
+    assert response.status_code == 422
+    body = response.json()
+    assert body["status"] == "HOLD"
+    assert body["decision"] == "NO_ACTION"
+    assert body["unallocated_budget_inr"] == 25000
+    assert any("Custom SAA is not implemented" in reason for reason in body["reasons"])
     assert called == []

@@ -1,8 +1,19 @@
 import hashlib
+import json
 
 from openpyxl import Workbook
 
 from core.math_engine import load_holdings_from_cas_excel
+
+
+def _metrics_file(tmp_path, scheme_name):
+    path = tmp_path / "fund_metrics.json"
+    path.write_text(json.dumps({"funds": [{
+        "id": "EXAMPLE-FUND", "scheme": scheme_name, "name": scheme_name,
+        "cat": "Flexi Cap", "er": 0.65, "eq": 100.0, "debt": 0.0,
+        "lc": 50.0, "mc": 30.0, "sc": 20.0, "h": [],
+    }]}), encoding="utf-8")
+    return path
 
 
 def test_primary_cas_holdings_loader_resolves_verified_scheme_identity(tmp_path):
@@ -28,7 +39,8 @@ def test_primary_cas_holdings_loader_resolves_verified_scheme_identity(tmp_path)
     wb.save(path)
 
     holdings = load_holdings_from_cas_excel(
-        path, scheme_master=master, scheme_master_source_bytes=source
+        path, fund_metrics_path=_metrics_file(tmp_path, 'Example Equity Fund - Direct Growth'),
+        scheme_master=master, scheme_master_source_bytes=source
     )
     assert len(holdings) == 1
     assert holdings[0].scheme_id == 'SCHEME-001'
@@ -46,7 +58,9 @@ def test_primary_cas_holdings_loader_does_not_infer_identity_from_name(tmp_path)
     path = tmp_path / 'portfolio-no-amc.xlsx'
     wb.save(path)
 
-    holdings = load_holdings_from_cas_excel(path)
+    holdings = load_holdings_from_cas_excel(
+        path, fund_metrics_path=_metrics_file(tmp_path, 'Example Equity Fund - Direct Growth')
+    )
     assert len(holdings) == 1
     assert holdings[0].scheme_id is None
     assert holdings[0].lookthrough_status == 'MISSING'
