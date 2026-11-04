@@ -29,6 +29,11 @@ def valid_payload(tmp_path):
     return {
         "metrics_path": Path(__file__),
         "aliases_path": None,
+        "metrics_source_metadata": {
+            **_source_metadata(b"original current-holdings metrics source"),
+            "source_type": "OFFICIAL_FUND_METRICS",
+        },
+        "metrics_source_bytes": b"original current-holdings metrics source",
         "scheme_master": {
             **_source_metadata(master_bytes),
             "status": "VERIFIED",
