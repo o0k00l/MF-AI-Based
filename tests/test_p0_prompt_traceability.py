@@ -538,7 +538,7 @@ def test_jcs_matches_rfc8785_utf16_property_sort_vector():
         "\x80": "Control",
         "ö": "Latin Small Letter O With Diaeresis",
     }
-    expected = r"""{"\r":"Carriage Return","1":"One","\u0080":"Control","ö":"Latin Small Letter O With Diaeresis","€":"Euro Sign","😀":"Emoji: Grinning Face","דּ":"Hebrew Letter Dalet With Dagesh"}""".encode("utf-8")
+    expected = r"""{"\r":"Carriage Return","1":"One","":"Control","ö":"Latin Small Letter O With Diaeresis","€":"Euro Sign","😀":"Emoji: Grinning Face","דּ":"Hebrew Letter Dalet With Dagesh"}""".encode("utf-8")
     assert rfc8785.dumps(value) == expected
 
 
