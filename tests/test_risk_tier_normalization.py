@@ -8,6 +8,10 @@ from core.math_engine import _parse_sebi_risk_tier
     ("label", "expected"),
     [
         ("Moderate", 4),
+        ("Low", 1),
+        ("Very Low", 1),
+        ("Low to Moderate", 2),
+        ("Conservative", 2),
         ("moderate risk", 4),
         ("risk_tier.moderate", 4),
         ("Moderately High", 4),
