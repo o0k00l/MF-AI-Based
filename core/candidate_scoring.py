@@ -24,12 +24,14 @@ from typing import Dict, List, Optional, Any, Tuple
 @dataclass
 class ScoringWeights:
     """Configurable weights for institutional fiduciary scoring (sums to 1.0)."""
-    w_alpha: float = 0.25               # Risk-Adjusted Alpha & Return Pillar
-    w_sharpe: float = 0.20              # Sharpe Volatility Efficiency Pillar
-    w_ter: float = 0.15                 # Direct Plan Cost Efficiency Pillar (Inverted)
-    w_downside_buffer: float = 0.15     # Capital Preservation & Defensive Buffer Pillar
-    w_international: float = 0.15       # Geographic / International Moat Pillar
-    w_mpb_overlap: float = 0.10         # Marginal Portfolio Benefit / Overlap Inverted Pillar
+    # Weights are mandatory external policy inputs. Do not bake a composite
+    # weighting scheme into the scoring code.
+    w_alpha: float
+    w_sharpe: float
+    w_ter: float
+    w_downside_buffer: float
+    w_international: float
+    w_mpb_overlap: float
 
     def validate(self) -> bool:
         values = (
@@ -249,8 +251,8 @@ def calculate_candidate_6_pillar_score(
     Pillar 1 blends 3Y Jensen's Alpha (60%) with 1Y Total Return (40%) to reward outperformance
     while capping momentum contribution to 25% of total score.
     """
-    if weights is None:
-        weights = ScoringWeights()
+    if not isinstance(weights, ScoringWeights):
+        raise ValueError("Explicit approved scoring weights are required; no default composite is permitted.")
 
     approved_bounds: Optional[Dict[str, Tuple[float, float]]] = None
     verified_overlap_pct: Optional[float] = None
@@ -384,32 +386,31 @@ def calculate_candidate_6_pillar_score(
 
 def run_scoring_sensitivity_test(
     candidates: List[Dict[str, Any]],
-    category_key: str = "Healthcare"
+    regimes: Dict[str, ScoringWeights],
+    category_key: str = "Healthcare",
 ) -> Dict[str, Any]:
-    """
-    Stress-tests candidate rankings across 4 different weight regimes:
-    1. Baseline Balanced: (0.25, 0.20, 0.15, 0.15, 0.15, 0.10)
-    2. Cost-Heavy: (0.15, 0.15, 0.35, 0.15, 0.10, 0.10)
-    3. Alpha/Momentum-Heavy: (0.35, 0.25, 0.10, 0.10, 0.10, 0.10)
-    4. Capital Preservation-Heavy: (0.15, 0.20, 0.15, 0.30, 0.10, 0.10)
-    """
-    regimes = {
-        "baseline": ScoringWeights(0.25, 0.20, 0.15, 0.15, 0.15, 0.10),
-        "cost_heavy": ScoringWeights(0.15, 0.15, 0.35, 0.15, 0.10, 0.10),
-        "alpha_heavy": ScoringWeights(0.35, 0.25, 0.10, 0.10, 0.10, 0.10),
-        "buffer_heavy": ScoringWeights(0.15, 0.20, 0.15, 0.30, 0.10, 0.10)
-    }
+    """Evaluate only explicitly supplied, reviewed scoring-weight scenarios."""
+    if not isinstance(regimes, dict) or not regimes:
+        raise ValueError("Explicit, versioned scoring regimes are required")
+    for name, weights in regimes.items():
+        if not isinstance(name, str) or not name.strip() or not isinstance(weights, ScoringWeights):
+            raise ValueError("Every scoring regime requires a stable name and explicit ScoringWeights")
+        if not weights.validate():
+            raise ValueError(f"Scoring regime {name!r} has invalid or non-reconciling weights")
 
     results = {}
-    for name, w in regimes.items():
+    for name, weights in regimes.items():
         ranked = []
-        for c in candidates:
-            score, pillars = calculate_candidate_6_pillar_score(c, category_key, weights=w)
-            c_name = c.get("scheme_name", c.get("fund_name", c.get("name", "Unknown")))
-            ranked.append({"name": c_name, "score": score})
-        ranked.sort(key=lambda x: x["score"], reverse=True)
+        for candidate in candidates:
+            score, _ = calculate_candidate_6_pillar_score(
+                candidate, category_key, weights=weights
+            )
+            candidate_name = candidate.get(
+                "scheme_name", candidate.get("fund_name", candidate.get("name", "Unknown"))
+            )
+            ranked.append({"name": candidate_name, "score": score})
+        ranked.sort(key=lambda item: item["score"], reverse=True)
         results[name] = ranked
-
     return results
 
 
@@ -417,7 +418,7 @@ def run_scoring_sensitivity_test(
 # 2. MORNINGSTAR PRICE SCORE & MARGINAL PORTFOLIO BENEFIT (MPB)
 # ─────────────────────────────────────────────────────────────────────────────
 
-def calculate_morningstar_price_score(ter_direct_pct: float, category_median_ter: float = 0.75) -> float:
+def calculate_morningstar_price_score(ter_direct_pct: float, category_median_ter: float) -> float:
     delta_bps = (category_median_ter - ter_direct_pct) * 100
     multiplier = 1.0 + (delta_bps / 100.0) * 0.25
     return max(0.80, min(1.25, round(multiplier, 4)))
@@ -427,7 +428,7 @@ def compute_marginal_portfolio_benefit(
     base_score: float,
     overlap_pct: float,
     ter_direct_pct: float,
-    category_median_ter: float = 0.75
+    category_median_ter: float,
 ) -> float:
     mps = calculate_morningstar_price_score(ter_direct_pct, category_median_ter)
     overlap_discount = max(0.0, 1.0 - (overlap_pct / 100.0))
@@ -477,7 +478,7 @@ class FiduciaryFundSelector:
         if fund_metrics_path is None:
             fund_metrics_path = Path(__file__).resolve().parents[1] / "data" / "lalit_portfolio" / "fund_metrics.json"
         self.fund_metrics_path = fund_metrics_path
-        self.weights = weights or ScoringWeights()
+        self.weights = weights
         self.fund_metrics = self._load_metrics()
 
     def _load_metrics(self) -> Dict[str, Any]:
@@ -512,62 +513,18 @@ class FiduciaryFundSelector:
         return indexed
 
     def score_flexi_cap_candidates(self) -> Dict[str, FundScorecard]:
-        results = {}
-        # Parag Parikh Flexi Cap Direct
-        ppfas_raw = self.fund_metrics.get("PPFAS Flexi Cap", {})
-        ppfas_score, ppfas_pillars = calculate_candidate_6_pillar_score(ppfas_raw, "Flexi Cap", weights=self.weights)
-        results["ppfas_flexi"] = FundScorecard(
-            fund_id="PPFAS Flexi Cap",
-            scheme_name="Parag Parikh Flexi Cap Fund - Direct Plan - Growth",
-            category="Flexi Cap",
-            plan_type="Direct",
-            aum_crore=float(ppfas_raw.get("aum_crore", 147404)),
-            ter_direct_pct=float(ppfas_raw.get("ter_direct_pct", 0.69)),
-            alpha_3y=float(ppfas_raw.get("alpha_3y", 3.83)),
-            sharpe_3y=float(ppfas_raw.get("sharpe_3y", 0.64)),
-            equity_pct=82.25,
-            debt_cash_buffer_pct=17.75,
-            has_international_exposure=True,
-            international_exposure_details="Holds US tech leaders (Alphabet, Meta, Microsoft); provides USD currency hedge.",
-            mid_small_cap_pct=7.61,
-            composite_score=ppfas_score,
-            pillar_breakdown=ppfas_pillars,
-            pros=["Lowest direct expense ratio in category (0.69%).", "Built-in 17.8% defensive cushion."],
-            cons=["Foreign investment cap restricts new US deployment."],
-            fiduciary_verdict="RECOMMENDED FOR BALANCED COMPOUNDING & DOWNSIDE PROTECTION"
+        """Retired hardcoded investor example; never return recommendation facts."""
+        raise LegacyFundSelectorDisabledError(
+            "The legacy named-fund selector is disabled. Use the source-verified "
+            "candidate universe, approved scoring contract and portfolio-aware SIP service."
         )
-
-        # HDFC Flexi Cap Direct
-        hdfc_raw = self.fund_metrics.get("HDFC Flexi Cap", {})
-        hdfc_score, hdfc_pillars = calculate_candidate_6_pillar_score(hdfc_raw, "Flexi Cap", weights=self.weights)
-        results["hdfc_flexi"] = FundScorecard(
-            fund_id="HDFC Flexi Cap",
-            scheme_name="HDFC Flexi Cap Fund - Direct Plan - Growth Option",
-            category="Flexi Cap",
-            plan_type="Direct",
-            aum_crore=float(hdfc_raw.get("aum_crore", 113606)),
-            ter_direct_pct=float(hdfc_raw.get("ter_direct_pct", 0.77)),
-            alpha_3y=float(hdfc_raw.get("alpha_3y", 5.27)),
-            sharpe_3y=float(hdfc_raw.get("sharpe_3y", 0.66)),
-            equity_pct=94.89,
-            debt_cash_buffer_pct=5.11,
-            has_international_exposure=False,
-            international_exposure_details="0% International Exposure (100% domestic Indian securities).",
-            mid_small_cap_pct=24.48,
-            composite_score=hdfc_score,
-            pillar_breakdown=hdfc_pillars,
-            pros=["Superior 3-year trailing alpha (+5.27%).", "Reuses verified Folio #44678193."],
-            cons=["Zero foreign exposure.", "AUM bloat > ₹1,13,000 Cr."],
-            fiduciary_verdict="RECOMMENDED FOR DOMESTIC HIGH-BETA ALPHA"
-        )
-
-        return results
 
     def get_comparison_summary(self) -> Dict[str, Any]:
-        scores = self.score_flexi_cap_candidates()
-        p = scores["ppfas_flexi"]
-        h = scores["hdfc_flexi"]
-        return {
-            "scores": scores,
-            "winner_overall": "ppfas_flexi" if p.composite_score >= h.composite_score else "hdfc_flexi"
-        }
+        """Retired named-fund comparison path."""
+        raise LegacyFundSelectorDisabledError(
+            "The legacy named-fund comparison is disabled; no hardcoded fund ranking is available."
+        )
+
+
+class LegacyFundSelectorDisabledError(RuntimeError):
+    """Raised by quarantined legacy fund recommendation interfaces."""
