@@ -686,7 +686,7 @@ def test_combined_selected_funds_cannot_collectively_breach_sector_cap(tmp_path,
     assert float(combined["sector_market_cap_theme"]["breaches"]["sector"]["Financials"]) > 12.7
     assert allocation["status"] == "HOLD"
     assert allocation["allocated_budget_inr"] == "0"
-    assert allocation["unallocated_budget_inr"] == "10000"
+    assert float(allocation["unallocated_budget_inr"]) == 10000.0
     assert allocation["reconciliation_ok"] is True
     assert result["plan"]["items"] == []
     assert result["plan"]["unallocated_budget_inr"] == 10000
