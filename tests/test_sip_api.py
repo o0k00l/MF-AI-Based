@@ -22,16 +22,22 @@ def test_readiness_distinguishes_live_api_from_missing_evidence_provider():
         "status": "not_ready",
         "service": "sip-decision-support",
         "checks": {"evidence_provider": "not_configured"},
+        "evidence_validation_available": False,
         "recommendations_enabled": False,
     }
 
 
-def test_readiness_reports_configured_provider_without_claiming_evidence_validity():
+def test_configured_provider_only_enables_evidence_validation_not_recommendations():
     client = TestClient(sip.create_sip_app(evidence_provider=lambda **kwargs: {}))
     response = client.get("/ready")
     assert response.status_code == 200
-    assert response.json()["status"] == "ready_for_evidence_validation"
-    assert response.json()["recommendations_enabled"] is True
+    assert response.json() == {
+        "status": "ready_for_evidence_validation",
+        "service": "sip-decision-support",
+        "checks": {"evidence_provider": "configured"},
+        "evidence_validation_available": True,
+        "recommendations_enabled": False,
+    }
 
 
 def test_api_without_evidence_provider_returns_hold_and_full_budget():
