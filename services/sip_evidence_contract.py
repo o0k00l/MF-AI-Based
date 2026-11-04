@@ -57,6 +57,9 @@ def _validate_source_document(metadata: Any, source_bytes: Any, *, label: str, a
         raise EvidenceProviderContractError(f"{label} effective_date must be an ISO date.")
     if effective > as_of:
         raise EvidenceProviderContractError(f"{label} effective_date is after the decision as-of date.")
+    age_days = (as_of - effective).days
+    if age_days > 45:
+        raise EvidenceProviderContractError(f"{label} source is stale ({age_days} days; maximum 45).")
 
     source_type = metadata.get("source_type")
     if not isinstance(source_type, str) or not source_type.strip():
@@ -139,10 +142,15 @@ def validate_evidence_provider_payload(payload: Any) -> dict[str, Any]:
     candidates = payload["candidate_universe"]
     if not isinstance(candidates, list) or not candidates:
         raise EvidenceProviderContractError("candidate_universe must be a non-empty list.")
+    candidate_source = payload["candidate_universe_source"]
     _validate_source_document(
-        payload["candidate_universe_source"], payload["candidate_universe_source_bytes"],
+        candidate_source, payload["candidate_universe_source_bytes"],
         label="Candidate universe", as_of=as_of,
     )
+    if candidate_source.get("universe_complete") is not True:
+        raise EvidenceProviderContractError("Candidate universe must be explicitly reviewer-attested as complete.")
+    if not isinstance(candidate_source.get("coverage_scope"), str) or not candidate_source["coverage_scope"].strip():
+        raise EvidenceProviderContractError("Candidate universe coverage_scope must identify the covered market/universe.")
     seen_fund_ids: set[str] = set()
     for index, candidate in enumerate(candidates):
         if not isinstance(candidate, dict) or not candidate:
