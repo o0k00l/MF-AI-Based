@@ -127,3 +127,31 @@ def test_prompt_advisor_never_sends_client_name_or_folio_to_external_model(monke
     assert "CLIENT-NAME-SECRET" not in captured["prompt"]
     assert "CLIENT-FOLIO-SECRET" not in captured["prompt"]
     assert captured["kwargs"]["use_cache"] is False
+
+
+def test_free_provider_failure_is_controlled_and_never_falls_back_to_gemini(monkeypatch):
+    attempted = []
+    monkeypatch.setenv("GEMINI_API_KEY", "configured-but-prohibited")
+    monkeypatch.setattr(
+        ai_engine, "_call_openrouter",
+        lambda *a, **k: attempted.append("openrouter") or (_ for _ in ()).throw(
+            ai_engine.ProviderError("OpenRouter", "offline")
+        ),
+    )
+    monkeypatch.setattr(
+        ai_engine, "_call_requesty",
+        lambda *a, **k: attempted.append("requesty") or (_ for _ in ()).throw(
+            ai_engine.ProviderError("Requesty", "offline")
+        ),
+    )
+    monkeypatch.setattr(
+        ai_engine, "_call_gemini",
+        lambda *a, **k: attempted.append("gemini") or "SHOULD_NEVER_RUN",
+    )
+
+    with pytest.raises(ai_engine.ProviderError, match="All eligible free narrative providers are unavailable"):
+        ai_engine.call_llm(
+            "synthetic portfolio test",
+            external_processing_consent=True,
+        )
+    assert attempted == ["openrouter", "requesty"]
