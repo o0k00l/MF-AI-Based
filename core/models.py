@@ -260,7 +260,7 @@ class DeterministicSIPPlan(BaseModel):
 
     total_monthly_budget_inr: float
     unallocated_budget_inr: float
-    equity_sip_pct
+    equity_sip_pct: float
     debt_sip_pct: float
     items: List[DeterministicSIPRecommendation] = Field(default_factory=list)
     mandate_state: MandateExecutionState = MandateExecutionState.HOLD_PENDING_TRI_VALIDATION
