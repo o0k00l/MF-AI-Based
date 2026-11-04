@@ -165,7 +165,7 @@ def test_legacy_category_score_does_not_borrow_missing_healthcare_return_bounds(
 @pytest.mark.parametrize("category", ["Small Cap", "Multi Cap", "Debt", "Hybrid", "International"])
 def test_unsupported_category_is_unavailable_until_explicit_approved_anchors(category):
     with pytest.raises(ValueError, match="Unsupported scoring category"):
-        calculate_candidate_6_pillar_score(_candidate(category), category)
+        calculate_candidate_6_pillar_score(_candidate(category), category, weights=_weights())
 
 
 def test_portfolio_aware_score_can_use_complete_external_approved_anchors_for_new_category():
