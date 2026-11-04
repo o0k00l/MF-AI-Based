@@ -4742,7 +4742,7 @@ def _sip_operational_constraint_violations(items, sip_policy):
 
 def compute_deterministic_sip_blueprint(
     monthly_budget: float,
-    risk_tier: str = "Tier 6 (Very High)",
+    risk_tier: Optional[str] = None,
     stability_buffer_pct: Optional[float] = None,
     holdings: Optional[List[HoldingItem]] = None,
     client_aum: Optional[float] = None,
