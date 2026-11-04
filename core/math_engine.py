@@ -3729,10 +3729,16 @@ def select_autonomous_blueprint_funds(
     if isinstance(client_risk_tier, bool):
         raise ValueError("client_risk_tier must be an integer from 1 through 6")
     if hasattr(client_risk_tier, "value"):
-        tier_map = {"Conservative": 2, "Moderate": 4, "Aggressive": 6, "Custom": 6}
-        tier_int = tier_map.get(str(client_risk_tier.value))
+        tier_map = {"Conservative": 2, "Moderate": 4, "Aggressive": 6}
+        risk_label = str(client_risk_tier.value)
+        if risk_label == "Custom":
+            raise ValueError(
+                "Custom risk profile requires an explicitly approved custom SAA; "
+                "it must not inherit the Aggressive/SEBI Tier 6 allocation."
+            )
+        tier_int = tier_map.get(risk_label)
         if tier_int is None:
-            raise ValueError(f"Unsupported risk tier: {client_risk_tier.value!r}")
+            raise ValueError(f"Unsupported investor risk profile: {risk_label!r}")
     else:
         try:
             tier_int = int(client_risk_tier)
