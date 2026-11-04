@@ -24,6 +24,7 @@ REQUIRED_EVIDENCE_FIELDS = frozenset({
     "candidate_universe_source_bytes",
 })
 REQUEST_BOUND_FIELDS = frozenset({"cas_path", "monthly_budget_inr", "risk_profile"})
+OPTIONAL_EVIDENCE_FIELDS = frozenset({"metrics_source_metadata", "metrics_source_bytes"})
 
 
 class EvidenceProviderContractError(ValueError):
@@ -100,7 +101,8 @@ def validate_evidence_provider_payload(payload: Any) -> dict[str, Any]:
 
     supplied = set(payload)
     missing = REQUIRED_EVIDENCE_FIELDS - supplied
-    unexpected = supplied - REQUIRED_EVIDENCE_FIELDS
+    unexpected = supplied - REQUIRED_EVIDENCE_FIELDS - OPTIONAL_EVIDENCE_FIELDS
+    optional_present = supplied & OPTIONAL_EVIDENCE_FIELDS
     if missing:
         raise EvidenceProviderContractError(
             "Provider response is missing required fields: " + ", ".join(sorted(missing))
@@ -108,6 +110,10 @@ def validate_evidence_provider_payload(payload: Any) -> dict[str, Any]:
     if unexpected:
         raise EvidenceProviderContractError(
             "Provider response contains unsupported fields: " + ", ".join(sorted(unexpected))
+        )
+    if optional_present and optional_present != OPTIONAL_EVIDENCE_FIELDS:
+        raise EvidenceProviderContractError(
+            "Metrics source metadata and original source bytes must be supplied together."
         )
 
     as_of = payload["disclosure_as_of_date"]
@@ -118,6 +124,11 @@ def validate_evidence_provider_payload(payload: Any) -> dict[str, Any]:
         payload["scheme_master"], payload["scheme_master_source_bytes"],
         label="Scheme master", as_of=as_of,
     )
+    if optional_present:
+        _validate_source_document(
+            payload["metrics_source_metadata"], payload["metrics_source_bytes"],
+            label="Fund metrics", as_of=as_of,
+        )
     scheme_index = _validate_scheme_master(payload["scheme_master"])
 
     disclosures = payload["portfolio_disclosures_by_scheme_id"]
