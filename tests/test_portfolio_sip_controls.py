@@ -9,6 +9,7 @@ from core.portfolio_sip_controls import (
     calculate_saa_drift,
     reconcile_total_portfolio,
     route_incremental_sip,
+    allocate_candidate_sip,
     screen_candidates_before_scoring,
 )
 
@@ -259,3 +260,65 @@ def test_recommendation_lifecycle_requires_independent_review_and_is_monotonic()
             current_state="REVIEWED", requested_state="DRAFT",
             decision_trace_sha256=digest, author_id="author",
         )
+
+
+def test_candidate_sip_allocation_reconciles_each_routed_sleeve():
+    candidates = [
+        {"candidate_id": "large-a", "sleeve": "large_cap", "eligibility_status": "ELIGIBLE",
+         "overlap_status": "ASSESSED", "operational_status": "FEASIBLE_FOR_REVIEW",
+         "rank_score": "2", "score_evidence_ref": "sha256:score-a", "score_as_of_date": "2026-11-04"},
+        {"candidate_id": "large-b", "sleeve": "large_cap", "eligibility_status": "ELIGIBLE",
+         "overlap_status": "ASSESSED", "operational_status": "FEASIBLE_FOR_REVIEW",
+         "rank_score": "1", "score_evidence_ref": "sha256:score-b", "score_as_of_date": "2026-11-04"},
+        {"candidate_id": "debt-a", "sleeve": "debt_liquid", "eligibility_status": "ELIGIBLE",
+         "overlap_status": "ASSESSED", "operational_status": "FEASIBLE_FOR_REVIEW",
+         "rank_score": "1", "score_evidence_ref": "sha256:score-c", "score_as_of_date": "2026-11-04"},
+    ]
+    result = allocate_candidate_sip(
+        {"large_cap": "5000", "debt_liquid": "3000"},
+        candidates,
+        as_of_date="2026-11-04",
+        min_sip_per_fund_inr="1000",
+        rounding_increment_inr="500",
+        max_funds=3,
+    )
+    assert result["status"] == "ALLOCATED"
+    assert result["reconciliation_ok"] is True
+    assert result["allocated_budget_inr"] == "8000"
+    assert result["unallocated_budget_inr"] == "0"
+    assert {row["candidate_id"] for row in result["allocations"]} == {"large-a", "large-b", "debt-a"}
+
+
+def test_candidate_sip_allocation_holds_missing_score_provenance_and_does_not_redirect():
+    result = allocate_candidate_sip(
+        {"mid_cap": "6000", "large_cap": "4000"},
+        [{"candidate_id": "mid-a", "sleeve": "mid_cap", "eligibility_status": "ELIGIBLE",
+          "overlap_status": "ASSESSED", "operational_status": "FEASIBLE_FOR_REVIEW",
+          "rank_score": "4", "score_as_of_date": "2026-11-04"}],
+        as_of_date="2026-11-04",
+        min_sip_per_fund_inr="1000",
+        rounding_increment_inr="500",
+        max_funds=2,
+    )
+    assert result["status"] == "HOLD"
+    assert result["allocated_budget_inr"] == "0"
+    assert result["unallocated_by_sleeve_inr"] == {"mid_cap": "6000", "large_cap": "4000"}
+    assert result["rejected_candidates"]["mid-a"] == ["RANK_SCORE_SOURCE_REFERENCE_MISSING"]
+
+
+def test_candidate_sip_allocation_rejects_stale_scores_and_caps_fund_count():
+    candidates = [
+        {"candidate_id": "a", "sleeve": "large_cap", "eligibility_status": "ELIGIBLE",
+         "overlap_status": "ASSESSED", "operational_status": "FEASIBLE_FOR_REVIEW",
+         "rank_score": "3", "score_evidence_ref": "sha256:a", "score_as_of_date": "2026-11-04"},
+        {"candidate_id": "b", "sleeve": "large_cap", "eligibility_status": "ELIGIBLE",
+         "overlap_status": "ASSESSED", "operational_status": "FEASIBLE_FOR_REVIEW",
+         "rank_score": "2", "score_evidence_ref": "sha256:b", "score_as_of_date": "2026-11-04"},
+    ]
+    result = allocate_candidate_sip(
+        {"large_cap": "5000"}, candidates,
+        as_of_date="2026-11-04", min_sip_per_fund_inr="1000",
+        rounding_increment_inr="500", max_funds=1,
+    )
+    assert len(result["allocations"]) == 1
+    assert result["rejected_candidates"]["b"] == ["MAX_CORE_FUND_COUNT_REACHED"]
