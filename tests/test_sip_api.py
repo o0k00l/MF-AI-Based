@@ -394,6 +394,8 @@ def test_api_runs_portfolio_saa_diagnostic_end_to_end_and_keeps_budget_on_hold(m
         constituent_weights_coverage_pct=100.0,
         current_value_inr=125000.0,
         asset_class="Large_Cap",
+        equity_pct=100.0,
+        constituent_weights={"ISSUER-A": 60.0, "ISSUER-B": 40.0},
     )
     monkeypatch.setattr(service, "load_holdings_from_cas_excel", lambda *a, **k: [holding])
     monkeypatch.setattr(
@@ -413,5 +415,7 @@ def test_api_runs_portfolio_saa_diagnostic_end_to_end_and_keeps_budget_on_hold(m
     assert body["portfolio_assessment"]["scope"] == "CAS_MUTUAL_FUND_HOLDINGS_ONLY"
     assert body["portfolio_assessment"]["saa_drift"]["current_weights_pct"]["large_cap"] == "100"
     assert body["portfolio_assessment"]["sip_routing"]["status"] == "HOLD"
+    assert body["portfolio_assessment"]["lookthrough"]["status"] == "CALCULATED"
+    assert len(body["portfolio_assessment"]["decision_trace"]["sha256"]) == 64
     assert body["plan"]["items"] == []
     assert body["plan"]["unallocated_budget_inr"] == 10000
