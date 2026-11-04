@@ -5,6 +5,7 @@ implicit repository-data fallback and no network source scraping in this API.
 """
 from __future__ import annotations
 
+import json
 import math
 import tempfile
 from pathlib import Path
@@ -71,6 +72,7 @@ def create_sip_app(
         cas_file: UploadFile = File(...),
         monthly_budget_inr: float = Form(...),
         risk_profile: str = Form(...),
+        portfolio_context_json: str | None = Form(None),
     ):
         if not math.isfinite(monthly_budget_inr) or monthly_budget_inr <= 0:
             return JSONResponse(status_code=422, content={
@@ -93,6 +95,25 @@ def create_sip_app(
                 "reasons": ["Only an XLSX CAS statement is supported."],
                 "unallocated_budget_inr": monthly_budget_inr,
             })
+
+        portfolio_context = None
+        if portfolio_context_json is not None:
+            if len(portfolio_context_json.encode("utf-8")) > 256 * 1024:
+                return JSONResponse(status_code=413, content={
+                    "status": "HOLD", "decision": "NO_ACTION",
+                    "reasons": ["Portfolio context exceeds the 256 KiB limit."],
+                    "unallocated_budget_inr": monthly_budget_inr,
+                })
+            try:
+                portfolio_context = json.loads(portfolio_context_json)
+                if not isinstance(portfolio_context, dict):
+                    raise ValueError("portfolio context must be an object")
+            except (json.JSONDecodeError, ValueError):
+                return JSONResponse(status_code=422, content={
+                    "status": "HOLD", "decision": "NO_ACTION",
+                    "reasons": ["Portfolio context must be a valid JSON object."],
+                    "unallocated_budget_inr": monthly_budget_inr,
+                })
 
         payload = await cas_file.read(MAX_CAS_BYTES + 1)
         if len(payload) > MAX_CAS_BYTES:
@@ -136,19 +157,22 @@ def create_sip_app(
                 # The validated provider envelope also carries provenance-only
                 # fields used at this boundary. Pass only the service's explicit
                 # input contract; never forward the envelope wholesale.
-                result = recommend_sip(
-                    cas_path=cas_path,
-                    metrics_path=evidence["metrics_path"],
-                    aliases_path=evidence["aliases_path"],
-                    monthly_budget_inr=monthly_budget_inr,
-                    risk_profile=risk_profile,
-                    scheme_master=evidence["scheme_master"],
-                    scheme_master_source_bytes=evidence["scheme_master_source_bytes"],
-                    portfolio_disclosures_by_scheme_id=evidence["portfolio_disclosures_by_scheme_id"],
-                    portfolio_disclosure_source_bytes_by_scheme_id=evidence["portfolio_disclosure_source_bytes_by_scheme_id"],
-                    disclosure_as_of_date=evidence["disclosure_as_of_date"],
-                    candidate_universe=evidence["candidate_universe"],
-                )
+                service_inputs = {
+                    "cas_path": cas_path,
+                    "metrics_path": evidence["metrics_path"],
+                    "aliases_path": evidence["aliases_path"],
+                    "monthly_budget_inr": monthly_budget_inr,
+                    "risk_profile": risk_profile,
+                    "scheme_master": evidence["scheme_master"],
+                    "scheme_master_source_bytes": evidence["scheme_master_source_bytes"],
+                    "portfolio_disclosures_by_scheme_id": evidence["portfolio_disclosures_by_scheme_id"],
+                    "portfolio_disclosure_source_bytes_by_scheme_id": evidence["portfolio_disclosure_source_bytes_by_scheme_id"],
+                    "disclosure_as_of_date": evidence["disclosure_as_of_date"],
+                    "candidate_universe": evidence["candidate_universe"],
+                }
+                if portfolio_context is not None:
+                    service_inputs["portfolio_context"] = portfolio_context
+                result = recommend_sip(**service_inputs)
             except Exception as exc:
                 # Do not expose exception text, local paths, source records or
                 # uploaded content to the client.
