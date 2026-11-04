@@ -2684,6 +2684,12 @@ def _parse_sebi_risk_tier(risk_tier: str) -> int:
         return 6
     if tier_str == "low" or "conservative" in tier_str:
         return 2
+    # The investor-facing 3-tier profile "Moderate" maps to the
+    # approved middle profile (SEBI Tier 4). Explicit SEBI labels such as
+    # "Tier 3 (Moderate)" have already been resolved by the Tier N parser
+    # above and retain their literal Riskometer meaning.
+    if tier_str == "moderate":
+        return 4
     if "moderate" in tier_str and "high" not in tier_str:
         return 3
     if tier_str == "high" or tier_str.startswith("high "):
