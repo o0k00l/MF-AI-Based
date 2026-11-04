@@ -58,6 +58,7 @@ def _write_test_nse_calendar(tmp_path, sessions):
         ("Tier 6 (Very High)", 6),
         ("Low to Moderate", 2),
         ("Moderately High", 4),
+        ("Moderate", 4),
         ("Very High", 6),
         ("Aggressive", 6),
     ],
@@ -2519,3 +2520,28 @@ def test_candidate_scoring_fails_closed_when_category_return_anchor_is_missing()
     }
     with pytest.raises(ValueError, match="no complete approved anchor set; missing: ret1y"):
         calculate_candidate_6_pillar_score(candidate, category_key="Flexi Cap", weights=ScoringWeights(0.25, 0.20, 0.15, 0.15, 0.15, 0.10))
+
+
+def test_eligibility_requires_explicit_investor_risk_profile():
+    result = check_eligibility_gates(
+        fund_data={"fund_id": "fund-x", "fund_name": "Example", "category": "Large Cap"},
+        portfolio_holdings=None,
+    )
+    assert result.passed is False
+    assert any("explicit validated investor risk profile missing" in item for item in result.failed_gates)
+
+
+def test_no_action_never_evaluates_candidates_without_investor_risk_profile():
+    from core.eligibility import evaluate_no_action
+    result = evaluate_no_action([], [{"fund_id": "fund-x", "score": 99.0}])
+    assert result.action == "NO_ACTION"
+    assert result.sip_deployment_pause is True
+    assert "risk profile is missing" in result.reason
+
+
+def test_sip_builder_requires_explicit_risk_profile_and_verified_aum():
+    from core.math_engine import compute_deterministic_sip_blueprint
+    with pytest.raises(ValueError, match="explicit validated investor risk profile"):
+        compute_deterministic_sip_blueprint(10000)
+    with pytest.raises(ValueError, match="Verified reconciled client AUM"):
+        compute_deterministic_sip_blueprint(10000, risk_tier="Moderate")
