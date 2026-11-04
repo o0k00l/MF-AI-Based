@@ -22,6 +22,7 @@ ENV_APPROVAL = "TRI_REVIEWER_APPROVAL_JSON"
 MAX_APPROVAL_LIFETIME_DAYS = 90
 MAX_REGISTRY_BYTES = 256 * 1024
 MAX_APPROVAL_BYTES = 1024 * 1024
+MAX_EVIDENCE_FILE_BYTES = 100 * 1024 * 1024
 RFC3339_UTC_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z$")
 REQUIRED_BENCHMARKS = {
     "NIFTY 500 TRI", "NIFTY 500 MULTICAP 50:25:25 TRI", "NIFTY MIDCAP 150 TRI"
@@ -76,7 +77,11 @@ def _strict_json(raw: str) -> Any:
                 raise ValueError(f"duplicate JSON key: {key}")
             result[key] = value
         return result
-    return json.loads(raw, object_pairs_hook=pairs)
+
+    def reject_constant(value: str) -> None:
+        raise ValueError(f"non-standard JSON numeric constant is not allowed: {value}")
+
+    return json.loads(raw, object_pairs_hook=pairs, parse_constant=reject_constant)
 
 
 def _b64url(value: Any, expected_length: int) -> bytes:
@@ -161,7 +166,11 @@ def verify_approval(
 
         if not SHA256_RE.fullmatch(str(payload["tri_fixture_sha256"])):
             raise ValueError("fixture SHA-256 is malformed")
-        actual_fixture = __import__("hashlib").sha256(fixture_path.read_bytes()).hexdigest()
+        resolved_fixture = fixture_path.resolve(strict=True)
+        resolved_fixture.relative_to(root.resolve())
+        if fixture_path.is_symlink() or not resolved_fixture.is_file():
+            raise ValueError("TRI fixture must be a regular repository-contained file, not a symlink")
+        actual_fixture = __import__("hashlib").sha256(resolved_fixture.read_bytes()).hexdigest()
         if actual_fixture != payload["tri_fixture_sha256"]:
             raise ValueError("signed TRI fixture digest does not match")
         fixture_data = _strict_json(fixture_path.read_text(encoding="utf-8"))
@@ -196,6 +205,8 @@ def verify_approval(
             resolved.relative_to(root.resolve())
             if not resolved.is_file():
                 raise ValueError(f"signed source document is missing: {rel}")
+            if resolved.stat().st_size <= 0 or resolved.stat().st_size > MAX_EVIDENCE_FILE_BYTES:
+                raise ValueError(f"signed source document is empty or exceeds the 100 MiB evidence limit: {rel}")
             if not SHA256_RE.fullmatch(str(item["sha256"])):
                 raise ValueError(f"source document digest is malformed: {rel}")
             actual = __import__("hashlib").sha256(resolved.read_bytes()).hexdigest()
@@ -206,9 +217,11 @@ def verify_approval(
         if manifest_order != sorted(manifest_order):
             raise ValueError("signed source manifest must be sorted by benchmark identifier")
         cal = root / "data/policy/nse_trading_calendar.json"
-        if not cal.is_file():
-            raise ValueError("normalized NSE calendar file is missing")
-        calendar = _strict_json(cal.read_text(encoding="utf-8"))
+        resolved_cal = cal.resolve(strict=True)
+        resolved_cal.relative_to(root.resolve())
+        if cal.is_symlink() or not resolved_cal.is_file():
+            raise ValueError("normalized NSE calendar must be a regular repository-contained file, not a symlink")
+        calendar = _strict_json(resolved_cal.read_text(encoding="utf-8"))
         if not isinstance(calendar, dict):
             raise ValueError("NSE calendar document must be an object")
         cal_provenance = calendar.get("provenance")
@@ -228,7 +241,9 @@ def verify_approval(
             raise ValueError("original NSE calendar source path must be repository-relative")
         cal_source = (root / cal_source_path).resolve()
         cal_source.relative_to(root.resolve())
-        if not cal_source.is_file() or __import__("hashlib").sha256(cal_source.read_bytes()).hexdigest() != payload["calendar_source_sha256"]:
+        if not cal_source.is_file() or cal_source.stat().st_size <= 0 or cal_source.stat().st_size > MAX_EVIDENCE_FILE_BYTES:
+            raise ValueError("signed original NSE calendar source is empty or exceeds the 100 MiB evidence limit")
+        if __import__("hashlib").sha256(cal_source.read_bytes()).hexdigest() != payload["calendar_source_sha256"]:
             raise ValueError("signed original NSE calendar source digest is missing or mismatched")
         if cal_provenance.get("source_document_sha256") != payload["calendar_source_sha256"]:
             raise ValueError("NSE calendar provenance source digest differs from signed approval")
