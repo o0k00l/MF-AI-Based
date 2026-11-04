@@ -431,11 +431,17 @@ class WeightedOverlapResult(BaseModel):
     """Weighted look-through stock concentration across all holdings."""
     fund_a: str
     fund_b: str
-    weighted_overlap_pct: float  # Combined portfolio weight in shared stocks
-    jaccard_similarity: float    # Secondary measure
+    weighted_overlap_pct: Optional[float] = None  # Combined portfolio weight in shared stocks
+    jaccard_similarity: Optional[float] = None    # Secondary measure
     shared_stocks: List[Dict[str, Any]] = Field(default_factory=list)  # {stock, weight_a, weight_b, combined_weight}
     sector_concentration: Dict[str, float] = Field(default_factory=dict)
-    verdict: str  # "HIGH_CONCENTRATION", "MODERATE", "ACCEPTABLE"
+    verdict: str  # "HIGH_CONCENTRATION", "MODERATE", "ACCEPTABLE", "UNKNOWN", "UNAVAILABLE"
+    status: str = "VERIFIED"  # "VERIFIED", "UNKNOWN", "UNAVAILABLE", "LIMITED_COVERAGE"
+    source: Optional[str] = None
+    effective_date: Optional[str] = None
+    coverage_status: Optional[str] = None
+    coverage_pct: Optional[float] = None
+    reason: Optional[str] = None
 
 
 class RiskDistribution(BaseModel):

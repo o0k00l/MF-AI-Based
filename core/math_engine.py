@@ -2573,105 +2573,226 @@ def calculate_weighted_lookthrough_overlap(
     threshold_pct: float = 10.0
 ) -> List[WeightedOverlapResult]:
     """
-    Calculate weighted look-through overlap using actual top-10 holding weights from fund_metrics.json.
-    
-    The fund_metrics.json contains top-10 holdings and their percentage of portfolio (top10 field).
-    We assume equal weight within the top-10 holdings: each stock = top10% / 10.
+    Calculate weighted look-through overlap using actual verified individual constituent weights.
+
+    Equal-weight proxies (e.g. dividing an aggregate top-10 percentage by 10) are strictly prohibited.
+    Missing, partial, or unweighted constituent evidence produces UNKNOWN / UNAVAILABLE, never 0% or ACCEPTABLE.
     """
-    # Load fund metrics for actual top-10 weights
-    fund_metrics: Dict[str, Dict] = {}
+    if not holdings or len(holdings) < 2:
+        return []
+
+    # Load fund metrics if available
+    fund_metrics: Dict[str, Dict[str, Any]] = {}
     if metrics_path and metrics_path.exists():
         try:
             with open(metrics_path, "r", encoding="utf-8") as f:
                 m_data = json.load(f)
                 for m in m_data.get("funds", []):
-                    fund_id = m.get("id", "")
-                    if fund_id:
-                        top10_pct = m.get("top10", 0.0)
-                        top_holdings = m.get("h", [])
-                        # Weight per stock = top10% / 10 (assuming equal weight within top-10)
-                        weight_per_stock = top10_pct / 10.0 if top_holdings else 0.0
-                        fund_metrics[fund_id] = {
-                            "top10_pct": top10_pct,
-                            "top_holdings": top_holdings,
-                            "weight_per_stock": weight_per_stock
-                        }
+                    if isinstance(m, dict):
+                        fund_id = m.get("id") or m.get("fund_id") or ""
+                        if fund_id:
+                            fund_metrics[str(fund_id)] = m
         except Exception:
             pass
-    
-    stock_fund_weights: Dict[str, Dict[str, float]] = {}
-    fund_total_value: Dict[str, float] = {}
-    
+
+    def _extract_fund_evidence(h: HoldingItem) -> Tuple[
+        Optional[Dict[str, float]],
+        Optional[List[str]],
+        Optional[float],
+        str,
+        Optional[str],
+        Optional[str]
+    ]:
+        # 1. First priority: direct constituent_weights on HoldingItem
+        raw_weights = getattr(h, "constituent_weights", None)
+        raw_coverage = getattr(h, "constituent_weights_coverage_pct", None)
+        if isinstance(raw_weights, dict) and raw_weights:
+            try:
+                weights = {str(k).strip().upper(): float(v) for k, v in raw_weights.items()}
+                cov = float(raw_coverage) if raw_coverage is not None and not isinstance(raw_coverage, bool) else None
+                if (
+                    all(k and math.isfinite(v) and 0.0 <= v <= 100.0 for k, v in weights.items())
+                    and sum(weights.values()) > 0.0
+                ):
+                    return (
+                        weights,
+                        list(weights.keys()),
+                        cov,
+                        "VERIFIED",
+                        getattr(h, "lookthrough_source_url", None) or "verified_portfolio_disclosure",
+                        getattr(h, "lookthrough_effective_date", None)
+                    )
+            except (TypeError, ValueError):
+                pass
+
+        # 2. Second priority: verified constituent_weights in fund_metrics.json
+        m = fund_metrics.get(h.fund_id) or fund_metrics.get(getattr(h, "scheme_id", None) or "")
+        if isinstance(m, dict):
+            m_weights = m.get("constituent_weights") or m.get("weights")
+            m_cov = m.get("constituent_weights_coverage_pct") or m.get("coverage_pct")
+            if isinstance(m_weights, dict) and m_weights:
+                try:
+                    weights = {str(k).strip().upper(): float(v) for k, v in m_weights.items()}
+                    cov = float(m_cov) if m_cov is not None and not isinstance(m_cov, bool) else None
+                    if (
+                        all(k and math.isfinite(v) and 0.0 <= v <= 100.0 for k, v in weights.items())
+                        and sum(weights.values()) > 0.0
+                    ):
+                        return (
+                            weights,
+                            list(weights.keys()),
+                            cov,
+                            "VERIFIED",
+                            m.get("source_url") or m.get("source") or (str(metrics_path) if metrics_path else "fund_metrics.json"),
+                            m.get("effective_date") or m.get("as_of_date")
+                        )
+                except (TypeError, ValueError):
+                    pass
+
+        # 3. Third priority: check for unweighted names (top_holdings / h)
+        names = []
+        if getattr(h, "top_holdings", None) and isinstance(h.top_holdings, (list, tuple)):
+            names = [str(s).strip().upper() for s in h.top_holdings if str(s).strip()]
+        if not names and isinstance(m, dict) and m.get("h") and isinstance(m.get("h"), (list, tuple)):
+            names = [str(s).strip().upper() for s in m.get("h") if str(s).strip()]
+
+        if names:
+            # Stock names exist, but individual constituent weights are missing.
+            # An aggregate top10 scalar is NOT an individual constituent weight.
+            return (
+                None,
+                names,
+                None,
+                "LIMITED_COVERAGE",
+                getattr(h, "lookthrough_source_url", None) or (m.get("source_url") if isinstance(m, dict) else None),
+                getattr(h, "lookthrough_effective_date", None) or (m.get("effective_date") if isinstance(m, dict) else None)
+            )
+
+        # 4. Neither weights nor stock names exist
+        return (None, None, None, "UNAVAILABLE", None, None)
+
+    # Pre-extract evidence for all holdings
+    evidence_by_fund: Dict[str, Any] = {}
     for h in holdings:
-        if not h.top_holdings:
-            continue
-        fund_total_value[h.fund_id] = h.current_value_inr
-        
-        # Get actual weight per stock from fund_metrics
-        metrics = fund_metrics.get(h.fund_id, {})
-        weight_per_stock = metrics.get("weight_per_stock", 0.0)
-        top_holdings = metrics.get("top_holdings", h.top_holdings)
-        
-        for stock in top_holdings:
-            if stock not in stock_fund_weights:
-                stock_fund_weights[stock] = {}
-            stock_fund_weights[stock][h.fund_id] = weight_per_stock
-    
-    fund_ids = list(fund_total_value.keys())
-    results = []
-    
+        if h.fund_id not in evidence_by_fund:
+            evidence_by_fund[h.fund_id] = _extract_fund_evidence(h)
+
+    fund_ids = list(dict.fromkeys(h.fund_id for h in holdings))
+    results: List[WeightedOverlapResult] = []
+
     for i in range(len(fund_ids)):
         for j in range(i + 1, len(fund_ids)):
             fa = fund_ids[i]
             fb = fund_ids[j]
-            
-            shared_stocks = []
-            weighted_overlap = 0.0
-            sector_weights: Dict[str, float] = {}
-            
-            for stock, fund_weights in stock_fund_weights.items():
-                if fa in fund_weights and fb in fund_weights:
-                    weight_a = fund_weights[fa]
-                    weight_b = fund_weights[fb]
-                    combined = weight_a + weight_b
-                    
-                    shared_stocks.append({
-                        "stock": stock,
-                        "weight_a_pct": round(weight_a, 2),
-                        "weight_b_pct": round(weight_b, 2),
-                        "combined_weight_pct": round(combined, 2)
-                    })
-                    weighted_overlap += min(weight_a, weight_b)
-            
-            if not shared_stocks:
-                continue
-            
-            set_a = set(stock for stock in stock_fund_weights if fa in stock_fund_weights[stock])
-            set_b = set(stock for stock in stock_fund_weights if fb in stock_fund_weights[stock])
-            jaccard = len(set_a & set_b) / len(set_a | set_b) if (set_a | set_b) else 0
-            
-            if weighted_overlap >= 20.0:
-                verdict = "HIGH_CONCENTRATION"
-            elif weighted_overlap >= 10.0:
-                verdict = "MODERATE"
-            else:
-                verdict = "ACCEPTABLE"
-            
-            if weighted_overlap >= threshold_pct:
+
+            ev_a = evidence_by_fund[fa]
+            ev_b = evidence_by_fund[fb]
+
+            weights_a, names_a, cov_a, status_a, src_a, date_a = ev_a
+            weights_b, names_b, cov_b, status_b, src_b, date_b = ev_b
+
+            sources = [s for s in (src_a, src_b) if s]
+            src_str = "; ".join(sources) if sources else None
+            eff_date = date_a or date_b
+
+            # Case 1: Both funds have verified individual constituent weights
+            if status_a == "VERIFIED" and status_b == "VERIFIED" and weights_a and weights_b:
+                shared_stocks = []
+                weighted_overlap = 0.0
+                for stock, w_a in weights_a.items():
+                    if stock in weights_b:
+                        w_b = weights_b[stock]
+                        min_w = min(w_a, w_b)
+                        weighted_overlap += min_w
+                        shared_stocks.append({
+                            "stock": stock,
+                            "weight_a_pct": round(w_a, 2),
+                            "weight_b_pct": round(w_b, 2),
+                            "combined_weight_pct": round(w_a + w_b, 2),
+                        })
+
+                shared_stocks.sort(key=lambda s: s.get("combined_weight_pct", 0.0), reverse=True)
+                set_a = set(weights_a.keys())
+                set_b = set(weights_b.keys())
+                jaccard = round(len(set_a & set_b) / len(set_a | set_b) * 100.0, 2) if (set_a | set_b) else 0.0
+
+                if weighted_overlap >= 20.0:
+                    verdict = "HIGH_CONCENTRATION"
+                elif weighted_overlap >= 10.0:
+                    verdict = "MODERATE"
+                else:
+                    verdict = "ACCEPTABLE"
+
+                min_cov = min(cov_a or 100.0, cov_b or 100.0)
+                if weighted_overlap >= threshold_pct or threshold_pct <= 0.0 or shared_stocks:
+                    results.append(WeightedOverlapResult(
+                        fund_a=fa,
+                        fund_b=fb,
+                        weighted_overlap_pct=round(weighted_overlap, 2),
+                        jaccard_similarity=jaccard,
+                        shared_stocks=shared_stocks,
+                        sector_concentration={},
+                        verdict=verdict,
+                        status="VERIFIED",
+                        source=src_str,
+                        effective_date=eff_date,
+                        coverage_status="VERIFIED",
+                        coverage_pct=round(min_cov, 2) if min_cov is not None else None,
+                        reason=None,
+                    ))
+
+            # Case 2: At least one fund has limited coverage (names exist, but weights missing)
+            elif (status_a == "LIMITED_COVERAGE" or status_b == "LIMITED_COVERAGE") and names_a and names_b:
+                set_a = set(names_a)
+                set_b = set(names_b)
+                common = sorted(set_a & set_b)
+                shared_stocks = [
+                    {"stock": s, "weight_a_pct": None, "weight_b_pct": None, "combined_weight_pct": None}
+                    for s in common
+                ]
+                jaccard = round(len(common) / len(set_a | set_b) * 100.0, 2) if (set_a | set_b) else None
                 results.append(WeightedOverlapResult(
                     fund_a=fa,
                     fund_b=fb,
-                    weighted_overlap_pct=round(weighted_overlap, 2),
-                    jaccard_similarity=round(jaccard * 100, 2),
+                    weighted_overlap_pct=None,
+                    jaccard_similarity=jaccard,
                     shared_stocks=shared_stocks,
-                    sector_concentration=sector_weights,
-                    verdict=verdict
+                    sector_concentration={},
+                    verdict="UNKNOWN",
+                    status="LIMITED_COVERAGE",
+                    source=src_str,
+                    effective_date=eff_date,
+                    coverage_status="INCOMPLETE",
+                    coverage_pct=None,
+                    reason="Verified individual constituent weights are missing; equal-weight proxies are withheld.",
                 ))
-    
-    results.sort(key=lambda x: x.weighted_overlap_pct, reverse=True)
+
+            # Case 3: Complete absence of look-through disclosure data
+            else:
+                results.append(WeightedOverlapResult(
+                    fund_a=fa,
+                    fund_b=fb,
+                    weighted_overlap_pct=None,
+                    jaccard_similarity=None,
+                    shared_stocks=[],
+                    sector_concentration={},
+                    verdict="UNAVAILABLE",
+                    status="UNAVAILABLE",
+                    source=src_str,
+                    effective_date=eff_date,
+                    coverage_status="UNAVAILABLE",
+                    coverage_pct=None,
+                    reason="Look-through constituent disclosure data is missing.",
+                ))
+
+    results.sort(
+        key=lambda x: (
+            x.weighted_overlap_pct is not None,
+            x.weighted_overlap_pct if x.weighted_overlap_pct is not None else -1.0
+        ),
+        reverse=True
+    )
     return results
-
-
 def calculate_risk_distribution(
     holdings: List[HoldingItem]
 ) -> RiskDistribution:
