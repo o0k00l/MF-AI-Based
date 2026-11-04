@@ -1794,6 +1794,23 @@ def parse_cas(xlsx_path: Path, scheme_master: Optional[Dict[str, Any]] = None, s
     return as_of_date, holdings
 
 
+def _parse_cas_valuation_date(cas_path: Path) -> date:
+    """Return the statement's explicit valuation date; never substitute today."""
+    raw_date, _ = parse_cas(cas_path)
+    date_text = str(raw_date).strip()
+    if not date_text:
+        raise ValueError("CAS statement does not contain a valuation date")
+    try:
+        return datetime.fromisoformat(date_text).date()
+    except ValueError:
+        for date_format in ("%d-%b-%Y", "%d/%m/%Y", "%d-%m-%Y"):
+            try:
+                return datetime.strptime(date_text, date_format).date()
+            except ValueError:
+                continue
+    raise ValueError(f"CAS valuation date has an unsupported format: {date_text!r}")
+
+
 def compute_liquidity_waterfall(bank_balance: float, monthly_expenses: float, months_reserve: float = 6.0) -> Tuple[float, float]:
     """
     Guards emergency buffer before investment.
@@ -2121,24 +2138,7 @@ def aggregate_fiduciary_facts(
         try:
             # The terminal valuation date must come from this CAS statement,
             # never from today's date or the latest transaction date.
-            cas_as_of_raw, _ = parse_cas(cas_path)
-            cas_as_of_text = str(cas_as_of_raw).strip()
-            try:
-                cas_as_of_date = datetime.fromisoformat(cas_as_of_text).date()
-            except ValueError:
-                cas_as_of_date = None
-                for date_format in ("%d-%b-%Y", "%d/%m/%Y", "%d-%m-%Y"):
-                    try:
-                        cas_as_of_date = datetime.strptime(cas_as_of_text, date_format).date()
-                        break
-                    except ValueError:
-                        continue
-                if cas_as_of_date is None:
-                    raise TriProvenanceError(
-                        f"CAS valuation date is missing or unsupported: {cas_as_of_text!r}",
-                        benchmark="NIFTY 500 TRI",
-                        validation_stage="cas_valuation_date_invalid"
-                    )
+            cas_as_of_date = _parse_cas_valuation_date(cas_path)
             bench_audit_record = calculate_cashflow_matched_benchmark_xirr(
                 transactions_path=transactions_path,
                 as_of_date=cas_as_of_date,
