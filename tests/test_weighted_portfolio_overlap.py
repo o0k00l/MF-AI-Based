@@ -21,7 +21,8 @@ def _make_holding(
     effective_date: str | None = "2026-03-31",
 ) -> HoldingItem:
     return HoldingItem(
-        folio_number="12345/67",
+        scheme=fund_name,
+        folio="12345/67",
         fund_id=fund_id,
         scheme_id=fund_id,
         fund_name=fund_name,
