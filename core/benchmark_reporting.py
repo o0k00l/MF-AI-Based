@@ -6,8 +6,8 @@ import math
 from typing import Any
 
 
-BENCHMARK_BLOCKED = (
-    "BLOCKED — authenticated daily TRI and independent calendar unavailable"
+BENCHMARK_UNAVAILABLE = (
+    "UNAVAILABLE — approved benchmark mapping or supporting evidence unavailable"
 )
 
 
@@ -34,6 +34,6 @@ def format_performance_metrics(
 
     return {
         "portfolio_xirr": f"{portfolio * 100:.2f}%" if portfolio is not None else "UNAVAILABLE",
-        "benchmark_xirr": f"{benchmark * 100:.2f}%" if benchmark is not None else BENCHMARK_BLOCKED,
+        "benchmark_xirr": f"{benchmark * 100:.2f}%" if benchmark is not None else BENCHMARK_UNAVAILABLE,
         "alpha": f"{alpha:+.2f}%" if alpha is not None else "UNAVAILABLE",
     }
