@@ -485,7 +485,7 @@ def test_api_runs_portfolio_saa_diagnostic_end_to_end_and_keeps_budget_on_hold(m
     client = TestClient(sip.create_sip_app(evidence_provider=provider))
     response = _upload(
         client,
-        cas_bytes=_valid_cas_bytes(date(2026, 11, 4)),
+        cas_bytes=_valid_cas_bytes(date.today()),
         monthly_budget_inr="10000",
         risk_profile="Aggressive",
     )
