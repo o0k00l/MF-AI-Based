@@ -181,6 +181,7 @@ def validate_evidence_provider_payload(payload: Any) -> dict[str, Any]:
         if value is not None and not hasattr(value, "is_file"):
             raise EvidenceProviderContractError(f"{optional_path} must be a Path-like object or None.")
 
-    # Structural/provenance checks do not establish universe completeness,
-    # publisher authenticity, or independent approval of reviewer attestations.
+    # The completeness flag is an attestation, not an independent proof that
+    # every eligible scheme in the stated market scope has been enumerated.
+    # Publisher authenticity and reviewer identity also remain external checks.
     return dict(payload)
