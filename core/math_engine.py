@@ -4150,7 +4150,10 @@ def compute_deterministic_lumpsum_blueprint(
             "Slot 3: Small-Cap Growth Engine",
             "Slot 4: Large-Cap Bluechip Anchor",
         )
-        if float((slots.get(name) or {}).get("allocation_pct", 0.0)) > 0.0
+        if (
+            float((slots.get(name) or {}).get("allocation_pct", 0.0))
+            + float((slots.get(name) or {}).get("unallocated_pct", 0.0))
+        ) > 0.0
     ]
     if thematic_satellite_authorized and satellite_pct > 0:
         required_slots.append("Slot 5: Tactical Thematic Satellite")
