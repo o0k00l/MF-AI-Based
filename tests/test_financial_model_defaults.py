@@ -92,3 +92,26 @@ def test_duplicate_fee_bleed_module_does_not_emit_generic_commission_or_folio_da
     assert result.regular_portfolio_value_inr == 100000.0
     assert result.details == []
     assert "generic estimate" in result.unavailable_reason
+
+
+def test_public_saa_targets_are_derived_from_central_allocation_policy():
+    import json
+    from pathlib import Path
+    from core.models import RiskTier, SAA_POLICY_MAP
+
+    policy_path = Path(__file__).resolve().parents[1] / "data" / "policy" / "asset_allocation.json"
+    policy = json.loads(policy_path.read_text(encoding="utf-8"))
+    mapping = {
+        RiskTier.CONSERVATIVE: "low_to_moderate",
+        RiskTier.MODERATE: "moderately_high",
+        RiskTier.AGGRESSIVE: "very_high",
+    }
+    for risk, profile_name in mapping.items():
+        target = policy["behavioral_risk_profiles"][profile_name]["saa_targets"]
+        expected_equity = sum(float(target[key]) for key in (
+            "large_cap_pct", "mid_cap_pct", "small_cap_pct", "flexi_multi_cap_pct"
+        ))
+        actual = SAA_POLICY_MAP[risk]
+        assert actual.equity_pct == expected_equity
+        assert actual.debt_pct == float(target["debt_liquid_pct"])
+        assert actual.cash_pct == float(target.get("cash_pct", 0.0))
