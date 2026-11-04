@@ -519,10 +519,10 @@ def test_jcs_matches_rfc8785_number_string_and_literal_vector():
 
     value = {
         "numbers": [333333333.33333329, 1e30, 4.50, 2e-3, 1e-27],
-        "string": "€$\\x0f\\nA'B\"\\\\\\\"/",
+        "string": "€$\x0f\nA'B\"\\\\\"/",
         "literals": [None, True, False],
     }
-    expected = r"""{"literals":[null,true,false],"numbers":[333333333.3333333,1e+30,4.5,0.002,1e-27],"string":"€$\\u000f\\nA'B\\\"\\\\\\\"/"}""".encode("utf-8")
+    expected = r"""{"literals":[null,true,false],"numbers":[333333333.3333333,1e+30,4.5,0.002,1e-27],"string":"€$\u000f\nA'B\"\\\\\"/"}""".encode("utf-8")
     assert rfc8785.dumps(value) == expected
 
 
@@ -538,7 +538,7 @@ def test_jcs_matches_rfc8785_utf16_property_sort_vector():
         "\x80": "Control",
         "ö": "Latin Small Letter O With Diaeresis",
     }
-    expected = r"""{"\\r":"Carriage Return","1":"One","\\u0080":"Control","ö":"Latin Small Letter O With Diaeresis","€":"Euro Sign","😀":"Emoji: Grinning Face","דּ":"Hebrew Letter Dalet With Dagesh"}""".encode("utf-8")
+    expected = r"""{"\r":"Carriage Return","1":"One","\u0080":"Control","ö":"Latin Small Letter O With Diaeresis","€":"Euro Sign","😀":"Emoji: Grinning Face","דּ":"Hebrew Letter Dalet With Dagesh"}""".encode("utf-8")
     assert rfc8785.dumps(value) == expected
 
 
