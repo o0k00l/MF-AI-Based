@@ -1990,7 +1990,9 @@ def test_candidate_portfolio_overlap_value_weights_multiple_existing_funds():
         "constituent_weights": {"issuer-a": 50.0, "issuer-b": 50.0},
         "constituent_weights_coverage_pct": 100.0,
     }
-    assert compute_candidate_portfolio_overlap(candidate, holdings) == 50.0
+    # Portfolio stock weights are 75% issuer-a and 25% issuer-b;
+    # overlap is min(50,75) + min(50,25) = 75 percentage points.
+    assert compute_candidate_portfolio_overlap(candidate, holdings) == 75.0
 
 
 def test_candidate_portfolio_overlap_returns_unknown_for_missing_or_partial_evidence():
