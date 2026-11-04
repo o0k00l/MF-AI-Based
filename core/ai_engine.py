@@ -157,9 +157,8 @@ def _is_zero_price(value: Any) -> bool:
 
 
 def _discover_openai_models(provider: str, url: str, key: str) -> list[str]:
-    cached = _read_model_cache(provider, key)
-    if cached:
-        return cached
+    # Pricing is mutable provider data. Never let a cached model ID stand in
+    # for current zero-price evidence; every discovery reads the live catalogue.
     payload = _http_json(url, key, provider)
     discovered: list[str] = []
     for item in payload["data"]:
@@ -198,7 +197,7 @@ def _discover_openai_models(provider: str, url: str, key: str) -> list[str]:
     discovered = list(dict.fromkeys(discovered))
     if not discovered:
         raise ProviderError(provider, f"{provider} returned no eligible free text-generation models.")
-    _write_model_cache(provider, key, discovered)
+    # Do not cache model IDs: they are not durable evidence of zero pricing.
     return discovered
 
 
@@ -302,6 +301,20 @@ def _call_openai_compatible(provider: str, base_url: str, prompt: str,
     lock = _requesty_mutex if provider == "Requesty" else _NullLock()
     with lock:
         for model in models[:5]:
+            # Re-check outside the generation exception handler so catalogue
+            # failures remain explicit and cannot be mistaken for model retries.
+            # A model may be repriced or withdrawn after initial discovery.
+            current_models = (
+                discover_requesty_free_models(key) if provider == "Requesty"
+                else discover_openrouter_free_models(key)
+            )
+            if model not in current_models:
+                last_error = ProviderError(
+                    provider,
+                    f"{provider} model is no longer verified as zero-priced; generation blocked.",
+                    model=model,
+                )
+                continue
             try:
                 # Intentionally send only the portable required fields. Do not
                 # assume temperature, seed, max_tokens, or other optional knobs.
