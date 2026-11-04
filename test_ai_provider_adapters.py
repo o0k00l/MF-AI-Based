@@ -20,6 +20,16 @@ def test_requesty_discovery_does_not_inject_primary_model(monkeypatch):
     ]
 
 
+@pytest.mark.parametrize("value", [None, False, True, "", "unknown", "NaN", "Infinity"])
+def test_zero_price_requires_explicit_numeric_zero(value):
+    assert ai_engine._is_zero_price(value) is False
+
+
+@pytest.mark.parametrize("value", [0, 0.0, "0", "0.000000"])
+def test_zero_price_accepts_explicit_numeric_zero(value):
+    assert ai_engine._is_zero_price(value) is True
+
+
 def test_requesty_discovery_rejects_unknown_pricing(monkeypatch):
     payload = {"data": [{"id": "vendor/unknown-price"}]}
     monkeypatch.setattr(ai_engine, "_read_model_cache", lambda *args: None)
