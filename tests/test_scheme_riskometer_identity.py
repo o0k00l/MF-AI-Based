@@ -47,4 +47,4 @@ def test_scheme_identity_rejects_missing_or_invalid_riskometer_score(score):
         source_bytes=source,
     )
     assert result["status"] == "MISSING"
-    assert result["riskometer_score"] is None if "riskometer_score" in result else True
+    assert "riskometer_score" not in result
