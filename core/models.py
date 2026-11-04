@@ -75,11 +75,37 @@ class AssetAllocationTarget(BaseModel):
 # behavioural-risk SAA profiles used by the SIP engine:
 # Conservative -> SEBI Tier 2 (40/60), Moderate -> Tier 4 (75/25),
 # Aggressive -> Tier 6 (95/5). Custom remains explicit and separately approved.
-SAA_POLICY_MAP = {
-    RiskTier.CONSERVATIVE: AssetAllocationTarget(equity_pct=40.0, debt_pct=60.0, cash_pct=0.0),
-    RiskTier.MODERATE: AssetAllocationTarget(equity_pct=75.0, debt_pct=25.0, cash_pct=0.0),
-    RiskTier.AGGRESSIVE: AssetAllocationTarget(equity_pct=95.0, debt_pct=5.0, cash_pct=0.0),
-}
+def _load_saa_policy_map() -> Dict[RiskTier, AssetAllocationTarget]:
+    """Build public SAA targets from the sole authoritative allocation policy."""
+    import json
+    from pathlib import Path
+
+    policy_path = Path(__file__).resolve().parents[1] / "data" / "policy" / "asset_allocation.json"
+    try:
+        policy = json.loads(policy_path.read_text(encoding="utf-8"))
+        profiles = policy["behavioral_risk_profiles"]
+        mapping = {
+            RiskTier.CONSERVATIVE: "low_to_moderate",
+            RiskTier.MODERATE: "moderately_high",
+            RiskTier.AGGRESSIVE: "very_high",
+        }
+        result: Dict[RiskTier, AssetAllocationTarget] = {}
+        for risk, profile_name in mapping.items():
+            targets = profiles[profile_name]["saa_targets"]
+            equity = sum(float(targets[key]) for key in (
+                "large_cap_pct", "mid_cap_pct", "small_cap_pct", "flexi_multi_cap_pct"
+            ))
+            debt = float(targets["debt_liquid_pct"])
+            result[risk] = AssetAllocationTarget(
+                equity_pct=equity, debt_pct=debt,
+                cash_pct=float(targets.get("cash_pct", 0.0)),
+            )
+        return result
+    except (OSError, ValueError, TypeError, KeyError) as exc:
+        raise RuntimeError("Authoritative asset-allocation policy is missing or invalid") from exc
+
+
+SAA_POLICY_MAP = _load_saa_policy_map()
 
 
 class HoldingItem(BaseModel):
