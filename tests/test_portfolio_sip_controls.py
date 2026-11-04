@@ -77,6 +77,22 @@ def test_incremental_sip_routes_only_to_eligible_underweight_sleeves():
     assert result["reconciliation_ok"] is True
 
 
+
+
+def test_incremental_sip_rejects_string_or_unknown_eligible_sleeves():
+    common = {
+        "monthly_budget_inr": "10000",
+        "current_values_inr": {"equity": "40000", "debt": "60000"},
+        "target_weights_pct": {"equity": "60", "debt": "40"},
+        "portfolio_total_inr": "100000",
+        "tolerance_band_pct": "5",
+    }
+    with pytest.raises(PortfolioInputError, match="not a string"):
+        route_incremental_sip(**common, eligible_sleeves="equity")
+    with pytest.raises(PortfolioInputError, match="unknown target sleeves"):
+        route_incremental_sip(**common, eligible_sleeves=["equity", "small_cap"])
+
+
 def test_incremental_sip_keeps_budget_unallocated_when_no_candidate_qualifies():
     result = route_incremental_sip(
         "7500", {"equity": "40000", "debt": "60000"},
