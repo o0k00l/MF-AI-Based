@@ -326,6 +326,18 @@ def _complete_portfolio_context():
         },
         "concentration_policy": {
             "max_issuer_pct_of_portfolio": "20",
+            "max_sector_pct_of_portfolio": "100",
+            "max_market_cap_pct_of_portfolio": "100",
+            "max_theme_pct_of_portfolio": "100",
+            "classification_as_of_date": as_of,
+            "classification_source_ref": "sha256:issuer-classification",
+            "issuer_classifications": {
+                "ISSUER-A": {"sector": "Financials", "market_cap_bucket": "large_cap", "themes": ["value"]},
+                "ISSUER-C": {"sector": "Technology", "market_cap_bucket": "large_cap", "themes": ["digital"]},
+                "MID-ISSUER": {"sector": "Industrials", "market_cap_bucket": "mid_cap", "themes": ["manufacturing"]},
+                "SMALL-ISSUER": {"sector": "Healthcare", "market_cap_bucket": "small_cap", "themes": ["health"]},
+                "FLEXI-ISSUER": {"sector": "Consumer", "market_cap_bucket": "large_cap", "themes": ["consumption"]},
+            },
             "source_ref": "sha256:issuer-policy", "effective_date": as_of,
         },
         "freshness": {
@@ -360,6 +372,9 @@ def test_complete_portfolio_workflow_integrates_issues_23_to_34_without_authoriz
     assert len(context["candidate_screening"]["eligible_candidate_ids"]) == 30
     assert context["scheme_operational_feasibility"]["CANDIDATE-1"]["status"] == "FEASIBLE_FOR_REVIEW"
     assert context["candidate_overlap_diagnostics"]["CANDIDATE-1"]["status"] == "ASSESSED"
+    assert context["candidate_overlap_diagnostics"]["CANDIDATE-1"]["sector_market_cap_theme"]["status"] == "ASSESSED"
+    assert context["candidate_level_sip_allocation_simulation"]["reconciliation_ok"] is True
+    assert context["candidate_level_sip_allocation_simulation"]["allocated_budget_inr"] == "10000"
     assert context["candidate_overlap_diagnostics"]["CANDIDATE-1"]["shared_issuers"] == ["ISSUER-A"]
     assert context["incremental_sip_routing_simulation"]["allocations_inr"] == {"large_cap": "10000"}
     assert context["freshness"]["status"] == "CURRENT"
