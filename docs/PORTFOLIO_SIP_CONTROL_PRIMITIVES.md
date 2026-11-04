@@ -24,7 +24,7 @@ This module adds a deterministic, fail-closed foundation for portfolio-level SIP
 - A portfolio perimeter marked complete is an explicit upstream attestation, not a conclusion inferred from CAS data.
 - Candidate screening returns eligible identifiers only; it does not rank funds or create a positive recommendation.
 - Look-through outputs are exposure calculations only. Candidate incremental exposure and concentration policy still require a separate approved policy integration.
-- Monitoring, drift alerts and immutable recommendation lifecycle remain a separate implementation in issue #33.
+- Automated scheduling/notification and CAS ingestion remain future work; the current lifecycle helper only evaluates supplied dates/events and state transitions.
 - The module is not wired into `api/sip.py` in this tranche. The existing API must continue to return HOLD / NO_ACTION until source-provider, TRI/calendar, research and independent release gates are satisfied.
 - No orders, switches, redemptions or broker actions are generated.
 
