@@ -1979,29 +1979,17 @@ def aggregate_fiduciary_facts(
         stability_buffer_pct=stability_buf.total_stability_buffer_pct,
     )
 
-    # Calculate portfolio XIRR and FIFO tax lots from transactions
+    # Calculate portfolio XIRR and transaction reconciliation. Tax-lot
+    # classification is intentionally not invoked: the legacy classifier is
+    # disabled because its generic holding-period and exit-load assumptions
+    # are not approved. Missing tax-lot output must not break portfolio
+    # diagnostics or be represented as zero tax/cost.
     transactions_path = cas_path.parent / "transactions.json"
     if not transactions_path.exists():
         transactions_path = cas_path.parent.parent / "transactions.json"
     portfolio_xirr = calculate_portfolio_xirr(transactions_path, holdings)
-    tax_lots_raw = compute_fifo_tax_lots(transactions_path)
     cas_recon = reconcile_cas_holdings_with_transactions(holdings, transactions_path)
     tax_lots_summary = None
-    if tax_lots_raw:
-        immature_val = tax_lots_raw.get("immature_capital_inr", 0.0)
-        mature_val = tax_lots_raw.get("mature_capital_inr", 0.0)
-        # Calculate actual projected LTCG from lot data, not exit_load_penalty
-        projected_ltcg = sum(
-            (l.get("units", 0) * l.get("purchase_nav", 0)) - l.get("invested_cost", 0)
-            for l in tax_lots_raw.get("lots", []) if l.get("is_ltcg")
-        )
-        stagger_required = tax_lots_raw.get("immature_capital_inr", 0) > 0
-        tax_lots_summary = TaxLedger(
-            immature_locked_value_inr=round(immature_val, 2),
-            mature_switchable_value_inr=round(mature_val, 2),
-            projected_ltcg_inr=round(projected_ltcg, 2),
-            stagger_required=stagger_required
-        )
     
     # Reproducible Cash-Flow Matched Benchmark TRI Engine
     # Evaluates exact matched cashflows against official NIFTY 500 TRI (and NIFTY 50 TRI)
