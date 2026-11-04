@@ -19,7 +19,7 @@ def _synthetic_tax_evidence_kwargs():
 from core.eligibility import _finite_number, _risk_tier_to_int, check_eligibility_gates
 from types import SimpleNamespace
 from core.math_engine import compute_candidate_portfolio_overlap, select_autonomous_blueprint_funds
-from core.models import AssetAllocationTarget, RiskTier
+from core.models import AssetAllocationTarget, DeterministicSIPPlan, RiskTier
 from tax.transition_planner import Lot, FundSellPlan, plan_fy_tranches, classify_fund_for_tax
 
 
@@ -2061,3 +2061,36 @@ def test_custom_saa_rejects_non_reconciling_or_invalid_percentages(allocation):
 def test_custom_saa_accepts_reconciled_allocation():
     target = AssetAllocationTarget(equity_pct=75.0, debt_pct=20.0, cash_pct=5.0)
     assert target.equity_pct + target.debt_pct + target.cash_pct == 100.0
+
+
+def test_sip_plan_requires_allocated_plus_unallocated_to_equal_budget():
+    with pytest.raises(ValueError, match="must equal the monthly budget"):
+        DeterministicSIPPlan(
+            total_monthly_budget_inr=10000.0,
+            unallocated_budget_inr=0.0,
+            equity_sip_pct=100.0,
+            debt_sip_pct=0.0,
+            items=[],
+        )
+
+
+def test_sip_plan_accepts_fully_unallocated_budget_when_on_hold():
+    plan = DeterministicSIPPlan(
+        total_monthly_budget_inr=10000.0,
+        unallocated_budget_inr=10000.0,
+        equity_sip_pct=100.0,
+        debt_sip_pct=0.0,
+        items=[],
+    )
+    assert plan.unallocated_budget_inr == plan.total_monthly_budget_inr
+
+
+def test_sip_plan_rejects_non_finite_budget():
+    with pytest.raises(ValueError, match="must be finite"):
+        DeterministicSIPPlan(
+            total_monthly_budget_inr=float("nan"),
+            unallocated_budget_inr=0.0,
+            equity_sip_pct=100.0,
+            debt_sip_pct=0.0,
+            items=[],
+        )
