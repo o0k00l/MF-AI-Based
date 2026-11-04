@@ -325,3 +325,205 @@ def build_decision_trace(record: Mapping[str, Any]) -> dict[str, str]:
     return {"algorithm": "SHA-256-CANONICAL-JSON-v1",
             "sha256": hashlib.sha256(payload).hexdigest(),
             "canonical_record": payload.decode("utf-8")}
+
+
+def validate_goal_mandate(
+    goals: Iterable[Mapping[str, Any]],
+    *,
+    as_of_date: str,
+    max_evidence_age_days: int,
+    minimum_horizon_days_by_asset_class: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Validate goal evidence and compare horizons with caller-approved constraints."""
+    today = _date(as_of_date, "as_of_date")
+    if not minimum_horizon_days_by_asset_class:
+        raise PortfolioInputError("approved minimum horizon policy is required")
+    minimums = {k: _decimal(v, f"minimum_horizon[{k}]")
+                for k, v in minimum_horizon_days_by_asset_class.items()}
+    if any(v < 0 for v in minimums.values()):
+        raise PortfolioInputError("minimum horizons cannot be negative")
+    results = []
+    for index, goal in enumerate(goals):
+        reasons = []
+        if not isinstance(goal, Mapping):
+            raise PortfolioInputError(f"goal row {index} must be an object")
+        goal_id = goal.get("goal_id")
+        if not isinstance(goal_id, str) or not goal_id.strip():
+            reasons.append("GOAL_ID_MISSING")
+        if goal.get("mandate_approved") is not True:
+            reasons.append("GOAL_MANDATE_NOT_APPROVED")
+        if not isinstance(goal.get("source_ref"), str) or not goal.get("source_ref", "").strip():
+            reasons.append("GOAL_SOURCE_REFERENCE_MISSING")
+        try:
+            evidence_date = _date(goal.get("evidence_as_of_date"), "goal.evidence_as_of_date")
+            age = (today - evidence_date).days
+            if age < 0 or age > max_evidence_age_days:
+                reasons.append("GOAL_EVIDENCE_STALE_OR_FUTURE")
+        except PortfolioInputError:
+            reasons.append("GOAL_EVIDENCE_DATE_INVALID")
+        try:
+            target_value = _decimal(goal.get("target_amount_inr"), "goal.target_amount_inr")
+            if target_value <= 0:
+                reasons.append("GOAL_TARGET_NOT_POSITIVE")
+        except PortfolioInputError:
+            reasons.append("GOAL_TARGET_MISSING_OR_INVALID")
+        try:
+            _decimal(goal.get("liabilities_inr"), "goal.liabilities_inr")
+            if _decimal(goal.get("liabilities_inr"), "goal.liabilities_inr") < 0:
+                reasons.append("GOAL_LIABILITIES_NEGATIVE")
+        except PortfolioInputError:
+            reasons.append("GOAL_LIABILITIES_MISSING_OR_INVALID")
+        try:
+            target_date = _date(goal.get("target_date"), "goal.target_date")
+            horizon_days = (target_date - today).days
+            if horizon_days < 0:
+                reasons.append("GOAL_TARGET_DATE_PASSED")
+        except PortfolioInputError:
+            horizon_days = None
+            reasons.append("GOAL_TARGET_DATE_INVALID")
+        asset_class = goal.get("asset_class")
+        if asset_class not in minimums:
+            reasons.append("NO_APPROVED_HORIZON_POLICY_FOR_ASSET_CLASS")
+        elif horizon_days is not None and Decimal(horizon_days) < minimums[asset_class]:
+            reasons.append("GOAL_HORIZON_BELOW_APPROVED_MINIMUM")
+        if not isinstance(goal.get("approved_risk_profile"), str) or not goal.get("approved_risk_profile", "").strip():
+            reasons.append("APPROVED_RISK_PROFILE_MISSING")
+        results.append({"goal_id": goal_id, "status": "VALID" if not reasons else "HOLD",
+                        "horizon_days": horizon_days, "reasons": reasons})
+    if not results:
+        return {"status": "HOLD", "reason": "NO_GOALS_SUPPLIED", "goals": []}
+    return {"status": "VALIDATED" if all(x["status"] == "VALID" for x in results) else "HOLD",
+            "goals": results}
+
+
+def assess_liquidity_and_sip_surplus(
+    *,
+    verified_cash_inr: Any,
+    approved_reserve_target_inr: Any,
+    near_term_obligations_inr: Any,
+    monthly_net_income_inr: Any,
+    essential_monthly_expenses_inr: Any,
+    monthly_debt_service_inr: Any,
+    proposed_monthly_sip_inr: Any,
+    evidence_refs: Mapping[str, str],
+    as_of_date: str,
+    max_evidence_age_days: int,
+) -> dict[str, Any]:
+    """Calculate investible cash and sustainable monthly surplus from sourced facts."""
+    today = _date(as_of_date, "as_of_date")
+    required = ("cash", "reserve", "obligations", "income", "expenses", "debt_service")
+    if any(not isinstance(evidence_refs.get(k), str) or not evidence_refs[k].strip()
+           for k in required):
+        return {"status": "HOLD", "reason": "LIQUIDITY_EVIDENCE_REFERENCE_MISSING",
+                "deployable_cash_inr": None, "sustainable_monthly_sip_inr": None}
+    raw_dates = evidence_refs.get("as_of_dates")
+    if not isinstance(raw_dates, Mapping):
+        return {"status": "HOLD", "reason": "LIQUIDITY_AS_OF_DATES_MISSING",
+                "deployable_cash_inr": None, "sustainable_monthly_sip_inr": None}
+    for key in required:
+        try:
+            evidence_date = _date(raw_dates.get(key), f"as_of_dates.{key}")
+        except PortfolioInputError:
+            return {"status": "HOLD", "reason": "LIQUIDITY_AS_OF_DATE_INVALID",
+                    "deployable_cash_inr": None, "sustainable_monthly_sip_inr": None}
+        age = (today - evidence_date).days
+        if age < 0 or age > max_evidence_age_days:
+            return {"status": "HOLD", "reason": "LIQUIDITY_EVIDENCE_STALE_OR_FUTURE",
+                    "deployable_cash_inr": None, "sustainable_monthly_sip_inr": None}
+    cash = _decimal(verified_cash_inr, "verified_cash_inr")
+    reserve = _decimal(approved_reserve_target_inr, "approved_reserve_target_inr")
+    obligations = _decimal(near_term_obligations_inr, "near_term_obligations_inr")
+    income = _decimal(monthly_net_income_inr, "monthly_net_income_inr")
+    expenses = _decimal(essential_monthly_expenses_inr, "essential_monthly_expenses_inr")
+    debt = _decimal(monthly_debt_service_inr, "monthly_debt_service_inr")
+    proposed = _decimal(proposed_monthly_sip_inr, "proposed_monthly_sip_inr")
+    if any(v < 0 for v in (cash, reserve, obligations, income, expenses, debt, proposed)):
+        raise PortfolioInputError("liquidity and affordability amounts cannot be negative")
+    deployable = max(Decimal("0"), cash - reserve - obligations)
+    monthly_surplus = max(Decimal("0"), income - expenses - debt)
+    sustainable = min(deployable, monthly_surplus)
+    if proposed > sustainable:
+        return {"status": "HOLD", "reason": "PROPOSED_SIP_EXCEEDS_VERIFIED_SURPLUS",
+                "deployable_cash_inr": str(deployable),
+                "monthly_surplus_inr": str(monthly_surplus),
+                "sustainable_monthly_sip_inr": str(sustainable),
+                "proposed_monthly_sip_inr": str(proposed)}
+    return {"status": "AFFORDABLE", "deployable_cash_inr": str(deployable),
+            "monthly_surplus_inr": str(monthly_surplus),
+            "sustainable_monthly_sip_inr": str(sustainable),
+            "proposed_monthly_sip_inr": str(proposed)}
+
+
+def stress_test_sip_affordability(
+    *,
+    monthly_net_income_inr: Any,
+    essential_monthly_expenses_inr: Any,
+    monthly_debt_service_inr: Any,
+    proposed_monthly_sip_inr: Any,
+    scenarios: Iterable[Mapping[str, Any]],
+) -> dict[str, Any]:
+    """Evaluate explicitly supplied income/expense shocks; scenarios are not forecasts."""
+    income = _decimal(monthly_net_income_inr, "monthly_net_income_inr")
+    expenses = _decimal(essential_monthly_expenses_inr, "essential_monthly_expenses_inr")
+    debt = _decimal(monthly_debt_service_inr, "monthly_debt_service_inr")
+    sip = _decimal(proposed_monthly_sip_inr, "proposed_monthly_sip_inr")
+    if any(v < 0 for v in (income, expenses, debt, sip)):
+        raise PortfolioInputError("affordability amounts cannot be negative")
+    results = []
+    for index, scenario in enumerate(scenarios):
+        if not isinstance(scenario, Mapping):
+            raise PortfolioInputError(f"scenario {index} must be an object")
+        income_shock = _decimal(scenario.get("income_reduction_pct"), "income_reduction_pct")
+        expense_shock = _decimal(scenario.get("expense_increase_pct"), "expense_increase_pct")
+        if not (0 <= income_shock <= 100 and expense_shock >= 0):
+            raise PortfolioInputError("invalid affordability stress percentages")
+        stressed_income = income * (100 - income_shock) / 100
+        stressed_expenses = expenses * (100 + expense_shock) / 100
+        surplus = stressed_income - stressed_expenses - debt
+        results.append({"scenario_id": scenario.get("scenario_id"),
+                        "stressed_monthly_surplus_inr": str(surplus),
+                        "status": "SUSTAINABLE" if surplus >= sip else "UNSUSTAINABLE"})
+    return {"status": "ASSESSED",
+            "all_scenarios_sustainable": bool(results) and all(
+                item["status"] == "SUSTAINABLE" for item in results),
+            "scenarios": results}
+
+
+def validate_scheme_operational_feasibility(
+    scheme: Mapping[str, Any],
+    *,
+    requested_monthly_sip_inr: Any,
+    as_of_date: str,
+    max_evidence_age_days: int,
+) -> dict[str, Any]:
+    """Validate dated scheme status and SIP constraints without implying execution."""
+    today = _date(as_of_date, "as_of_date")
+    reasons = []
+    identity = scheme.get("scheme_identity")
+    if not isinstance(identity, Mapping) or not all(
+        isinstance(identity.get(k), str) and identity.get(k).strip()
+        for k in ("scheme_id", "isin", "plan", "option", "amc")
+    ):
+        reasons.append("EXACT_SCHEME_IDENTITY_INCOMPLETE")
+    if not isinstance(scheme.get("evidence_ref"), str) or not scheme.get("evidence_ref", "").strip():
+        reasons.append("OPERATIONAL_EVIDENCE_REFERENCE_MISSING")
+    try:
+        evidence_date = _date(scheme.get("evidence_as_of_date"), "evidence_as_of_date")
+        age = (today - evidence_date).days
+        if age < 0 or age > max_evidence_age_days:
+            reasons.append("OPERATIONAL_EVIDENCE_STALE_OR_FUTURE")
+    except PortfolioInputError:
+        reasons.append("OPERATIONAL_EVIDENCE_DATE_INVALID")
+    if scheme.get("scheme_status") != "ACTIVE":
+        reasons.append("SCHEME_NOT_CONFIRMED_ACTIVE")
+    requested = _decimal(requested_monthly_sip_inr, "requested_monthly_sip_inr")
+    minimum = _decimal(scheme.get("minimum_monthly_sip_inr"), "minimum_monthly_sip_inr")
+    if requested <= 0 or minimum <= 0:
+        reasons.append("INVALID_SIP_MINIMUM_OR_REQUEST")
+    elif requested < minimum:
+        reasons.append("REQUEST_BELOW_SCHEME_MINIMUM")
+    for key in ("exit_load_evidence_ref", "lockin_evidence_ref", "subscription_status_evidence_ref"):
+        if not isinstance(scheme.get(key), str) or not scheme.get(key, "").strip():
+            reasons.append(f"MISSING_{key.upper()}")
+    return {"status": "FEASIBLE_FOR_REVIEW" if not reasons else "HOLD",
+            "reasons": reasons, "execution_authorized": False}
