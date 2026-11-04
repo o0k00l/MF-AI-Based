@@ -87,9 +87,21 @@ def _validate_scheme_master(master: Any) -> dict[str, dict[str, Any]]:
             raise EvidenceProviderContractError(f"Scheme master row {index} has no ISIN.")
         if scheme_id in by_scheme_id or isin in by_isin:
             raise EvidenceProviderContractError("Scheme master contains duplicate scheme_id or ISIN records.")
+        required_master_fields = (
+            "scheme_name", "amc_name", "category",
+            "benchmark_identity", "scheme_structure",
+        )
         if not all(isinstance(record.get(key), str) and record[key].strip()
-                   for key in ("scheme_name", "amc_name")):
-            raise EvidenceProviderContractError(f"Scheme master row {index} lacks exact scheme_name or amc_name.")
+                   for key in required_master_fields):
+            raise EvidenceProviderContractError(
+                f"Scheme master row {index} lacks exact scheme identity, category, benchmark or structure."
+            )
+        riskometer = record.get("riskometer_score")
+        if (isinstance(riskometer, bool) or not isinstance(riskometer, int)
+                or not 1 <= riskometer <= 6):
+            raise EvidenceProviderContractError(
+                f"Scheme master row {index} requires a verified integer scheme Riskometer score from 1 to 6."
+            )
         by_scheme_id[scheme_id] = record
         by_isin[isin] = record
     return by_scheme_id
@@ -272,6 +284,15 @@ def validate_evidence_provider_payload(payload: Any) -> dict[str, Any]:
                 or candidate["fund_name"].strip().casefold() != master_record["scheme_name"].strip().casefold()
                 or candidate["amc_name"].strip().casefold() != master_record["amc_name"].strip().casefold()):
             raise EvidenceProviderContractError(f"Candidate {fund_id!r} identity conflicts with verified scheme master.")
+        if candidate["category"].strip().casefold() != master_record["category"].strip().casefold():
+            raise EvidenceProviderContractError(
+                f"Candidate {fund_id!r} category conflicts with verified scheme master."
+            )
+        for field in ("benchmark_identity", "scheme_structure", "riskometer_score"):
+            if candidate.get(field) != master_record[field]:
+                raise EvidenceProviderContractError(
+                    f"Candidate {fund_id!r} {field} conflicts with verified scheme master."
+                )
         if candidate.get("is_direct") is not True:
             raise EvidenceProviderContractError(f"Candidate {fund_id!r} is not explicitly classified as Direct.")
         if not isinstance(candidate.get("direct_plan_evidence"), dict):
