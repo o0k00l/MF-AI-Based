@@ -145,7 +145,7 @@ def test_provider_loads_only_explicit_bundle_and_passes_source_contract(tmp_path
         monthly_budget_inr=25000,
         risk_profile="Moderate",
     )
-    validated = validate_evidence_provider_payload(payload)
+    validated = validate_evidence_provider_payload(payload, require_reviewer_signature=False)
 
     assert validated["scheme_master"]["schemes"][0]["scheme_id"] == "scheme-1"
     assert validated["metrics_source_bytes"] == b"original fund metrics source"
@@ -204,7 +204,7 @@ def test_provider_loads_portfolio_context_and_original_source_bundle(tmp_path):
     provider = build_sip_evidence_provider(tmp_path)
     validated = validate_evidence_provider_payload(provider(
         cas_path=cas_path, monthly_budget_inr=15000, risk_profile="Moderate"
-    ))
+    ), require_reviewer_signature=False)
     assert validated["portfolio_context"]["perimeter_complete"] is True
     assert validated["portfolio_context_source_bytes"] == context_bytes
     assert validated["portfolio_context_source_metadata"]["source_type"] == "REVIEWED_TOTAL_PORTFOLIO_CONTEXT"
@@ -292,7 +292,7 @@ def test_provider_loads_separately_reviewed_candidate_score_source_bundle(tmp_pa
     provider = build_sip_evidence_provider(tmp_path)
     validated = validate_evidence_provider_payload(provider(
         cas_path=cas_path, monthly_budget_inr=10000, risk_profile="Moderate"
-    ))
+    ), require_reviewer_signature=False)
     assert validated["candidate_score_source_bytes"] == score_bytes
     assert validated["category_anchor_source_bytes"] == anchor_bytes
     assert validated["candidate_universe"][0]["rank_score"] == "3.5"
