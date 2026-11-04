@@ -569,14 +569,14 @@ class PersonalRedemptionPlan(BaseModel):
     ticket_rationale: str
     is_net_cash_target: bool
     total_gross_redeemed_inr: float
-    total_exit_load_inr: float
-    total_realized_gain_loss_inr: float
-    total_stcg_tax_inr: float
-    total_ltcg_tax_inr: float
-    total_tax_sheltered_under_112a_inr: float
-    total_net_tax_inr: float
-    total_net_cash_inr: float
-    total_annual_commission_saved_inr: float
+    total_exit_load_inr: Optional[float] = None
+    total_realized_gain_loss_inr: Optional[float] = None
+    total_stcg_tax_inr: Optional[float] = None
+    total_ltcg_tax_inr: Optional[float] = None
+    total_tax_sheltered_under_112a_inr: Optional[float] = None
+    total_net_tax_inr: Optional[float] = None
+    total_net_cash_inr: Optional[float] = None
+    total_annual_commission_saved_inr: Optional[float] = None
     funds_liquidated_count: int
     full_folio_exits_count: int
     tranches: List[RedemptionTrancheItem] = Field(default_factory=list)
