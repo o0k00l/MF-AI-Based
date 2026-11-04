@@ -90,6 +90,7 @@ def build_sip_evidence_provider(
 
     required_manifest_fields = {
         "schema_version", "disclosure_as_of_date", "metrics_file",
+        "metrics_metadata_file", "metrics_source_file",
         "scheme_master_file", "scheme_master_source_file",
         "portfolio_disclosures", "candidate_universe_file",
         "candidate_universe_metadata_file", "candidate_universe_source_file",
@@ -109,6 +110,12 @@ def build_sip_evidence_provider(
         raise ValueError("disclosure_as_of_date must be an ISO date.") from exc
 
     metrics_path = _resolve_bundle_file(root, manifest["metrics_file"], label="metrics_file")
+    metrics_metadata = _read_json(
+        root, manifest["metrics_metadata_file"], label="metrics_metadata_file"
+    )
+    metrics_source = _resolve_bundle_file(
+        root, manifest["metrics_source_file"], label="metrics_source_file"
+    ).read_bytes()
     aliases_relative = manifest.get("aliases_file")
     aliases_path = (
         _resolve_bundle_file(root, aliases_relative, label="aliases_file")
@@ -161,6 +168,8 @@ def build_sip_evidence_provider(
     payload = {
         "metrics_path": metrics_path,
         "aliases_path": aliases_path,
+        "metrics_source_metadata": metrics_metadata,
+        "metrics_source_bytes": metrics_source,
         "scheme_master": scheme_master,
         "scheme_master_source_bytes": scheme_master_source,
         "portfolio_disclosures_by_scheme_id": disclosure_records,
