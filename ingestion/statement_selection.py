@@ -171,7 +171,7 @@ def select_latest_statement(
         embedded_date=chosen.embedded_date,
         sha256=chosen.sha256,
         rationale=(
-            f"Unique newest validated embedded date {chosen.embedded_date}; "
+            f"Uniquely newest validated embedded date {chosen.embedded_date}; "
             f"SHA-256 {chosen.sha256}; age {age_days} days within {max_age_days}-day policy."
         ),
     )

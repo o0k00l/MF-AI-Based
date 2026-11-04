@@ -40,7 +40,7 @@ def test_cas_selection_uses_embedded_date_not_filename(tmp_path):
     assert selected.path == newer.resolve()
     assert selected.embedded_date == date(2026, 10, 1)
     assert len(selected.sha256) == 64
-    assert "uniquely newest" in selected.rationale
+    assert "uniquely newest" in selected.rationale.lower()
 
 
 def test_cgs_selection_combines_root_and_statements_directories(tmp_path):
