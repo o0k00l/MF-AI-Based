@@ -534,40 +534,62 @@ def calculate_cashflow_matched_benchmark_xirr(
     # PROVENANCE VALIDATION: Checksum verification
     provenance = tri_data.get("provenance", {})
     benchmarks = tri_data.get("benchmarks", {})
-    b_info = benchmarks.get(benchmark_key) or benchmarks.get("NIFTY 500 TRI", {})
+    if not isinstance(provenance, dict) or not isinstance(benchmarks, dict):
+        raise TriProvenanceError(
+            "TRI provenance and benchmark series must be JSON objects.",
+            benchmark=benchmark_key,
+            validation_stage="benchmark_structure_invalid"
+        )
+    b_info = benchmarks.get(benchmark_key)
+    if not isinstance(b_info, dict):
+        raise TriProvenanceError(
+            f"Requested benchmark '{benchmark_key}' is absent; benchmark substitution is prohibited.",
+            benchmark=benchmark_key,
+            validation_stage="benchmark_missing"
+        )
     levels = b_info.get("levels", {})
     
-    if not levels:
+    if not isinstance(levels, dict) or not levels:
         raise TriProvenanceError(
-            f"Benchmark '{benchmark_key}' has empty levels — cannot compute TRI XIRR",
+            f"Benchmark '{benchmark_key}' has empty or malformed levels — cannot compute TRI XIRR",
             benchmark=benchmark_key,
             validation_stage="empty_levels"
         )
 
-    # Verify checksum
+    # Verify checksum for every supported benchmark. Unknown benchmark names
+    # must not bypass provenance validation by omitting a checksum mapping.
     levels_str = json.dumps(levels, sort_keys=True, separators=(",", ":"))
     computed_checksum = hashlib.sha256(levels_str.encode()).hexdigest()
-    
-    # Map benchmark_key to provenance checksum field
     checksum_field_map = {
         "NIFTY 500 TRI": "checksum_sha256_nifty_500_tri",
+        "NIFTY 500 MULTICAP 50:25:25 TRI": "checksum_sha256_nifty_500_multicap_50_25_25_tri",
+        "NIFTY MIDCAP 150 TRI": "checksum_sha256_nifty_midcap_150_tri",
         "NIFTY 50 TRI": "checksum_sha256_nifty_50_tri",
     }
     expected_checksum_field = checksum_field_map.get(benchmark_key)
-    if expected_checksum_field:
-        expected_checksum = provenance.get(expected_checksum_field, "")
-        if not expected_checksum or expected_checksum.startswith("TODO"):
-            raise TriProvenanceError(
-                f"Missing or placeholder checksum for {benchmark_key} in provenance metadata",
-                benchmark=benchmark_key,
-                validation_stage="checksum_missing"
-            )
-        if computed_checksum != expected_checksum:
-            raise TriProvenanceError(
-                f"Checksum mismatch for {benchmark_key}: expected {expected_checksum[:16]}..., got {computed_checksum[:16]}...",
-                benchmark=benchmark_key,
-                validation_stage="checksum_mismatch"
-            )
+    if expected_checksum_field is None:
+        raise TriProvenanceError(
+            f"No approved provenance checksum contract exists for benchmark '{benchmark_key}'.",
+            benchmark=benchmark_key,
+            validation_stage="benchmark_not_approved"
+        )
+    expected_checksum = provenance.get(expected_checksum_field, "")
+    if (
+        not isinstance(expected_checksum, str)
+        or len(expected_checksum) != 64
+        or any(char not in "0123456789abcdefABCDEF" for char in expected_checksum)
+    ):
+        raise TriProvenanceError(
+            f"Missing or invalid checksum for {benchmark_key} in provenance metadata",
+            benchmark=benchmark_key,
+            validation_stage="checksum_missing"
+        )
+    if computed_checksum.lower() != expected_checksum.lower():
+        raise TriProvenanceError(
+            f"Checksum mismatch for {benchmark_key}: expected {expected_checksum[:16]}..., got {computed_checksum[:16]}...",
+            benchmark=benchmark_key,
+            validation_stage="checksum_mismatch"
+        )
 
     # COVERAGE VALIDATION: use a separately maintained NSE session calendar.
     # The benchmark JSON's expected_trading_days / coverage_pct are descriptive only;
