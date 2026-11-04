@@ -238,5 +238,8 @@ def resolve_scheme_identity(
         "option_type": option_type,
         "plan_option_status": plan_option_status,
         "riskometer_score": raw_riskometer,
+        "riskometer_as_of_date": scheme_master.get("effective_date"),
+        "riskometer_source_url": source_url,
+        "riskometer_source_document_sha256": expected_hash.lower(),
         "reason": "Exact scheme name + AMC match in verified master; plan/option and scheme Riskometer are source-bound.",
     }
