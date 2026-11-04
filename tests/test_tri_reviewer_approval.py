@@ -195,9 +195,46 @@ def test_trust_registry_and_approval_input_sizes_are_bounded(monkeypatch, tmp_pa
 
 
 
-def test_source_reconciliation_attestation_field_is_mandatory(tmp_path):
+def test_source_reconciliation_attestation_must_be_true(tmp_path):
     case = list(_signed_case(tmp_path))
     case[0]["payload"]["source_reconciliation_attestation"] = False
-    # Exact-schema enforcement rejects approvals that omit this attestation.
-    del case[0]["payload"]["source_reconciliation_attestation"]
-    assert not _verify(tuple(case)).ok
+    result = _verify(tuple(case))
+    assert not result.ok
+    assert "source_reconciliation_attestation" in result.errors[0]
+
+
+def test_nonstandard_json_constants_are_rejected():
+    from tri_reviewer_approval import _strict_json
+
+    for raw in ('{"value":NaN}', '{"value":Infinity}', '{"value":-Infinity}'):
+        with pytest.raises(ValueError, match="non-standard JSON"):
+            _strict_json(raw)
+
+
+def test_malformed_official_url_port_is_rejected_without_exception():
+    from tri_reviewer_approval import _official_https_url
+
+    assert not _official_https_url("https://www.nseindia.com:invalid/file.csv")
+
+
+def test_empty_signed_source_document_is_rejected(tmp_path):
+    case = list(_signed_case(tmp_path))
+    source = tmp_path / "data/policy/nifty500.csv"
+    source.write_bytes(b"")
+    import hashlib
+    case[0]["payload"]["tri_source_documents"][1]["sha256"] = hashlib.sha256(b"").hexdigest()
+    result = _verify(tuple(case))
+    assert not result.ok
+    assert "empty" in result.errors[0]
+
+
+def test_fixture_symlink_cannot_escape_repository(tmp_path):
+    case = list(_signed_case(tmp_path))
+    outside = tmp_path.parent / "outside-fixture.json"
+    outside.write_text('{"provenance":{"independent_reviewer_id":"reviewer-test"}}', encoding="utf-8")
+    fixture = case[2]
+    fixture.unlink()
+    fixture.symlink_to(outside)
+    result = _verify(tuple(case))
+    assert not result.ok
+    assert "repository-contained" in result.errors[0]
