@@ -1,6 +1,7 @@
 import pytest
 
 from core.eligibility import _risk_tier_to_int
+from core.math_engine import _parse_sebi_risk_tier
 
 
 @pytest.mark.parametrize(
@@ -18,8 +19,11 @@ from core.eligibility import _risk_tier_to_int
 )
 def test_risk_tier_labels_have_one_unambiguous_normalization(label, expected):
     assert _risk_tier_to_int(label) == expected
+    assert _parse_sebi_risk_tier(label) == expected
 
 
 def test_ambiguous_moderate_substrings_are_rejected_instead_of_misclassified():
     with pytest.raises(ValueError, match="Unrecognized risk tier"):
         _risk_tier_to_int("moderate-plus")
+    with pytest.raises(ValueError, match="Unrecognized SEBI risk tier"):
+        _parse_sebi_risk_tier("moderate-plus")
