@@ -182,7 +182,7 @@ def discover_requesty_free_models(api_key: str = "", force_refresh: bool = False
     if force_refresh:
         try:
             data = json.loads(MODEL_CACHE_FILE.read_text(encoding="utf-8"))
-            data.pop("requesty", None)
+            data.pop("Requesty", None)
             MODEL_CACHE_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
         except (OSError, ValueError, TypeError):
             pass
@@ -197,7 +197,7 @@ def discover_openrouter_free_models(api_key: str = "", force_refresh: bool = Fal
     if force_refresh:
         try:
             data = json.loads(MODEL_CACHE_FILE.read_text(encoding="utf-8"))
-            data.pop("openrouter", None)
+            data.pop("OpenRouter", None)
             MODEL_CACHE_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
         except (OSError, ValueError, TypeError):
             pass
@@ -261,7 +261,7 @@ def _call_openai_compatible(provider: str, base_url: str, prompt: str,
     last_error: ProviderError | None = None
     lock = _requesty_mutex if provider == "Requesty" else _NullLock()
     with lock:
-        for model in models:
+        for model in models[:5]:
             try:
                 # Intentionally send only the portable required fields. Do not
                 # assume temperature, seed, max_tokens, or other optional knobs.
@@ -310,7 +310,7 @@ def _call_gemini(prompt: str, system_prompt: str = "") -> str:
             if actions and "generateContent" not in actions:
                 continue
             model_id = name.removeprefix("models/")
-            if model_id.startswith("gemini-"):
+            if model_id.startswith("gemini-") and "embedding" not in model_id.lower():
                 models.append(model_id)
         models = list(dict.fromkeys(models))
     except Exception as exc:
@@ -321,7 +321,7 @@ def _call_gemini(prompt: str, system_prompt: str = "") -> str:
         raise ProviderError("Gemini", "Gemini returned no generateContent-capable models.")
     config = {"system_instruction": system_prompt} if system_prompt else None
     last_error: ProviderError | None = None
-    for model in models:
+    for model in models[:5]:
         try:
             response = client.models.generate_content(
                 model=model, contents=prompt, config=config
