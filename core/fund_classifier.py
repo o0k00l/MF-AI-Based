@@ -261,13 +261,11 @@ def classify_fund_category(fund_name: str, fund_category: str = "", fund_data: O
 
 
 def get_fund_passive_alternatives(category: str) -> List[str]:
-    """Retrieve verified institutional passive index alternatives for a category."""
-    universe = _load_passive_universe()
-    if category in universe:
-        return universe[category]
+    """Return no passive alternatives until exact scheme/plan evidence is available.
 
-    # Search-term and display-name fallbacks are not exact scheme identities
-    # and cannot be presented as verified passive alternatives.
+    The legacy passive universe contains category search terms, not verified
+    scheme identities, and therefore cannot satisfy this function's contract.
+    """
     return []
 
 
