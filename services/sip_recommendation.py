@@ -385,8 +385,10 @@ def _assess_complete_portfolio_context(
             event_flags=freshness_input.get("event_flags", {}),
         )
         client_supplied_unverified = context.get("_client_supplied_unverified") is True
+        provider_attested = context.get("evidence_attested_by_provider") is True
         all_gates_pass = (
-            not client_supplied_unverified
+            provider_attested
+            and not client_supplied_unverified
             and goals["status"] == "VALIDATED"
             and liquidity["status"] == "AFFORDABLE"
             and stress["all_scenarios_sustainable"]
@@ -400,7 +402,7 @@ def _assess_complete_portfolio_context(
         return {
             "status": "ASSESSMENT_COMPLETE" if all_gates_pass else "HOLD",
             "scope": "DECLARED_TOTAL_PORTFOLIO",
-            "trust_level": "UNVERIFIED_CLIENT_DECLARATIONS" if client_supplied_unverified else "INTERNAL_REVIEWED_EVIDENCE",
+            "trust_level": "UNVERIFIED_CLIENT_DECLARATIONS" if client_supplied_unverified else ("PROVIDER_ATTESTED" if provider_attested else "UNVERIFIED_CONTEXT"),
             "portfolio_reconciliation": reconciliation,
             "saa": {"current_sleeve_values_inr": current, "target_weights_pct": targets,
                     "drift": drift, "policy_as_of": policy.get("as_of")},
@@ -415,7 +417,7 @@ def _assess_complete_portfolio_context(
             "all_input_gates_pass": all_gates_pass,
             "recommendation_authorized": False,
             "execution_authorized": False,
-            "important_limit": "Client-supplied portfolio declarations are diagnostic only until independently sourced and reviewed. Research/TRI release and independent review remain separate release gates.",
+            "important_limit": "Only a provider-attested context bundle can pass provenance gating. Research/TRI release, approved client IPS and independent review remain separate release gates.",
         }
     except (KeyError, TypeError, ValueError, OSError) as exc:
         return {
@@ -658,6 +660,12 @@ def recommend_sip(
                 cas_holdings_total_inr=sum(float(holding.current_value_inr) for holding in holdings),
             )
         portfolio_assessment["total_portfolio_context"] = context_assessment
+    portfolio_assessment["recommendation_lifecycle"] = {
+        "state": "DRAFT",
+        "state_persisted": False,
+        "execution_authorized": False,
+        "note": "Lifecycle is returned as a draft snapshot; persistent review history is not yet configured.",
+    }
     portfolio_assessment["decision_trace"] = _build_sip_decision_trace(
         cas_path=cas_path,
         scheme_master_source_bytes=scheme_master_source_bytes,
