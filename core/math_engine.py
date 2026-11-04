@@ -1274,6 +1274,9 @@ def load_holdings_from_cas_excel(
                 constituent_weights_coverage_pct=disclosure.get("constituent_weights_coverage_pct"),
                 lookthrough_status=disclosure["status"],
                 lookthrough_reason=disclosure["reason"],
+                lookthrough_effective_date=disclosure.get("effective_date"),
+                lookthrough_source_url=disclosure.get("source_url"),
+                lookthrough_source_document_sha256=disclosure.get("source_document_sha256"),
                 amc_name=amc_name or None,
                 # Use only the scheme-level Riskometer score returned by
                 # exact verified scheme-master identity resolution.
@@ -1281,6 +1284,10 @@ def load_holdings_from_cas_excel(
                     f"Tier {identity['riskometer_score']}"
                     if identity.get("riskometer_score") is not None else None
                 ),
+                riskometer_score=identity.get("riskometer_score"),
+                riskometer_as_of_date=identity.get("riskometer_as_of_date"),
+                riskometer_source_url=identity.get("riskometer_source_url"),
+                riskometer_source_document_sha256=identity.get("riskometer_source_document_sha256"),
                 metrics_status=metrics_status,
             )
         )
