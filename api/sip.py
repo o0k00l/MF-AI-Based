@@ -43,6 +43,12 @@ def create_sip_app(
                 "checks": {"evidence_provider": "not_configured"},
                 "evidence_validation_available": False,
                 "recommendations_enabled": False,
+                "release_blockers": [
+                    "evidence_provider_not_configured",
+                    "authenticated_daily_tri_unavailable",
+                    "independent_nse_calendar_unavailable",
+                    "research_release_approval_missing",
+                ],
             }
         return {
             "status": "ready_for_evidence_validation",
@@ -52,6 +58,11 @@ def create_sip_app(
             # Provider configuration is not evidence validation. The service
             # remains HOLD-only until independent release gates are approved.
             "recommendations_enabled": False,
+            "release_blockers": [
+                "authenticated_daily_tri_unavailable",
+                "independent_nse_calendar_unavailable",
+                "research_release_approval_missing",
+            ],
         }
 
     @app.post("/v1/sip/recommendations")
