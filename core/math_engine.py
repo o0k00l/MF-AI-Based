@@ -2640,7 +2640,9 @@ def calculate_weighted_lookthrough_overlap(
 
     by_fund: Dict[str, Dict[str, float]] = {}
     for holding in holdings:
-        fund_id = str(getattr(holding, "scheme_id", None) or holding.fund_id)
+        if float(holding.equity_pct) == 0.0:
+            continue
+        fund_id = str(holding.scheme_id)
         weights = {
             re.sub(r"[^a-z0-9]", "", str(stock).casefold()): float(weight)
             for stock, weight in holding.constituent_weights.items()
