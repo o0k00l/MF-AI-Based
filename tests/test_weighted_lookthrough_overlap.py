@@ -17,6 +17,9 @@ def _holding(fund_id, weights, *, status="VERIFIED", coverage=100.0, top_holding
         constituent_weights=weights,
         constituent_weights_coverage_pct=coverage,
         lookthrough_status=status,
+        lookthrough_effective_date="2026-11-01" if status == "VERIFIED" else None,
+        lookthrough_source_url="https://amfiindia.com/disclosures/example.pdf" if status == "VERIFIED" else None,
+        lookthrough_source_document_sha256="a" * 64 if status == "VERIFIED" else None,
         top_holdings=top_holdings or [],
     )
 
