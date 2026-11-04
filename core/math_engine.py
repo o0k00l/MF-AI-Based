@@ -4946,7 +4946,6 @@ def compute_deterministic_sip_blueprint(
     stability_buffer_pct: Optional[float] = None,
     holdings: Optional[List[HoldingItem]] = None,
     client_aum: Optional[float] = None,
-    client_aum_verified: bool = False,
     thematic_deficit_theme: str = "Pharma",
     thematic_satellite_pct_of_equity: float = 0.0,
     thematic_satellite_authorized: bool = False,
@@ -4956,6 +4955,7 @@ def compute_deterministic_sip_blueprint(
     portfolio_disclosure_source_bytes_by_scheme_id: Optional[Dict[str, bytes]] = None,
     disclosure_as_of_date: Optional[date] = None,
     disclosure_max_age_days: int = 45,
+    client_aum_verified: bool = False,
 ) -> DeterministicSIPPlan:
     """
     Computes deterministic SIP blueprint dynamically tailored across all SEBI risk tiers
