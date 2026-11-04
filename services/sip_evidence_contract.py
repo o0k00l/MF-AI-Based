@@ -98,6 +98,14 @@ def _validate_scheme_master(master: Any) -> dict[str, dict[str, Any]]:
             raise EvidenceProviderContractError(
                 f"Scheme master row {index} lacks exact scheme identity, category, benchmark or structure."
             )
+        if str(record.get("plan_type", "")).strip().casefold() not in {"direct", "regular"}:
+            raise EvidenceProviderContractError(
+                f"Scheme master row {index} requires exact Direct/Regular plan_type."
+            )
+        if str(record.get("option_type", "")).strip().casefold() not in {"growth", "idcw"}:
+            raise EvidenceProviderContractError(
+                f"Scheme master row {index} requires exact Growth/IDCW option_type."
+            )
         riskometer = record.get("riskometer_score")
         if (isinstance(riskometer, bool) or not isinstance(riskometer, int)
                 or not 1 <= riskometer <= 6):
@@ -275,7 +283,10 @@ def validate_evidence_provider_payload(payload: Any) -> dict[str, Any]:
             raise EvidenceProviderContractError(f"Duplicate candidate fund_id: {fund_id!r}.")
         seen_fund_ids.add(fund_id)
 
-        required_text = ("fund_name", "scheme_id", "isin", "amc_name", "category")
+        required_text = (
+            "fund_name", "scheme_id", "isin", "amc_name", "category",
+            "plan_type", "option_type",
+        )
         for field in required_text:
             if not isinstance(candidate.get(field), str) or not candidate[field].strip():
                 raise EvidenceProviderContractError(f"Candidate {fund_id!r} requires {field}.")
@@ -286,6 +297,18 @@ def validate_evidence_provider_payload(payload: Any) -> dict[str, Any]:
                 or candidate["fund_name"].strip().casefold() != master_record["scheme_name"].strip().casefold()
                 or candidate["amc_name"].strip().casefold() != master_record["amc_name"].strip().casefold()):
             raise EvidenceProviderContractError(f"Candidate {fund_id!r} identity conflicts with verified scheme master.")
+        if candidate["plan_type"].strip().casefold() != master_record["plan_type"].strip().casefold():
+            raise EvidenceProviderContractError(
+                f"Candidate {fund_id!r} plan_type conflicts with verified scheme master."
+            )
+        if candidate["option_type"].strip().casefold() != master_record["option_type"].strip().casefold():
+            raise EvidenceProviderContractError(
+                f"Candidate {fund_id!r} option_type conflicts with verified scheme master."
+            )
+        if candidate["plan_type"].strip().casefold() != "direct":
+            raise EvidenceProviderContractError(
+                f"Candidate {fund_id!r} must be an explicitly verified Direct plan."
+            )
         if candidate["category"].strip().casefold() != master_record["category"].strip().casefold():
             raise EvidenceProviderContractError(
                 f"Candidate {fund_id!r} category conflicts with verified scheme master."
