@@ -706,6 +706,7 @@ def load_candidate_universe(
         is_passive_raw = m.get("is_passive")
         provenance_raw = m.get("_provenance")
         fund_name = m.get("name", m.get("scheme_name", m.get("id", "")))
+        scheme_id = m.get("scheme_id")
         evidence_context = {
             "direct_plan_evidence": m.get("direct_plan_evidence"),
             "_evidence_root": str(Path(metrics_path).resolve().parent),
@@ -723,7 +724,6 @@ def load_candidate_universe(
         else:
             direct_flag = None
 
-        scheme_id = m.get("scheme_id")
         lookthrough = {
             "constituent_weights": None,
             "constituent_weights_coverage_pct": None,
