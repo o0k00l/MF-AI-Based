@@ -1421,10 +1421,10 @@ def test_universal_tier_split_uses_policy_base_and_stability_threshold(tier, pro
         ) == (expected_equity, expected_debt)
     else:
         assert calculate_universal_tier_split(tier) == (expected_equity, expected_debt)
-        threshold = max(0.0, targets["debt_liquid_pct"] - p["tolerance_band_pct"])
-        if threshold > 0:
-            assert calculate_universal_tier_split(tier, threshold - 0.01) == (expected_equity, expected_debt)
-            assert calculate_universal_tier_split(tier, threshold) == (100.0, 0.0)
+        # Existing stability-buffer levels must never override the
+        # policy-defined new-SIP split for tiers 1–5.
+        assert calculate_universal_tier_split(tier, 0.0) == (expected_equity, expected_debt)
+        assert calculate_universal_tier_split(tier, 100.0) == (expected_equity, expected_debt)
 
 
 @pytest.mark.skip(reason="Investor-facing tax/exit-load calculation is intentionally disabled pending independent approval; covered by fail-closed API tests.")
