@@ -3,6 +3,10 @@ from pydantic import ValidationError
 
 from core.models import (
     AssetClass,
+    EligibilityGateResult,
+    PersonalRedemptionPlan,
+    RedemptionTrancheItem,
+    SAADriftAnalysis,
     DeterministicSIPPlan,
     DeterministicLumpsumPlan,
     FeeBleedAnalysis,
@@ -39,6 +43,7 @@ def test_missing_risk_and_validation_states_are_unknown_not_success_defaults():
     buffer = LookThroughStabilityBuffer()
     plan = DeterministicLumpsumPlan(
         total_lumpsum_inr=10000,
+        unallocated_amount_inr=10000,
         is_big_ticket=False,
         stp_duration_months=0,
         immediate_amount_inr=0,
@@ -92,3 +97,105 @@ def test_duplicate_fee_bleed_module_does_not_emit_generic_commission_or_folio_da
     assert result.regular_portfolio_value_inr == 100000.0
     assert result.details == []
     assert "generic estimate" in result.unavailable_reason
+
+
+def test_eligibility_gates_cannot_default_to_pass():
+    with pytest.raises(ValidationError, match="cannot pass"):
+        EligibilityGateResult(
+            fund_id="fund-1", fund_name="Fund 1", passed=True
+        )
+
+
+def test_eligibility_gates_allow_unknown_only_for_non_passing_result():
+    result = EligibilityGateResult(
+        fund_id="fund-1",
+        fund_name="Fund 1",
+        passed=False,
+        failed_gates=["AMC gate unevaluated: source data missing"],
+    )
+    assert result.amc_concentration_gate is None
+    assert result.direct_plan_gate is None
+    assert result.passed is False
+
+
+def test_eligibility_gates_require_all_explicit_true_for_pass():
+    gates = {
+        "amc_concentration_gate": True,
+        "aum_stability_gate": True,
+        "concentration_gate": True,
+        "sharpe_alpha_gate": True,
+        "liquidity_gate": True,
+        "mandate_suitability_gate": True,
+        "data_integrity_gate": True,
+        "manager_tenure_gate": True,
+        "thematic_satellite_gate": True,
+        "direct_plan_gate": True,
+    }
+    result = EligibilityGateResult(
+        fund_id="fund-1", fund_name="Fund 1", passed=True, **gates
+    )
+    assert result.model_dump() | {"failed_gates": []} == result.model_dump()
+
+    with pytest.raises(ValidationError, match="cannot pass"):
+        EligibilityGateResult(
+            fund_id="fund-1",
+            fund_name="Fund 1",
+            passed=True,
+            **{**gates, "direct_plan_gate": None},
+        )
+    with pytest.raises(ValidationError, match="cannot pass"):
+        EligibilityGateResult(
+            fund_id="fund-1",
+            fund_name="Fund 1",
+            passed=True,
+            **{**gates, "direct_plan_gate": False},
+        )
+
+
+def test_saa_missing_lookthrough_and_redemption_tax_are_not_serialized_as_zero():
+    saa = SAADriftAnalysis(
+        current_equity_pct=0,
+        current_debt_pct=0,
+        current_cash_pct=0,
+        current_equity_inr=0,
+        current_debt_inr=0,
+        target_equity_pct=75,
+        target_debt_pct=25,
+        rebalance_required=False,
+        equity_gap_inr=0,
+        debt_gap_inr=0,
+    )
+    assert saa.look_through_debt_inr is None
+    assert saa.look_through_cash_inr is None
+    assert saa.look_through_stability_buffer_pct is None
+
+    redemption = PersonalRedemptionPlan(
+        requested_amount_inr=10000,
+        ticket_category="SMALL_TICKET",
+        ticket_rationale="NO ACTION: tax evidence unavailable",
+        is_net_cash_target=False,
+        total_gross_redeemed_inr=0,
+        total_net_cash_inr=0,
+        funds_liquidated_count=0,
+        full_folio_exits_count=0,
+    )
+    assert redemption.total_exit_load_inr is None
+    assert redemption.total_stcg_tax_inr is None
+    assert redemption.total_ltcg_tax_inr is None
+    assert redemption.total_annual_commission_saved_inr is None
+
+    tranche = RedemptionTrancheItem(
+        fund_id="scheme-1",
+        scheme_name="Scheme",
+        folio="REDACTED",
+        priority_tier=1,
+        priority_label="NO ACTION",
+        fiduciary_reason="No verified lots",
+        gross_amount_inr=0,
+        units_to_redeem=0,
+        nav=0,
+        action_step="NO ACTION",
+    )
+    assert tranche.is_long_term is None
+    assert tranche.exit_load_inr is None
+    assert tranche.net_tax_liability_inr is None
