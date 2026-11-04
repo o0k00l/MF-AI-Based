@@ -1543,7 +1543,8 @@ def test_starter_routing_thresholds_and_weights_are_policy_driven():
     )
     roles = {item.category_role: item for item in starter.items}
     assert roles["Core Flexi-Cap Compounder"].allocation_pct == weights["flexi_cap"]
-    assert roles["Mid-Cap Alpha Engine"].allocation_pct == weights["mid_small_cap"]
+    assert roles["Mid-Cap Alpha Engine"].allocation_pct == pytest.approx(weights["mid_small_cap"] / 2)
+    assert roles["Small-Cap Growth Engine"].allocation_pct == pytest.approx(weights["mid_small_cap"] / 2)
     assert "Large-Cap Bluechip Anchor" not in roles
 
     at_threshold = compute_deterministic_sip_blueprint(
