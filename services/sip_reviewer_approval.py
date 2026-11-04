@@ -117,6 +117,26 @@ def _strict_json(raw: str) -> Any:
     return json.loads(raw, object_pairs_hook=pairs, parse_constant=reject_constant)
 
 
+def load_sip_reviewer_trust_registry() -> dict[str, Any]:
+    """Load the independently administered reviewer trust root from runtime config.
+
+    The trust registry is intentionally not read from the evidence bundle: a
+    bundle publisher must not be able to nominate or replace its own reviewers.
+    """
+    raw = os.getenv(ENV_SIP_REGISTRY)
+    if not raw or not raw.strip():
+        raise ValueError(f"{ENV_SIP_REGISTRY} is required for production SIP evidence validation")
+    if len(raw.encode("utf-8")) > MAX_REGISTRY_BYTES:
+        raise ValueError("SIP reviewer trust registry exceeds maximum allowed size")
+    registry = _strict_json(raw)
+    if not isinstance(registry, dict) or registry.get("schema_version") != 1:
+        raise ValueError("SIP reviewer trust registry has an unsupported schema")
+    keys = registry.get("keys")
+    if not isinstance(keys, list) or not keys:
+        raise ValueError("SIP reviewer trust registry must contain active keys")
+    return registry
+
+
 def verify_sip_reviewer_approval(
     envelope: Any,
     trust_registry: Any,
