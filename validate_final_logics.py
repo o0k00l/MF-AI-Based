@@ -218,6 +218,9 @@ check("Gate 10 Passes 100% Direct Plans", validate_direct_sip_mandate(establishe
 
 regular_plan_test = DeterministicSIPPlan(
     total_monthly_budget_inr=10000.0,
+    unallocated_budget_inr=0.0,
+    equity_sip_pct=100.0,
+    debt_sip_pct=0.0,
     items=[
         DeterministicSIPRecommendation(
             category_role="Core",
