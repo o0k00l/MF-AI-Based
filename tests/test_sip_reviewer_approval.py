@@ -441,3 +441,23 @@ def test_direct_plan_evidence_requires_signature_when_configured(tmp_path):
         fund_data, trust_registry=registry, require_signature=True
     )
     assert status_verified == "REVIEWER_ATTESTED_HASH_MATCH"
+
+
+def test_runtime_trust_registry_loader_requires_external_configuration(monkeypatch):
+    from services.sip_reviewer_approval import (
+        ENV_SIP_REGISTRY, load_sip_reviewer_trust_registry,
+    )
+    monkeypatch.delenv(ENV_SIP_REGISTRY, raising=False)
+    with pytest.raises(ValueError, match="is required"):
+        load_sip_reviewer_trust_registry()
+
+
+def test_runtime_trust_registry_loader_parses_independently_configured_registry(monkeypatch):
+    import json
+    from services.sip_reviewer_approval import (
+        ENV_SIP_REGISTRY, load_sip_reviewer_trust_registry,
+    )
+    _, key_entry = _make_key_pair()
+    registry = create_sip_trust_registry([key_entry])
+    monkeypatch.setenv(ENV_SIP_REGISTRY, json.dumps(registry))
+    assert load_sip_reviewer_trust_registry() == registry
