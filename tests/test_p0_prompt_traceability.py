@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from decimal import Decimal
 from types import SimpleNamespace
 
 from core import prompt_advisor
@@ -65,6 +66,16 @@ def test_decision_hash_is_independent_of_mapping_insertion_order():
     right.inputs = {"b": {"y": 3, "x": 2}, "a": 1}
 
     assert left.compute_hash() == right.compute_hash()
+
+
+def test_decision_serialization_normalizes_decimal_audit_values():
+    decision = _decision()
+    decision.inputs["exact_amount"] = Decimal("123.4500")
+
+    serialized = decision.to_dict()
+
+    assert serialized["inputs"]["exact_amount"] == "123.4500"
+    assert len(serialized["hash"]) == 64
 
 
 def test_decision_hash_rejects_non_finite_numbers():
