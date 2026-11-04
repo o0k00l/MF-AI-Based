@@ -2333,30 +2333,35 @@ def calculate_risk_distribution(
 
 
 def _load_tax_rules(tax_rules_path: Optional[Path] = None) -> dict:
-    """Load tax rules from policy file. Returns defaults if file not available."""
+    """Load only independently approved tax rules; never supply fallback rates."""
+    from core.models import InsufficientDataError
+
     if tax_rules_path is None:
-        tax_rules_path = Path("data/policy/tax_rules.json")
-    
-    if tax_rules_path.exists():
-        try:
-            with open(tax_rules_path, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except (json.JSONDecodeError, KeyError):
-            pass
-    # Fallback defaults
-    return {
-        "cess": {"health_education_cess_pct": 4.0},
-        "classes": {
-            "equity_oriented": {
-                "short_term": {"rate_pct": 20.0},
-                "long_term": {"rate_pct": 12.5, "exemption_limit_inr": 125000},
-                "exit_load_pct": 1.0
-            }
-        },
-        "exit_load_schedules": {
-            "equity_oriented": {"threshold_days": 365, "rate_pct": 1.0}
-        }
-    }
+        tax_rules_path = Path(__file__).resolve().parents[1] / "data" / "policy" / "tax_rules.json"
+    if not tax_rules_path.is_file():
+        raise InsufficientDataError(
+            "Tax rules are unavailable; tax-dependent calculations are NO ACTION.",
+            missing_data="versioned tax_rules.json",
+            required_source="independently reviewed statutory policy",
+        )
+    try:
+        with open(tax_rules_path, "r", encoding="utf-8") as handle:
+            rules = json.load(handle)
+    except (OSError, json.JSONDecodeError) as exc:
+        raise InsufficientDataError(
+            f"Tax rules could not be loaded safely: {exc}",
+            missing_data="valid tax_rules.json",
+            required_source="versioned statutory policy",
+        ) from exc
+
+    review = rules.get("independent_review")
+    if rules.get("status") != "approved" or not isinstance(review, dict) or review.get("status") != "approved":
+        raise InsufficientDataError(
+            "Tax rules are provisional or lack independent legal/adviser approval; tax-dependent calculations are NO ACTION.",
+            missing_data="independent tax-policy approval",
+            required_source="qualified independent reviewer sign-off and evidence digest",
+        )
+    return rules
 
 
 def _classify_fund_for_tax(source_holding: HoldingItem, tax_rules: dict) -> str:
@@ -2398,64 +2403,31 @@ def calculate_switch_cost_analysis(
     purchase_nav: float = 0.0,
     tax_rules_path: Optional[Path] = None
 ) -> SwitchCostAnalysis:
+    """Return unavailable until a per-lot tax and scheme-exit-load engine is approved.
+
+    The previous implementation applied one average holding period to mixed lots,
+    generic exit-load defaults and a portfolio-wide exemption to a single holding.
+    Those calculations are not suitable for investor-specific switching decisions.
     """
-    Calculate switch cost analysis with accurate holding period calculation.
-    Loads tax rates from policy file (tax_rules.json) - no hardcoded rates.
-    If holding_period_days is None, it will be calculated from actual lot data.
-    """
-    # Load tax rules from policy file
-    tax_rules = _load_tax_rules(tax_rules_path)
-    
-    # Calculate accurate holding period if not provided
-    if holding_period_days is None:
-        holding_period_days = _estimate_holding_days_from_portfolio(source_holding)
-    
-    # Classify fund for tax treatment
-    fund_tax_class = _classify_fund_for_tax(source_holding, tax_rules)
-    fund_rules = tax_rules.get("classes", {}).get(fund_tax_class, {})
-    
-    # Get exit load from tax rules
-    exit_load_schedules = tax_rules.get("exit_load_schedules", {})
-    equity_exit_load = exit_load_schedules.get("equity_oriented", {})
-    exit_load_threshold_days = equity_exit_load.get("threshold_days", 365)
-    exit_load_rate_pct = equity_exit_load.get("rate_pct", 1.0)
-    
-    exit_load_pct = exit_load_rate_pct if holding_period_days < exit_load_threshold_days else 0.0
-    exit_load_inr = source_holding.current_value_inr * (exit_load_pct / 100.0)
-    
-    # Get tax rates from rules
-    st_rate = fund_rules.get("short_term", {}).get("rate_pct", 20.0) / 100.0
-    lt_rate = fund_rules.get("long_term", {}).get("rate_pct", 12.5) / 100.0
-    ltcg_exemption = fund_rules.get("long_term", {}).get("exemption_limit_inr", 125000)
-    cess_rate = tax_rules.get("cess", {}).get("health_education_cess_pct", 4.0) / 100.0
-    
-    gain_pct = ((current_nav - purchase_nav) / purchase_nav) * 100 if purchase_nav > 0 else 0
-    gain_inr = source_holding.current_value_inr * (gain_pct / 100.0)
-    
-    if holding_period_days > 365:
-        taxable_ltcg = max(0, gain_inr - ltcg_exemption)
-        ltcg_tax = taxable_ltcg * lt_rate * (1 + cess_rate)
-        stcg_tax = 0.0
-    else:
-        stcg_tax = gain_inr * st_rate * (1 + cess_rate)
-        ltcg_tax = 0.0
-    
-    capital_gains_tax = stcg_tax + ltcg_tax
-    net_switch_cost = exit_load_inr + capital_gains_tax
-    net_switch_cost_pct = (net_switch_cost / source_holding.current_value_inr) * 100 if source_holding.current_value_inr > 0 else 0
-    
+    reason = (
+        "NO ACTION: switch-cost calculation is disabled. It requires exact transaction "
+        "lots, date-specific tax classification, independently approved tax rules, and "
+        "current scheme/plan/lot-specific exit-load evidence. A missing cost is not zero."
+    )
     return SwitchCostAnalysis(
         source_fund=source_fund,
         target_fund=target_fund,
-        exit_load_pct=exit_load_pct,
-        exit_load_inr=round(exit_load_inr, 2),
-        capital_gains_tax_inr=round(capital_gains_tax, 2),
-        stcg_tax_inr=round(stcg_tax, 2),
-        ltcg_tax_inr=round(ltcg_tax, 2),
-        net_switch_cost_inr=round(net_switch_cost, 2),
-        net_switch_cost_pct=round(net_switch_cost_pct, 2),
+        exit_load_pct=None,
+        exit_load_inr=None,
+        capital_gains_tax_inr=None,
+        stcg_tax_inr=None,
+        ltcg_tax_inr=None,
+        net_switch_cost_inr=None,
+        net_switch_cost_pct=None,
         is_intra_amc=is_intra_amc,
-        warning="Intra-AMC switches trigger capital gains tax and exit loads per Section 45 read with Section 2(47) & Section 112A"
+        is_available=False,
+        unavailable_reason=reason,
+        warning=reason,
     )
 
 
