@@ -214,6 +214,8 @@ def load_fund_screening_policy(policy_path: Optional[Path] = None) -> Dict[str, 
 
     if not isinstance(data, dict):
         raise ValueError("Screening policy root must be a JSON object")
+    if data.get("_schema") != "fiduciary.screening_criteria.v1":
+        raise ValueError("Screening policy schema must be fiduciary.screening_criteria.v1")
 
     seen_rule_ids = set()
     for rule_set_key in ("quarantine_rules", "reject_rules", "flag_rules"):
