@@ -48,6 +48,7 @@ Required payload fields:
 | commit_sha | Exact 40-character commit SHA whose evidence is approved. |
 | tri_fixture_sha256 | SHA-256 of the exact high-coverage fixture bytes. |
 | tri_source_documents | Complete sorted list of source-document paths and SHA-256 digests, one per approved benchmark. |
+| calendar_source_path, calendar_source_url | Exact repository-relative source path and official HTTPS URL for the original calendar document. |
 | calendar_source_sha256 | SHA-256 of the original calendar source document. |
 | calendar_sessions_sha256 | SHA-256 of JCS(normalized sorted session-date array). |
 | review_attestation | Explicit reviewer attestation that source identity, index identifiers, observations, corrections, session coverage and parsing were independently checked. |
