@@ -2,6 +2,7 @@ from types import SimpleNamespace
 
 from core.math_engine import (
     calculate_weighted_lookthrough_overlap,
+    calculate_overlap_matrix,
     weighted_lookthrough_overlap_status,
 )
 
@@ -80,3 +81,16 @@ def test_zero_equity_holding_does_not_require_stock_disclosure():
 
     assert weighted_lookthrough_overlap_status([debt, equity]) == "VERIFIED"
     assert calculate_weighted_lookthrough_overlap([debt, equity]) == []
+
+
+def test_legacy_top_holdings_overlap_is_explicitly_heuristic_not_weighted():
+    holdings = [
+        _holding("scheme-a", None, status="MISSING", coverage=None,
+                 top_holdings=["Reliance", "TCS"]),
+        _holding("scheme-b", None, status="MISSING", coverage=None,
+                 top_holdings=["Reliance", "Infosys"]),
+    ]
+    result = calculate_overlap_matrix(holdings, threshold_pct=1.0)
+    assert len(result) == 1
+    assert result[0].evidence_basis == "TOP_HOLDINGS_COUNT_PROXY"
+    assert result[0].verification_status == "HEURISTIC"
