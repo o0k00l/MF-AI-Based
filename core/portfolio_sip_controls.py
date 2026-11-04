@@ -335,6 +335,10 @@ def allocate_candidate_sip(
         sleeve for sleeve, values in ranked.items()
         if values and budgets[sleeve] >= minimum
     ]
+    for sleeve, values in ranked.items():
+        if budgets[sleeve] < minimum:
+            for _, candidate_id in values:
+                rejected[candidate_id] = ["SLEEVE_BUDGET_BELOW_MINIMUM_SIP"]
     sleeve_priority = sorted(active_sleeves, key=lambda sleeve: (-budgets[sleeve], sleeve))
     selected = []
     selected_ids = set()
