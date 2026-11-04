@@ -158,7 +158,21 @@ def route_incremental_sip(
         current_values_inr, target_weights_pct,
         tolerance_band_pct=tolerance_band_pct, portfolio_total_inr=portfolio_total_inr,
     )
-    eligible = set(eligible_sleeves)
+    if isinstance(eligible_sleeves, (str, bytes)):
+        raise PortfolioInputError("eligible_sleeves must be an iterable of sleeve names, not a string")
+    try:
+        eligible_items = list(eligible_sleeves)
+    except TypeError:
+        raise PortfolioInputError("eligible_sleeves must be an iterable of sleeve names") from None
+    if any(not isinstance(item, str) or not item.strip() for item in eligible_items):
+        raise PortfolioInputError("eligible_sleeves must contain non-empty sleeve names")
+    eligible = set(eligible_items)
+    unknown_eligible = eligible - set(target_weights_pct)
+    if unknown_eligible:
+        raise PortfolioInputError(
+            "eligible_sleeves contains unknown target sleeves: "
+            + ", ".join(sorted(unknown_eligible))
+        )
     # Tolerance is a dead-band: a sleeve is not treated as underweight until
     # its shortfall exceeds the approved tolerance. Route only the excess gap.
     # This prevents small measurement/valuation noise from driving SIP flows.
