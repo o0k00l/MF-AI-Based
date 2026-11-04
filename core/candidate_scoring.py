@@ -116,7 +116,7 @@ def normalize_metric(val: Optional[float], val_min: float, val_max: float, inver
     if range_span <= 1e-6:
         return 50.0  # Equal peer baseline
 
-    norm = ((val_clamped - val_min) / range_span) * 100.0
+    norm = ((val_clamped - lower) / range_span) * 100.0
     res = 100.0 - norm if invert else norm
     return round(min(100.0, max(0.0, res)), 1)
 
