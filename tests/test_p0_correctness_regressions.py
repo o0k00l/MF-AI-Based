@@ -2294,3 +2294,22 @@ def test_primary_cas_ingestion_marks_constituent_lookthrough_missing(tmp_path):
     assert holding["lookthrough_status"] == "MISSING"
     assert holding["constituent_weights"] is None
     assert holding["constituent_weights_coverage_pct"] is None
+
+
+def test_candidate_universe_does_not_treat_metrics_as_constituent_evidence(tmp_path):
+    import json
+    from core.eligibility import load_candidate_universe
+
+    metrics = tmp_path / "fund_metrics.json"
+    metrics.write_text(json.dumps({"funds": [{
+        "id": "FUND-001",
+        "scheme_id": "SCHEME-001",
+        "name": "Example Direct Growth",
+        "category": "Mid Cap",
+    }]}), encoding="utf-8")
+    candidates = load_candidate_universe(metrics)
+
+    assert len(candidates) == 1
+    assert candidates[0]["scheme_id"] == "SCHEME-001"
+    assert candidates[0]["lookthrough_status"] == "MISSING"
+    assert candidates[0]["constituent_weights"] is None
