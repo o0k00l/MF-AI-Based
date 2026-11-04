@@ -22,6 +22,7 @@ FIXTURES = (
     ROOT / "data/policy/benchmark_tri_series_high_coverage.json",
 )
 OFFICIAL_HOSTS = {"nseindia.com", "www.nseindia.com", "niftyindices.com", "www.niftyindices.com"}
+REQUIRED_BENCHMARKS = frozenset({"NIFTY 500 TRI", "NIFTY 500 MULTICAP 50:25:25 TRI", "NIFTY MIDCAP 150 TRI"})
 
 
 def _canonical_sha256(value: object) -> str:
@@ -220,6 +221,10 @@ def alpha_release_blockers(fixture_path: Path) -> list[str]:
     if not isinstance(benchmarks, dict) or not benchmarks:
         blockers.append("benchmarks must be a non-empty object")
         benchmarks = {}
+    available_benchmarks = {str(name).strip().upper() for name in benchmarks}
+    missing_benchmarks = sorted(REQUIRED_BENCHMARKS - available_benchmarks)
+    if missing_benchmarks:
+        blockers.append("required benchmark series missing: " + ", ".join(missing_benchmarks))
     for index_name, benchmark in benchmarks.items():
         if not isinstance(benchmark, dict):
             blockers.append(f"{index_name}: benchmark entry must be an object")
