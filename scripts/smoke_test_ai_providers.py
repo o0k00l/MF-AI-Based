@@ -1,7 +1,7 @@
-"""Live, opt-in smoke test for all configured AI providers.
+"""Live, opt-in smoke test for configured AI providers.
 
-Only synthetic prompts are sent. Provider output and raw SDK diagnostics are
-never printed; failures are reduced to safe, coarse categories.
+Only synthetic prompts are sent. Raw SDK messages, response bodies and secrets
+are never printed. A provider failure is classified from structured metadata.
 """
 from __future__ import annotations
 
@@ -11,41 +11,38 @@ import os
 import re
 import sys
 
-REPOSITORY_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if REPOSITORY_ROOT not in sys.path:
-    sys.path.insert(0, REPOSITORY_ROOT)
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if ROOT not in sys.path:
+    sys.path.insert(0, ROOT)
 
 from core import ai_engine
-
 
 PROVIDERS = (
     ("Requesty", "REQUESTY_API_KEY", ai_engine._call_requesty),
     ("OpenRouter", "OPENROUTER_API_KEY", ai_engine._call_openrouter),
     ("Gemini", "GEMINI_API_KEY", ai_engine._call_gemini),
 )
-
 PROMPT = "Reply with exactly the word READY. This is a provider connectivity test."
 
 
 def safe_failure_category(diagnostics: str, exc: Exception) -> str:
-    """Map private SDK diagnostics to a non-sensitive operational category."""
-    combined = f"{type(exc).__name__} {diagnostics}".lower()
-
-    if re.search(r"\b(401|unauthorized|invalid api.?key|api key not valid)\b", combined):
+    """Classify without printing provider response bodies or credential material."""
+    status = getattr(exc, "status_code", None)
+    code = str(getattr(exc, "code", "") or "").lower()
+    combined = f"{type(exc).__name__} {code} {diagnostics}".lower()
+    if status == 401 or re.search(r"\b(401|unauthorized|invalid api.?key|api key not valid)\b", combined):
         return "authentication rejected (401/invalid key)"
-    if re.search(r"\b(403|forbidden|permission denied|access denied)\b", combined):
+    if status == 403 or re.search(r"\b(403|forbidden|permission denied|access denied)\b", combined):
         return "permission/access rejected (403)"
-    if re.search(r"\b(402|429|quota|rate.?limit|resource_exhausted|billing)", combined):
+    if status in (402, 429) or re.search(r"\b(402|429|quota|rate.?limit|resource_exhausted|billing)\b", combined):
         return "quota, rate limit, or billing restriction"
-    if re.search(r"\b(404|model.*(not found|unavailable)|not supported for.*generate)", combined):
+    if status == 404 or re.search(r"\b(404|model.*(not found|unavailable)|not supported for.*generate)\b", combined):
         return "model unavailable or unsupported"
-    if re.search(r"\b(400|bad request|invalid argument|unsupported parameter)", combined):
-        return "request/model-parameter rejected (400)"
-    if re.search(r"\b(timeout|timed out|connection|dns|network|ssl|tls)", combined):
+    if status == 400 or re.search(r"\b(400|bad request|invalid argument|unsupported parameter)\b", combined):
+        return "request rejected (400); inspect provider code/model diagnostic"
+    if re.search(r"\b(timeout|timed out|connection|dns|network|ssl|tls)\b", combined):
         return "network or timeout failure"
-    if "provider unavailable" in combined:
-        return "all configured model attempts failed; SDK detail not classifiable"
-    return "provider call failed; SDK detail not classifiable"
+    return "provider call failed; diagnostic category unavailable"
 
 
 def main() -> int:
@@ -53,7 +50,6 @@ def main() -> int:
     if missing:
         print("Missing required GitHub Actions secrets: " + ", ".join(missing))
         return 2
-
     failed = []
     for label, _, call in PROVIDERS:
         captured = io.StringIO()
@@ -64,9 +60,20 @@ def main() -> int:
                 raise RuntimeError("empty response")
             print(f"{label}: PASS")
         except Exception as exc:
-            print(f"{label}: FAIL — {safe_failure_category(captured.getvalue(), exc)}")
+            category = safe_failure_category(captured.getvalue(), exc)
+            status = getattr(exc, "status_code", None)
+            code = getattr(exc, "code", None)
+            model = getattr(exc, "model", None)
+            details = []
+            if status is not None:
+                details.append(f"HTTP {status}")
+            if code:
+                details.append(f"code={str(code)[:80]}")
+            if model:
+                details.append(f"model={str(model)[:100]}")
+            suffix = " (" + "; ".join(details) + ")" if details else ""
+            print(f"{label}: FAIL — {category}{suffix}")
             failed.append(label)
-
     if failed:
         print("Failed providers: " + ", ".join(failed))
         return 1
