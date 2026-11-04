@@ -579,12 +579,25 @@ def _build_sip_decision_trace(
 ) -> dict[str, str]:
     """Hash the source and diagnostic inputs that led to a fail-closed SIP result."""
     candidate_source_hashes = {}
+    candidate_rank_evidence = {}
     for candidate in candidate_universe:
         evidence = candidate.get("direct_plan_evidence", {})
-        candidate_source_hashes[candidate.get("fund_id", candidate.get("id", "UNKNOWN"))] = (
+        candidate_id = candidate.get("fund_id", candidate.get("id", "UNKNOWN"))
+        candidate_source_hashes[candidate_id] = (
             evidence.get("source_document_sha256")
             if isinstance(evidence, dict) else None
         )
+        candidate_rank_evidence[candidate_id] = {
+            "rank_score": candidate.get("rank_score"),
+            "rank_score_source_ref": candidate.get("rank_score_source_ref"),
+            "rank_score_as_of_date": candidate.get("rank_score_as_of_date"),
+            "rank_score_methodology_version": candidate.get("rank_score_methodology_version"),
+        }
+    policy_path = Path(__file__).resolve().parents[1] / "data" / "policy" / "asset_allocation.json"
+    try:
+        policy_source_sha256 = hashlib.sha256(policy_path.read_bytes()).hexdigest()
+    except OSError:
+        policy_source_sha256 = None
     record = {
         "schema_version": 1,
         "source_digests": {
@@ -613,11 +626,13 @@ def _build_sip_decision_trace(
             ),
         },
         "policy_version": f"asset_allocation.json@{portfolio_assessment.get('policy_as_of')}",
+        "policy_source_sha256": policy_source_sha256,
         "engine_version": "core.math_engine.compute_deterministic_sip_blueprint",
         "eligibility": {
             "current_holding_evidence": "PASS",
             "candidate_universe_count": len(candidate_universe),
             "candidate_scoring": "SOURCE_RANK_SCORES_CONSUMED_FOR_DIAGNOSTIC_SIMULATION; RELEASE_APPROVAL_PENDING",
+            "candidate_rank_evidence": candidate_rank_evidence,
         },
         "portfolio_effect": {
             "scope": portfolio_assessment.get("scope"),
