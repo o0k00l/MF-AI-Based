@@ -80,8 +80,10 @@ for L in test_lumpsums:
     )
     check(
         f"Lumpsum INR {L:,.0f} does not fabricate a parking vehicle or tax saving",
-        lp.parking_vehicle == "NO_ACTION" and lp.tax_savings_vs_debt_fund_inr == 0.0,
-        f"Vehicle: {lp.parking_vehicle}; estimated saving: {lp.tax_savings_vs_debt_fund_inr:.2f}",
+        lp.parking_vehicle == "NO_ACTION" and lp.tax_savings_vs_debt_fund_inr is None,
+        f"Vehicle: {lp.parking_vehicle}; estimated saving: "
+        + ("UNAVAILABLE" if lp.tax_savings_vs_debt_fund_inr is None
+           else f"{lp.tax_savings_vs_debt_fund_inr:.2f}"),
     )
 
 # =====================================================================
