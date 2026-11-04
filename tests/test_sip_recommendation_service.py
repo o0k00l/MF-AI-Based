@@ -1,4 +1,5 @@
 from datetime import date
+from decimal import Decimal
 import hashlib
 import json
 from pathlib import Path
