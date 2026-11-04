@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 import rfc8785
 from cryptography.exceptions import InvalidSignature
@@ -25,6 +26,15 @@ MAX_APPROVAL_LIFETIME_DAYS = 90
 REQUIRED_BENCHMARKS = {
     "NIFTY 500 TRI", "NIFTY 500 MULTICAP 50:25:25 TRI", "NIFTY MIDCAP 150 TRI"
 }
+OFFICIAL_HOSTS = {"nseindia.com", "www.nseindia.com", "niftyindices.com", "www.niftyindices.com"}
+
+
+def _official_https_url(value: Any) -> bool:
+    parsed = urlparse(value if isinstance(value, str) else "")
+    host = (parsed.hostname or "").lower()
+    return parsed.scheme == "https" and any(
+        host == allowed or host.endswith("." + allowed) for allowed in OFFICIAL_HOSTS
+    )
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 REQUIRED_PAYLOAD_FIELDS = {
@@ -147,12 +157,14 @@ def verify_approval(
         paths: set[str] = set()
         covered_benchmarks: set[str] = set()
         for item in payload["tri_source_documents"]:
-            if not isinstance(item, dict) or set(item) != {"benchmark", "path", "sha256"}:
-                raise ValueError("each TRI source document requires benchmark, path and sha256")
+            if not isinstance(item, dict) or set(item) != {"benchmark", "path", "sha256", "source_url"}:
+                raise ValueError("each TRI source document requires benchmark, path, sha256 and source_url")
             benchmark_name = item["benchmark"]
             if benchmark_name not in REQUIRED_BENCHMARKS or benchmark_name in covered_benchmarks:
                 raise ValueError("source manifest benchmark names must be required, unique and exact")
             covered_benchmarks.add(benchmark_name)
+            if not _official_https_url(item["source_url"]):
+                raise ValueError(f"benchmark source URL is not an approved official HTTPS host: {benchmark_name}")
             rel = item["path"]
             if not isinstance(rel, str) or not rel or rel in paths:
                 raise ValueError("source document paths must be non-empty and unique")
@@ -172,17 +184,36 @@ def verify_approval(
         if covered_benchmarks != REQUIRED_BENCHMARKS:
             raise ValueError("signed source manifest must contain one source document for every required benchmark")
         cal = root / "data/policy/nse_trading_calendar.json"
-        if not cal.is_file() or __import__("hashlib").sha256(cal.read_bytes()).hexdigest() != payload["calendar_source_sha256"]:
-            raise ValueError("signed NSE calendar source digest is missing or mismatched")
+        if not cal.is_file():
+            raise ValueError("normalized NSE calendar file is missing")
         calendar = _strict_json(cal.read_text(encoding="utf-8"))
-        sessions = calendar.get("sessions") if isinstance(calendar, dict) else None
+        if not isinstance(calendar, dict):
+            raise ValueError("NSE calendar document must be an object")
+        cal_provenance = calendar.get("provenance")
+        if not isinstance(cal_provenance, dict):
+            raise ValueError("NSE calendar source provenance is missing")
+        cal_source_rel = cal_provenance.get("source_document_file")
+        if not isinstance(cal_source_rel, str) or not cal_source_rel:
+            raise ValueError("original NSE calendar source document path is missing")
+        cal_source_path = Path(cal_source_rel)
+        if cal_source_path.is_absolute():
+            raise ValueError("original NSE calendar source path must be repository-relative")
+        cal_source = (root / cal_source_path).resolve()
+        cal_source.relative_to(root.resolve())
+        if not cal_source.is_file() or __import__("hashlib").sha256(cal_source.read_bytes()).hexdigest() != payload["calendar_source_sha256"]:
+            raise ValueError("signed original NSE calendar source digest is missing or mismatched")
+        if cal_provenance.get("source_document_sha256") != payload["calendar_source_sha256"]:
+            raise ValueError("NSE calendar provenance source digest differs from signed approval")
+        if not _official_https_url(cal_provenance.get("source_url")):
+            raise ValueError("NSE calendar source URL is not an approved official HTTPS host")
+        sessions = calendar.get("sessions")
         if not isinstance(sessions, list) or not sessions or sessions != sorted(set(sessions)):
             raise ValueError("calendar sessions are malformed, unsorted or duplicated")
         from datetime import date
         for day in sessions:
             parsed = date.fromisoformat(day)
-            if parsed.isoformat() != day or parsed.weekday() >= 5:
-                raise ValueError(f"calendar contains a non-session date or weekend: {day}")
+            if parsed.isoformat() != day:
+                raise ValueError(f"calendar contains a non-canonical ISO date: {day}")
         normalized = rfc8785.dumps(sessions)
         if __import__("hashlib").sha256(normalized).hexdigest() != payload["calendar_sessions_sha256"]:
             raise ValueError("signed normalized calendar sessions digest mismatch")

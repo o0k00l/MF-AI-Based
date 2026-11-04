@@ -30,7 +30,12 @@ def _signed_case(tmp_path):
     source3.write_text("date,tri\n2026-01-01,102\n", encoding="utf-8")
     calendar = policy / "nse_trading_calendar.json"
     sessions = ["2026-01-01", "2026-01-02"]
-    calendar.write_text(json.dumps({"sessions": sessions}), encoding="utf-8")
+    calendar.write_text(json.dumps({"sessions": sessions, "provenance": {
+        "source_document_file": "data/policy/calendar-source.csv",
+        "source_document_sha256": hashlib.sha256(b"calendar-source").hexdigest(),
+        "source_url": "https://www.nseindia.com/calendar.csv",
+    }}), encoding="utf-8")
+    (policy / "calendar-source.csv").write_bytes(b"calendar-source")
     now = datetime(2026, 1, 3, tzinfo=timezone.utc)
     private = Ed25519PrivateKey.generate()
     public = private.public_key().public_bytes(
@@ -45,11 +50,11 @@ def _signed_case(tmp_path):
         "expires_at": "2026-02-02T00:00:00Z", "repository": "o0k00l/MF-AI-Based",
         "commit_sha": "a" * 40, "tri_fixture_sha256": digest(fixture),
         "tri_source_documents": [
-            {"benchmark": "NIFTY 500 TRI", "path": "data/policy/nifty500.csv", "sha256": digest(source)},
-            {"benchmark": "NIFTY 500 MULTICAP 50:25:25 TRI", "path": "data/policy/multicap.csv", "sha256": digest(source2)},
-            {"benchmark": "NIFTY MIDCAP 150 TRI", "path": "data/policy/midcap.csv", "sha256": digest(source3)},
+            {"benchmark": "NIFTY 500 TRI", "path": "data/policy/nifty500.csv", "sha256": digest(source), "source_url": "https://www.nseindia.com/a.csv"},
+            {"benchmark": "NIFTY 500 MULTICAP 50:25:25 TRI", "path": "data/policy/multicap.csv", "sha256": digest(source2), "source_url": "https://www.nseindia.com/b.csv"},
+            {"benchmark": "NIFTY MIDCAP 150 TRI", "path": "data/policy/midcap.csv", "sha256": digest(source3), "source_url": "https://www.nseindia.com/c.csv"},
         ],
-        "calendar_source_sha256": digest(calendar),
+        "calendar_source_sha256": hashlib.sha256(b"calendar-source").hexdigest(),
         "calendar_sessions_sha256": hashlib.sha256(rfc8785.dumps(sessions)).hexdigest(),
         "review_attestation": True,
     }
