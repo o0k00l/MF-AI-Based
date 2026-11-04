@@ -1096,3 +1096,36 @@ def test_p0_18_tri_fixture_verifier_rejects_malformed_json_shapes(tmp_path):
     assert any("benchmark entry must be a JSON object" in item for item in failures)
     assert any("coverage entry must be a JSON object" in item for item in failures)
 
+
+
+
+@pytest.mark.parametrize(
+    ("calendar_payload", "expected_blocker"),
+    [
+        ([], "NSE calendar root must be a JSON object"),
+        (
+            {"exchange": "NSE", "status": "VERIFIED", "sessions": ["2026-02-30"], "provenance": {}},
+            "NSE calendar contains invalid ISO session date",
+        ),
+    ],
+)
+def test_p0_19_tri_release_gate_rejects_malformed_calendar(
+    tmp_path, monkeypatch, calendar_payload, expected_blocker
+):
+    """Malformed calendar shapes and impossible dates must fail closed."""
+    import verify_tri_provenance as verifier
+
+    monkeypatch.setattr(verifier, "ROOT", tmp_path)
+    policy_dir = tmp_path / "data" / "policy"
+    policy_dir.mkdir(parents=True)
+    (policy_dir / "nse_trading_calendar.json").write_text(
+        json.dumps(calendar_payload), encoding="utf-8"
+    )
+    fixture_path = policy_dir / "fixture.json"
+    fixture_path.write_text(
+        json.dumps({"provenance": {}, "benchmarks": {}}), encoding="utf-8"
+    )
+
+    blockers = verifier.alpha_release_blockers(fixture_path)
+    assert any(expected_blocker in blocker for blocker in blockers)
+
