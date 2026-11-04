@@ -2633,7 +2633,20 @@ def weighted_lookthrough_overlap_status(holdings: List[HoldingItem]) -> str:
         ):
             return "UNAVAILABLE"
         scheme_id = getattr(holding, "scheme_id", None)
-        if not isinstance(scheme_id, str) or not scheme_id.strip():
+        source_url = getattr(holding, "lookthrough_source_url", None)
+        source_digest = getattr(holding, "lookthrough_source_document_sha256", None)
+        effective_date = getattr(holding, "lookthrough_effective_date", None)
+        if (
+            not isinstance(scheme_id, str) or not scheme_id.strip()
+            or not isinstance(source_url, str) or not source_url.startswith("https://")
+            or not isinstance(source_digest, str)
+            or not re.fullmatch(r"[0-9a-fA-F]{64}", source_digest)
+            or not isinstance(effective_date, str)
+        ):
+            return "UNAVAILABLE"
+        try:
+            date.fromisoformat(effective_date)
+        except ValueError:
             return "UNAVAILABLE"
         prior = seen.get(scheme_id)
         if prior is not None and prior != weights:
@@ -2662,6 +2675,7 @@ def calculate_weighted_lookthrough_overlap(
         raise ValueError("threshold_pct must be a finite number from 0 to 100")
 
     by_fund: Dict[str, Dict[str, float]] = {}
+    source_by_fund: Dict[str, Dict[str, Any]] = {}
     for holding in holdings:
         equity_pct = float(getattr(holding, "equity_pct", 100.0))
         if equity_pct == 0.0:
@@ -2671,9 +2685,19 @@ def calculate_weighted_lookthrough_overlap(
             re.sub(r"[^a-z0-9]", "", str(stock).casefold()): float(weight)
             for stock, weight in holding.constituent_weights.items()
         }
-        if fund_id in by_fund and by_fund[fund_id] != weights:
+        source_ref = {
+            "scheme_id": fund_id,
+            "source_url": holding.lookthrough_source_url,
+            "source_document_sha256": holding.lookthrough_source_document_sha256,
+            "effective_date": holding.lookthrough_effective_date,
+            "coverage_pct": float(holding.constituent_weights_coverage_pct),
+        }
+        if fund_id in by_fund and (
+            by_fund[fund_id] != weights or source_by_fund[fund_id] != source_ref
+        ):
             return []
         by_fund[fund_id] = weights
+        source_by_fund[fund_id] = source_ref
 
     results = []
     fund_ids = sorted(by_fund)
@@ -2709,6 +2733,19 @@ def calculate_weighted_lookthrough_overlap(
                     ],
                     sector_concentration={},
                     verdict=verdict,
+                    status="VERIFIED",
+                    source="EXACT_SCHEME_PORTFOLIO_DISCLOSURES",
+                    source_refs=[source_by_fund[fund_a], source_by_fund[fund_b]],
+                    effective_date=min(
+                        source_by_fund[fund_a]["effective_date"],
+                        source_by_fund[fund_b]["effective_date"],
+                    ),
+                    coverage_status="VERIFIED",
+                    coverage_pct=round(min(
+                        source_by_fund[fund_a]["coverage_pct"],
+                        source_by_fund[fund_b]["coverage_pct"],
+                    ), 2),
+                    reason="Calculated from verified, exact-scheme constituent weights and source digests.",
                 ))
     results.sort(key=lambda item: item.weighted_overlap_pct, reverse=True)
     return results
