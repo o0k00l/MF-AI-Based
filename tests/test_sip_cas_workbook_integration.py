@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from datetime import date
 from pathlib import Path
 
@@ -16,6 +17,16 @@ SCHEME_NAME = "Example Equity Fund - Direct Plan - Growth"
 AMC_NAME = "Example Asset Management Company"
 SCHEME_ID = "EXAMPLE-SCHEME-001"
 ISIN = "INF000000001"
+
+
+def _metrics_file(tmp_path: Path) -> Path:
+    path = tmp_path / "fund_metrics.json"
+    path.write_text(json.dumps({"funds": [{
+        "id": "EXAMPLE-FUND", "scheme": SCHEME_NAME, "name": SCHEME_NAME,
+        "cat": "Flexi Cap", "er": 0.65, "eq": 100.0, "debt": 0.0,
+        "lc": 50.0, "mc": 30.0, "sc": 20.0, "h": [],
+    }]}), encoding="utf-8")
+    return path
 
 
 def _cas_workbook(path: Path, *, include_amc: bool = True) -> Path:
@@ -67,7 +78,7 @@ def _disclosure(scheme_id: str = SCHEME_ID):
 def _recommendation(cas_path, scheme_master, scheme_master_bytes, disclosures, disclosure_bytes):
     return recommend_sip(
         cas_path=cas_path,
-        metrics_path=None,
+        metrics_path=_metrics_file(Path(cas_path).parent),
         aliases_path=None,
         monthly_budget_inr=25000.0,
         risk_profile="Aggressive",
@@ -87,6 +98,7 @@ def test_cas_workbook_exact_identity_and_verified_disclosure_are_attached(tmp_pa
 
     holdings = load_holdings_from_cas_excel(
         cas_path,
+        fund_metrics_path=_metrics_file(tmp_path),
         scheme_master=scheme_master,
         scheme_master_source_bytes=scheme_master_bytes,
         portfolio_disclosures_by_scheme_id={SCHEME_ID: disclosure},
@@ -229,6 +241,7 @@ def test_cas_uses_header_positions_not_fixed_legacy_column_positions(tmp_path):
 
     holdings = load_holdings_from_cas_excel(
         path,
+        fund_metrics_path=_metrics_file(tmp_path),
         scheme_master=_scheme_master()[0],
         scheme_master_source_bytes=_scheme_master()[1],
         disclosure_as_of_date=AS_OF,
