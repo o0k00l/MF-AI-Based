@@ -120,7 +120,9 @@ def validate_evidence_provider_payload(payload: Any) -> dict[str, Any]:
         raise EvidenceProviderContractError(
             "Provider response contains unsupported fields: " + ", ".join(sorted(unexpected))
         )
-    if optional_present and optional_present != OPTIONAL_EVIDENCE_FIELDS:
+    metrics_fields = {"metrics_source_metadata", "metrics_source_bytes"}
+    metrics_present = optional_present & metrics_fields
+    if metrics_present and metrics_present != metrics_fields:
         raise EvidenceProviderContractError(
             "Metrics source metadata and original source bytes must be supplied together."
         )
