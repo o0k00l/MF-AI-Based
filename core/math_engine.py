@@ -2292,7 +2292,13 @@ def aggregate_fiduciary_facts(
     transactions_path = cas_path.parent / "transactions.json"
     if not transactions_path.exists():
         transactions_path = cas_path.parent.parent / "transactions.json"
-    portfolio_xirr = calculate_portfolio_xirr(transactions_path, holdings)
+    cas_valuation_date = _parse_cas_valuation_date(cas_path)
+    portfolio_xirr = calculate_portfolio_xirr(
+        transactions_path,
+        holdings,
+        cas_current=tot_cur,
+        as_of_date=cas_valuation_date,
+    )
     cas_recon = reconcile_cas_holdings_with_transactions(holdings, transactions_path)
     tax_lots_summary = None
 
