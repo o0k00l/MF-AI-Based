@@ -924,6 +924,7 @@ def test_gate10_accepts_explicit_direct_plan_growth_option_classification(tmp_pa
         "is_direct": True,
         "plan": "Direct Plan - Growth Option",
         "isin": "TEST-ISIN",
+        "scheme_id": "TEST-SCHEME-001",
     }
     source_bytes = b"SYNTHETIC TEST ONLY: Example Large Cap Fund; Direct Plan - Growth Option"
     source_file = tmp_path / "scheme-master-source.txt"
@@ -936,6 +937,9 @@ def test_gate10_accepts_explicit_direct_plan_growth_option_classification(tmp_pa
         "reviewer_attested": True,
         "reviewed_at": date.today().isoformat(),
         "scheme_name": fund["fund_name"],
+        "scheme_id": fund["scheme_id"],
+        "isin": fund["isin"],
+        "amc_name": fund["amc_name"],
         "plan": "Direct",
     }
     fund["_evidence_root"] = str(tmp_path.resolve())
