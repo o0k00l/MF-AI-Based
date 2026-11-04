@@ -4272,6 +4272,56 @@ def compute_deterministic_lumpsum_blueprint(
     )
 
 
+def _sip_operational_constraint_violations(items, sip_policy):
+    """Return fail-closed operational constraint violations for positive SIP lines."""
+    import math
+
+    try:
+        max_fund_pct = float(sip_policy["max_fund_allocation_pct"])
+        min_ticket = float(sip_policy["min_sip_per_fund_inr"])
+        increment = float(sip_policy["sip_increment_inr"])
+        max_core_count = int(sip_policy["max_core_fund_count"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError("SIP operational constraint policy is missing or invalid") from exc
+    if (
+        not math.isfinite(max_fund_pct) or not 0.0 < max_fund_pct <= 100.0
+        or not math.isfinite(min_ticket) or min_ticket <= 0.0
+        or not math.isfinite(increment) or increment <= 0.0
+        or max_core_count < 1
+    ):
+        raise ValueError("SIP operational constraint policy values must be finite and positive")
+
+    active = [item for item in items if item.monthly_inr > 0.0]
+    violations = []
+    for item in active:
+        if item.allocation_pct > max_fund_pct + 1e-9:
+            violations.append(
+                f"{item.category_role} allocation {item.allocation_pct:.2f}% exceeds "
+                f"the {max_fund_pct:.2f}% per-fund cap"
+            )
+        if item.monthly_inr + 1e-9 < min_ticket:
+            violations.append(
+                f"{item.category_role} SIP ₹{item.monthly_inr:.2f} is below "
+                f"the ₹{min_ticket:.2f} minimum ticket"
+            )
+        units = item.monthly_inr / increment
+        if abs(units - round(units)) > 1e-8:
+            violations.append(
+                f"{item.category_role} SIP ₹{item.monthly_inr:.2f} is not a "
+                f"multiple of the ₹{increment:.2f} SIP increment"
+            )
+    core_items = [
+        item for item in active
+        if "thematic" not in item.category_role.lower()
+        and "debt" not in item.category_role.lower()
+    ]
+    if len(core_items) > max_core_count:
+        violations.append(
+            f"{len(core_items)} active core funds exceed the maximum of {max_core_count}"
+        )
+    return violations
+
+
 def compute_deterministic_sip_blueprint(
     monthly_budget: float,
     risk_tier: str = "Tier 6 (Very High)",
@@ -4647,6 +4697,27 @@ def compute_deterministic_sip_blueprint(
         diff = round(b - total_allocated, 2)
         if abs(diff) > 0.0 and items:
             items[0].monthly_inr = round(items[0].monthly_inr + diff, 2)
+
+    # Operational policy constraints are hard gates. If any active line
+    # breaches a cap/ticket/increment/count rule, withhold the whole budget;
+    # never silently redistribute a rejected line to another fund.
+    try:
+        sip_operational_policy = allocation_policy["sip_allocation_policy"]
+    except (KeyError, TypeError) as exc:
+        raise ValueError("SIP operational allocation policy is missing") from exc
+    operational_violations = _sip_operational_constraint_violations(
+        items, sip_operational_policy
+    )
+    if operational_violations:
+        unallocated_budget = b
+        for item in items:
+            item.monthly_inr = 0.0
+            item.fiduciary_rationale = (
+                "NO ACTION — entire SIP budget withheld because operational policy "
+                "constraints are not satisfied. No redistribution is permitted. "
+                + "; ".join(operational_violations)
+                + ". " + item.fiduciary_rationale
+            )
 
     plan = DeterministicSIPPlan(
         total_monthly_budget_inr=b,
