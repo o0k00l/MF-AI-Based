@@ -59,6 +59,10 @@ def _bundle(root: Path) -> dict:
             "isin": "INF000000001",
             "scheme_name": "Example Direct Growth",
             "amc_name": "Example AMC",
+            "category": "Flexi Cap",
+            "benchmark_identity": "NIFTY 500 TRI",
+            "scheme_structure": "OPEN_ENDED_EQUITY",
+            "riskometer_score": 5,
         }],
     })
     _write_json(root, "disclosures/scheme-1.json", {
@@ -74,6 +78,9 @@ def _bundle(root: Path) -> dict:
         "isin": "INF000000001",
         "amc_name": "Example AMC",
         "category": "Flexi Cap",
+        "benchmark_identity": "NIFTY 500 TRI",
+        "scheme_structure": "OPEN_ENDED_EQUITY",
+        "riskometer_score": 5,
         "is_direct": True,
         "direct_plan_evidence": {
             "source_file": "originals/direct.pdf",

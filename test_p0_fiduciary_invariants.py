@@ -228,7 +228,7 @@ def test_p0_3_all_10_binary_eligibility_gates(tmp_path):
         {"amc_name": "TEST AMC", "current_value_inr": 200000.0},
         {"amc_name": "OTHER AMC", "current_value_inr": 800000.0},
     ]
-    res_clean = check_eligibility_gates(base_good_fund, portfolio_holdings=base_holdings)
+    res_clean = check_eligibility_gates(base_good_fund, portfolio_holdings=base_holdings, client_risk_tier_num=6)
     assert res_clean.passed is True
     assert len(res_clean.failed_gates) == 0
 
@@ -326,7 +326,8 @@ def test_p0_4_candidate_universe_and_no_action_branch(tmp_path):
         candidate_funds=[
             {"fund_id": "C1", "fund_name": "Low Alpha Fund", "eligibility": {"passed": True}, "composite_score": 2.5}
         ],
-        min_improvement_threshold=5.0
+        min_improvement_threshold=5.0,
+        client_risk_tier_num=6,
     )
     assert no_act.action == "NO_ACTION"
     assert no_act.current_portfolio_adequate is True
@@ -340,7 +341,8 @@ def test_p0_4_candidate_universe_and_no_action_branch(tmp_path):
         candidate_funds=[
             {"fund_id": "C2", "fund_name": "Alpha Fund Direct", "eligibility": {"passed": True}, "composite_score": 75.0}
         ],
-        min_improvement_threshold=5.0
+        min_improvement_threshold=5.0,
+        client_risk_tier_num=6,
     )
     assert proceed.action == "PROCEED"
     assert proceed.current_portfolio_adequate is False
@@ -698,7 +700,7 @@ def test_p0_10_gate4_fail_closed_and_missing_metrics(tmp_path):
         {"amc_name": "TEST AMC", "current_value_inr": 200000.0},
         {"amc_name": "OTHER AMC", "current_value_inr": 800000.0},
     ]
-    res_clean = check_eligibility_gates(base_active, portfolio_holdings=base_holdings)
+    res_clean = check_eligibility_gates(base_active, portfolio_holdings=base_holdings, client_risk_tier_num=6)
     assert res_clean.sharpe_alpha_gate is True
     assert res_clean.passed is True
 
@@ -790,7 +792,7 @@ def test_p0_10_gate4_fail_closed_and_missing_metrics(tmp_path):
     assert res_disguise.sharpe_alpha_gate is False, "Active funds masquerading with index substring must NOT bypass Gate 4"
     assert res_disguise.passed is False
 
-    # 13. Genuine verified passive index fund exemption
+    # 13. Sample passive scheme metadata must not be treated as verified evidence
     passive_cand = dict(
         base_active,
         fund_name="Nifty 50 Index Fund - Direct Plan - Growth",
@@ -801,7 +803,7 @@ def test_p0_10_gate4_fail_closed_and_missing_metrics(tmp_path):
         alpha_3y=None
     )
     res_passive = check_eligibility_gates(passive_cand)
-    assert res_passive.sharpe_alpha_gate is True, "Genuine passive index funds are exempted from active alpha hurdles"
+    assert res_passive.sharpe_alpha_gate is False, "Sample scheme master cannot exempt an unverified passive candidate"
 
     print("[PASS] P0.10 Gate 4 Fail-Closed & Missing Metrics Verified")
 

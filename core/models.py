@@ -76,11 +76,37 @@ class AssetAllocationTarget(BaseModel):
 # behavioural-risk SAA profiles used by the SIP engine:
 # Conservative -> SEBI Tier 2 (40/60), Moderate -> Tier 4 (75/25),
 # Aggressive -> Tier 6 (95/5). Custom remains explicit and separately approved.
-SAA_POLICY_MAP = {
-    RiskTier.CONSERVATIVE: AssetAllocationTarget(equity_pct=40.0, debt_pct=60.0, cash_pct=0.0),
-    RiskTier.MODERATE: AssetAllocationTarget(equity_pct=75.0, debt_pct=25.0, cash_pct=0.0),
-    RiskTier.AGGRESSIVE: AssetAllocationTarget(equity_pct=95.0, debt_pct=5.0, cash_pct=0.0),
-}
+def _load_saa_policy_map() -> Dict[RiskTier, AssetAllocationTarget]:
+    """Build the public SAA contract from the single authoritative policy file."""
+    import json
+    from pathlib import Path
+
+    policy_path = Path(__file__).resolve().parents[1] / "data" / "policy" / "asset_allocation.json"
+    try:
+        policy = json.loads(policy_path.read_text(encoding="utf-8"))
+        profiles = policy["behavioral_risk_profiles"]
+        profile_by_risk = {
+            RiskTier.CONSERVATIVE: "low_to_moderate",
+            RiskTier.MODERATE: "moderately_high",
+            RiskTier.AGGRESSIVE: "very_high",
+        }
+        result: Dict[RiskTier, AssetAllocationTarget] = {}
+        for risk, profile_name in profile_by_risk.items():
+            targets = profiles[profile_name]["saa_targets"]
+            equity = sum(float(targets[key]) for key in (
+                "large_cap_pct", "mid_cap_pct", "small_cap_pct", "flexi_multi_cap_pct"
+            ))
+            result[risk] = AssetAllocationTarget(
+                equity_pct=equity,
+                debt_pct=float(targets["debt_liquid_pct"]),
+                cash_pct=float(targets.get("cash_pct", 0.0)),
+            )
+        return result
+    except (OSError, ValueError, TypeError, KeyError) as exc:
+        raise RuntimeError("Authoritative asset-allocation policy is missing or invalid") from exc
+
+
+SAA_POLICY_MAP = _load_saa_policy_map()
 
 
 class HoldingItem(BaseModel):
@@ -413,14 +439,16 @@ class WeightedOverlapResult(BaseModel):
 
 
 class RiskDistribution(BaseModel):
-    """Ordinal risk tier distribution - not cardinal scores."""
-    risk_tier_distribution: Dict[str, int] = Field(default_factory=dict)  # tier -> count
-    risk_tier_values: Dict[str, float] = Field(default_factory=dict)  # tier -> portfolio_weight_pct
+    """Scheme Riskometer distribution; unknown coverage is explicit."""
+    risk_tier_distribution: Dict[str, int] = Field(default_factory=dict)
+    risk_tier_values: Dict[str, float] = Field(default_factory=dict)
+    availability_status: str = "UNAVAILABLE"
+    verified_coverage_pct: Optional[float] = None
+    unknown_value_inr: Optional[float] = None
     portfolio_beta: Optional[float] = None
     max_drawdown_pct: Optional[float] = None
     downside_capture_ratio: Optional[float] = None
     volatility_annualized_pct: Optional[float] = None
-    # No single cardinal risk score
 
 
 class SwitchCostAnalysis(BaseModel):

@@ -36,7 +36,8 @@
       "new_sip_allocation": {
         "equity_pct": 0,
         "debt_pct": 100,
-        "note": "All new SIP capital goes to debt/liquid. Capital preservation only."
+        "note": "All new SIP capital goes to debt/liquid. Capital preservation only.",
+        "requires_explicit_ips_authorization": false
       },
       "description": "Tier 1 (SEBI Low): Capital preservation focus. Minimal equity exposure. Suitable for horizon < 3 years or ultra-conservative mandate."
     },
@@ -56,7 +57,8 @@
       "new_sip_allocation": {
         "equity_pct": 30,
         "debt_pct": 70,
-        "note": "SIP primarily to debt/liquid with modest equity for inflation protection."
+        "note": "SIP primarily to debt/liquid with modest equity for inflation protection.",
+        "requires_explicit_ips_authorization": false
       },
       "description": "Tier 2 (SEBI Low to Moderate): Conservative income focus. Limited equity for inflation hedge. Suitable for horizon 3-5 years."
     },
@@ -76,7 +78,8 @@
       "new_sip_allocation": {
         "equity_pct": 60,
         "debt_pct": 40,
-        "note": "Balanced SIP allocation across equity and debt sleeves."
+        "note": "Balanced SIP allocation across equity and debt sleeves.",
+        "requires_explicit_ips_authorization": false
       },
       "description": "Tier 3 (SEBI Moderate): Balanced growth (DEFAULT). Moderate equity with debt buffer. Suitable for horizon 5-7 years."
     },
@@ -96,7 +99,8 @@
       "new_sip_allocation": {
         "equity_pct": 85,
         "debt_pct": 15,
-        "note": "SIP primarily equity with small debt reserve for rebalancing."
+        "note": "SIP primarily equity with small debt reserve for rebalancing.",
+        "requires_explicit_ips_authorization": false
       },
       "description": "Tier 4 (SEBI Moderately High): Growth-oriented. Higher mid/small allocation. Suitable for horizon 7-10 years."
     },
@@ -116,7 +120,8 @@
       "new_sip_allocation": {
         "equity_pct": 95,
         "debt_pct": 5,
-        "note": "SIP overwhelmingly equity. Minimal debt for emergency reserve only."
+        "note": "SIP overwhelmingly equity. Minimal debt for emergency reserve only.",
+        "requires_explicit_ips_authorization": false
       },
       "description": "Tier 5 (SEBI High): High-conviction alpha. Aggressive mid/small exposure. Suitable for horizon 10+ years."
     },

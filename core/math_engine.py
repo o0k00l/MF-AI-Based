@@ -993,22 +993,9 @@ from core.models import (
 )
 
 
-def _asset_class_to_risk_tier(asset_class: AssetClass) -> str:
-    """Map AssetClass to SEBI risk-o-meter tier."""
-    mapping = {
-        AssetClass.DEBT: "Tier 1 (Low)",
-        AssetClass.CASH: "Tier 1 (Low)",
-        AssetClass.HYBRID_BALANCED: "Tier 3 (Moderate)",
-        AssetClass.HYBRID: "Tier 3 (Moderate)",
-        AssetClass.LARGE_CAP: "Tier 5 (High)",
-        AssetClass.FLEXI_CAP: "Tier 5 (High)",
-        AssetClass.MULTI_CAP: "Tier 5 (High)",
-        AssetClass.INTERNATIONAL: "Tier 5 (High)",
-        AssetClass.MID_CAP: "Tier 6 (Very High)",
-        AssetClass.SMALL_CAP: "Tier 6 (Very High)",
-        AssetClass.OTHER: "Tier 3 (Moderate)",
-    }
-    return mapping.get(asset_class, "Tier 3 (Moderate)")
+def _asset_class_to_risk_tier(asset_class: AssetClass) -> Optional[str]:
+    """Asset class is not a scheme Riskometer observation; never infer a tier."""
+    return None
 
 # Import the new simplified SAA utilities
 from core.models import RiskTier, AssetAllocationTarget, SAA_POLICY_MAP
@@ -1277,7 +1264,7 @@ def load_holdings_from_cas_excel(
                 lookthrough_status=disclosure["status"],
                 lookthrough_reason=disclosure["reason"],
                 amc_name=amc_name or None,
-                risk_tier=_asset_class_to_risk_tier(asset_class) if metrics_status == "VERIFIED" else None,
+                risk_tier=None,
                 metrics_status=metrics_status,
             )
         )
@@ -2157,25 +2144,8 @@ def aggregate_fiduciary_facts(
         disclosure_as_of_date=disclosure_as_of_date,
         disclosure_max_age_days=disclosure_max_age_days,
     )
-    
     # Empty or zero-value holdings are not evidence of a zero-risk, zero-drift
     # portfolio. Cash-only portfolios require a separately verified cash source.
-    if not holdings:
-        raise ValueError(
-            "Portfolio diagnostics unavailable: CAS contains no verified active holdings; "
-            "zero drift and zero risk cannot be inferred from an empty portfolio."
-        )
-    portfolio_value = sum(float(holding.current_value_inr) for holding in holdings)
-    if not math.isfinite(portfolio_value) or portfolio_value <= 0.0:
-        raise ValueError(
-            "Portfolio diagnostics unavailable: verified active holdings have no positive "
-            "finite portfolio value; HOLD until a supported cash-only or invested portfolio "
-            "snapshot is independently verified."
-        )
-
-    # An empty active-holdings set is not a verified zero-drift portfolio.
-    # A cash-only portfolio needs its own independently verified cash evidence;
-    # IPS config cash values alone are not evidence of an account balance.
     if not holdings:
         raise ValueError(
             "Portfolio diagnostics unavailable: CAS contains no verified active holdings; "
@@ -2210,7 +2180,11 @@ def aggregate_fiduciary_facts(
     monthly_sip, lumpsum_budget, emergency_months = _validated_ips_numeric_inputs(ips)
     target_saa = cfg.get("target_allocation", {})
 
+    if not holdings:
+        raise ValueError("Portfolio diagnostics unavailable: CAS contains no verified active holdings; no zero-drift report can be produced")
     tot_cur = sum(h.current_value_inr for h in holdings)
+    if not math.isfinite(tot_cur) or tot_cur <= 0.0:
+        raise ValueError("Portfolio diagnostics unavailable: total verified holding value must be positive")
     tot_inv = sum(h.invested_value_inr for h in holdings)
     tot_gain = tot_cur - tot_inv
 
@@ -2477,8 +2451,11 @@ def aggregate_fiduciary_facts(
         if gate_result.passed:
             eligible_candidates.append(cand)
     
-    # Mandatory NO ACTION Fiduciary Branch
-    no_action_decision = evaluate_no_action(holdings, eligible_candidates)
+    # Mandatory NO ACTION Fiduciary Branch receives the same validated
+    # investor suitability profile used by the candidate eligibility gates.
+    no_action_decision = evaluate_no_action(
+        holdings, eligible_candidates, client_risk_tier_num=tier_num
+    )
     
     # Identify weak or redundant funds
     weak_funds = []
@@ -2639,29 +2616,48 @@ def calculate_weighted_lookthrough_overlap(
 def calculate_risk_distribution(
     holdings: List[HoldingItem]
 ) -> RiskDistribution:
+    if not holdings:
+        return RiskDistribution(
+            availability_status="UNAVAILABLE",
+            verified_coverage_pct=0.0,
+            unknown_value_inr=None,
+        )
+    total_value = sum(h.current_value_inr for h in holdings)
+    if not math.isfinite(total_value) or total_value <= 0.0:
+        return RiskDistribution(
+            availability_status="UNAVAILABLE",
+            verified_coverage_pct=0.0,
+            unknown_value_inr=total_value if math.isfinite(total_value) else None,
+        )
+
     tier_counts: Dict[str, int] = {}
     tier_values: Dict[str, float] = {}
-    total_value = sum(h.current_value_inr for h in holdings)
-    
-    for h in holdings:
-        tier = getattr(h, 'risk_tier', None)
-        if tier is None:
-            tier = 'Unknown'
-        if tier not in tier_counts:
-            tier_counts[tier] = 0
-            tier_values[tier] = 0.0
-        tier_counts[tier] += 1
-        tier_values[tier] += h.current_value_inr
-    
-    tier_pct = {t: round((v / total_value) * 100, 2) for t, v in tier_values.items()} if total_value > 0 else {}
-    
+    verified_value = 0.0
+    unknown_value = 0.0
+    for holding in holdings:
+        tier = getattr(holding, "risk_tier", None)
+        if not isinstance(tier, str) or not tier.strip():
+            tier = "Unknown"
+        tier_counts[tier] = tier_counts.get(tier, 0) + 1
+        tier_values[tier] = tier_values.get(tier, 0.0) + holding.current_value_inr
+        if tier == "Unknown":
+            unknown_value += holding.current_value_inr
+        else:
+            verified_value += holding.current_value_inr
+
+    tier_pct = {tier: round(value / total_value * 100.0, 2) for tier, value in tier_values.items()}
+    coverage_pct = verified_value / total_value * 100.0
+    status = "COMPLETE" if coverage_pct >= 99.999 else ("PARTIAL" if coverage_pct > 0.0 else "UNAVAILABLE")
     return RiskDistribution(
         risk_tier_distribution=tier_counts,
         risk_tier_values=tier_pct,
+        availability_status=status,
+        verified_coverage_pct=round(coverage_pct, 2),
+        unknown_value_inr=round(unknown_value, 2),
         portfolio_beta=None,
         max_drawdown_pct=None,
         downside_capture_ratio=None,
-        volatility_annualized_pct=None
+        volatility_annualized_pct=None,
     )
 
 
@@ -2769,16 +2765,11 @@ def calculate_saa_drift_minimizer(
     target_allocation: Dict[str, float],
     sip_budget_inr: float
 ) -> SAA_DriftMinimizer:
+    if not holdings:
+        raise ValueError("SAA diagnostics are unavailable: no verified active holdings were supplied")
     total_val = sum(h.current_value_inr for h in holdings)
-    if total_val <= 0:
-        return SAA_DriftMinimizer(
-            current_allocation={},
-            target_allocation=target_allocation,
-            sip_budget_inr=sip_budget_inr,
-            recommended_sip_allocation={},
-            drift_after_sip={},
-            total_drift_l2_norm=0.0
-        )
+    if not math.isfinite(total_val) or total_val <= 0:
+        raise ValueError("SAA diagnostics are unavailable: portfolio value denominator must be positive")
     
     current_alloc = {}
     for h in holdings:
@@ -2856,18 +2847,54 @@ def calculate_saa_drift_minimizer(
     
     gaps = {k: target_pct.get(k, 0) - current_pct.get(k, 0) for k in set(current_pct) | set(target_pct)}
     
-    positive_gaps = {k: v for k, v in gaps.items() if v > 0}
-    total_positive_gap = sum(positive_gaps.values())
-    
-    sip_alloc = {}
-    if total_positive_gap > 0:
-        for asset, gap in positive_gaps.items():
-            sip_alloc[asset] = sip_budget_inr * (gap / total_positive_gap)
+    if isinstance(sip_budget_inr, bool):
+        raise ValueError("SIP budget must be numeric")
+    try:
+        budget = float(sip_budget_inr)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("SIP budget must be numeric") from exc
+    if not math.isfinite(budget) or budget < 0.0:
+        raise ValueError("SIP budget must be finite and non-negative")
+
+    # Minimize squared post-contribution weight error using the post-SIP
+    # denominator. The unconstrained ideal contribution for sleeve i is
+    # target_i * (portfolio_value + SIP) - current_value_i. Project that
+    # vector onto the non-negative simplex whose sum is exactly the SIP budget.
+    # This correctly allows contributions to currently overweight sleeves
+    # when they are still below their desired post-SIP value, and naturally
+    # preserves zero-target sleeves at zero.
+    assets = list(target_pct)
+    new_total = total_val + budget
+    desired = [
+        (target_pct[asset] / 100.0) * new_total - current_alloc.get(asset, 0.0)
+        for asset in assets
+    ]
+    if budget == 0.0:
+        projected_contributions = [0.0 for _ in assets]
     else:
-        for asset in target_pct:
-            sip_alloc[asset] = sip_budget_inr / len(target_pct)
-    
-    new_total = total_val + sip_budget_inr
+        ordered = sorted(desired, reverse=True)
+        cumulative = 0.0
+        theta = None
+        for index, value in enumerate(ordered, start=1):
+            cumulative += value
+            candidate_theta = (cumulative - budget) / index
+            next_value = ordered[index] if index < len(ordered) else float("-inf")
+            if value > candidate_theta and next_value <= candidate_theta:
+                theta = candidate_theta
+                break
+        if theta is None:
+            raise ValueError("Unable to solve constrained post-SIP SAA allocation")
+        projected_contributions = [max(value - theta, 0.0) for value in desired]
+        # Correct floating-point residue deterministically without changing
+        # the active set or allowing a negative sleeve allocation.
+        residue = budget - sum(projected_contributions)
+        if abs(residue) > 1e-9:
+            active = [i for i, value in enumerate(projected_contributions) if value > 0.0]
+            if not active:
+                raise ValueError("SAA projection produced no eligible contribution sleeve")
+            projected_contributions[active[0]] += residue
+    sip_alloc = {asset: projected_contributions[i] for i, asset in enumerate(assets)}
+
     projected_alloc = {}
     for asset in set(current_pct) | set(target_pct):
         current_val = current_alloc.get(asset, 0)
@@ -4539,7 +4566,17 @@ def calculate_universal_tier_split(
         tolerance = float(profile["tolerance_band_pct"])
         equity_sip = float(sip["equity_pct"])
         debt_sip = float(sip["debt_pct"])
-        requires_ips_authorization = bool(sip.get("requires_explicit_ips_authorization", False))
+        authorization_flag = sip.get("requires_explicit_ips_authorization")
+        if not isinstance(authorization_flag, bool):
+            raise ValueError(
+                "requires_explicit_ips_authorization must be a required literal boolean in every risk profile"
+            )
+        requires_ips_authorization = authorization_flag
+        if tier_num == 6:
+            if not requires_ips_authorization:
+                raise ValueError("Tier 6 equity-only routing requires explicit IPS authorization policy")
+            if abs(equity_sip - 100.0) > 0.01 or abs(debt_sip) > 0.01:
+                raise ValueError("Tier 6 policy must preserve the approved 100/0 equity-only route")
     except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
         raise ValueError(f"Invalid allocation policy for SEBI risk tier {tier_num}") from exc
 
@@ -4574,7 +4611,7 @@ def compute_deterministic_lumpsum_blueprint(
     bank_cash_total: float = 0.0,
     emergency_reserve: float = 0.0,
     holdings: Optional[List[HoldingItem]] = None,
-    risk_tier: str = "Tier 6 (Very High)",
+    risk_tier: Optional[str] = None,
     stability_buffer_pct: Optional[float] = None,
     thematic_deficit_theme: str = "Pharma",
     thematic_satellite_authorized: bool = False,
@@ -4596,6 +4633,8 @@ def compute_deterministic_lumpsum_blueprint(
     import math
     import re
 
+    if risk_tier is None or (isinstance(risk_tier, str) and not risk_tier.strip()):
+        raise ValueError("An explicit validated investor risk profile is required; Tier 6 is never inferred")
     try:
         amount = float(lumpsum_amount)
         cash_total = float(bank_cash_total)
@@ -4777,10 +4816,10 @@ def _sip_operational_constraint_violations(items, sip_policy):
 
 def compute_deterministic_sip_blueprint(
     monthly_budget: float,
-    risk_tier: str = "Tier 6 (Very High)",
+    risk_tier: Optional[str] = None,
     stability_buffer_pct: Optional[float] = None,
     holdings: Optional[List[HoldingItem]] = None,
-    client_aum: float = 0.0,
+    client_aum: Optional[float] = None,
     thematic_deficit_theme: str = "Pharma",
     thematic_satellite_pct_of_equity: float = 0.0,
     thematic_satellite_authorized: bool = False,
@@ -4800,6 +4839,10 @@ def compute_deterministic_sip_blueprint(
     import math
     import json
     from pathlib import Path
+    if risk_tier is None or (isinstance(risk_tier, str) and not risk_tier.strip()):
+        raise ValueError("An explicit validated investor risk profile is required; Tier 6 is never inferred")
+    if client_aum is None:
+        raise ValueError("Verified reconciled client AUM is required; missing AUM is not zero")
     try:
         b = float(monthly_budget)
         aum_value = float(client_aum)

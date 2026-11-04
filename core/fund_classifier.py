@@ -34,7 +34,15 @@ def _load_scheme_master() -> Optional[Dict[str, Any]]:
         try:
             with open(policy_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
-            return data.get("scheme_master", {})
+            # Do not discard the sample envelope status and upgrade test
+            # fixture rows into authoritative runtime scheme identity evidence.
+            if data.get("status") != "VERIFIED":
+                return None
+            envelope = data.get("scheme_master")
+            if not isinstance(envelope, dict) or envelope.get("status") != "VERIFIED":
+                return None
+            schemes = envelope.get("schemes_by_isin")
+            return schemes if isinstance(schemes, dict) and schemes else None
         except (json.JSONDecodeError, KeyError):
             pass
     return None
@@ -242,18 +250,12 @@ def classify_fund_category(
 
 
 def get_fund_passive_alternatives(category: str) -> List[str]:
-    """Retrieve verified institutional passive index alternatives for a category."""
-    universe = _load_passive_universe()
-    if category in universe:
-        return universe[category]
+    """No alternatives are returned until exact scheme and operational evidence is verified.
 
-    defaults = {
-        "Large Cap Equity": ["Nifty 50 Index Fund - Direct Plan - Growth"],
-        "Mid Cap Equity": ["Nifty Midcap 150 Index Fund - Direct Plan - Growth"],
-        "Flexi Cap Equity": ["Nifty 500 Index Fund - Direct Plan - Growth"],
-        "Debt Funds": ["Nifty 1D Rate Index Liquid Direct Plan"]
-    }
-    return defaults.get(category, [])
+    The legacy universe contains search terms and product-like labels, not
+    exact source-backed scheme IDs/ISINs and Direct/Growth identities.
+    """
+    return []
 
 
 def detect_fund_theme(fund_name: str, category: str = "") -> Optional[str]:
