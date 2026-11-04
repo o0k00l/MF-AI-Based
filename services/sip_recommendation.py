@@ -429,8 +429,16 @@ def _assess_complete_portfolio_context(
             if not isinstance(constituents, dict) or coverage is None:
                 overlap_results[candidate_id] = {"status": "HOLD", "reason": "CANDIDATE_LOOKTHROUGH_MISSING"}
                 continue
+            candidate_sleeve = candidate_policy.get("candidate_sleeves", {}).get(candidate_id)
+            ticket_budget = Decimal(str(routing.get("allocations_inr", {}).get(candidate_sleeve, "0")))
+            if ticket_budget <= 0:
+                overlap_results[candidate_id] = {
+                    "status": "HOLD", "reason": "NO_ROUTED_SIP_BUDGET_FOR_CANDIDATE_SLEEVE"
+                }
+                continue
+            candidate_post_total = Decimal(str(total)) + ticket_budget
             candidate_exposure = calculate_lookthrough_exposure(
-                [{"holding_value_inr": str(monthly_budget_inr),
+                [{"holding_value_inr": str(ticket_budget),
                   "coverage_pct": coverage, "constituents": constituents}],
                 required_coverage_pct="99.5",
             )
@@ -445,7 +453,7 @@ def _assess_complete_portfolio_context(
             for issuer, value in existing_issuer_values.items():
                 combined_values.setdefault(issuer, value)
             concentrations = {
-                issuer: value / total * 100 for issuer, value in combined_values.items()
+                issuer: value / float(candidate_post_total) * 100 for issuer, value in combined_values.items()
             }
             breaches = sorted(
                 issuer for issuer, pct in concentrations.items()
@@ -454,7 +462,7 @@ def _assess_complete_portfolio_context(
             classified_concentration = evaluate_classified_concentration(
                 combined_values,
                 concentration_policy.get("issuer_classifications", {}),
-                total_portfolio_inr=total,
+                total_portfolio_inr=candidate_post_total,
                 as_of_date=as_of,
                 classification_as_of_date=concentration_policy.get("classification_as_of_date", ""),
                 classification_source_ref=concentration_policy.get("classification_source_ref", ""),
@@ -466,7 +474,7 @@ def _assess_complete_portfolio_context(
             concentration_blocked = bool(breaches) or classified_concentration.get("status") != "ASSESSED"
             overlap_results[candidate_id] = {
                 "status": "HOLD" if concentration_blocked else "ASSESSED",
-                "ticket_basis_inr": monthly_budget_inr,
+                "ticket_basis_inr": str(ticket_budget),
                 "shared_issuers": sorted(set(issuers) & set(existing_issuer_values)),
                 "candidate_issuer_exposure_inr": issuers,
                 "combined_issuer_concentration_pct": concentrations,
@@ -504,6 +512,111 @@ def _assess_complete_portfolio_context(
             rounding_increment_inr=allocation_policy["sip_increment_inr"],
             max_funds=max(0, remaining_fund_slots),
         )
+
+        # Re-check the actual selected set together. Individual candidate
+        # checks cannot detect two different sleeves collectively breaching a
+        # sector/theme/issuer threshold.
+        candidate_by_id = {
+            str(row.get("fund_id") or row.get("scheme_id") or ""): row
+            for row in candidate_universe
+        }
+        selected_candidate_rows = []
+        selected_total = Decimal("0")
+        for selected in candidate_allocation.get("allocations", []):
+            selected_candidate = candidate_by_id.get(selected["candidate_id"], {})
+            selected_value = Decimal(str(selected["monthly_sip_inr"]))
+            selected_total += selected_value
+            selected_candidate_rows.append({
+                "holding_value_inr": str(selected_value),
+                "coverage_pct": selected_candidate.get("constituent_weights_coverage_pct"),
+                "constituents": selected_candidate.get("constituent_weights"),
+            })
+        if candidate_allocation.get("status") == "ALLOCATED" and selected_candidate_rows:
+            selected_lookthrough = calculate_lookthrough_exposure(
+                selected_candidate_rows, required_coverage_pct="99.5"
+            )
+            if selected_lookthrough.get("status") == "CALCULATED":
+                proposed_issuer_values = dict(existing_issuer_values)
+                for issuer, value in selected_lookthrough["issuer_exposure_inr"].items():
+                    proposed_issuer_values[issuer] = (
+                        proposed_issuer_values.get(issuer, 0.0) + float(value)
+                    )
+                post_investment_total = Decimal(str(total)) + selected_total
+                proposed_issuer_concentration = {
+                    issuer: value / float(post_investment_total) * 100
+                    for issuer, value in proposed_issuer_values.items()
+                }
+                proposed_issuer_breaches = {
+                    issuer: pct for issuer, pct in proposed_issuer_concentration.items()
+                    if pct > max_issuer_pct
+                }
+                proposed_classified = evaluate_classified_concentration(
+                    proposed_issuer_values,
+                    concentration_policy.get("issuer_classifications", {}),
+                    total_portfolio_inr=post_investment_total,
+                    as_of_date=as_of,
+                    classification_as_of_date=concentration_policy.get("classification_as_of_date", ""),
+                    classification_source_ref=concentration_policy.get("classification_source_ref", ""),
+                    max_evidence_age_days=max_policy_age,
+                    max_sector_pct=concentration_policy.get("max_sector_pct_of_portfolio", 0),
+                    max_market_cap_pct=concentration_policy.get("max_market_cap_pct_of_portfolio", 0),
+                    max_theme_pct=concentration_policy.get("max_theme_pct_of_portfolio", 0),
+                )
+                candidate_set_concentration = {
+                    "status": "ASSESSED" if not proposed_issuer_breaches and proposed_classified.get("status") == "ASSESSED" else "HOLD",
+                    "post_investment_portfolio_value_inr": str(post_investment_total),
+                    "proposed_sip_budget_inr": str(selected_total),
+                    "lookthrough": selected_lookthrough,
+                    "issuer_concentration_pct": proposed_issuer_concentration,
+                    "issuer_breaches": proposed_issuer_breaches,
+                    "sector_market_cap_theme": proposed_classified,
+                }
+            else:
+                candidate_set_concentration = {
+                    "status": "HOLD",
+                    "reason": "SELECTED_CANDIDATE_SET_LOOKTHROUGH_INCOMPLETE",
+                    "lookthrough": selected_lookthrough,
+                }
+        else:
+            candidate_set_concentration = {
+                "status": "HOLD",
+                "reason": "NO_FUND_LEVEL_ALLOCATION_TO_ASSESS",
+            }
+
+        routed_budget = Decimal(str(routing.get("allocated_budget_inr", "0")))
+        routing_unallocated = Decimal(str(routing.get("unallocated_budget_inr", monthly_budget_inr)))
+        fund_unallocated = Decimal(str(candidate_allocation.get("unallocated_budget_inr", "0")))
+        fund_allocated = Decimal(str(candidate_allocation.get("allocated_budget_inr", "0")))
+        routing_reconciles = bool(routing.get("reconciliation_ok", False))
+        fund_requested = Decimal(str(candidate_allocation.get("requested_budget_inr", "0")))
+        if candidate_set_concentration.get("status") != "ASSESSED":
+            candidate_allocation = {
+                **candidate_allocation,
+                "status": "HOLD",
+                "pre_concentration_status": candidate_allocation.get("status"),
+                "allocations": [],
+                "allocated_budget_inr": "0",
+                "unallocated_budget_inr": str(monthly_budget_inr),
+                "unallocated_by_sleeve_inr": routing.get("allocations_inr", {}),
+                "concentration_blocked": True,
+            }
+            fund_allocated = Decimal("0")
+            routing_unallocated = Decimal("0")
+            fund_unallocated = Decimal(str(monthly_budget_inr))
+        overall_unallocated = routing_unallocated + fund_unallocated
+        candidate_allocation.update({
+            "requested_budget_inr": str(Decimal(str(monthly_budget_inr))),
+            "allocated_budget_inr": str(fund_allocated),
+            "unrouted_saa_budget_inr": str(routing_unallocated),
+            "routed_but_unallocated_budget_inr": str(fund_unallocated),
+            "unallocated_budget_inr": str(overall_unallocated),
+            "reconciliation_ok": (
+                routing_reconciles
+                and fund_requested == routed_budget
+                and fund_allocated + fund_unallocated == routed_budget
+                and fund_allocated + overall_unallocated == Decimal(str(monthly_budget_inr))
+            ),
+        })
         freshness_input = context["freshness"]
         freshness = evaluate_recommendation_freshness(
             recommendation_as_of_date=freshness_input["recommendation_as_of_date"],
@@ -525,6 +638,7 @@ def _assess_complete_portfolio_context(
             and routing["status"] in {"ROUTED", "HOLD"}
             and candidate_allocation["status"] == "ALLOCATED"
             and candidate_allocation["reconciliation_ok"] is True
+            and candidate_set_concentration["status"] == "ASSESSED"
             and external_lookthrough.get("status") == "CALCULATED"
             and all(overlap_results.get(candidate_id, {}).get("status") == "ASSESSED"
                     for candidate_id in eligible_ids)
@@ -548,6 +662,7 @@ def _assess_complete_portfolio_context(
             "external_asset_lookthrough": external_lookthrough,
             "incremental_sip_routing_simulation": routing,
             "candidate_level_sip_allocation_simulation": candidate_allocation,
+            "proposed_candidate_set_concentration": candidate_set_concentration,
             "freshness": freshness,
             "all_input_gates_pass": all_gates_pass,
             "recommendation_authorized": False,
