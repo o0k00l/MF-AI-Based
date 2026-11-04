@@ -167,3 +167,21 @@ def compute_personal_redemption_plan(
             "No missing holding period, tax rate, exemption, exit load or fund priority is inferred.",
         ],
     )
+
+
+class RedemptionAdviceDisabledError(RuntimeError):
+    """Raised when an unapproved legacy redemption-analysis helper is invoked."""
+
+
+def _redemption_advice_disabled(*args, **kwargs):
+    raise RedemptionAdviceDisabledError(
+        "Lot-maturity and redemption profiling are disabled pending independent "
+        "tax/legal approval and verified scheme/plan/lot evidence. No maturity, "
+        "gain, exit-load or redemption estimate has been generated."
+    )
+
+
+# This legacy helper classified Lot.is_long_term() and projected mature values.
+# Keep exact-key lot matching available for data preparation, but block the
+# maturity/value profile until its source and statutory contracts are approved.
+get_holding_mature_profile = _redemption_advice_disabled
