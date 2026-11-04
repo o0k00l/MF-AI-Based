@@ -434,3 +434,35 @@ def test_contract_requires_scheme_master_category_benchmark_and_structure(tmp_pa
     payload["scheme_master"]["schemes"][0].pop("category")
     with pytest.raises(EvidenceProviderContractError, match="category, benchmark or structure"):
         validate_evidence_provider_payload(payload)
+
+def test_signed_source_validation_uses_utc_aware_review_time(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from services import sip_reviewer_approval
+    from services.sip_evidence_contract import _validate_source_document
+
+    raw = b"independently signed source"
+    metadata = {
+        **_source_metadata(raw),
+        "reviewer_approval_envelope": {"signature": "synthetic"},
+    }
+    captured = {}
+
+    def verify(envelope, trust_registry, *, expected_scope, expected_source_sha256,
+               structured_records, now):
+        captured["now"] = now
+        captured["scope"] = expected_scope
+        return SimpleNamespace(ok=True, errors=[])
+
+    monkeypatch.setattr(sip_reviewer_approval, "verify_sip_reviewer_approval", verify)
+    _validate_source_document(
+        metadata,
+        raw,
+        label="Test source",
+        as_of=date(2026, 11, 4),
+        trust_registry={},
+        scope="SIP_TEST_SOURCE",
+    )
+
+    assert captured["scope"] == "SIP_TEST_SOURCE"
+    assert captured["now"].isoformat() == "2026-11-04T00:00:00+00:00"
+    assert captured["now"].utcoffset().total_seconds() == 0
