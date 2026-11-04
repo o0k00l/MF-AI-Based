@@ -56,6 +56,16 @@ def _reviewed_direct_plan_evidence_status(fund_data: dict) -> str:
         or evidence.get("reviewer_attested") is not True
         or evidence.get("plan") != "Direct"
         or evidence.get("scheme_name") != scheme_name
+        # Bind plan evidence to the exact scheme identity, not a display name.
+        or not isinstance(fund_data.get("scheme_id"), str)
+        or not fund_data.get("scheme_id", "").strip()
+        or evidence.get("scheme_id") != fund_data.get("scheme_id")
+        or not isinstance(fund_data.get("isin"), str)
+        or not fund_data.get("isin", "").strip()
+        or evidence.get("isin") != fund_data.get("isin")
+        or not isinstance(fund_data.get("amc_name"), str)
+        or not fund_data.get("amc_name", "").strip()
+        or evidence.get("amc_name") != fund_data.get("amc_name")
         or not isinstance(reviewed_at_raw, str)
     ):
         return "INVALID"
