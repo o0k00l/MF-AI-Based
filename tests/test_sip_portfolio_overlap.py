@@ -71,3 +71,51 @@ def test_candidate_without_verified_lookthrough_is_not_rankable_for_portfolio_fi
 def test_candidate_filter_rejects_invalid_overlap_limit(limit):
     with pytest.raises(ValueError):
         filter_candidates([], [], max_overlap_limit_pct=limit)
+
+
+def test_actual_sip_overlap_uses_equity_value_not_total_portfolio_value():
+    from types import SimpleNamespace
+    from core.math_engine import compute_candidate_portfolio_overlap
+
+    equity_holding = SimpleNamespace(
+        fund_id="EQ-1",
+        current_value_inr=1000.0,
+        equity_pct=100.0,
+        constituent_weights={"ALPHA LTD": 50.0, "BETA LTD": 50.0},
+        constituent_weights_coverage_pct=100.0,
+    )
+    debt_holding_without_equity_lookthrough = SimpleNamespace(
+        fund_id="DEBT-1",
+        current_value_inr=1000.0,
+        equity_pct=0.0,
+        constituent_weights=None,
+        constituent_weights_coverage_pct=None,
+    )
+    candidate = {
+        "constituent_weights": {"ALPHA LTD": 100.0},
+        "constituent_weights_coverage_pct": 100.0,
+    }
+
+    # Debt doubles total portfolio value but must not dilute equity-stock overlap.
+    assert compute_candidate_portfolio_overlap(
+        candidate, [equity_holding, debt_holding_without_equity_lookthrough]
+    ) == pytest.approx(50.0)
+
+
+def test_actual_sip_overlap_is_zero_for_verified_debt_only_portfolio():
+    from types import SimpleNamespace
+    from core.math_engine import compute_candidate_portfolio_overlap
+
+    debt_holding = SimpleNamespace(
+        fund_id="DEBT-1",
+        current_value_inr=5000.0,
+        equity_pct=0.0,
+        constituent_weights=None,
+        constituent_weights_coverage_pct=None,
+    )
+    candidate = {
+        "constituent_weights": {"ALPHA LTD": 100.0},
+        "constituent_weights_coverage_pct": 100.0,
+    }
+
+    assert compute_candidate_portfolio_overlap(candidate, [debt_holding]) == 0.0
