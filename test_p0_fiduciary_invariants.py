@@ -1068,3 +1068,29 @@ def test_p0_17_tri_release_gate_rejects_boolean_and_nonfinite_observations(tmp_p
     blockers = verifier.alpha_release_blockers(fixture_path)
     assert any("non-finite or non-positive TRI value" in blocker for blocker in blockers)
 
+
+
+
+def test_p0_18_tri_fixture_verifier_rejects_malformed_json_shapes(tmp_path):
+    """Malformed JSON object shapes must return failures, never crash CI."""
+    import verify_tri_provenance as verifier
+
+    root_fixture = tmp_path / "root-list.json"
+    root_fixture.write_text("[]", encoding="utf-8")
+    failures = verifier.verify_fixture(root_fixture)
+    assert any("fixture root must be a JSON object" in item for item in failures)
+
+    nested_fixture = tmp_path / "nested-list.json"
+    nested_fixture.write_text(
+        json.dumps({
+            "provenance": {},
+            "coverage": {"nifty_500_tri": [], "nifty_50_tri": {}},
+            "benchmarks": {"NIFTY 500 TRI": [], "NIFTY 50 TRI": {}},
+        }),
+        encoding="utf-8",
+    )
+    failures = verifier.verify_fixture(nested_fixture)
+    assert any("benchmark entry must be a JSON object" in item for item in failures)
+    assert any("levels must be a non-empty date/value object" in item for item in failures)
+    assert any("coverage entry must be a JSON object" in item for item in failures)
+
