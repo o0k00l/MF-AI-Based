@@ -2739,59 +2739,84 @@ def compute_candidate_portfolio_overlap(
     cand: Dict[str, Any],
     holdings: Optional[List[HoldingItem]] = None,
     candidate_universe: Optional[List[Dict[str, Any]]] = None
-) -> float:
+) -> Optional[float]:
     """
-    Computes candidate-to-portfolio weighted stock look-through overlap:
-    Overlap(C, P) = sum_{s in C cap P} min(W_{C, s}, W_{P, s})
-    where W_{P, s} is the aggregate look-through weight of stock s in the client portfolio,
-    and W_{C, s} is the weight of stock s inside the candidate fund.
+    Calculate candidate-to-portfolio overlap from explicit constituent weights.
+
+    Each constituent_weights map expresses stock weights as percentages of the
+    fund's equity sleeve and must be complete (>=99.5% coverage and weights
+    summing to 99.5..100.5%). Portfolio weights are value-weighted across the
+    supplied holdings. None means evidence is missing/incomplete; zero is
+    returned only for a verified empty portfolio or genuinely disjoint holdings.
     """
+    if holdings is None:
+        return None
     if not holdings:
         return 0.0
 
-    total_port_val = sum(h.current_value_inr for h in holdings)
-    if total_port_val <= 0:
-        return 0.0
+    def validated_weights(raw: Any, coverage_raw: Any, label: str) -> Optional[Dict[str, float]]:
+        if not isinstance(raw, dict) or not raw:
+            return None
+        if isinstance(coverage_raw, bool):
+            return None
+        try:
+            coverage = float(coverage_raw)
+            weights = {str(k).strip().casefold(): float(v) for k, v in raw.items()}
+        except (TypeError, ValueError):
+            return None
+        if not math.isfinite(coverage) or coverage < 99.5 or coverage > 100.0:
+            return None
+        if any(not k or not math.isfinite(v) or v < 0.0 or v > 100.0 for k, v in weights.items()):
+            return None
+        total = sum(weights.values())
+        if not 99.5 <= total <= 100.5:
+            return None
+        return weights
 
-    metrics_map = {}
-    if candidate_universe:
-        for f in candidate_universe:
-            fid = f.get("id") or f.get("fund_id") or f.get("name")
-            if fid:
-                metrics_map[str(fid).lower()] = f
-                metrics_map[str(f.get("name", "")).lower()] = f
-                metrics_map[str(f.get("fund_name", "")).lower()] = f
+    candidate_weights = validated_weights(
+        cand.get("constituent_weights"),
+        cand.get("constituent_weights_coverage_pct"),
+        "candidate",
+    )
+    if candidate_weights is None:
+        return None
 
-    port_stocks = {}
-    for h in holdings:
-        s_lower = h.scheme.lower()
-        f_info = metrics_map.get(h.fund_id.lower()) or metrics_map.get(s_lower)
-        if not f_info:
-            continue
-        stocks = f_info.get("h", [])
-        if not stocks:
-            continue
-        h_weight = h.current_value_inr / total_port_val
-        eq_pct = float(f_info.get("eq", f_info.get("equity_pct", 100.0)) or 100.0) / 100.0
-        per_stock_wt = (h_weight * eq_pct) / len(stocks) * 100.0
-        for s in stocks:
-            sc = s.strip().lower()
-            port_stocks[sc] = port_stocks.get(sc, 0.0) + per_stock_wt
+    total_portfolio_value = 0.0
+    portfolio_stock_weights: Dict[str, float] = {}
+    for holding in holdings:
+        try:
+            value = float(holding.current_value_inr)
+            equity_pct = float(holding.equity_pct)
+        except (TypeError, ValueError, AttributeError):
+            return None
+        if not math.isfinite(value) or value <= 0.0 or not math.isfinite(equity_pct) or not 0.0 <= equity_pct <= 100.0:
+            return None
+        holding_weights = validated_weights(
+            getattr(holding, "constituent_weights", None),
+            getattr(holding, "constituent_weights_coverage_pct", None),
+            f"holding {getattr(holding, 'fund_id', 'unknown')}",
+        )
+        if holding_weights is None:
+            return None
+        total_portfolio_value += value
+        equity_value_weight = value * equity_pct / 100.0
+        for security_id, stock_weight_pct in holding_weights.items():
+            portfolio_stock_weights[security_id] = (
+                portfolio_stock_weights.get(security_id, 0.0)
+                + equity_value_weight * stock_weight_pct / 100.0
+            )
 
-    c_stocks = cand.get("h", [])
-    if not c_stocks:
-        return 0.0
-
-    c_eq_pct = float(cand.get("eq", cand.get("equity_pct", 95.0)) or 95.0)
-    per_c_stock_wt = c_eq_pct / len(c_stocks)
-
-    total_overlap = 0.0
-    for s in c_stocks:
-        sc = s.strip().lower()
-        p_wt = port_stocks.get(sc, 0.0)
-        total_overlap += min(per_c_stock_wt, p_wt)
-
-    return round(total_overlap, 2)
+    if not math.isfinite(total_portfolio_value) or total_portfolio_value <= 0.0:
+        return None
+    portfolio_stock_weights = {
+        security_id: value / total_portfolio_value * 100.0
+        for security_id, value in portfolio_stock_weights.items()
+    }
+    overlap = sum(
+        min(candidate_weight, portfolio_stock_weights.get(security_id, 0.0))
+        for security_id, candidate_weight in candidate_weights.items()
+    )
+    return round(overlap, 2)
 
 
 
@@ -3905,10 +3930,20 @@ def select_autonomous_blueprint_funds(
                 # No approved scoring model exists for this category (notably
                 # debt and unsupported thematic categories). Keep it unselected.
                 continue
+            # Existing holdings must influence marginal portfolio fit. A confirmed
+            # empty portfolio has zero overlap; missing/incomplete constituent
+            # evidence is unknown and therefore cannot enter the ranking.
+            portfolio_overlap = compute_candidate_portfolio_overlap(
+                candidate,
+                holdings=holdings,
+            )
+            if portfolio_overlap is None:
+                continue
             try:
                 score = compute_multi_horizon_fiduciary_score(
                     candidate,
                     category_key=score_category_key,
+                    portfolio_overlap_pct=portfolio_overlap,
                 )
             except ValueError:
                 # An unscorable candidate is not a zero-score candidate and
