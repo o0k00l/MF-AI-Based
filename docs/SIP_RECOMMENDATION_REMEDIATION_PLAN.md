@@ -30,6 +30,7 @@ The principal deterministic path is:
 | SIP-007 | P1 | The six-pillar score uses fixed category anchors and rewards defensive buffer and international exposure as generic positive factors for every equity category. | Score design may favour the wrong characteristics and is not a validated category-relative fund-selection model. |
 | SIP-008 | P1 | The policy's stated 30-candidate minimum, 20% per-fund cap and default sleeve targets are not yet shown to be mutually feasible. | A policy contradiction may make valid SIP construction impossible or encourage silent reallocation. |
 | SIP-009 | P1 | The final plan checks missing Direct status only for positive rounded monthly amounts; the plan model does not itself enforce allocated + unallocated = requested budget or exact percentage reconciliation. | Edge cases involving small budgets, rounding or malformed plan construction need explicit invariants. |
+| SIP-010 | P0 | The Very High SAA combines mid-cap and small-cap targets into one `mid_small` sleeve, but the selector then chooses only a Mid Cap fund for the combined amount. | The resulting recommendation can materially misstate the intended small-cap exposure and does not implement the investor's SAA. Separate mid- and small-cap sleeves are required. |
 
 ## 3. Non-negotiable SIP acceptance criteria
 
