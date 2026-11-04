@@ -178,6 +178,16 @@ def create_sip_app(
                 ):
                     if provenance_field in evidence:
                         service_inputs[provenance_field] = evidence[provenance_field]
+                metrics_metadata = evidence.get("metrics_source_metadata")
+                if isinstance(metrics_metadata, dict):
+                    service_inputs["metrics_normalized_sha256"] = metrics_metadata.get(
+                        "normalized_metrics_sha256"
+                    )
+                candidate_metadata = evidence.get("candidate_universe_source")
+                if isinstance(candidate_metadata, dict):
+                    service_inputs["candidate_universe_normalized_sha256"] = candidate_metadata.get(
+                        "normalized_candidate_universe_sha256"
+                    )
                 provider_portfolio_context = evidence.get("portfolio_context")
                 if provider_portfolio_context is not None:
                     provider_portfolio_context["evidence_attested_by_provider"] = True
