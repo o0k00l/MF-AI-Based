@@ -293,11 +293,7 @@ def validate_evidence_provider_payload(
             trust_registry=trust_registry,
             require_reviewer_signature=require_reviewer_signature,
             scope="SIP_EVIDENCE_RELEASE",
-            structured_records={
-                "normalized_portfolio_context_sha256": payload[
-                    "portfolio_context_source_metadata"
-                ].get("normalized_portfolio_context_sha256")
-            },
+            structured_records=payload["portfolio_context"],
         )
     if score_source_present:
         score_metadata = payload["candidate_score_source_metadata"]
