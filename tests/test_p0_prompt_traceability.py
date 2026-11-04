@@ -139,3 +139,74 @@ def test_interactive_fresh_money_answer_does_not_invent_a_plan():
     assert "20/80" not in answer
     assert "Section 50AA" not in answer
     assert "Equity Arbitrage Fund" not in answer
+
+
+def test_selection_dossier_does_not_invent_peer_metrics():
+    facts = SimpleNamespace(
+        deterministic_sip_plan=None,
+        eligibility_results=[],
+        thematic_exposures=[],
+    )
+
+    dossier = prompt_advisor._build_dynamic_selection_dossier(facts)
+
+    assert "eligibility comparison unavailable" in dossier
+    assert "Do not invent peer names" in dossier
+    assert "360.1" not in dossier
+    assert "0.69%" not in dossier
+    assert "80+ diffused holdings" not in dossier
+    assert "HDFC Flexi Cap" not in dossier
+
+
+def test_switch_report_fails_closed_without_tax_or_cost_evidence(monkeypatch):
+    facts = SimpleNamespace(
+        client_name="Synthetic Investor",
+        holdings=[],
+        overlap_matrix=[],
+        weighted_overlap=[],
+        fee_bleed=SimpleNamespace(
+            details=[],
+            annual_bleed_inr=1000.0,
+            ten_year_compounded_loss_inr=12000.0,
+            regular_portfolio_value_inr=100000.0,
+            regular_funds_count=0,
+        ),
+        switch_costs=[],
+        tax_lots_summary=None,
+        total_portfolio_value_inr=100000.0,
+        holdings_count=0,
+        total_unrealized_gain_inr=0.0,
+        mandate_state="HOLD_PENDING_TRI_VALIDATION",
+        is_execution_authorized=False,
+        is_actionable_order=False,
+        no_action=None,
+    )
+    monkeypatch.setattr(prompt_advisor, "_call_llm_with_retry", lambda prompt: prompt)
+
+    prompt = prompt_advisor.generate_switch_and_consolidation_plan(facts)
+
+    assert "NO ACTION" in prompt
+    assert "tax-lot conclusions and tax-optimized switch schedules are NO ACTION" in prompt
+    assert "no scheme-level exit-load and tax cost evidence is unavailable" not in prompt
+    assert "do not infer missing exit-load or tax values" in prompt
+    assert "20% STCG" not in prompt
+    assert "12.5% LTCG" not in prompt
+    assert "1.25L" not in prompt
+    assert "365" not in prompt
+    assert "70%" not in prompt
+    assert "80x" not in prompt
+    assert "1.94% Regular TER" not in prompt
+    assert "Motilal Defence Index" not in prompt
+
+
+def test_redemption_interactive_response_does_not_invent_tax_waterfall():
+    facts = SimpleNamespace(stability_buffer=None, tax_lots_summary=None)
+
+    answer = prompt_advisor.answer_interactive_query(facts, "how should I redeem")
+
+    assert "NO ACTION" in answer
+    assert "Tax-lot evidence unavailable" in answer
+    assert "20% STCG" not in answer
+    assert "1,25,000" not in answer
+    assert "Day 366" not in answer
+    assert "INR 0 tax" not in answer
