@@ -51,7 +51,7 @@ The principal deterministic path is:
 
 **Mid/small sleeve implementation:** commits `2526d25`, `b23ace6`, `6ad94d2`, `38a8fcd`, `9de9147` and `b16049e` add separate Mid Cap and Small Cap selector slots, pass them into SIP plan construction, preserve the starter combined mid/small policy while splitting by SAA proportions, and require fail-closed verification for each positively weighted sleeve. The selector unit test uses a stub scorer to verify category routing; it does **not** validate a real small-cap scoring model. The current scoring anchor table has no `Small Cap` entry, intentionally preventing a live small-cap ranking from being invented. The production SIP therefore remains blocked for any mandate with a positive small-cap target until the benchmark-consistent small-cap research model is validated.
 
-**CI evidence:** `07c7a2f` — full suite 138 passed / 31 skipped; fiduciary invariants 15 passed / 1 skipped; correctness regressions 77 passed / 30 skipped. This is software verification, not research or production approval.
+**CI evidence:** `509b934` — full suite 138 passed / 31 skipped; fiduciary invariants passed; correctness regressions passed; policy/static validation passed; dependency lock and benchmark-fixture integrity checks passed. Earlier baseline `07c7a2f` had the same full-suite count before the sleeve split. This is software verification, not research or production approval.
 
 ## 4. Non-negotiable SIP acceptance criteria
 
