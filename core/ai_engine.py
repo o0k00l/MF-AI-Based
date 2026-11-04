@@ -156,8 +156,12 @@ def _is_zero_price(value: Any) -> bool:
         return False
 
 
-def _discover_openai_models(provider: str, url: str, key: str) -> list[str]:
-    cached = _read_model_cache(provider, key)
+def _discover_openai_models(
+    provider: str, url: str, key: str, *, force_refresh: bool = False
+) -> list[str]:
+    # A forced refresh must bypass the cache even when cache-file deletion or
+    # replacement is unavailable (read-only filesystem, transient I/O error).
+    cached = None if force_refresh else _read_model_cache(provider, key)
     if cached:
         return cached
     payload = _http_json(url, key, provider)
@@ -209,14 +213,9 @@ def discover_requesty_free_models(api_key: str = "", force_refresh: bool = False
     key = api_key or os.getenv("REQUESTY_API_KEY", "")
     if not key:
         raise ProviderError("Requesty", "REQUESTY_API_KEY is not configured.")
-    if force_refresh and MODEL_CACHE_FILE is not None:
-        try:
-            data = json.loads(MODEL_CACHE_FILE.read_text(encoding="utf-8"))
-            data.pop("Requesty", None)
-            MODEL_CACHE_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
-        except (OSError, ValueError, TypeError):
-            pass
-    return _discover_openai_models("Requesty", REQUESTY_MODELS_URL, key)
+    return _discover_openai_models(
+        "Requesty", REQUESTY_MODELS_URL, key, force_refresh=force_refresh
+    )
 
 
 def discover_openrouter_free_models(api_key: str = "", force_refresh: bool = False) -> list[str]:
@@ -224,14 +223,9 @@ def discover_openrouter_free_models(api_key: str = "", force_refresh: bool = Fal
     key = api_key or os.getenv("OPENROUTER_API_KEY", "")
     if not key:
         raise ProviderError("OpenRouter", "OPENROUTER_API_KEY is not configured.")
-    if force_refresh and MODEL_CACHE_FILE is not None:
-        try:
-            data = json.loads(MODEL_CACHE_FILE.read_text(encoding="utf-8"))
-            data.pop("OpenRouter", None)
-            MODEL_CACHE_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
-        except (OSError, ValueError, TypeError):
-            pass
-    return _discover_openai_models("OpenRouter", OPENROUTER_MODELS_URL, key)
+    return _discover_openai_models(
+        "OpenRouter", OPENROUTER_MODELS_URL, key, force_refresh=force_refresh
+    )
 
 
 def _cache_key(prompt: str, data_snapshot: str = "") -> str:
