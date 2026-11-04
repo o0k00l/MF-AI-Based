@@ -83,6 +83,10 @@ class HoldingItem(BaseModel):
     units: float
     nav: float
     top_holdings: List[str] = Field(default_factory=list)
+    # Full, source-verified constituent weights as percentages of the fund equity sleeve.
+    # Missing or partial look-through data must not be interpreted as zero overlap.
+    constituent_weights: Optional[Dict[str, float]] = None
+    constituent_weights_coverage_pct: Optional[float] = None
     risk_tier: Optional[str] = None
     xirr_pct: Optional[float] = None
     expense_ratio_pct: float = 0.0
