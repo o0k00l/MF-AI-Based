@@ -97,6 +97,7 @@ def test_cas_workbook_exact_identity_and_verified_disclosure_are_attached(tmp_pa
     assert len(holdings) == 1
     holding = holdings[0]
     assert holding.scheme_id == SCHEME_ID
+    assert holding.isin == ISIN
     assert holding.amc_name == AMC_NAME
     assert holding.is_direct is True
     assert holding.lookthrough_status == "VERIFIED"
