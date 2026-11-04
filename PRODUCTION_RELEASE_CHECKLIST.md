@@ -119,7 +119,7 @@ The release owner must mark every applicable gate complete and attach evidence a
 
 - no investment order or transaction may be generated;
 - no matched TRI alpha or fund ranking may be presented as verified;
-- tax outputs must remain provisional and subject to review;
+- tax outputs must remain unavailable until independent legal review and evidence-backed reactivation;
 - missing inputs must produce NO ACTION / HOLD;
 - all unallocated budget must remain explicitly unallocated.
 
