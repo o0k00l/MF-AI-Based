@@ -12,6 +12,7 @@ It does not download, infer, or manufacture source evidence.
 from __future__ import annotations
 
 from datetime import date
+import hashlib
 import json
 import math
 from pathlib import Path
@@ -22,7 +23,12 @@ from core.math_engine import (
     load_holdings_from_cas_excel,
 )
 from core.models import DeterministicSIPPlan, MandateExecutionState
-from core.portfolio_sip_controls import PortfolioInputError, calculate_saa_drift
+from core.portfolio_sip_controls import (
+    PortfolioInputError,
+    build_decision_trace,
+    calculate_lookthrough_exposure,
+    calculate_saa_drift,
+)
 
 
 _ALLOWED_RISK_PROFILES = {
@@ -82,6 +88,33 @@ def _build_cas_portfolio_assessment(holdings: list[Any], risk_profile: str) -> d
         drift = calculate_saa_drift(
             current, targets, tolerance_band_pct=tolerance, portfolio_total_inr=total
         )
+        equity_rows = []
+        for holding in holdings:
+            holding_value = float(holding.current_value_inr)
+            equity_pct = float(getattr(holding, "equity_pct", 0.0))
+            if not math.isfinite(equity_pct) or not 0.0 <= equity_pct <= 100.0:
+                raise ValueError("holding equity exposure is invalid")
+            equity_value = holding_value * equity_pct / 100.0
+            if equity_value <= 0:
+                continue
+            constituents = getattr(holding, "constituent_weights", None)
+            if not isinstance(constituents, dict) or not constituents:
+                raise ValueError("verified equity holding has no constituent weights")
+            equity_rows.append({
+                "holding_value_inr": equity_value,
+                "coverage_pct": holding.constituent_weights_coverage_pct,
+                "constituents": constituents,
+            })
+        if equity_rows:
+            lookthrough = calculate_lookthrough_exposure(
+                equity_rows, required_coverage_pct="99.5"
+            )
+        else:
+            lookthrough = {
+                "status": "HOLD",
+                "reason": "NO_VERIFIED_EQUITY_EXPOSURE_AVAILABLE",
+                "issuer_exposure_inr": None,
+            }
         return {
             "status": "DIAGNOSTIC_ONLY",
             "scope": "CAS_MUTUAL_FUND_HOLDINGS_ONLY",
@@ -93,6 +126,7 @@ def _build_cas_portfolio_assessment(holdings: list[Any], risk_profile: str) -> d
             "policy_as_of": policy.get("as_of"),
             "tolerance_band_pct": tolerance,
             "saa_drift": drift,
+            "lookthrough": lookthrough,
             "sip_routing": {
                 "status": "HOLD",
                 "reason": "TOTAL_PORTFOLIO_PERIMETER_AND_EXTERNAL_ASSETS_NOT_RECONCILED",
