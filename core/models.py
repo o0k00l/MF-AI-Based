@@ -358,18 +358,23 @@ class RiskDistribution(BaseModel):
 
 
 class SwitchCostAnalysis(BaseModel):
-    """Actual cost of switching - not 'zero-friction'."""
+    """Scheme/lot-level switch cost result; unavailable is distinct from zero cost."""
     source_fund: str
     target_fund: str
-    exit_load_pct: float
-    exit_load_inr: float
-    capital_gains_tax_inr: float
-    stcg_tax_inr: float
-    ltcg_tax_inr: float
-    net_switch_cost_inr: float
-    net_switch_cost_pct: float
+    exit_load_pct: Optional[float] = None
+    exit_load_inr: Optional[float] = None
+    capital_gains_tax_inr: Optional[float] = None
+    stcg_tax_inr: Optional[float] = None
+    ltcg_tax_inr: Optional[float] = None
+    net_switch_cost_inr: Optional[float] = None
+    net_switch_cost_pct: Optional[float] = None
     is_intra_amc: bool
-    warning: str = "Intra-AMC switches trigger capital gains tax and exit loads per Sections 47 & 112A"
+    is_available: bool = False
+    unavailable_reason: Optional[str] = None
+    warning: str = (
+        "NO ACTION: scheme/plan/lot-specific exit-load evidence and independently "
+        "approved tax rules are required. Unavailable costs are not zero."
+    )
 
 
 class EligibilityGateResult(BaseModel):
