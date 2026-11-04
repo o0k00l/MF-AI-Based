@@ -661,7 +661,19 @@ def test_combined_selected_funds_cannot_collectively_breach_sector_cap(tmp_path,
         for index in range(1, 31)
     }
     context["concentration_policy"]["max_issuer_pct_of_portfolio"] = "100"
-    context["concentration_policy"]["max_sector_pct_of_portfolio"] = "12.8"
+    context["concentration_policy"]["max_sector_pct_of_portfolio"] = "12.7"
+    for asset in context["assets"]:
+        if asset["asset_id"] in {"mid", "small", "flexi"}:
+            asset["constituent_weights"] = {
+                f"{asset['asset_id']}-1": 50,
+                f"{asset['asset_id']}-2": 50,
+            }
+            context["concentration_policy"]["issuer_classifications"][f"{asset['asset_id']}-1"] = {
+                "sector": f"{asset['asset_id']}-sec1", "market_cap_bucket": "mid_cap", "themes": [],
+            }
+            context["concentration_policy"]["issuer_classifications"][f"{asset['asset_id']}-2"] = {
+                "sector": f"{asset['asset_id']}-sec2", "market_cap_bucket": "mid_cap", "themes": [],
+            }
 
     result = service.recommend_sip(**args, portfolio_context=context)
 
@@ -671,7 +683,7 @@ def test_combined_selected_funds_cannot_collectively_breach_sector_cap(tmp_path,
     allocation = assessment["candidate_level_sip_allocation_simulation"]
     assert individual["status"] == "ASSESSED", individual.get("sector_market_cap_theme")
     assert combined["status"] == "HOLD"
-    assert float(combined["sector_market_cap_theme"]["breaches"]["sector"]["Financials"]) > 12.8
+    assert float(combined["sector_market_cap_theme"]["breaches"]["sector"]["Financials"]) > 12.7
     assert allocation["status"] == "HOLD"
     assert allocation["allocated_budget_inr"] == "0"
     assert allocation["unallocated_budget_inr"] == "10000"
@@ -690,7 +702,19 @@ def test_individual_concentration_uses_fund_minimum_and_combined_selection_uses_
     )
     context = _complete_portfolio_context()
     context["concentration_policy"]["max_issuer_pct_of_portfolio"] = "100"
-    context["concentration_policy"]["max_sector_pct_of_portfolio"] = "12.8"
+    context["concentration_policy"]["max_sector_pct_of_portfolio"] = "12.7"
+    for asset in context["assets"]:
+        if asset["asset_id"] in {"mid", "small", "flexi"}:
+            asset["constituent_weights"] = {
+                f"{asset['asset_id']}-1": 50,
+                f"{asset['asset_id']}-2": 50,
+            }
+            context["concentration_policy"]["issuer_classifications"][f"{asset['asset_id']}-1"] = {
+                "sector": f"{asset['asset_id']}-sec1", "market_cap_bucket": "mid_cap", "themes": [],
+            }
+            context["concentration_policy"]["issuer_classifications"][f"{asset['asset_id']}-2"] = {
+                "sector": f"{asset['asset_id']}-sec2", "market_cap_bucket": "mid_cap", "themes": [],
+            }
     context["candidate_policy"]["candidate_sleeves"] = {
         f"CANDIDATE-{index}": (
             "large_cap" if index <= 15 else "flexi_multi_cap"
