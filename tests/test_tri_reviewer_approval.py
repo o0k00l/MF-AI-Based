@@ -62,7 +62,7 @@ def _signed_case(tmp_path):
     }
     envelope = {"payload": payload, "signature": _b64(private.sign(rfc8785.dumps(payload)))}
     registry = {"schema_version": 1, "keys": [{
-        "key_id": "key-test", "reviewer_id": "reviewer-test",
+        "key_id": "key-test", "reviewer_id": "reviewer-test", "reviewer_role": "independent",
         "public_key": _b64(public), "valid_from": "2025-01-01T00:00:00Z",
         "valid_until": "2027-01-01T00:00:00Z", "revoked_at": None,
     }]}
@@ -153,3 +153,42 @@ def test_key_expiry_is_checked_at_verification_time(tmp_path):
     case = list(_signed_case(tmp_path))
     case[1]["keys"][0]["valid_until"] = "2026-01-02T12:00:00Z"
     assert not _verify(tuple(case)).ok
+
+
+
+def test_noncanonical_timestamp_is_rejected():
+    from tri_reviewer_approval import _utc
+
+    with pytest.raises(ValueError, match="canonical UTC RFC3339"):
+        _utc("20260102T000000Z")
+
+
+def test_trusted_key_must_be_authorized_for_independent_review(tmp_path):
+    case = list(_signed_case(tmp_path))
+    case[1]["keys"][0]["reviewer_role"] = "operator"
+    assert not _verify(tuple(case)).ok
+
+
+def test_trust_registry_and_approval_input_sizes_are_bounded(monkeypatch, tmp_path):
+    from tri_reviewer_approval import (
+        ENV_APPROVAL, ENV_REGISTRY, MAX_APPROVAL_BYTES, MAX_REGISTRY_BYTES,
+        verify_approval_from_environment,
+    )
+
+    monkeypatch.setenv(ENV_REGISTRY, " " * (MAX_REGISTRY_BYTES + 1))
+    monkeypatch.setenv(ENV_APPROVAL, "{}")
+    result = verify_approval_from_environment(
+        repository="o0k00l/MF-AI-Based", expected_commit="a" * 40,
+        fixture_path=tmp_path / "fixture.json", root=tmp_path,
+    )
+    assert not result.ok
+    assert "size limit" in result.errors[0]
+
+    monkeypatch.setenv(ENV_REGISTRY, "{}")
+    monkeypatch.setenv(ENV_APPROVAL, " " * (MAX_APPROVAL_BYTES + 1))
+    result = verify_approval_from_environment(
+        repository="o0k00l/MF-AI-Based", expected_commit="a" * 40,
+        fixture_path=tmp_path / "fixture.json", root=tmp_path,
+    )
+    assert not result.ok
+    assert "size limit" in result.errors[0]
