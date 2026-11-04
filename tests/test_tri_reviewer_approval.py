@@ -66,11 +66,11 @@ def _signed_case(tmp_path):
         "public_key": _b64(public), "valid_from": "2025-01-01T00:00:00Z",
         "valid_until": "2027-01-01T00:00:00Z", "revoked_at": None,
     }]}
-    return envelope, registry, fixture, root, now
+    return envelope, registry, fixture, root, now, private
 
 
 def _verify(case, **kwargs):
-    envelope, registry, fixture, root, now = case
+    envelope, registry, fixture, root, now, *_ = case
     return verify_approval(
         envelope, registry, repository="o0k00l/MF-AI-Based",
         expected_commit="a" * 40, fixture_path=fixture, root=root, now=now, **kwargs
@@ -223,6 +223,7 @@ def test_empty_signed_source_document_is_rejected(tmp_path):
     source.write_bytes(b"")
     import hashlib
     case[0]["payload"]["tri_source_documents"][1]["sha256"] = hashlib.sha256(b"").hexdigest()
+    case[0]["signature"] = _b64(case[5].sign(rfc8785.dumps(case[0]["payload"])))
     result = _verify(tuple(case))
     assert not result.ok
     assert "empty" in result.errors[0]
