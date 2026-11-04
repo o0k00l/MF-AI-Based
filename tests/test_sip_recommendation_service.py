@@ -333,6 +333,7 @@ def _complete_portfolio_context():
             "classification_source_ref": "sha256:issuer-classification",
             "issuer_classifications": {
                 "ISSUER-A": {"sector": "Financials", "market_cap_bucket": "large_cap", "themes": ["value"]},
+                "ISSUER-B": {"sector": "Financials", "market_cap_bucket": "large_cap", "themes": ["value"]},
                 "ISSUER-C": {"sector": "Technology", "market_cap_bucket": "large_cap", "themes": ["digital"]},
                 "MID-ISSUER": {"sector": "Industrials", "market_cap_bucket": "mid_cap", "themes": ["manufacturing"]},
                 "SMALL-ISSUER": {"sector": "Healthcare", "market_cap_bucket": "small_cap", "themes": ["health"]},
