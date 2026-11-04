@@ -171,6 +171,9 @@ def create_sip_app(
                     "candidate_universe": evidence["candidate_universe"],
                 }
                 if portfolio_context is not None:
+                    # Client declarations are useful for scenario diagnostics,
+                    # but cannot attest source authenticity or perimeter completeness.
+                    portfolio_context["_client_supplied_unverified"] = True
                     service_inputs["portfolio_context"] = portfolio_context
                 result = recommend_sip(**service_inputs)
             except Exception as exc:
