@@ -15,7 +15,7 @@ from datetime import date
 import hashlib
 import json
 import math
-from decimal import Decimal
+from decimal import Decimal, ROUND_CEILING
 from pathlib import Path
 from typing import Any
 
@@ -431,10 +431,37 @@ def _assess_complete_portfolio_context(
                 overlap_results[candidate_id] = {"status": "HOLD", "reason": "CANDIDATE_LOOKTHROUGH_MISSING"}
                 continue
             candidate_sleeve = candidate_policy.get("candidate_sleeves", {}).get(candidate_id)
-            ticket_budget = Decimal(str(routing.get("allocations_inr", {}).get(candidate_sleeve, "0")))
-            if ticket_budget <= 0:
+            routed_sleeve_budget = Decimal(
+                str(routing.get("allocations_inr", {}).get(candidate_sleeve, "0"))
+            )
+            operational_minimum = operational_results.get(candidate_id, {}).get(
+                "minimum_monthly_sip_inr"
+            )
+            try:
+                policy_minimum = Decimal(str(policy["sip_allocation_policy"]["min_sip_per_fund_inr"]))
+                scheme_minimum = Decimal(str(operational_minimum))
+                sip_increment = Decimal(str(policy["sip_allocation_policy"]["sip_increment_inr"]))
+            except (KeyError, TypeError, ValueError, ArithmeticError):
                 overlap_results[candidate_id] = {
-                    "status": "HOLD", "reason": "NO_ROUTED_SIP_BUDGET_FOR_CANDIDATE_SLEEVE"
+                    "status": "HOLD", "reason": "CANDIDATE_FUND_MINIMUM_OR_INCREMENT_UNAVAILABLE"
+                }
+                continue
+            if sip_increment <= 0 or policy_minimum <= 0 or scheme_minimum <= 0:
+                overlap_results[candidate_id] = {
+                    "status": "HOLD", "reason": "CANDIDATE_FUND_MINIMUM_OR_INCREMENT_INVALID"
+                }
+                continue
+            minimum_ticket = max(policy_minimum, scheme_minimum)
+            ticket_budget = (
+                (minimum_ticket / sip_increment).to_integral_value(rounding=ROUND_CEILING)
+                * sip_increment
+            )
+            if routed_sleeve_budget <= 0 or ticket_budget > routed_sleeve_budget:
+                overlap_results[candidate_id] = {
+                    "status": "HOLD",
+                    "reason": "ROUTED_SLEEVE_BUDGET_BELOW_CANDIDATE_MINIMUM_TICKET",
+                    "minimum_ticket_inr": str(ticket_budget),
+                    "routed_sleeve_budget_inr": str(routed_sleeve_budget),
                 }
                 continue
             candidate_post_total = Decimal(str(total)) + ticket_budget
@@ -476,6 +503,8 @@ def _assess_complete_portfolio_context(
             overlap_results[candidate_id] = {
                 "status": "HOLD" if concentration_blocked else "ASSESSED",
                 "ticket_basis_inr": str(ticket_budget),
+                "routed_sleeve_budget_inr": str(routed_sleeve_budget),
+                "scheme_minimum_monthly_sip_inr": str(scheme_minimum),
                 "shared_issuers": sorted(set(issuers) & set(existing_issuer_values)),
                 "candidate_issuer_exposure_inr": issuers,
                 "combined_issuer_concentration_pct": concentrations,
