@@ -334,6 +334,7 @@ def test_api_runs_portfolio_saa_diagnostic_end_to_end_and_keeps_budget_on_hold(m
     candidate_source_bytes = b"synthetic candidate universe"
     metrics_source_bytes = b"reviewed fund metrics source"
     rank_score_source_bytes = b"reviewed candidate ranking scores"
+    category_anchor_source_bytes = b"approved large-cap benchmark anchor source"
 
     def metadata(raw, url, source_type):
         return {
@@ -371,6 +372,14 @@ def test_api_runs_portfolio_saa_diagnostic_end_to_end_and_keeps_budget_on_hold(m
         "rank_score_source_ref": "sha256:" + hashlib.sha256(rank_score_source_bytes).hexdigest(),
         "rank_score_as_of_date": as_of.isoformat(),
         "rank_score_methodology_version": "risk-quality-v1",
+        "rank_score_scope": "PORTFOLIO_AWARE",
+        "rank_score_portfolio_overlap_status": "VERIFIED",
+        "rank_score_portfolio_overlap_pct": "18.5",
+        "rank_score_portfolio_overlap_coverage_pct": "99.8",
+        "rank_score_portfolio_overlap_source_ref": "sha256:" + hashlib.sha256(b"portfolio overlap source").hexdigest(),
+        "rank_score_category_anchor_source_ref": "sha256:" + hashlib.sha256(category_anchor_source_bytes).hexdigest(),
+        "rank_score_category_anchor_policy_version": "category-anchor-v1",
+        "rank_score_benchmark_identity": "Nifty 100 TRI",
     }
     provider = lambda **kwargs: {
         "metrics_path": Path(__file__),
@@ -402,8 +411,30 @@ def test_api_runs_portfolio_saa_diagnostic_end_to_end_and_keeps_budget_on_hold(m
         "candidate_score_source_metadata": {
             **metadata(rank_score_source_bytes, "https://amfiindia.com/ranking-scores", "REVIEWED_CANDIDATE_RANKING"),
             "methodology_version": "risk-quality-v1",
+            "score_scope": "PORTFOLIO_AWARE",
+            "missing_overlap_policy": "BLOCK_SCORE",
         },
         "candidate_score_source_bytes": rank_score_source_bytes,
+        "category_anchor_source_metadata": {
+            **metadata(category_anchor_source_bytes, "https://amfiindia.com/benchmark-anchors", "APPROVED_CATEGORY_BENCHMARK_ANCHORS"),
+            "reviewer_id": "independent-reviewer",
+            "policy_version": "category-anchor-v1",
+            "category_anchors": {
+                "Large Cap": {
+                    "status": "APPROVED",
+                    "benchmark_identity": "Nifty 100 TRI",
+                    "reviewer_id": "independent-reviewer",
+                    "policy_version": "category-anchor-v1",
+                    "effective_date": as_of.isoformat(),
+                    "anchor_set": {
+                        "alpha": [0, 5], "ret1y": [0, 30], "sharpe": [0.2, 1.0],
+                        "ter": [0.1, 1.0], "buffer": [0, 15], "intl": [0, 10],
+                        "overlap": [0, 100],
+                    },
+                }
+            },
+        },
+        "category_anchor_source_bytes": category_anchor_source_bytes,
         "metrics_source_metadata": {
             **metadata(metrics_source_bytes, "https://amfiindia.com/fund-metrics", "OFFICIAL_FUND_METRICS"),
             "normalized_metrics_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
@@ -449,6 +480,7 @@ def test_api_runs_portfolio_saa_diagnostic_end_to_end_and_keeps_budget_on_hold(m
     assert trace_record["source_digests"]["metrics_source_sha256"] == hashlib.sha256(metrics_source_bytes).hexdigest()
     assert trace_record["source_digests"]["candidate_universe_source_sha256"] == hashlib.sha256(candidate_source_bytes).hexdigest()
     assert trace_record["source_digests"]["candidate_score_source_sha256"] == hashlib.sha256(rank_score_source_bytes).hexdigest()
+    assert trace_record["source_digests"]["category_anchor_source_sha256"] == hashlib.sha256(category_anchor_source_bytes).hexdigest()
     assert trace_record["source_digests"]["metrics_normalized_sha256"] == hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
     assert trace_record["eligibility"]["candidate_rank_evidence"]["fund-api-saa"]["rank_score_methodology_version"] == "risk-quality-v1"
     assert body["plan"]["items"] == []
