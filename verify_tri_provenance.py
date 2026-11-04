@@ -203,7 +203,10 @@ def alpha_release_blockers(fixture_path: Path, *, approval_verified: bool = Fals
         "data/policy/nse_trading_calendar.json", "NSE trading calendar"
     )
     if calendar_path_error:
-        blockers.append(calendar_path_error)
+        if "file does not exist" in calendar_path_error:
+            blockers.append("independently sourced data/policy/nse_trading_calendar.json is absent")
+        else:
+            blockers.append(calendar_path_error)
         return blockers
     try:
         calendar = json.loads(calendar_path.read_text(encoding="utf-8"))
