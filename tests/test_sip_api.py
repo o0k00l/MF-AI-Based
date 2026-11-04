@@ -262,7 +262,7 @@ def test_api_real_service_ingests_cas_and_holds_on_missing_portfolio_disclosure(
 
     metrics_path = tmp_path / "metrics.json"
     metrics_path.write_text(json.dumps({"funds": [{
-        "id": "fund-api-e2e", "scheme": scheme_name, "name": scheme_name,
+        "id": "fund-api-e2e", "scheme_id": scheme_id, "isin": isin, "scheme": scheme_name, "name": scheme_name,
         "cat": "Flexi Cap", "er": 0.65, "eq": 100.0, "debt": 0.0,
         "lc": 50.0, "mc": 30.0, "sc": 20.0, "h": [],
     }]}), encoding="utf-8")
@@ -309,9 +309,14 @@ def test_api_real_service_ingests_cas_and_holds_on_missing_portfolio_disclosure(
                 "reviewed_at": as_of.isoformat(),
             },
         }
+        metrics_source_bytes = metrics_path.read_bytes()
         return {
             "metrics_path": metrics_path,
             "aliases_path": None,
+            "metrics_source_metadata": {
+                **source_metadata(metrics_source_bytes, "https://amfiindia.com/example-metrics", "OFFICIAL_FUND_METRICS"),
+            },
+            "metrics_source_bytes": metrics_source_bytes,
             "scheme_master": {
                 "status": "VERIFIED",
                 "schemes": [{

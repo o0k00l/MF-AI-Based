@@ -79,7 +79,7 @@ def test_contract_accepts_source_backed_candidate_identity(tmp_path):
     payload = valid_payload(tmp_path)
     result = validate_evidence_provider_payload(payload)
 
-    assert set(result) == REQUIRED_EVIDENCE_FIELDS
+    assert set(result) == REQUIRED_EVIDENCE_FIELDS | {"metrics_source_metadata", "metrics_source_bytes"}
 
 
 def test_contract_rejects_missing_required_field(tmp_path):
@@ -241,6 +241,7 @@ def test_contract_rejects_fund_metrics_source_hash_mismatch(tmp_path):
 
 def test_contract_rejects_partial_fund_metrics_provenance_pair(tmp_path):
     payload = valid_payload(tmp_path)
+    payload.pop("metrics_source_metadata")
     payload["metrics_source_bytes"] = b"metrics source without metadata"
 
     with pytest.raises(EvidenceProviderContractError, match="must be supplied together"):
