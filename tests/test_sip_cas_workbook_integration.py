@@ -22,7 +22,8 @@ ISIN = "INF000000001"
 def _metrics_file(tmp_path: Path) -> Path:
     path = tmp_path / "fund_metrics.json"
     path.write_text(json.dumps({"funds": [{
-        "id": "EXAMPLE-FUND", "scheme": SCHEME_NAME, "name": SCHEME_NAME,
+        "id": "EXAMPLE-FUND", "scheme_id": SCHEME_ID, "isin": ISIN,
+        "scheme": SCHEME_NAME, "name": SCHEME_NAME,
         "cat": "Flexi Cap", "er": 0.65, "eq": 100.0, "debt": 0.0,
         "lc": 50.0, "mc": 30.0, "sc": 20.0, "h": [],
     }]}), encoding="utf-8")
