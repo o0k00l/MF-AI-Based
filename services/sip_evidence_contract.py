@@ -15,6 +15,8 @@ from typing import Any
 REQUIRED_EVIDENCE_FIELDS = frozenset({
     "metrics_path",
     "aliases_path",
+    "metrics_source_metadata",
+    "metrics_source_bytes",
     "scheme_master",
     "scheme_master_source_bytes",
     "portfolio_disclosures_by_scheme_id",
@@ -25,7 +27,7 @@ REQUIRED_EVIDENCE_FIELDS = frozenset({
     "candidate_universe_source_bytes",
 })
 REQUEST_BOUND_FIELDS = frozenset({"cas_path", "monthly_budget_inr", "risk_profile"})
-OPTIONAL_EVIDENCE_FIELDS = frozenset({"metrics_source_metadata", "metrics_source_bytes", "portfolio_context", "portfolio_context_source_metadata", "portfolio_context_source_bytes", "candidate_score_source_metadata", "candidate_score_source_bytes", "category_anchor_source_metadata", "category_anchor_source_bytes"})
+OPTIONAL_EVIDENCE_FIELDS = frozenset({"portfolio_context", "portfolio_context_source_metadata", "portfolio_context_source_bytes", "candidate_score_source_metadata", "candidate_score_source_bytes", "category_anchor_source_metadata", "category_anchor_source_bytes"})
 
 
 class EvidenceProviderContractError(ValueError):
@@ -134,7 +136,7 @@ def validate_evidence_provider_payload(payload: Any) -> dict[str, Any]:
             "Provider response contains unsupported fields: " + ", ".join(sorted(unexpected))
         )
     metrics_fields = {"metrics_source_metadata", "metrics_source_bytes"}
-    metrics_present = optional_present & metrics_fields
+    metrics_present = supplied & metrics_fields
     if metrics_present != metrics_fields:
         raise EvidenceProviderContractError(
             "Fund metrics source metadata and original source bytes are mandatory and must be supplied together."
@@ -160,7 +162,7 @@ def validate_evidence_provider_payload(payload: Any) -> dict[str, Any]:
         payload["scheme_master"], payload["scheme_master_source_bytes"],
         label="Scheme master", as_of=as_of,
     )
-    if {"metrics_source_metadata", "metrics_source_bytes"} <= optional_present:
+    if metrics_present == metrics_fields:
         _validate_source_document(
             payload["metrics_source_metadata"], payload["metrics_source_bytes"],
             label="Fund metrics", as_of=as_of,
