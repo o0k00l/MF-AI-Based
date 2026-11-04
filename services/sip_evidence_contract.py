@@ -24,7 +24,7 @@ REQUIRED_EVIDENCE_FIELDS = frozenset({
     "candidate_universe_source_bytes",
 })
 REQUEST_BOUND_FIELDS = frozenset({"cas_path", "monthly_budget_inr", "risk_profile"})
-OPTIONAL_EVIDENCE_FIELDS = frozenset({"metrics_source_metadata", "metrics_source_bytes"})
+OPTIONAL_EVIDENCE_FIELDS = frozenset({"metrics_source_metadata", "metrics_source_bytes", "portfolio_context", "portfolio_context_source_metadata", "portfolio_context_source_bytes"})
 
 
 class EvidenceProviderContractError(ValueError):
@@ -103,6 +103,15 @@ def validate_evidence_provider_payload(payload: Any) -> dict[str, Any]:
     missing = REQUIRED_EVIDENCE_FIELDS - supplied
     unexpected = supplied - REQUIRED_EVIDENCE_FIELDS - OPTIONAL_EVIDENCE_FIELDS
     optional_present = supplied & OPTIONAL_EVIDENCE_FIELDS
+    portfolio_context_fields = {
+        "portfolio_context", "portfolio_context_source_metadata",
+        "portfolio_context_source_bytes",
+    }
+    portfolio_context_present = supplied & portfolio_context_fields
+    if portfolio_context_present and portfolio_context_present != portfolio_context_fields:
+        raise EvidenceProviderContractError(
+            "Portfolio context, source metadata and original source bytes must be supplied together."
+        )
     if missing:
         raise EvidenceProviderContractError(
             "Provider response is missing required fields: " + ", ".join(sorted(missing))
@@ -124,10 +133,18 @@ def validate_evidence_provider_payload(payload: Any) -> dict[str, Any]:
         payload["scheme_master"], payload["scheme_master_source_bytes"],
         label="Scheme master", as_of=as_of,
     )
-    if optional_present:
+    if {"metrics_source_metadata", "metrics_source_bytes"} <= optional_present:
         _validate_source_document(
             payload["metrics_source_metadata"], payload["metrics_source_bytes"],
             label="Fund metrics", as_of=as_of,
+        )
+    if portfolio_context_present:
+        if not isinstance(payload["portfolio_context"], dict):
+            raise EvidenceProviderContractError("portfolio_context must be a mapping.")
+        _validate_source_document(
+            payload["portfolio_context_source_metadata"],
+            payload["portfolio_context_source_bytes"],
+            label="Total portfolio context", as_of=as_of,
         )
     scheme_index = _validate_scheme_master(payload["scheme_master"])
 
