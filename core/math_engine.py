@@ -2077,49 +2077,27 @@ def aggregate_fiduciary_facts(
             "April 2027 review. Orders are non-actionable conditional scenarios."
         )
 
-    # Architectural Correction 3: Switch Cost Analysis (retracts zero-friction myth)
-    # Calculate switch costs for regular fund candidates
+    # P0 safety boundary: switch costs are unavailable until exact per-lot and
+    # scheme/plan exit-load evidence plus independent tax approval are implemented.
     switch_costs = []
-    for h in holdings:
-        if h.plan == PlanType.REGULAR:
-            # Estimate switch cost for each regular fund
-            # Use fund's own TER as target (switching to direct plan of same fund)
-            target_ter = h.expense_ratio_pct / 100.0  # Convert to decimal
-            # Estimate holding period from actual tax lots if available, otherwise use heuristic
-            holding_days = None
-            
-            # Try to get accurate holding days from tax lots
-            if hasattr(h, 'tax_lots') and h.tax_lots:
-                total_units = sum(lot.get('units', 0) for lot in h.tax_lots)
-                if total_units > 0:
-                    weighted_days = sum(lot.get('holding_days', 0) * lot.get('units', 0) for lot in h.tax_lots)
-                    holding_days = int(weighted_days / total_units)
-            elif hasattr(h, 'transactions_path') and h.transactions_path:
-                # Could parse transactions.json for this fund - placeholder for future enhancement
-                pass
-            
-            # If still no holding days, we cannot estimate exit load - skip this fund's switch cost
-            if holding_days is None:
-                continue
-            
+    for holding in holdings:
+        if holding.plan == PlanType.REGULAR:
             switch_cost = calculate_switch_cost_analysis(
-                source_fund=h.fund_name,
-                target_fund=h.fund_name + " Direct",
-                source_holding=h,
-                target_fund_ter=target_ter,
+                source_fund=holding.fund_name,
+                target_fund=holding.fund_name + " Direct",
+                source_holding=holding,
+                target_fund_ter=holding.expense_ratio_pct,
                 is_intra_amc=True,
-                holding_period_days=holding_days,
-                current_nav=h.nav if h.nav > 0 else h.current_value_inr / max(h.units, 1),
-                purchase_nav=h.invested_value_inr / max(h.units, 1) if h.units > 0 else h.nav,
-                tax_rules_path=Path("data/policy/tax_rules.json")
             )
             switch_costs.append({
-                "fund_name": h.fund_name,
-                "switch_cost_inr": switch_cost.net_switch_cost_inr,
-                "switch_cost_pct": switch_cost.net_switch_cost_pct,
-                "exit_load_inr": switch_cost.exit_load_inr,
-                "capital_gains_tax_inr": switch_cost.capital_gains_tax_inr,
-                "warning": switch_cost.warning
+                "fund_name": holding.fund_name,
+                "switch_cost_inr": None,
+                "switch_cost_pct": None,
+                "exit_load_inr": None,
+                "capital_gains_tax_inr": None,
+                "available": False,
+                "unavailable_reason": switch_cost.unavailable_reason,
+                "warning": switch_cost.warning,
             })
 
     # Architectural Correction 5 & 6: Eligibility Gates & NO ACTION
