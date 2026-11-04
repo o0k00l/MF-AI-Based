@@ -118,6 +118,7 @@ def test_malformed_calendar_session_objects_fail_closed_without_crashing(tmp_pat
     fixture = policy / "fixture.json"
     levels = {"2026-01-01": 100.0}
     benchmarks = {name: {"levels": levels} for name in verifier.REQUIRED_BENCHMARKS}
+    benchmarks["nifty 500 tri"] = {"levels": levels}
     fixture.write_text(json.dumps({
         "provenance": {
             "frequency": "Daily", "interpolation_used": False,
@@ -132,3 +133,4 @@ def test_malformed_calendar_session_objects_fail_closed_without_crashing(tmp_pat
 
     blockers = verifier.alpha_release_blockers(fixture, approval_verified=True)
     assert any("only ISO date strings" in item for item in blockers)
+    assert any("duplicate benchmark identifier after normalization" in item for item in blockers)
