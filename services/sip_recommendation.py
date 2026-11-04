@@ -222,6 +222,11 @@ def recommend_sip(
     if evidence_gaps:
         return _hold_plan(budget, evidence_gaps)
 
+    # This is a CAS-only diagnostic, deliberately not a total-portfolio
+    # denominator. External assets, cash, liabilities and valuation date have
+    # not been reconciled, so it cannot authorize SIP routing.
+    portfolio_assessment = _build_cas_portfolio_assessment(holdings, risk_profile)
+
     # Run the deterministic engine with the exact evidence bundle. Its output is
     # retained only as an internal diagnostic until independent TRI/research
     # release gates are approved; provisional positive allocations are never
@@ -241,9 +246,13 @@ def recommend_sip(
             disclosure_max_age_days=disclosure_max_age_days,
         )
     except (ValueError, TypeError, KeyError) as exc:
-        return _hold_plan(budget, [f"SIP engine validation did not pass: {type(exc).__name__}."])
+        return _hold_plan(
+            budget,
+            [f"SIP engine validation did not pass: {type(exc).__name__}."],
+            portfolio_assessment,
+        )
 
     return _hold_plan(budget, [
         "Evidence reached the deterministic SIP engine, but the independent benchmark/research release gate is not approved.",
         "Provisional engine allocations are suppressed; the full monthly budget remains unallocated.",
-    ])
+    ], portfolio_assessment)
