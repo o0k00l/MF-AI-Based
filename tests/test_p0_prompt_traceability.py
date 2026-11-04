@@ -454,3 +454,32 @@ def test_legacy_advisor_wrapper_does_not_delegate_to_retired_cli():
 
     with pytest.raises(SystemExit, match="legacy advisor CLI is retired and disabled"):
         advisor_lean.main()
+
+
+def test_interactive_redemption_ignores_spoofed_tax_lot_summary():
+    from types import SimpleNamespace
+    from core import prompt_advisor
+
+    facts = SimpleNamespace(
+        stability_buffer=None,
+        tax_lots_summary={
+            "classification": "SPOOFED-APPROVED",
+            "ltcg_tax_inr": 1,
+            "exit_load": 0,
+        },
+    )
+    response = prompt_advisor.answer_interactive_query(facts, "How should I redeem?")
+    assert "SPOOFED-APPROVED" not in response
+    assert "ltcg_tax_inr" not in response
+    assert "Tax-lot evidence unavailable" in response
+
+
+def test_health_audit_prompt_does_not_interpolate_caller_switch_costs():
+    import inspect
+    from core import prompt_advisor
+
+    source = inspect.getsource(prompt_advisor.generate_health_audit_report)
+    assert "Switch Cost Evidence: UNAVAILABLE" in source
+    assert "Switch Cost Details: NO ACTION" in source
+    assert "s['switch_cost_inr']" not in source
+    assert "getattr(facts, 'switch_costs', [])[:5]" not in source
