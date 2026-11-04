@@ -97,7 +97,11 @@ def build_sip_evidence_provider(
         "candidate_universe_metadata_file", "candidate_universe_source_file",
     }
     missing = required_manifest_fields - set(manifest)
-    unexpected = set(manifest) - (required_manifest_fields | {"aliases_file"})
+    portfolio_context_fields = {"portfolio_context_file", "portfolio_context_metadata_file", "portfolio_context_source_file"}
+    unexpected = set(manifest) - (required_manifest_fields | {"aliases_file"} | portfolio_context_fields)
+    supplied_portfolio_context_fields = set(manifest) & portfolio_context_fields
+    if supplied_portfolio_context_fields and supplied_portfolio_context_fields != portfolio_context_fields:
+        raise ValueError("Portfolio context file, metadata and original source file must be configured together.")
     if missing or unexpected:
         raise ValueError(
             "SIP evidence manifest fields invalid; missing="
@@ -187,6 +191,20 @@ def build_sip_evidence_provider(
         "candidate_universe_source": candidate_metadata,
         "candidate_universe_source_bytes": candidate_source,
     }
+
+    if supplied_portfolio_context_fields:
+        portfolio_context = _read_json(root, manifest["portfolio_context_file"], label="portfolio_context_file")
+        portfolio_context_metadata = _read_json(root, manifest["portfolio_context_metadata_file"], label="portfolio_context_metadata_file")
+        portfolio_context_source = _resolve_bundle_file(root, manifest["portfolio_context_source_file"], label="portfolio_context_source_file").read_bytes()
+        if not isinstance(portfolio_context, dict):
+            raise ValueError("portfolio_context_file must contain a JSON object.")
+        if not isinstance(portfolio_context_metadata, dict):
+            raise ValueError("portfolio_context_metadata_file must contain a JSON object.")
+        payload.update({
+            "portfolio_context": portfolio_context,
+            "portfolio_context_source_metadata": portfolio_context_metadata,
+            "portfolio_context_source_bytes": portfolio_context_source,
+        })
 
     def provider(*, cas_path: Path, monthly_budget_inr: float, risk_profile: str) -> dict[str, Any]:
         # Request fields are deliberately not allowed to mutate the evidence
