@@ -468,10 +468,10 @@ def test_signed_source_validation_uses_utc_aware_review_time(tmp_path, monkeypat
     assert captured["now"].utcoffset().total_seconds() == 0
 
 
-def test_production_contract_requires_independent_signature_for_scheme_master(tmp_path):
+def test_contract_requires_independent_signature_by_default(tmp_path):
     payload = valid_payload(tmp_path)
     with pytest.raises(EvidenceProviderContractError, match="verifiable independent reviewer signature"):
-        validate_evidence_provider_payload(payload, require_reviewer_signature=True)
+        validate_evidence_provider_payload(payload)
 
 
 def test_production_contract_rejects_missing_independent_trust_registry(tmp_path):
