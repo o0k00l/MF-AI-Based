@@ -1,17 +1,16 @@
 """Live, opt-in smoke test for all configured AI providers.
 
-This test sends only a synthetic, non-client prompt. Provider output and
-captured SDK logs are deliberately suppressed to keep workflow logs secret-safe.
+Only synthetic prompts are sent. Provider output and raw SDK diagnostics are
+never printed; failures are reduced to safe, coarse categories.
 """
 from __future__ import annotations
 
 import contextlib
 import io
 import os
+import re
 import sys
 
-# Running a script by path puts scripts/ (not the repository root) on sys.path.
-# Add the checkout root so the project's core package can be imported.
 REPOSITORY_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if REPOSITORY_ROOT not in sys.path:
     sys.path.insert(0, REPOSITORY_ROOT)
@@ -26,6 +25,27 @@ PROVIDERS = (
 )
 
 PROMPT = "Reply with exactly the word READY. This is a provider connectivity test."
+
+
+def safe_failure_category(diagnostics: str, exc: Exception) -> str:
+    """Map private SDK diagnostics to a non-sensitive operational category."""
+    combined = f"{type(exc).__name__} {diagnostics}".lower()
+
+    if re.search(r"\b(401|unauthorized|invalid api.?key|api key not valid)\b", combined):
+        return "authentication rejected (401/invalid key)"
+    if re.search(r"\b(403|forbidden|permission denied|access denied)\b", combined):
+        return "permission/access rejected (403)"
+    if re.search(r"\b(402|429|quota|rate.?limit|resource_exhausted|billing)", combined):
+        return "quota, rate limit, or billing restriction"
+    if re.search(r"\b(404|model.*(not found|unavailable)|not supported for.*generate)", combined):
+        return "model unavailable or unsupported"
+    if re.search(r"\b(400|bad request|invalid argument|unsupported parameter)", combined):
+        return "request/model-parameter rejected (400)"
+    if re.search(r"\b(timeout|timed out|connection|dns|network|ssl|tls)", combined):
+        return "network or timeout failure"
+    if "provider unavailable" in combined:
+        return "all configured model attempts failed; SDK detail not classifiable"
+    return "provider call failed; SDK detail not classifiable"
 
 
 def main() -> int:
@@ -44,12 +64,11 @@ def main() -> int:
                 raise RuntimeError("empty response")
             print(f"{label}: PASS")
         except Exception as exc:
-            # Do not print exception messages: provider SDKs can echo request data.
-            print(f"{label}: FAIL ({type(exc).__name__})")
+            print(f"{label}: FAIL — {safe_failure_category(captured.getvalue(), exc)}")
             failed.append(label)
 
     if failed:
-        print("One or more configured AI providers failed connectivity validation.")
+        print("Failed providers: " + ", ".join(failed))
         return 1
     print("All three AI providers returned a non-empty response.")
     return 0
