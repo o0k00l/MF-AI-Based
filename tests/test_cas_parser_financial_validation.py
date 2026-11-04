@@ -177,3 +177,14 @@ def test_downstream_unit_reconciliation_rejects_missing_units(tmp_path):
     holdings = [SimpleNamespace(scheme="Fund A", units=10.0)]
     result = reconcile_cas_holdings_with_transactions(holdings, transaction_path)
     assert result["status"] == "INVALID_TRANSACTION"
+
+
+
+def test_charge_event_cannot_carry_nonzero_units(tmp_path):
+    parsed = parse_cas_xlsx(_cas_file(
+        tmp_path,
+        transactions=[["Fund A", "04-Oct-2026", 1.0, 0.5, None, "Stamp Duty"]],
+    ))
+    assert parsed["transactions"] == []
+    assert parsed["rejected"]
+    assert "must not carry non-zero units" in parsed["rejected"][-1]["reason"]
