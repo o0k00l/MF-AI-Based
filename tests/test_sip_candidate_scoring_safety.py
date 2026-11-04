@@ -201,6 +201,31 @@ def test_standalone_candidate_score_blocks_missing_explanatory_evidence(field, m
         )
 
 
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("cash_debt_buffer_pct", -0.1),
+        ("international_equity_pct", 100.1),
+        ("overlap_pct", float("nan")),
+    ],
+)
+def test_candidate_score_rejects_invalid_percentage_evidence(field, value):
+    candidate = {
+        "alpha_3y": 2.0, "return_1y": 5.0,
+        "sharpe_3y": 0.8, "ter_direct_pct": 0.8,
+        "cash_debt_buffer_pct": 10.0,
+        "international_equity_pct": 0.0,
+        "overlap_pct": 5.0,
+    }
+    candidate[field] = value
+
+    with pytest.raises(ValueError, match="percentage"):
+        calculate_candidate_6_pillar_score(
+            candidate, "Healthcare",
+            weights=ScoringWeights(0.25, 0.20, 0.15, 0.15, 0.15, 0.10),
+        )
+
+
 def test_portfolio_aware_score_preserves_verified_zero_exposure_values():
     candidate = {
         "fund_id": "candidate-1", "alpha_3y": 2.0, "return_1y": 5.0,
