@@ -29,7 +29,13 @@ OFFICIAL_HOSTS = {"nseindia.com", "www.nseindia.com", "niftyindices.com", "www.n
 def _official_https_url(value: Any) -> bool:
     parsed = urlparse(value if isinstance(value, str) else "")
     host = (parsed.hostname or "").lower()
-    return parsed.scheme == "https" and host in OFFICIAL_HOSTS
+    return (
+        parsed.scheme == "https"
+        and host in OFFICIAL_HOSTS
+        and parsed.username is None
+        and parsed.password is None
+        and parsed.port in (None, 443)
+    )
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 REQUIRED_PAYLOAD_FIELDS = {
@@ -232,7 +238,7 @@ def verify_approval(
         if __import__("hashlib").sha256(normalized).hexdigest() != payload["calendar_sessions_sha256"]:
             raise ValueError("signed normalized calendar sessions digest mismatch")
         return ApprovalResult(True, (), payload["approval_id"], payload["reviewer_id"], key_id)
-    except (ValueError, TypeError, KeyError, OSError, InvalidSignature, binascii.Error, OverflowError) as exc:
+    except (ValueError, TypeError, KeyError, OSError, binascii.Error, OverflowError) as exc:
         errors.append(f"signed TRI reviewer approval invalid: {exc}")
     except Exception as exc:
         # Cryptographic/parser errors must fail closed; do not expose stack traces in reports.

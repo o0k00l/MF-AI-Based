@@ -132,3 +132,24 @@ def test_duplicate_json_keys_are_rejected():
     from tri_reviewer_approval import _strict_json
     with pytest.raises(ValueError, match="duplicate"):
         _strict_json('{"a":1,"a":2}')
+
+
+def test_revocation_after_issuance_invalidates_outstanding_approval(tmp_path):
+    case = list(_signed_case(tmp_path))
+    case[1]["keys"][0]["revoked_at"] = "2026-01-02T12:00:00Z"
+    assert not _verify(tuple(case)).ok
+
+
+def test_official_source_url_requires_exact_host_and_standard_https_port():
+    from tri_reviewer_approval import _official_https_url
+
+    assert _official_https_url("https://www.nseindia.com/archive/file.csv")
+    assert not _official_https_url("https://nseindia.com.attacker.example/file.csv")
+    assert not _official_https_url("https://nseindia.com:444/file.csv")
+    assert not _official_https_url("https://user@nseindia.com/file.csv")
+
+
+def test_key_expiry_is_checked_at_verification_time(tmp_path):
+    case = list(_signed_case(tmp_path))
+    case[1]["keys"][0]["valid_until"] = "2026-01-02T12:00:00Z"
+    assert not _verify(tuple(case)).ok
