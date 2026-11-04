@@ -6,12 +6,27 @@ from fastapi.testclient import TestClient
 from api import sip
 
 
-def _upload(client, **data):
+def _upload(client, *, cas_bytes=b"synthetic cas bytes", **data):
     return client.post(
         "/v1/sip/recommendations",
-        files={"cas_file": ("portfolio.xlsx", b"synthetic cas bytes", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+        files={"cas_file": ("portfolio.xlsx", cas_bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
         data=data,
     )
+
+
+def _valid_cas_bytes(as_of_date):
+    from io import BytesIO
+    import openpyxl
+
+    workbook = openpyxl.Workbook()
+    sheet = workbook.active
+    sheet.title = "Portfolio Details"
+    sheet.append(["To Date", as_of_date.strftime("%d-%b-%Y")])
+    sheet.append(["Scheme Name", "Folio No.", "Invested Value", "Current Value", "Units"])
+    sheet.append(["Example Direct Growth", "FOLIO-1", 100000, 125000, 1000])
+    output = BytesIO()
+    workbook.save(output)
+    return output.getvalue()
 
 
 def test_readiness_distinguishes_live_api_from_missing_evidence_provider():
@@ -468,7 +483,12 @@ def test_api_runs_portfolio_saa_diagnostic_end_to_end_and_keeps_budget_on_hold(m
     )
 
     client = TestClient(sip.create_sip_app(evidence_provider=provider))
-    response = _upload(client, monthly_budget_inr="10000", risk_profile="Aggressive")
+    response = _upload(
+        client,
+        cas_bytes=_valid_cas_bytes(date(2026, 11, 4)),
+        monthly_budget_inr="10000",
+        risk_profile="Aggressive",
+    )
 
     assert response.status_code == 200
     body = response.json()
