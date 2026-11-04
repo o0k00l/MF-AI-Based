@@ -97,3 +97,22 @@ The verifier is implemented in `tri_reviewer_approval.py` and invoked by `verify
 These controls do **not** prove that the raw source documents were published by NSE/Nifty Indices merely because their URLs use an approved host. A human independent reviewer must retrieve the official documents, preserve the exact bytes, validate the index identity and daily TRI semantics, reconcile every source observation with the normalized fixture, and sign the exact evidence package. Do not treat URL allow-listing or SHA-256 integrity as publisher authentication.
 
 The GitHub Actions `production` environment name in the workflow does not itself prove that protection rules exist. Repository administrators must separately configure required independent reviewers, protected tag/deployment restrictions, and environment-scoped variables/secrets; verify those settings in GitHub before any release attempt. A newly created environment may otherwise have no required reviewers.
+
+
+## Official source acquisition map (navigation only; not yet evidence)
+
+The official Nifty Indices historical-data portal exposes a **Total Returns Index Values** report with a CSV output and separate columns for Total Returns Index and Net Total Return Index. The source collector must select the Total Returns Index field specifically; a price-index close or NTR series is not interchangeable with the required TRI benchmark.
+
+Use these official index identity pages to select the exact index in the historical-data portal:
+
+| Required benchmark | Official index identity page |
+|---|---|
+| NIFTY 500 TRI | https://www.niftyindices.com/indices/equity/broad-based-indices/nifty-500 |
+| NIFTY 500 MULTICAP 50:25:25 TRI | https://www.niftyindices.com/indices/equity/broad-based-indices/nifty500-multicap-50-25-25-index |
+| NIFTY MIDCAP 150 TRI | https://www.niftyindices.com/indices/equity/broad-based-indices/nifty-midcap-150 |
+
+Historical-data portal: https://www.niftyindices.com/reports/historical-data
+
+These URLs are navigation and index-identity references only. They are **not** substitutes for the downloaded raw CSV evidence files, exact date-range parameters, retrieval timestamp, SHA-256 digests, and reviewer source-to-fixture reconciliation. The historical-data portal is interactive; the repository must not fabricate a local CSV from rendered page text or substitute an undocumented third-party API.
+
+For the NSE session calendar, preserve each applicable official annual holiday notice and any special-session circulars covering the entire benchmark period. Reconcile the union of official trading sessions, including exceptional weekend sessions, rather than assuming all Saturdays/Sundays are closed.
