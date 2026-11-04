@@ -211,3 +211,47 @@ def test_provider_rejects_tampered_normalized_candidate_universe(tmp_path):
     _write_json(tmp_path, "candidates.json", [{"fund_id": "tampered"}])
     with pytest.raises(ValueError, match="Normalized candidate universe SHA-256"):
         build_sip_evidence_provider(tmp_path)
+
+
+def test_provider_loads_separately_reviewed_candidate_score_source_bundle(tmp_path):
+    manifest = _bundle(tmp_path)
+    score_bytes = b"original reviewed ranking-model score export"
+    score_metadata = _source(score_bytes, "REVIEWED_CANDIDATE_RANKING")
+    score_metadata["methodology_version"] = "risk-quality-v1"
+    candidates = json.loads((tmp_path / "candidates.json").read_text(encoding="utf-8"))
+    candidates[0].update({
+        "rank_score": "3.5",
+        "rank_score_source_ref": "sha256:" + hashlib.sha256(score_bytes).hexdigest(),
+        "rank_score_as_of_date": score_metadata["effective_date"],
+        "rank_score_methodology_version": "risk-quality-v1",
+    })
+    _write_json(tmp_path, "candidates.json", candidates)
+    candidate_metadata = json.loads((tmp_path / "candidate_metadata.json").read_text(encoding="utf-8"))
+    candidate_metadata["normalized_candidate_universe_sha256"] = hashlib.sha256(
+        (tmp_path / "candidates.json").read_bytes()
+    ).hexdigest()
+    _write_json(tmp_path, "candidate_metadata.json", candidate_metadata)
+    (tmp_path / "originals/candidate_scores.csv").write_bytes(score_bytes)
+    _write_json(tmp_path, "candidate_score_metadata.json", score_metadata)
+    manifest.update({
+        "candidate_score_metadata_file": "candidate_score_metadata.json",
+        "candidate_score_source_file": "originals/candidate_scores.csv",
+    })
+    _write_json(tmp_path, "manifest.json", manifest)
+    cas_path = tmp_path / "cas.xlsx"
+    cas_path.write_bytes(b"temporary uploaded CAS")
+
+    provider = build_sip_evidence_provider(tmp_path)
+    validated = validate_evidence_provider_payload(provider(
+        cas_path=cas_path, monthly_budget_inr=10000, risk_profile="Moderate"
+    ))
+    assert validated["candidate_score_source_bytes"] == score_bytes
+    assert validated["candidate_universe"][0]["rank_score"] == "3.5"
+
+
+def test_provider_rejects_partial_candidate_score_manifest(tmp_path):
+    manifest = _bundle(tmp_path)
+    manifest["candidate_score_metadata_file"] = "candidate_score_metadata.json"
+    _write_json(tmp_path, "manifest.json", manifest)
+    with pytest.raises(ValueError, match="must be configured together"):
+        build_sip_evidence_provider(tmp_path)
