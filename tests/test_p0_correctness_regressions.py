@@ -2487,4 +2487,5 @@ def test_tri_release_gate_is_independent_of_process_working_directory(tmp_path, 
     blockers = _tri_alpha_release_blockers()
 
     assert blockers
-    assert any("external release approval is still required" in item for item in blockers)
+    assert not any("high-coverage TRI fixture cannot be read" in item for item in blockers)
+    assert any("independently sourced data/policy/nse_trading_calendar.json is absent" in item for item in blockers)
