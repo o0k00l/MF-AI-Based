@@ -577,7 +577,7 @@ def check_eligibility_gates(
 def _portfolio_weighted_constituent_overlap_pct(
     candidate: Dict[str, Any],
     portfolio_holdings: List[Any],
-    minimum_coverage_pct: float = 90.0,
+    minimum_coverage_pct: float = 99.5,
 ) -> Optional[float]:
     """
     Return weighted constituent overlap (0-100) between a candidate and the
