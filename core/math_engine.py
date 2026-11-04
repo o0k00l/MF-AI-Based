@@ -1133,11 +1133,16 @@ def load_holdings_from_cas_excel(
         plan = PlanType.DIRECT if "direct" in scheme_lower else PlanType.REGULAR
         is_direct = plan == PlanType.DIRECT
 
-        # Fuzzy match to fund metrics
+        # Exact identity / reviewed-alias match only. Never invent an equity
+        # classification for an unmatched CAS scheme.
         matched_metric = _find_matching_metric(scheme_str, metrics_map, aliases_map)
+        if matched_metric is None:
+            raise ValueError(
+                f"CAS scheme {scheme_str!r} has no unambiguous exact match in fund metrics; "
+                "add a reviewed alias or verified scheme identity before SIP analysis."
+            )
 
-        # Default classification
-        category = matched_metric.get("cat", "Equity") if matched_metric else "Equity"
+        category = matched_metric.get("cat")
         er = float(matched_metric.get("er", 0.75)) if matched_metric else (0.85 if plan == PlanType.DIRECT else 1.90)
         
         # If Regular plan and only Direct ER is in dataset, estimate regular fee = direct ER + 1.05%
@@ -1148,11 +1153,19 @@ def load_holdings_from_cas_excel(
         sharpe = matched_metric.get("sharpe") if matched_metric else None
 
         # Market-cap split
-        eq_pct = float(matched_metric.get("eq", 100.0)) if matched_metric else 100.0
-        debt_pct = float(matched_metric.get("debt", 0.0)) if matched_metric else 0.0
-        lc_pct = float(matched_metric.get("lc", 0.0)) if matched_metric else 0.0
-        mc_pct = float(matched_metric.get("mc", 0.0)) if matched_metric else 0.0
-        sc_pct = float(matched_metric.get("sc", 0.0)) if matched_metric else 0.0
+        required_exposure_fields = ("eq", "debt", "lc", "mc", "sc")
+        missing_exposure_fields = [field for field in required_exposure_fields if matched_metric.get(field) is None]
+        if missing_exposure_fields:
+            raise ValueError(
+                f"Fund metrics for CAS scheme {scheme_str!r} are missing exposure fields: "
+                + ", ".join(missing_exposure_fields)
+                + "; portfolio-aware SIP analysis is withheld."
+            )
+        eq_pct = float(matched_metric["eq"])
+        debt_pct = float(matched_metric["debt"])
+        lc_pct = float(matched_metric["lc"])
+        mc_pct = float(matched_metric["mc"])
+        sc_pct = float(matched_metric["sc"])
 
         asset_class = _infer_asset_class(category, eq_pct, debt_pct, lc_pct, mc_pct, sc_pct)
 
@@ -1224,37 +1237,40 @@ def load_holdings_from_cas_excel(
 
 
 def _find_matching_metric(scheme: str, metrics: Dict[str, Any], aliases: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """Matches a scheme name string to a metrics entry using aliases and dynamic token overlap similarity."""
-    s_clean = scheme.lower()
-    stop_words = {"fund", "the", "of", "and", "a", "an", "option", "growth", "plan", "regular", "direct", "idcw", "dividend", "reinvestment", "formerly", "erstwhile", "known", "as", "in", "on", "for", "to"}
+    """Resolve metrics only by exact normalized identity or an explicit reviewed alias."""
+    def normalize(value: Any) -> str:
+        return re.sub(r"[^a-z0-9]", "", str(value or "").casefold())
 
-    # 1. Direct alias match
-    if scheme in aliases and aliases[scheme] in metrics:
-        return metrics[aliases[scheme]]
-    if s_clean in aliases and aliases[s_clean] in metrics:
-        return metrics[aliases[s_clean]]
-
-    # 2. Dynamic token overlap similarity across all metrics
-    s_tokens = set(re.findall(r"[a-z0-9]+", re.sub(r"\(.*?\)", " ", s_clean))) - stop_words
-    if not s_tokens:
+    requested = normalize(scheme)
+    if not requested:
         return None
 
-    best_m, best_score = None, 0.0
-    for mid, m in metrics.items():
-        m_str = (mid + " " + m.get("name", "") + " " + m.get("scheme", "")).lower()
-        m_tokens = set(re.findall(r"[a-z0-9]+", re.sub(r"\(.*?\)", " ", m_str))) - stop_words
-        if not m_tokens:
+    # Aliases are reviewed identity mappings, never fuzzy suggestions.
+    alias_target = None
+    for alias, canonical in aliases.items():
+        if normalize(alias) == requested:
+            alias_target = normalize(canonical)
+            break
+    if alias_target:
+        direct = metrics.get(alias_target)
+        if direct is not None:
+            return direct
+        matches = [
+            metric for metric_id, metric in metrics.items()
+            if isinstance(metric, dict) and normalize(metric_id) == alias_target
+        ]
+        return matches[0] if len(matches) == 1 else None
+
+    # A name match is accepted only when exactly one metric record declares it.
+    matches = []
+    for metric_id, metric in metrics.items():
+        if not isinstance(metric, dict):
             continue
-        score = len(s_tokens & m_tokens) / max(1, min(len(s_tokens), len(m_tokens)))
-        if score > best_score:
-            best_score = score
-            best_m = m
-
-    if best_score >= 0.5:
-        return best_m
-
-    return None
-
+        identities = (metric_id, metric.get("id"), metric.get("scheme"), metric.get("name"))
+        if any(normalize(value) == requested for value in identities if value):
+            if metric not in matches:
+                matches.append(metric)
+    return matches[0] if len(matches) == 1 else None
 
 def _infer_asset_class(cat: str, eq: float, debt: float, lc: float, mc: float, sc: float) -> AssetClass:
     """Classify from explicit scheme category before using allocation heuristics.
