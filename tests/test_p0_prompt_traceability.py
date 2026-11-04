@@ -493,3 +493,12 @@ def test_portfolio_aggregation_does_not_call_disabled_tax_classifier():
     assert "compute_fifo_tax_lots(" not in source
     assert "tax_lots_summary = None" in source
     assert "reconcile_cas_holdings_with_transactions" in source
+
+
+def test_legacy_fifo_lot_preparation_api_is_disabled_until_contract_is_complete():
+    from pathlib import Path
+    import pytest
+    from core import math_engine
+
+    with pytest.raises(math_engine.TaxClassificationDisabledError, match="output model and provenance/reconciliation contract are incomplete"):
+        math_engine.build_fifo_tax_lots(Path("synthetic-transactions.json"), [])
