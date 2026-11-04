@@ -429,6 +429,17 @@ def test_contract_rejects_candidate_suitability_override(tmp_path):
         validate_evidence_provider_payload(payload, require_reviewer_signature=False)
 
 
+def test_contract_rejects_boolean_candidate_riskometer_score(tmp_path):
+    payload = valid_payload(tmp_path)
+    # bool is a subclass of int in Python; equality with 1 must not pass
+    # an integer Riskometer identity check.
+    payload["scheme_master"]["schemes"][0]["riskometer_score"] = 1
+    payload["candidate_universe"][0]["riskometer_score"] = True
+
+    with pytest.raises(EvidenceProviderContractError, match="must be a verified integer"):
+        validate_evidence_provider_payload(payload, require_reviewer_signature=False)
+
+
 def test_contract_requires_scheme_master_category_benchmark_and_structure(tmp_path):
     payload = valid_payload(tmp_path)
     payload["scheme_master"]["schemes"][0].pop("category")
