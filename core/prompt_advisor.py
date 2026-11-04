@@ -40,6 +40,18 @@ CRITICAL OPERATIONAL RULES:
 
 from core.ai_engine import call_llm as _engine_call_llm
 
+def _fmt_inr(value: Any) -> str:
+    """Format verified INR; an unavailable value is not zero."""
+    if value is None:
+        return "UNAVAILABLE"
+    return f"INR {float(value):,.2f}"
+
+def _fmt_num(value: Any, suffix: str = "") -> str:
+    """Format verified numeric facts without inventing a zero."""
+    if value is None:
+        return "UNAVAILABLE"
+    return f"{float(value):,.2f}{suffix}"
+
 def _clean_markdown(text: str) -> str:
     """Removes excessive whitespace and fences."""
     cleaned = re.sub(r' {4,}', ' ', text)
@@ -100,7 +112,7 @@ def generate_health_audit_report(
     stability_info = "NOT AVAILABLE — do not infer that an allocation target is satisfied."
     if getattr(facts, "stability_buffer", None):
         sb = facts.stability_buffer
-        stability_info = f"Total Stability Buffer: {sb.total_stability_buffer_pct:.2f}% (Embedded Debt: INR {sb.embedded_debt_inr:,.0f}, Embedded Cash: INR {sb.embedded_cash_inr:,.0f}). Meets Tier 6 Target: {sb.meets_tier_target}."
+        stability_info = f"Total Stability Buffer: {_fmt_num(sb.total_stability_buffer_pct, '%')} (Embedded Debt: {_fmt_inr(sb.embedded_debt_inr)}, Embedded Cash: {_fmt_inr(sb.embedded_cash_inr)}). Meets Tier Target: {sb.meets_tier_target if sb.meets_tier_target is not None else 'UNKNOWN'}."
 
     prompt = f"""
 Generate Deliverable 1: 'Portfolio Health & Commission Bleed Audit' for the supplied investor portfolio.
@@ -112,9 +124,9 @@ INPUT FACT PAYLOAD:
 - Portfolio Performance: XIRR {xirr_val} vs Benchmark {benchmark_val} (Jensen's Alpha: {alpha_val})
 - Total Holdings Count: {facts.holdings_count} funds
 - Regular Plan Count: {facts.fee_bleed.regular_funds_count} funds
-- Regular Plan Total Value: INR {facts.fee_bleed.regular_portfolio_value_inr:,.2f}
-- Annual Commission Drag: INR {facts.fee_bleed.annual_bleed_inr:,.2f} per year
-- 10-Year Fee-Difference Scenario Estimate: INR {facts.fee_bleed.ten_year_compounded_loss_inr:,.2f} (scenario only; do not present as guaranteed loss or realized saving)
+- Regular Plan Total Value: {_fmt_inr(facts.fee_bleed.regular_portfolio_value_inr)}
+- Annual Commission Drag: {_fmt_inr(facts.fee_bleed.annual_bleed_inr)} per year
+- 10-Year Fee-Difference Scenario Estimate: {_fmt_inr(facts.fee_bleed.ten_year_compounded_loss_inr)} (scenario only; do not present as guaranteed loss or realized saving)
 - Current Asset Allocation: {facts.saa_drift.current_equity_pct}% Equity, {facts.saa_drift.current_debt_pct}% Debt, {facts.saa_drift.current_cash_pct}% Cash
 - Target Allocation: {facts.saa_drift.target_equity_pct}% Equity, {facts.saa_drift.target_debt_pct}% Debt
 - Look-Through Stability Buffer: {stability_info}
@@ -152,7 +164,7 @@ STRUCTURE YOUR REPORT AS FOLLOWS:
 - **Interpretation:** Explain what this means for the investor — e.g., "HOLD_PENDING_TRI_VALIDATION means all audit findings and recommendations are PROPOSED ONLY and require explicit written client authorization before execution."
 
 1. Executive Summary: Describe supplied performance, cost, overlap and risk facts. Do not invent a composite score or ranking unless a validated scoring output is explicitly supplied.
-2. Regular-plan Expense Difference: Explain the reported INR {facts.fee_bleed.annual_bleed_inr:,.2f}/yr estimate and the INR {facts.fee_bleed.ten_year_compounded_loss_inr:,.2f} 10-year scenario estimate. Clearly label both as estimates, not guaranteed savings or realized losses. Include the supplied scheme details only.
+2. Regular-plan Expense Difference: Explain the reported {_fmt_inr(facts.fee_bleed.annual_bleed_inr)}/yr estimate and the {_fmt_inr(facts.fee_bleed.ten_year_compounded_loss_inr)} 10-year scenario estimate. Clearly label both as estimates, not guaranteed savings or realized losses. Include the supplied scheme details only.
 3. Weighted Look-Through Overlap Analysis: Contrast the weighted look-through overlap methodology against naive Jaccard. Report the top weighted overlap pairs and shared stocks.
 4. Ordinal Risk Distribution: Report SEBI risk-o-meter tier distribution (explaining why cardinal averages like 5.84/6.00 are mathematically invalid for ordinal data).
 5. Scheme Overlap & Duplication Analysis: Use the actual holdings count and supplied overlap evidence. Do not assume that overlap is high or that consolidation is required.
@@ -257,8 +269,8 @@ VERIFIED PORTFOLIO FACTS:
 - Reported holdings count: {facts.holdings_count}
 - Regular-plan holdings: {len(regular_holdings)}
 - Direct-plan holdings: {len(direct_holdings)}
-- Reported annual Regular-plan expense difference estimate: INR {facts.fee_bleed.annual_bleed_inr:,.2f}
-- Reported 10-year fee-difference scenario estimate: INR {facts.fee_bleed.ten_year_compounded_loss_inr:,.2f}
+- Reported annual Regular-plan expense difference estimate: {_fmt_inr(facts.fee_bleed.annual_bleed_inr)}
+- Reported 10-year fee-difference scenario estimate: {_fmt_inr(facts.fee_bleed.ten_year_compounded_loss_inr)}
   Treat this only as the supplied scenario estimate. Do not call it a guaranteed loss or realized saving.
 - Total unrealized gain supplied: INR {facts.total_unrealized_gain_inr:,.2f}
 
@@ -462,10 +474,10 @@ def generate_cash_and_sip_plan(
     stability = getattr(facts, "stability_buffer", None)
     if stability is not None:
         stability_str = (
-            f"Reported stability buffer: {stability.total_stability_buffer_pct:.2f}% "
-            f"(embedded debt INR {stability.embedded_debt_inr:,.2f}; "
-            f"embedded cash INR {stability.embedded_cash_inr:,.2f}; "
-            f"bank deployable cash INR {stability.bank_deployable_cash_inr:,.2f}). "
+            f"Reported stability buffer: {_fmt_num(stability.total_stability_buffer_pct, '%')} "
+            f"(embedded debt {_fmt_inr(stability.embedded_debt_inr)}; "
+            f"embedded cash {_fmt_inr(stability.embedded_cash_inr)}; "
+            f"bank deployable cash {_fmt_inr(stability.bank_deployable_cash_inr)}). "
             "Do not infer that this satisfies any target unless a separate validated policy check is supplied."
         )
 
@@ -533,7 +545,7 @@ def answer_interactive_query(
         f1 = facts.fee_bleed
         top_leaks = "\n".join(
             f"- **{item.get('fund_name', 'Scheme')}**: "
-            f"INR {item.get('annual_bleed_inr', 0):,.2f}/yr (current value "
+            f"{_fmt_inr(item.get('annual_bleed_inr'))}/yr"
             f"INR {item.get('current_value_inr', 0):,.2f})"
             for item in f1.details[:4]
         )
@@ -625,7 +637,7 @@ def answer_interactive_query(
         tax_lot_details = None
 
         cash_text = (
-            f"Reported bank deployable cash: INR {stability.bank_deployable_cash_inr:,.2f}."
+            f"Reported bank deployable cash: {_fmt_inr(stability.bank_deployable_cash_inr)}."
             if stability is not None
             else "Bank deployable cash: unavailable; do not infer a cash balance."
         )
@@ -649,12 +661,12 @@ def answer_interactive_query(
 
         return (
             "### Look-through stability-buffer observations\n\n"
-            f"- Reported total stability buffer: {stability.total_stability_buffer_pct:.2f}%.\n"
-            f"- Reported embedded debt: INR {stability.embedded_debt_inr:,.2f} "
+            f"- Reported total stability buffer: {_fmt_num(stability.total_stability_buffer_pct, '%')}.\n"
+            f"- Reported embedded debt: {_fmt_inr(stability.embedded_debt_inr)} "
             f"({stability.embedded_debt_pct:.2f}%).\n"
-            f"- Reported embedded cash: INR {stability.embedded_cash_inr:,.2f} "
+            f"- Reported embedded cash: {_fmt_inr(stability.embedded_cash_inr)} "
             f"({stability.embedded_cash_pct:.2f}%).\n"
-            f"- Reported bank deployable cash: INR {stability.bank_deployable_cash_inr:,.2f}.\n\n"
+            f"- Reported bank deployable cash: {_fmt_inr(stability.bank_deployable_cash_inr)}.\n\n"
             "These are reported observations, not an automatic debt-target pass or a recommendation "
             "to route new SIPs entirely to equity. Use the separately validated policy result and "
             "investor mandate before drawing an allocation conclusion."
@@ -674,9 +686,9 @@ CLIENT CONTEXT:
 - Total Portfolio: INR {facts.total_portfolio_value_inr:,.2f} ({facts.holdings_count} funds)
 - Invested Value: INR {facts.total_invested_value_inr:,.2f} | Unrealized Gain: INR {facts.total_unrealized_gain_inr:,.2f}
 - Portfolio XIRR: {xirr_str} | Benchmark: {benchmark_str} | Alpha: {alpha_str}
-- Regular Funds: {facts.fee_bleed.regular_funds_count} funds (INR {facts.fee_bleed.regular_portfolio_value_inr:,.2f})
-- Annual Fee Drag: INR {facts.fee_bleed.annual_bleed_inr:,.2f} / year
-- 10-Year Compounded Commission Drag: INR {facts.fee_bleed.ten_year_compounded_loss_inr:,.2f}
+- Regular Funds: {facts.fee_bleed.regular_funds_count} funds ({_fmt_inr(facts.fee_bleed.regular_portfolio_value_inr)})
+- Annual Fee Drag: {_fmt_inr(facts.fee_bleed.annual_bleed_inr)} / year
+- 10-Year Compounded Commission Drag: {_fmt_inr(facts.fee_bleed.ten_year_compounded_loss_inr)}
 - Current Split: {facts.saa_drift.current_equity_pct}% Equity, {facts.saa_drift.current_debt_pct}% Debt, {facts.saa_drift.current_cash_pct}% Cash
 - Target Split: {facts.saa_drift.target_equity_pct}% Equity, {facts.saa_drift.target_debt_pct}% Debt
 - Fresh Lumpsum Budget: INR {getattr(facts, 'lumpsum_budget_inr', 200000.0):,.2f}
