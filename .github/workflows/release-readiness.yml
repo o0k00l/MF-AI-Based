@@ -55,4 +55,5 @@ jobs:
       - name: Require signed production-grade TRI evidence
         env:
           TRI_REVIEWER_TRUST_REGISTRY_JSON: ${{ vars.TRI_REVIEWER_TRUST_REGISTRY_JSON }}
+          TRI_REVIEWER_APPROVAL_JSON: ${{ vars.TRI_REVIEWER_APPROVAL_JSON }}
         run: python verify_tri_provenance.py --require-alpha-release --expected-commit ${{ github.sha }}

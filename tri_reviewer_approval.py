@@ -20,7 +20,11 @@ from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
 ENV_REGISTRY = "TRI_REVIEWER_TRUST_REGISTRY_JSON"
-APPROVAL_RELATIVE_PATH = Path("data/policy/tri_reviewer_approval.json")
+ENV_APPROVAL = "TRI_REVIEWER_APPROVAL_JSON"
+MAX_APPROVAL_LIFETIME_DAYS = 90
+REQUIRED_BENCHMARKS = {
+    "NIFTY 500 TRI", "NIFTY 500 MULTICAP 50:25:25 TRI", "NIFTY MIDCAP 150 TRI"
+}
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 REQUIRED_PAYLOAD_FIELDS = {
@@ -106,6 +110,8 @@ def verify_approval(
             raise ValueError("approval issue time is in the future")
         if expires <= clock or expires <= issued:
             raise ValueError("approval is expired or has an invalid expiry")
+        if (expires - issued).total_seconds() > MAX_APPROVAL_LIFETIME_DAYS * 86400:
+            raise ValueError("approval lifetime exceeds the 90-day maximum")
 
         if not isinstance(registry, dict) or registry.get("schema_version") != 1:
             raise ValueError("trust registry is missing or has unsupported schema")
@@ -120,11 +126,11 @@ def verify_approval(
         if entry.get("reviewer_id") != payload["reviewer_id"]:
             raise ValueError("reviewer identity does not match trusted key registry")
         key_from, key_until = _utc(entry.get("valid_from")), _utc(entry.get("valid_until"))
-        if issued < key_from or issued >= key_until:
-            raise ValueError("reviewer key was not valid at approval issuance")
+        if issued < key_from or issued >= key_until or clock < key_from or clock >= key_until:
+            raise ValueError("reviewer key is not valid at approval issuance and verification time")
         revoked_at = entry.get("revoked_at")
-        if revoked_at is not None and issued >= _utc(revoked_at):
-            raise ValueError("reviewer key was revoked at approval issuance")
+        if revoked_at is not None and clock >= _utc(revoked_at):
+            raise ValueError("reviewer key is revoked; all outstanding approvals are invalid")
         public_key = Ed25519PublicKey.from_public_bytes(_b64url(entry.get("public_key"), 32))
         signature = _b64url(envelope["signature"], 64)
         public_key.verify(signature, rfc8785.dumps(payload))
@@ -139,9 +145,14 @@ def verify_approval(
         if not isinstance(payload["tri_source_documents"], list) or not payload["tri_source_documents"]:
             raise ValueError("signed TRI source document manifest is empty")
         paths: set[str] = set()
+        covered_benchmarks: set[str] = set()
         for item in payload["tri_source_documents"]:
-            if not isinstance(item, dict) or set(item) != {"path", "sha256"}:
-                raise ValueError("each TRI source document requires exactly path and sha256")
+            if not isinstance(item, dict) or set(item) != {"benchmark", "path", "sha256"}:
+                raise ValueError("each TRI source document requires benchmark, path and sha256")
+            benchmark_name = item["benchmark"]
+            if benchmark_name not in REQUIRED_BENCHMARKS or benchmark_name in covered_benchmarks:
+                raise ValueError("source manifest benchmark names must be required, unique and exact")
+            covered_benchmarks.add(benchmark_name)
             rel = item["path"]
             if not isinstance(rel, str) or not rel or rel in paths:
                 raise ValueError("source document paths must be non-empty and unique")
@@ -158,6 +169,8 @@ def verify_approval(
             actual = __import__("hashlib").sha256(resolved.read_bytes()).hexdigest()
             if actual != item["sha256"]:
                 raise ValueError(f"signed source document digest mismatch: {rel}")
+        if covered_benchmarks != REQUIRED_BENCHMARKS:
+            raise ValueError("signed source manifest must contain one source document for every required benchmark")
         cal = root / "data/policy/nse_trading_calendar.json"
         if not cal.is_file() or __import__("hashlib").sha256(cal.read_bytes()).hexdigest() != payload["calendar_source_sha256"]:
             raise ValueError("signed NSE calendar source digest is missing or mismatched")
@@ -165,6 +178,11 @@ def verify_approval(
         sessions = calendar.get("sessions") if isinstance(calendar, dict) else None
         if not isinstance(sessions, list) or not sessions or sessions != sorted(set(sessions)):
             raise ValueError("calendar sessions are malformed, unsorted or duplicated")
+        from datetime import date
+        for day in sessions:
+            parsed = date.fromisoformat(day)
+            if parsed.isoformat() != day or parsed.weekday() >= 5:
+                raise ValueError(f"calendar contains a non-session date or weekend: {day}")
         normalized = rfc8785.dumps(sessions)
         if __import__("hashlib").sha256(normalized).hexdigest() != payload["calendar_sessions_sha256"]:
             raise ValueError("signed normalized calendar sessions digest mismatch")
@@ -185,10 +203,12 @@ def verify_approval_from_environment(
         return ApprovalResult(False, (f"{ENV_REGISTRY} is not configured; release remains blocked",))
     if not expected_commit:
         return ApprovalResult(False, ("expected release commit SHA was not supplied; release remains blocked",))
-    approval_path = root / APPROVAL_RELATIVE_PATH
+    raw_approval = os.environ.get(ENV_APPROVAL)
+    if not raw_approval:
+        return ApprovalResult(False, (f"{ENV_APPROVAL} is not configured; release remains blocked",))
     try:
         registry = _strict_json(raw_registry)
-        envelope = _strict_json(approval_path.read_text(encoding="utf-8"))
+        envelope = _strict_json(raw_approval)
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         return ApprovalResult(False, (f"signed TRI approval/trust registry cannot be loaded: {exc}",))
     return verify_approval(

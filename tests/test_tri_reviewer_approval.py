@@ -24,6 +24,10 @@ def _signed_case(tmp_path):
     fixture.write_text('{"test":true}', encoding="utf-8")
     source = policy / "nifty500.csv"
     source.write_text("date,tri\n2026-01-01,100\n", encoding="utf-8")
+    source2 = policy / "multicap.csv"
+    source2.write_text("date,tri\n2026-01-01,101\n", encoding="utf-8")
+    source3 = policy / "midcap.csv"
+    source3.write_text("date,tri\n2026-01-01,102\n", encoding="utf-8")
     calendar = policy / "nse_trading_calendar.json"
     sessions = ["2026-01-01", "2026-01-02"]
     calendar.write_text(json.dumps({"sessions": sessions}), encoding="utf-8")
@@ -40,7 +44,11 @@ def _signed_case(tmp_path):
         "reviewer_key_id": "key-test", "issued_at": "2026-01-02T00:00:00Z",
         "expires_at": "2026-02-02T00:00:00Z", "repository": "o0k00l/MF-AI-Based",
         "commit_sha": "a" * 40, "tri_fixture_sha256": digest(fixture),
-        "tri_source_documents": [{"path": "data/policy/nifty500.csv", "sha256": digest(source)}],
+        "tri_source_documents": [
+            {"benchmark": "NIFTY 500 TRI", "path": "data/policy/nifty500.csv", "sha256": digest(source)},
+            {"benchmark": "NIFTY 500 MULTICAP 50:25:25 TRI", "path": "data/policy/multicap.csv", "sha256": digest(source2)},
+            {"benchmark": "NIFTY MIDCAP 150 TRI", "path": "data/policy/midcap.csv", "sha256": digest(source3)},
+        ],
         "calendar_source_sha256": digest(calendar),
         "calendar_sessions_sha256": hashlib.sha256(rfc8785.dumps(sessions)).hexdigest(),
         "review_attestation": True,

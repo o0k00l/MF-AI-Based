@@ -20,6 +20,7 @@ A local SHA-256 checksum is an integrity check only. It is not a signature, iden
 
 - Use Ed25519 signatures. Do not accept algorithm negotiation, none, HMAC, or an algorithm selected by the approval document.
 - The reviewer's private key is held outside GitHub source control and outside the application runtime; hardware-backed key storage is preferred.
+- The detached approval envelope is supplied through a separately administered release variable, not committed into the tree whose commit SHA it signs. This avoids a circular dependency between the signed approval and the Git commit hash.
 - The verifier receives an allow-listed reviewer public-key registry from a separately administered deployment trust configuration. The registry must not be sourced from the TRI fixture, an ordinary repository file, a pull-request artifact, or a value editable by the same workflow that is being verified.
 - The trust configuration is public material, not a secret. Its integrity and change control are security-critical. Restrict modification to a designated security administrator, require audited changes and dual control for key addition/revocation.
 - The application and release workflow must use the same trust-root policy. Missing trust configuration means BLOCKED; never fall back to trusting an embedded public key.
@@ -75,13 +76,13 @@ No payload field may be treated as true merely because it is signed: the verifie
 - Missing trust registry, malformed registry, duplicate JSON keys, malformed base64url and malformed timestamps fail closed.
 - Approval for one commit cannot authorize a different commit or changed fixture.
 - A valid signature cannot override missing official source documents, incomplete sessions, interpolated observations or invalid benchmark identifiers.
-- Trust-root rotation and revocation behavior are covered by deterministic tests.
+- Trust-root rotation and revocation behavior are covered by deterministic tests. A revocation invalidates outstanding approvals at verification time, not only approvals issued after revocation.
 - Tests use generated ephemeral keys only; no production private key or real reviewer identity is committed.
 
 ## Implementation and release requirements
 
 - Add a maintained Ed25519-capable dependency and pin it in both requirements.txt and the hash-locked requirements.lock. Regenerate the lock using the repository's documented process; do not hand-edit hashes.
 - Add a standalone verifier module and CLI tests. Keep ordinary CI able to test fixture integrity without production keys, but make the release gate require a valid external trust registry and signed approval.
-- Configure the trust registry in the deployment/release environment with restricted, audited administration. Document who can add, rotate and revoke reviewer keys.
+- Configure both TRI_REVIEWER_TRUST_REGISTRY_JSON and TRI_REVIEWER_APPROVAL_JSON as separately administered GitHub Actions variables. Restrict and audit their administration. The registry and detached approval are public material, not private secrets.
 - Add a key ceremony and reviewer operating procedure before any real approval is issued.
 - Until implementation, deployment configuration, signed evidence and independent source/calendar validation all exist, the alpha release gate must continue to fail and aggregate benchmark XIRR/alpha must remain unavailable.

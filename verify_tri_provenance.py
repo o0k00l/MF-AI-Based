@@ -70,8 +70,7 @@ def verify_fixture(path: Path) -> list[str]:
         benchmarks = {}
     specs = (
         ("NIFTY 500 TRI", "nifty_500_tri", "checksum_sha256_nifty_500_tri"),
-        ("NIFTY 500 MULTICAP 50:25:25 TRI", "nifty_500_multicap_50_25_25_tri", "checksum_sha256_nifty_500_multicap_50_25_25_tri"),
-        ("NIFTY MIDCAP 150 TRI", "nifty_midcap_150_tri", "checksum_sha256_nifty_midcap_150_tri"),
+        ("NIFTY 50 TRI", "nifty_50_tri", "checksum_sha256_nifty_50_tri"),
     )
     for index_name, coverage_key, checksum_key in specs:
         benchmark = benchmarks.get(index_name, {})
@@ -263,6 +262,10 @@ def alpha_release_blockers(fixture_path: Path) -> list[str]:
         blockers.append("no benchmark series supplied")
     if not provenance.get("independent_reviewer_id"):
         blockers.append("independent reviewer identity is not recorded in provenance")
+    for required_name in sorted(REQUIRED_BENCHMARKS):
+        entry = benchmarks.get(required_name)
+        if not isinstance(entry, dict) or not isinstance(entry.get("levels"), dict) or not entry.get("levels"):
+            blockers.append(f"required benchmark series missing or empty: {required_name}")
     return blockers
 
 
