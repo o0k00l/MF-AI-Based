@@ -27,3 +27,12 @@ def test_benchmark_name_matching_is_case_and_whitespace_insensitive():
     normalized = {name.strip().upper() for name in names}
 
     assert normalized == REQUIRED_BENCHMARKS
+
+
+def test_regular_integrity_gate_checks_all_release_benchmark_names():
+    import inspect
+    import verify_tri_provenance
+
+    source = inspect.getsource(verify_tri_provenance.verify_fixture)
+    assert "NIFTY 500 MULTICAP 50:25:25 TRI" in source
+    assert "NIFTY MIDCAP 150 TRI" in source

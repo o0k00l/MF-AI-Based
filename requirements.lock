@@ -2408,6 +2408,7 @@ websockets==14.2 \
     --hash=sha256:f8a86a269759026d2bde227652b87be79f8a734e582debf64c9d302faa1e9f03 \
     --hash=sha256:fd475a974d5352390baf865309fe37dec6831aafc3014ffac1eea99e84e83fc2
     # via
+    #   -r requirements.txt
     #   google-genai
     #   streamlit
     #   uvicorn

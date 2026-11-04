@@ -52,5 +52,7 @@ jobs:
           name: release-dependency-sbom-${{ github.sha }}
           path: dependency-sbom.cdx.json
           retention-days: 90
-      - name: Require production-grade TRI evidence
-        run: python verify_tri_provenance.py --require-alpha-release
+      - name: Require signed production-grade TRI evidence
+        env:
+          TRI_REVIEWER_TRUST_REGISTRY_JSON: ${{ vars.TRI_REVIEWER_TRUST_REGISTRY_JSON }}
+        run: python verify_tri_provenance.py --require-alpha-release --expected-commit ${{ github.sha }}

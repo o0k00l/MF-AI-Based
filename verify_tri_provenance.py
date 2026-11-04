@@ -70,7 +70,8 @@ def verify_fixture(path: Path) -> list[str]:
         benchmarks = {}
     specs = (
         ("NIFTY 500 TRI", "nifty_500_tri", "checksum_sha256_nifty_500_tri"),
-        ("NIFTY 50 TRI", "nifty_50_tri", "checksum_sha256_nifty_50_tri"),
+        ("NIFTY 500 MULTICAP 50:25:25 TRI", "nifty_500_multicap_50_25_25_tri", "checksum_sha256_nifty_500_multicap_50_25_25_tri"),
+        ("NIFTY MIDCAP 150 TRI", "nifty_midcap_150_tri", "checksum_sha256_nifty_midcap_150_tri"),
     )
     for index_name, coverage_key, checksum_key in specs:
         benchmark = benchmarks.get(index_name, {})
@@ -222,8 +223,8 @@ def alpha_release_blockers(fixture_path: Path) -> list[str]:
         actual = hashlib.sha256(cal_source_path.read_bytes()).hexdigest()
         if len(declared) != 64 or declared != actual:
             blockers.append("NSE calendar source document SHA-256 is absent or does not match the stored source file")
-    if cal_provenance.get("reviewer_attested") is not True:
-        blockers.append("NSE calendar lacks an explicit independent reviewer attestation")
+    # Reviewer attestation is validated only through the detached signature gate below;
+    # a boolean embedded in the calendar document is not an identity credential.
 
     sessions_set = set(sessions)
     for index_name, benchmark in benchmarks.items():
@@ -262,23 +263,16 @@ def alpha_release_blockers(fixture_path: Path) -> list[str]:
         blockers.append("no benchmark series supplied")
     if not provenance.get("independent_reviewer_id"):
         blockers.append("independent reviewer identity is not recorded in provenance")
-    # These metadata fields and local hashes are self-asserted. This verifier
-    # has no trusted publisher signature or independently authenticated
-    # reviewer attestation to validate, so they must never unlock release.
-    blockers.append(
-        "external release approval is still required: source authenticity and reviewer identity "
-        "are not cryptographically authenticated by this verifier"
-    )
     return blockers
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--require-alpha-release",
-        action="store_true",
-        help="fail unless daily TRI data and source/calendar evidence meet the alpha release gate",
+        "--require-alpha-release", action="store_true",
+        help="fail unless daily TRI data, source/calendar evidence and signed reviewer approval pass",
     )
+    parser.add_argument("--expected-commit", default=None, help="exact commit SHA the approval must authorize")
     args = parser.parse_args(argv)
 
     print("=" * 70)
@@ -298,6 +292,16 @@ def main(argv: list[str] | None = None) -> int:
 
     print("\nLevels-file integrity: PASS for available TRI fixtures")
     blockers = alpha_release_blockers(FIXTURES[1])
+    if args.require_alpha_release:
+        from tri_reviewer_approval import verify_approval_from_environment
+        approval_result = verify_approval_from_environment(
+            repository="o0k00l/MF-AI-Based", expected_commit=args.expected_commit,
+            fixture_path=FIXTURES[1], root=ROOT,
+        )
+        if not approval_result.ok:
+            blockers.extend(approval_result.errors)
+    else:
+        blockers.append("signed reviewer approval is required for alpha release")
     if blockers:
         print("TRI alpha release eligibility: BLOCKED")
         for blocker in blockers:

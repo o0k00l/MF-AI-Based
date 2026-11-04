@@ -8,6 +8,7 @@
 # ==============================================================================
 
 # --- Canonical Audit Serialization ---
+cryptography==50.0.2        # Ed25519 detached reviewer approval verification
 rfc8785==0.1.4              # RFC 8785 JSON Canonicalization Scheme for decision hashes
 
 # --- Core Data Ingestion & CAS Statement Parsers ---
