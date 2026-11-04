@@ -551,3 +551,15 @@ def test_decision_hash_rejects_integer_outside_ijson_safe_range():
     decision.inputs["unsafe_integer"] = 2**53
     with pytest.raises(rfc8785.CanonicalizationError):
         decision.compute_hash()
+
+
+def test_legacy_redemption_maturity_profile_is_disabled():
+    import pytest
+    from datetime import date
+    from core import redemption_engine
+
+    with pytest.raises(
+        redemption_engine.RedemptionAdviceDisabledError,
+        match="Lot-maturity and redemption profiling are disabled",
+    ):
+        redemption_engine.get_holding_mature_profile(None, {}, date(2026, 11, 4))
