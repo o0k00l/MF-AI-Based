@@ -21,22 +21,20 @@ from core.models import FiduciaryFactsPayload
 load_dotenv()
 
 SYSTEM_INSTRUCTION = """
-You are a senior, fee-only SEBI-registered Fiduciary Wealth Advisor analyzing an Indian mutual fund portfolio.
-Your advice is strictly objective, conflict-free, and grounded in fiduciary mathematics.
+You are an analytical assistant supporting a mutual-fund decision-support workflow. You are not a substitute for a SEBI-registered investment adviser, tax professional or legal reviewer.
 
 CRITICAL OPERATIONAL RULES:
-1. ABSOLUTE GROUNDING: Never hallucinate or recalculate portfolio numbers, returns, or fee amounts. You MUST quote the exact numbers provided in the input payload.
-2. REGULAR VS. DIRECT PRIORITY: Always emphasize that switching Regular plans to Direct plans yields a guaranteed, risk-free annual return boost by eliminating distributor commission leakage.
-3. SCHEME CONSOLIDATION: When multiple funds (especially Multi-Cap, Flexi-Cap, or Thematic funds) share high overlap (>30%), recommend consolidating them into a single core fund to eliminate redundant fee drag and stock duplication.
-4. TAX & LOCK-IN PROTECTION: Remind the investor to check holding periods: units held for >365 days qualify for the ₹1.25 Lakh annual tax-free LTCG exemption under Section 112A. Recent units (<1 year) should be switched after completing 1 year to avoid exit loads and 20% STCG tax.
-5. TABLE FORMATTING RULE: Do NOT pad markdown table cells with extra whitespace. Use compact markdown tables like:
-| Fund Name | Current Value (INR) | Action | Reason |
-|---|---|---|---|
-| Fund A | INR 5,00,000 | Switch to Direct | Eliminate commission |
-6. TONE & STYLE: Write in authoritative, eloquent, and deeply reasoned institutional advisory prose. Use clean Markdown tables and bold headers. NEVER use defensive, robotic boilerplate like 'The engine indicates' or 'Data not available'.
-7. FIDUCIARY DEPTH & ELOQUENCE: Deliver comprehensive, institutional-grade fiduciary analysis. Explain the rigorous financial reasoning, economic rationale, and risk-return trade-offs behind every recommendation. Do NOT use superficial or lazy single-sentence summaries. When recommending or rejecting funds, provide thorough justification with comparative quantitative metrics (TER, Sharpe, Alpha, Overlap, P/E ratios) and strategic portfolio context.
-8. MANDATORY STATUTORY & FIDUCIARY DISCLAIMER: Conclude all analytical outputs with:
-   "*Statutory Disclaimer: Mutual fund investments are subject to market risks. Read all scheme-related offer documents carefully before investing. Past performance is no guarantee of future returns. All recommendations presented herein represent fiduciary advisory proposals subject to explicit written client authorization, not autonomous trade execution orders. Tax calculations and statutory citations are indicative under the Income-tax Act, 1961 and Income-tax Act, 2025; consult a certified Chartered Accountant or registered tax professional for individualized tax assessment.*"
+1. GROUNDING: Use only facts and calculations explicitly present in the supplied payload. Never invent, estimate, interpolate or silently substitute missing values.
+2. NO GUARANTEED OUTCOMES: Direct-plan expense differences are not guaranteed returns or risk-free gains. Explain costs only when supported by current, scheme-specific evidence.
+3. PORTFOLIO OVERLAP: Overlap alone does not mandate consolidation. Discuss look-through exposure, mandate, tax, exit load, costs and investor constraints; do not prescribe a switch from overlap alone.
+4. TAX AND EXIT LOAD: Do not state a tax rate, exemption, holding period, statutory section or exit-load outcome unless the applicable transfer date, instrument classification and source-backed rule are supplied and validated. Otherwise state that tax treatment is unverified and make no tax-saving claim.
+5. FAIL-CLOSED: Missing, stale, conflicting or incomplete inputs must be explicitly identified. Do not conceal unavailable data. If a required input or validated plan is absent, state NO ACTION / HOLD and leave the relevant budget unallocated.
+6. DEPLOYMENT: Never invent a lumpsum split, immediate-deployment percentage, STP duration, parking vehicle, yield, tax saving or fund destination. Present only supplied deterministic plan tranches and clearly show any unallocated amount.
+7. SIP ALLOCATION: Never infer that a budget is fully allocated, equity-only or compliant with a target allocation unless the supplied deterministic plan explicitly establishes it and reconciles the total.
+8. TABLE FORMATTING: Use compact Markdown tables and preserve exact supplied values. Do not fill missing cells with estimates.
+9. NARRATIVE: Explain the financial reasoning and trade-offs, distinguishing verified facts, calculations, assumptions, research interpretation and unavailable evidence. Do not create comparative metrics that are absent from the payload.
+10. AUTHORITY: Outputs are non-executable decision support. Never imply that an order, switch, redemption or transfer is authorized. Preserve the supplied mandate state and authorization flags.
+11. DISCLAIMER: State that mutual fund investments are subject to market risks, past performance does not guarantee future returns, and tax/legal treatment requires review by an appropriately qualified professional. Do not cite statutory provisions unless verified source evidence is supplied.
 """
 
 
@@ -399,58 +397,96 @@ def _build_dynamic_selection_dossier(facts: FiduciaryFactsPayload) -> str:
 
 
 def generate_cash_and_sip_plan(facts: FiduciaryFactsPayload) -> str:
-    """Generates the Monthly SIP and Lumpsum Deployment Plan with comprehensive fund selection reasons and peer rejection analysis."""
-    lumpsum_amt = getattr(facts, "lumpsum_budget_inr", 200000.0)
+    """Generate a grounded SIP/lumpsum report; absent plans remain NO ACTION."""
+    lumpsum_amt = getattr(facts, "lumpsum_budget_inr", 0.0)
     lump_plan = getattr(facts, "deterministic_lumpsum_plan", None)
 
     lump_rows = []
-    stp_duration = 6
-    parking_vehicle = "Equity Arbitrage Fund - Direct Plan"
-    tax_savings = 0.0
-    cash_validation_msg = "Validated against bank deployable surplus."
-
-    if lump_plan:
-        stp_duration = lump_plan.stp_duration_months
-        parking_vehicle = lump_plan.parking_vehicle
-        tax_savings = lump_plan.tax_savings_vs_debt_fund_inr
-        cash_validation_msg = lump_plan.cash_validation_message
-        for tr in lump_plan.tranches:
-            f_str = tr.folio_target if tr.folio_target else "New Direct Folio"
+    if lump_plan is not None:
+        for tranche in lump_plan.tranches:
+            folio = tranche.folio_target or "Not specified"
             lump_rows.append(
-                f"| {tr.role} | {tr.scheme_name} | {f_str} | INR {tr.amount_inr:,.0f} | {tr.allocation_pct:.1f}% | {tr.timing} | {tr.source_vehicle} | {tr.fiduciary_rationale} |"
+                f"| {tranche.role} | {tranche.scheme_name} | {folio} | "
+                f"INR {tranche.amount_inr:,.2f} | {tranche.allocation_pct:.2f}% | "
+                f"{tranche.timing} | {tranche.source_vehicle} | {tranche.fiduciary_rationale} |"
             )
-    lumpsum_table_str = "\n".join(lump_rows) if lump_rows else "Standard 20/80 deployment"
 
-    sip_rows = []
-    if getattr(facts, "deterministic_sip_plan", None):
-        for item in facts.deterministic_sip_plan.items:
-            folio_str = item.folio_target if item.folio_target else "New Direct Folio"
-            sip_rows.append(
-                f"| {item.category_role} | {item.scheme_name} | {folio_str} | INR {item.monthly_inr:,.0f} | {item.allocation_pct:.1f}% | {item.fiduciary_rationale} |"
+    if lump_plan is None:
+        lumpsum_status = (
+            "NO ACTION: no deterministic lumpsum plan was supplied. "
+            "Do not propose a split, parking vehicle, STP duration or tax treatment. "
+            "The full requested lumpsum budget remains unallocated."
+        )
+    else:
+        unallocated = float(lump_plan.unallocated_amount_inr)
+        lumpsum_status = (
+            f"Plan status: {lump_plan.execution_status}. "
+            f"Requested amount: INR {lump_plan.total_lumpsum_inr:,.2f}. "
+            f"Unallocated amount: INR {unallocated:,.2f}. "
+            f"Cash validation passed: {lump_plan.cash_validation_passed}. "
+            f"Validation: {lump_plan.cash_validation_message or 'No validation message supplied.'} "
+            "No tax-saving or tax-classification conclusion is asserted."
+        )
+        if not lump_rows:
+            lumpsum_status += (
+                " NO ACTION: the plan contains no validated deployment tranches; "
+                "the entire requested amount remains unallocated."
             )
+            lump_rows.append("| NO ACTION | No validated destination | — | "
+                             f"INR {lump_plan.total_lumpsum_inr:,.2f} | — | Not authorized | — | "
+                             "No qualifying tranche supplied |")
+        if unallocated > 0:
+            lump_rows.append(
+                f"| UNALLOCATED | No destination | — | INR {unallocated:,.2f} | — | HOLD | — | "
+                "No qualifying allocation; do not redistribute |"
+            )
+
+    lumpsum_table_str = "\n".join(lump_rows) if lump_rows else (
+        "| NO ACTION | No validated destination | — | — | — | HOLD | — | "
+        "No deterministic plan supplied |"
+    )
+
+    sip_plan = getattr(facts, "deterministic_sip_plan", None)
+    sip_rows = []
+    if sip_plan is not None:
+        for item in sip_plan.items:
+            folio = item.folio_target or "Not specified"
+            sip_rows.append(
+                f"| {item.category_role} | {item.scheme_name} | {folio} | "
+                f"INR {item.monthly_inr:,.2f} | {item.allocation_pct:.2f}% | "
+                f"{item.fiduciary_rationale} |"
+            )
+        if sip_plan.unallocated_budget_inr > 0:
+            sip_rows.append(
+                f"| UNALLOCATED | No destination | — | INR {sip_plan.unallocated_budget_inr:,.2f} | — | "
+                "No qualifying candidate; do not redistribute |"
+            )
+    if not sip_rows:
+        sip_rows.append(
+            "| NO ACTION | No validated destination | — | — | — | "
+            "No deterministic SIP plan supplied; requested budget remains unallocated |"
+        )
     sip_table_str = "\n".join(sip_rows)
 
-    stability_str = ""
-    if getattr(facts, "stability_buffer", None):
-        sb = facts.stability_buffer
+    stability_str = "NOT AVAILABLE — do not infer the stability buffer or claim that an allocation target is satisfied."
+    stability = getattr(facts, "stability_buffer", None)
+    if stability is not None:
         stability_str = (
-            f"Client already possesses {sb.total_stability_buffer_pct:.2f}% look-through stability buffer "
-            f"(Embedded Debt: INR {sb.embedded_debt_inr:,.0f}, Embedded Cash: INR {sb.embedded_cash_inr:,.0f}, "
-            f"Bank Cash: INR {sb.bank_deployable_cash_inr:,.0f}). This fully satisfies the Tier 6 (5% debt ceiling) target "
-            f"without requiring a standalone low-yield debt SIP."
+            f"Reported stability buffer: {stability.total_stability_buffer_pct:.2f}% "
+            f"(embedded debt INR {stability.embedded_debt_inr:,.2f}; "
+            f"embedded cash INR {stability.embedded_cash_inr:,.2f}; "
+            f"bank deployable cash INR {stability.bank_deployable_cash_inr:,.2f}). "
+            "Do not infer that this satisfies any target unless a separate validated policy check is supplied."
         )
 
-    # Rich Fiduciary Fund Selection Dossier (Dynamically Generated)
     selection_dossier = _build_dynamic_selection_dossier(facts)
-
-    # Mandate state for report transparency
-    mandate_state = facts.mandate_state.value if hasattr(facts.mandate_state, 'value') else str(facts.mandate_state)
-    is_execution_authorized = getattr(facts, 'is_execution_authorized', False)
-    is_actionable_order = getattr(facts, 'is_actionable_order', False)
+    mandate_state = facts.mandate_state.value if hasattr(facts.mandate_state, "value") else str(facts.mandate_state)
+    is_execution_authorized = getattr(facts, "is_execution_authorized", False)
+    is_actionable_order = getattr(facts, "is_actionable_order", False)
 
     prompt = f"""
-Generate Deliverable 3: 'Fresh Money Deployment Plan (SIP & Lumpsum)' for {facts.client_name}.
-Provide an authoritative, detailed institutional wealth deployment blueprint with deep, comprehensive fund selection reasons and peer rejection analysis.
+Generate Deliverable 3: Fresh Money Deployment Plan (SIP & Lumpsum) for {facts.client_name}.
+This is non-executable decision support. Do not fill gaps with customary allocations or assumptions.
 
 INPUT FACT PAYLOAD:
 - Investor: {facts.client_name} (Age: {facts.client_age}, Horizon: {facts.horizon_years} Years)
@@ -460,60 +496,35 @@ INPUT FACT PAYLOAD:
 - Monthly SIP Budget: INR {facts.monthly_sip_budget_inr:,.2f}
 - Fresh Lumpsum Budget: INR {lumpsum_amt:,.2f}
 
-VERIFIED INSTITUTIONAL LUMPSUM BLUEPRINT:
-- Immediate Deployment (Day 1): INR {lump_plan.immediate_amount_inr if lump_plan else lumpsum_amt * 0.2:,.0f}
-- Parking & STP Total: INR {lump_plan.stp_total_amount_inr if lump_plan else lumpsum_amt * 0.8:,.0f} over {stp_duration} Months (INR {lump_plan.monthly_stp_total_inr if lump_plan else (lumpsum_amt * 0.8)/stp_duration:,.0f}/mo)
-- STP Parking Vehicle: {parking_vehicle}
-- Tax Optimization: Arbitrage parking avoids Section 50AA debt slab taxation (31.2%) and enjoys equity tax treatment under Sections 111A/112A, saving INR {tax_savings:,.2f} in tax drag.
-- Bank Cash Reality Check: {cash_validation_msg}
+LUMPSUM PLAN STATUS:
+{lumpsum_status}
 
-LUMPSUM DEPLOYMENT TRANCHES TABLE:
-| Deployment Leg | Destination Scheme (100% Direct) | Target Folio | Amount (INR) | Allocation (%) | Timing & Execution | Source Vehicle | Fiduciary Rationale |
+DETERMINISTIC LUMPSUM TRANCHES (show only these supplied rows):
+| Deployment Leg | Destination Scheme | Target Folio | Amount (INR) | Allocation (%) | Timing | Source Vehicle | Rationale |
 |---|---|---|---|---|---|---|---|
 {lumpsum_table_str}
 
-VERIFIED DETERMINISTIC SIP BLUEPRINT (100% DIRECT EQUITY COMPOUNDING):
-| Category Role | Scheme Name (100% Direct Plans) | Target Folio | Monthly SIP (INR) | Allocation (%) | Fiduciary Rationale |
+DETERMINISTIC SIP PLAN (show only these supplied rows):
+| Category Role | Scheme Name | Target Folio | Monthly SIP (INR) | Allocation (%) | Rationale |
 |---|---|---|---|---|---|
 {sip_table_str}
 
 FUND SELECTION DOSSIER & PEER REJECTION MATRIX:
 {selection_dossier}
 
-MANDATE STATE (for investor transparency):
+MANDATE STATE:
 - Mandate Execution State: {mandate_state}
 - Is Execution Authorized: {is_execution_authorized}
 - Is Actionable Order: {is_actionable_order}
 
-STRUCTURE YOUR REPORT AS FOLLOWS:
-# Fresh Money Deployment Plan (SIP & Lumpsum)
-
-**0. Mandate State & Execution Status (MANDATORY):**
-- **Mandate Execution State:** {mandate_state}
-- **Is Execution Authorized:** {is_execution_authorized}
-- **Is Actionable Order:** {is_actionable_order}
-- **Interpretation:** Explain what this means for the investor — e.g., "HOLD_PENDING_TRI_VALIDATION means all SIP/lumpsum recommendations are PROPOSED ONLY and require explicit written client authorization before execution."
-
-1. Executive Deployment Strategy:
-   - State client profile, risk capacity, and the 95:5 SAA target.
-   - Explain why {stability_str} satisfies the 5% debt ceiling organically, enabling 100% Equity SIP routing (INR {facts.monthly_sip_budget_inr:,.0f}/mo) without standalone debt drag.
-
-2. Institutional Lumpsum Deployment Strategy (Budget: INR {lumpsum_amt:,.0f}):
-   - Render the complete Lumpsum Deployment Tranches Table exactly as provided above.
-   - Detail the fiduciary rationale for the 20/80 lumpsum equation: Day 1 immediate equity entry + systematic 6-month STP.
-   - Explain tax savings (INR {tax_savings:,.0f}) achieved by parking in Equity Arbitrage vs Debt Funds under Sections 50AA vs 111A/112A.
-   - Confirm bank cash validation: {cash_validation_msg}.
-
-3. The Deterministic Direct SIP Blueprint (Monthly Budget: INR {facts.monthly_sip_budget_inr:,.0f}):
-   - Render the complete SIP Blueprint Table exactly as provided above.
-   - Confirm 100% Direct Plan compliance and zero standalone debt SIP drag.
-
-4. Fiduciary Selection & Peer Rejection Matrix:
-   - Include a comprehensive Markdown comparison table: Category Role, Selected Scheme, Direct TER, Key Alpha/Sharpe metric, Overlap, Primary Selection Moat, Peer Funds Evaluated & Rejected, Why Peers Were Rejected.
-   - Incorporate the specific numbers and justifications from the Selection Dossier.
-
-5. In-Depth Fund-by-Fund Fiduciary Deep Dive:
-   - Dedicated analytical sections for each selected fund covering its investment thesis, manager track record, risk metrics, and folio consolidation benefits.
+REPORT REQUIREMENTS:
+1. State that all proposals are non-executable unless the supplied mandate and authorization controls explicitly establish otherwise.
+2. Reconcile allocated and unallocated SIP/lumpsum amounts. If a plan or candidate is missing, say NO ACTION and retain the amount as unallocated.
+3. Do not invent or recommend an immediate-deployment percentage, STP duration, parking vehicle, tax saving, yield, scheme, fund split or target allocation.
+4. Do not assert that the stability buffer satisfies a debt target unless a separate validated policy result is supplied.
+5. Separate verified facts, deterministic calculations, research interpretation and unavailable evidence.
+6. Do not add unsupported TER, alpha, Sharpe, overlap, tax or statutory claims.
+7. Include a concise risk and statutory disclaimer; do not present this report as an order or tax opinion.
 """
     return _call_llm_with_retry(prompt)
 
