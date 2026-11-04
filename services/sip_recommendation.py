@@ -15,6 +15,7 @@ from datetime import date
 import hashlib
 import json
 import math
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
