@@ -32,6 +32,8 @@ A version-1 bundle uses a UTF-8 `manifest.json`:
   "candidate_universe_source_file": "originals/candidate_universe.csv",
   "candidate_score_metadata_file": "records/candidate_score_metadata.json",
   "candidate_score_source_file": "originals/candidate_rank_scores.csv",
+  "category_anchor_metadata_file": "records/category_anchor_metadata.json",
+  "category_anchor_source_file": "originals/category_benchmark_anchor_source.pdf",
   "portfolio_context_file": "records/total_portfolio_context.json",
   "portfolio_context_metadata_file": "records/total_portfolio_context_metadata.json",
   "portfolio_context_source_file": "originals/total_portfolio_context.xlsx"
@@ -39,7 +41,7 @@ A version-1 bundle uses a UTF-8 `manifest.json`:
 ```
 
 All paths are relative to the bundle root. The optional `aliases_file` may be
-null. The three `portfolio_context_*` fields are optional, but if one is present all three are required. The two `candidate_score_*` fields are optional, but must be configured together when supplied. Every referenced file must exist. Paths that escape the bundle,
+null. The three `portfolio_context_*` fields are optional, but if one is present all three are required. The two `candidate_score_*` fields are optional, but must be configured together when supplied. The two `category_anchor_*` fields are optional, but any candidate carrying a ranking score requires the approved category-anchor pair. Every referenced file must exist. Paths that escape the bundle,
 absolute paths, symlink escapes and bundles located inside the Git checkout
 are rejected.
 
@@ -63,14 +65,29 @@ are rejected.
   file bytes. This prevents an independently edited candidate JSON file from
   inheriting a valid original-source attestation.
 - `candidate_score_metadata_file` and `candidate_score_source_file`: optional
-  original ranking-score output and its reviewed source metadata. Every
-  candidate carrying a score must also carry `rank_score_source_ref` in the
-  form `sha256:<digest>`, `rank_score_as_of_date`, and
-  `rank_score_methodology_version`. Those values must match the original score
-  bytes, metadata effective date and methodology version. A score without this
-  separately attested bundle is rejected. The score values are consumed as
-  evidence; the SIP service does not manufacture a ranking model or claim that
-  the model is independently validated.
+  original ranking-score output and its reviewed source metadata. Any candidate
+  carrying a score must have:
+  `rank_score_source_ref`, `rank_score_as_of_date`,
+  `rank_score_methodology_version`, and `rank_score_scope=PORTFOLIO_AWARE`;
+  verified portfolio-overlap status, percentage and at least 99.5% look-through
+  coverage; an overlap source reference; and the matching category-anchor
+  source reference, policy version and benchmark identity. The score metadata
+  must declare `score_scope=PORTFOLIO_AWARE` and
+  `missing_overlap_policy=BLOCK_SCORE`. Missing overlap cannot be represented
+  as a neutral score or enter portfolio-aware ranking. Score values are
+  consumed as evidence; the SIP service does not manufacture a ranking model
+  or claim that the model is independently validated.
+- `category_anchor_metadata_file` and `category_anchor_source_file`: required
+  whenever any candidate carries a rank score. The source metadata must be
+  reviewer-attested and include a policy version, reviewer ID and a category
+  map. Each approved category entry must identify its exact benchmark, status,
+  reviewer, policy version, effective date and complete metric bounds for
+  alpha, 1Y return, Sharpe, TER, buffer, international exposure and overlap.
+  Every bound must be a finite, increasing pair. The category anchor source
+  digest must match the original source bytes. Candidate scores must reference
+  the exact category, benchmark, anchor source digest and policy version.
+  Categories without an approved complete anchor set are unavailable; no
+  other category's anchors or generic defaults may be substituted.
 - `metrics_file`: normalized fund metrics data file consumed by the engine. Its
   exact normalized bytes must match `normalized_metrics_sha256` in the metadata.
 
