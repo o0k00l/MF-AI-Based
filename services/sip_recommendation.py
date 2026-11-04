@@ -208,10 +208,12 @@ def _assess_complete_portfolio_context(
         ips = context["ips"]
         ips_date = date.fromisoformat(ips["effective_date"])
         valuation_date = date.fromisoformat(as_of)
+        max_policy_age = int(context["candidate_policy"]["max_evidence_age_days"])
         if (
             ips.get("approved") is not True
             or not isinstance(ips.get("source_ref"), str) or not ips["source_ref"].strip()
             or ips_date > valuation_date
+            or (valuation_date - ips_date).days > max_policy_age
         ):
             raise PortfolioInputError("approved, dated client IPS evidence is required")
         if risk_profile == "Aggressive" and profile_key == "very_high" and ips.get("tier6_equity_only_authorized") is not True:
@@ -324,6 +326,7 @@ def _assess_complete_portfolio_context(
             or not isinstance(concentration_policy.get("source_ref"), str)
             or not concentration_policy["source_ref"].strip()
             or concentration_date > valuation_date
+            or (valuation_date - concentration_date).days > max_policy_age
         ):
             raise PortfolioInputError("approved, dated issuer concentration policy is required")
         existing_issuer_values = {}
@@ -402,6 +405,7 @@ def _assess_complete_portfolio_context(
         return {
             "status": "ASSESSMENT_COMPLETE" if all_gates_pass else "HOLD",
             "scope": "DECLARED_TOTAL_PORTFOLIO",
+            "source_bundle_sha256": context.get("_source_bundle_sha256"),
             "trust_level": "UNVERIFIED_CLIENT_DECLARATIONS" if client_supplied_unverified else ("PROVIDER_ATTESTED" if provider_attested else "UNVERIFIED_CONTEXT"),
             "portfolio_reconciliation": reconciliation,
             "saa": {"current_sleeve_values_inr": current, "target_weights_pct": targets,
