@@ -206,7 +206,13 @@ def parse_cas_xlsx(source) -> dict:
                "current_value": current,
                "folio_no": str(cell("folio_no") or "").strip(),
                "amc_name": (str(cell("amc_name") or "").strip() or None),
-               "category": (str(cell("category") or "").strip() or None)}
+               "category": (str(cell("category") or "").strip() or None),
+               # CAS identifies scheme-level positions, not underlying securities.
+               # A disclosure must be attached later using a stable scheme ID.
+               "constituent_weights": None,
+               "constituent_weights_coverage_pct": None,
+               "lookthrough_status": "MISSING",
+               "lookthrough_reason": "CAS does not contain stock-level constituent disclosures."}
         for opt, key in (("invested_value", "invested"),
                          ("returns", "returns"), ("units", "units")):
             try:
