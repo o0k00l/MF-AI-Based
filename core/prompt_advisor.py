@@ -550,30 +550,54 @@ def answer_interactive_query(facts: FiduciaryFactsPayload, user_query: str, chat
 
     # Intent 3: Redemption / Withdrawal / Cash Out
     if any(k in q_lower for k in ("redeem", "redemption", "withdraw", "need cash", "take out money", "emergency withdrawal")):
-        sb = facts.stability_buffer
-        cash_avail = sb.bank_deployable_cash_inr if sb else 0.0
+        stability = getattr(facts, "stability_buffer", None)
+        tax_lots = getattr(facts, "tax_lots_summary", None)
+        if tax_lots is not None and hasattr(tax_lots, "model_dump"):
+            tax_lot_details = tax_lots.model_dump()
+        elif isinstance(tax_lots, dict):
+            tax_lot_details = tax_lots
+        else:
+            tax_lot_details = None
+
+        cash_text = (
+            f"Reported bank deployable cash: INR {stability.bank_deployable_cash_inr:,.2f}."
+            if stability is not None
+            else "Bank deployable cash: unavailable; do not infer a cash balance."
+        )
+        tax_text = (
+            f"Supplied tax-lot summary: {tax_lot_details}"
+            if tax_lot_details is not None
+            else "Tax-lot evidence unavailable: NO ACTION on tax-optimized redemption or switching."
+        )
         return (
-            f"### 💧 Fiduciary Personal Redemption Framework\n\n"
-            f"Capital withdrawals are executed via a strict **4-Stage Tax-Minimizing Waterfall**:\n\n"
-            f"1. **Stage 1 (Organic Cash):** Draw from deployable bank cash (INR {cash_avail:,.0f} available above emergency buffer) $\\rightarrow$ **INR 0 tax, INR 0 exit load**.\n"
-            f"2. **Stage 2 (Tactical Regular Bleed):** Liquidate underperforming Regular plans with capital losses (loss-harvesting) or mature LTCG within the INR 1,25,000 exemption $\\rightarrow$ **Eliminates fee drag, INR 0 exit load**.\n"
-            f"3. **Stage 3 (Thematic Trim):** Trim over-allocated or peak-valuation thematic holdings (e.g. Defence at 80x+ P/E).\n"
-            f"4. **Stage 4 (Core Equity Siphon):** Siphon long-term Direct equity compounders held >365 days.\n\n"
-            f"*To calculate an exact redemption schedule with lot-by-lot exit loads and taxes, run:* `python advisor.py --redeem <amount> [--net]`"
+            "### Redemption and withdrawal review\n\n"
+            f"- {cash_text}\n"
+            f"- {tax_text}\n\n"
+            "This information is not a withdrawal instruction. Do not assume that bank cash is "
+            "available for withdrawal without confirming the emergency reserve and source evidence. "
+            "Do not infer tax rates, holding periods, FIFO outcomes, exit loads, exemptions or a "
+            "redemption order. Obtain a current lot-level calculation and independent review before "
+            "any transaction."
         )
 
     # Intent 4: Stability Buffer / Debt Cushion
     if any(k in q_lower for k in ("stability buffer", "debt cushion", "how much debt", "debt allocation", "cash buffer")):
-        sb = facts.stability_buffer
-        if sb:
-            return (
-                f"### 🛡️ Look-Through Stability Cushion Analysis\n\n"
-                f"- **Total Look-Through Stability Buffer:** **{sb.total_stability_buffer_pct:.2f}%** of portfolio net worth.\n"
-                f"- **Embedded Debt:** INR {sb.embedded_debt_inr:,.2f} ({sb.embedded_debt_pct:.2f}%) held inside hybrid/flexi-cap funds.\n"
-                f"- **Embedded Cash:** INR {sb.embedded_cash_inr:,.2f} ({sb.embedded_cash_pct:.2f}%) held as fund manager dry powder.\n"
-                f"- **Bank Deployable Cash:** INR {sb.bank_deployable_cash_inr:,.2f} (above emergency reserves).\n\n"
-                f"**Fiduciary Impact:** This organic {sb.total_stability_buffer_pct:.2f}% stability cushion fully satisfies your **Tier 6 (5% debt ceiling)** target without requiring low-yielding standalone debt SIPs."
-            )
+        stability = getattr(facts, "stability_buffer", None)
+        if stability is None:
+            return "Stability-buffer evidence is unavailable. NO ACTION: do not infer debt, cash or allocation-target coverage."
+
+        return (
+            "### Look-through stability-buffer observations\n\n"
+            f"- Reported total stability buffer: {stability.total_stability_buffer_pct:.2f}%.\n"
+            f"- Reported embedded debt: INR {stability.embedded_debt_inr:,.2f} "
+            f"({stability.embedded_debt_pct:.2f}%).\n"
+            f"- Reported embedded cash: INR {stability.embedded_cash_inr:,.2f} "
+            f"({stability.embedded_cash_pct:.2f}%).\n"
+            f"- Reported bank deployable cash: INR {stability.bank_deployable_cash_inr:,.2f}.\n\n"
+            "These are reported observations, not an automatic debt-target pass or a recommendation "
+            "to route new SIPs entirely to equity. Use the separately validated policy result and "
+            "investor mandate before drawing an allocation conclusion."
+        )
     holdings_ledger = "\n".join(
         f"- {h.fund_name} (Folio: {h.folio}) | {h.plan.value} | Val: INR {h.current_value_inr:,.0f} | Inv: INR {h.invested_value_inr:,.0f} | Gain: INR {h.current_value_inr - h.invested_value_inr:+,.0f}"
         for h in sorted(facts.holdings, key=lambda x: -x.current_value_inr)
