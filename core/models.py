@@ -53,9 +53,22 @@ class RiskTier(str, Enum):
     CUSTOM = "Custom"
 
 class AssetAllocationTarget(BaseModel):
-    equity_pct: float
-    debt_pct: float
-    cash_pct: float
+    """Validated total-portfolio SAA; all sleeves must reconcile to 100%."""
+
+    equity_pct: float = Field(ge=0.0, le=100.0)
+    debt_pct: float = Field(ge=0.0, le=100.0)
+    cash_pct: float = Field(ge=0.0, le=100.0)
+
+    @model_validator(mode="after")
+    def validate_total_allocation(self) -> "AssetAllocationTarget":
+        import math
+
+        values = (self.equity_pct, self.debt_pct, self.cash_pct)
+        if any(not math.isfinite(value) for value in values):
+            raise ValueError("SAA percentages must be finite numbers")
+        if abs(sum(values) - 100.0) > 0.01:
+            raise ValueError("Custom SAA equity, debt and cash percentages must sum to 100%")
+        return self
 
 # The deterministic 3+1 Policy Map
 SAA_POLICY_MAP = {
