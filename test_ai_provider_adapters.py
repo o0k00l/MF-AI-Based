@@ -189,3 +189,25 @@ def test_generation_blocks_model_when_live_zero_price_evidence_changes(monkeypat
     with pytest.raises(ai_engine.ProviderError, match="no longer verified as zero-priced"):
         ai_engine._call_openrouter("test")
     assert attempted == []
+
+
+def test_force_refresh_bypasses_stale_cache_even_when_cache_is_readable(monkeypatch):
+    fetched = []
+    monkeypatch.setattr(
+        ai_engine, "_read_model_cache",
+        lambda *args: ["vendor/stale-paid-model"],
+    )
+    monkeypatch.setattr(
+        ai_engine, "_http_json",
+        lambda *args: fetched.append(args) or {
+            "data": [{"id": "vendor/current-free", "input_price": "0", "output_price": "0"}]
+        },
+    )
+    monkeypatch.setattr(ai_engine, "_write_model_cache", lambda *args: None)
+
+    result = ai_engine._discover_openai_models(
+        "Requesty", "https://example.test/models", "key", force_refresh=True
+    )
+
+    assert result == ["vendor/current-free"]
+    assert len(fetched) == 1
