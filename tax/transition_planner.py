@@ -1564,3 +1564,44 @@ def compute_exit_load_amortization(
             ("EXIT LOAD ACTIVE" if exit_load_amount > 0 else "ZERO EXIT LOAD (Amortized)")
         )
     }
+
+# ---------------------------------------------------------------------------
+# P0 PRODUCTION SAFETY GATE — tax transition and switch-cost advice disabled.
+#
+# This legacy module contains provisional statutory rates, default exit-load
+# assumptions, fund-name heuristics, future-date approximations, and hard-coded
+# STP/lump-sum assumptions. These are not an approved Indian tax computation
+# basis. Keep transaction parsing available for controlled data preparation,
+# but block every public function that can turn those inputs into tax,
+# redemption, transition, or switch recommendations until independent
+# tax/legal approval and lot-/scheme-specific evidence are released.
+# ---------------------------------------------------------------------------
+
+class TaxAdviceDisabledError(RuntimeError):
+    """Raised when an unapproved legacy tax-advice pathway is invoked."""
+
+
+def _tax_advice_disabled(*args, **kwargs):
+    raise TaxAdviceDisabledError(
+        "Tax transition, redemption, exit-load, and switch-cost advice is "
+        "disabled pending independently approved Indian tax rules, "
+        "scheme/plan/lot-specific evidence, and production release approval. "
+        "No estimate or action plan has been generated."
+    )
+
+
+# Preserve parsing and provenance preparation only. The following names are
+# intentionally rebound after legacy definitions so all direct and internal
+# callers fail closed, rather than silently receiving provisional outputs.
+load_tax_rules = _tax_advice_disabled
+classify_fund_for_tax = _tax_advice_disabled
+get_tax_rates_for_sale = _tax_advice_disabled
+plan_fy_tranches = _tax_advice_disabled
+generate_transition_plan_md = _tax_advice_disabled
+write_transition_plan = _tax_advice_disabled
+generate_stp_vs_lump_sum_comparison = _tax_advice_disabled
+bogleheads_payback_years = _tax_advice_disabled
+bogleheads_circuit_breaker = _tax_advice_disabled
+evaluate_bogleheads_switch_hurdle = _tax_advice_disabled
+compare_switch_vs_stop_sip = _tax_advice_disabled
+compute_exit_load_amortization = _tax_advice_disabled
