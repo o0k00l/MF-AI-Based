@@ -44,6 +44,10 @@ def _safe_repo_file(relative: object, description: str) -> tuple[Path | None, st
         return None, f"{description}: path escapes the repository"
     if not resolved.is_file():
         return None, f"{description}: file does not exist: {relative}"
+    if resolved.stat().st_size <= 0:
+        return None, f"{description}: evidence file is empty: {relative}"
+    if resolved.stat().st_size > 100 * 1024 * 1024:
+        return None, f"{description}: evidence file exceeds the 100 MiB size limit: {relative}"
     return resolved, None
 
 
@@ -195,9 +199,11 @@ def alpha_release_blockers(fixture_path: Path, *, approval_verified: bool = Fals
     if missing_benchmarks:
         blockers.append("required benchmark series missing: " + ", ".join(missing_benchmarks))
 
-    calendar_path = ROOT / "data/policy/nse_trading_calendar.json"
-    if not calendar_path.is_file():
-        blockers.append("independently sourced data/policy/nse_trading_calendar.json is absent")
+    calendar_path, calendar_path_error = _safe_repo_file(
+        "data/policy/nse_trading_calendar.json", "NSE trading calendar"
+    )
+    if calendar_path_error:
+        blockers.append(calendar_path_error)
         return blockers
     try:
         calendar = json.loads(calendar_path.read_text(encoding="utf-8"))
