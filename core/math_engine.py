@@ -1022,6 +1022,7 @@ def load_holdings_from_cas_excel(
     portfolio_disclosure_source_bytes_by_scheme_id: Optional[Dict[str, bytes]] = None,
     disclosure_as_of_date: Optional[date] = None,
     disclosure_max_age_days: int = 45,
+    require_exact_metric_identity: bool = False,
 ) -> List[HoldingItem]:
     """
     Parses active mutual fund holdings directly from CAS detailed report Excel sheet.
@@ -1164,7 +1165,12 @@ def load_holdings_from_cas_excel(
 
         # Exact identity / reviewed-alias metrics match only. Never infer
         # classification or substitute default exposures when metrics are absent.
-        matched_metric = _find_matching_metric(scheme_str, metrics_map, aliases_map)
+        if require_exact_metric_identity:
+            matched_metric = _find_matching_metric_by_scheme_identity(
+                identity.get("scheme_id"), identity.get("isin"), metrics_map
+            )
+        else:
+            matched_metric = _find_matching_metric(scheme_str, metrics_map, aliases_map)
         if matched_metric is None:
             category = None
             er = None
@@ -1270,6 +1276,35 @@ def load_holdings_from_cas_excel(
         )
 
     return holdings
+
+
+def _find_matching_metric_by_scheme_identity(
+    scheme_id: Any, isin: Any, metrics: Dict[str, Any]
+) -> Optional[Dict[str, Any]]:
+    """Resolve SIP metrics only by the exact verified scheme ID and ISIN.
+
+    Display names and aliases are intentionally excluded: they cannot bind
+    performance/exposure facts to a CAS holding. A conflicting ISIN for an
+    otherwise matching scheme ID is an evidence error, not a missing match.
+    """
+    if not isinstance(scheme_id, str) or not scheme_id.strip():
+        return None
+    if not isinstance(isin, str) or not isin.strip():
+        return None
+    matches = [
+        metric for metric in metrics.values()
+        if isinstance(metric, dict) and metric.get("scheme_id") == scheme_id
+    ]
+    if not matches:
+        return None
+    if len(matches) != 1:
+        raise ValueError(f"Duplicate fund metrics for verified scheme ID {scheme_id!r}.")
+    metric = matches[0]
+    if metric.get("isin") != isin:
+        raise ValueError(
+            f"Fund metrics ISIN conflicts with verified scheme identity for {scheme_id!r}."
+        )
+    return metric
 
 
 def _find_matching_metric(scheme: str, metrics: Dict[str, Any], aliases: Dict[str, Any]) -> Optional[Dict[str, Any]]:
