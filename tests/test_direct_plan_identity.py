@@ -75,3 +75,10 @@ def test_direct_plan_evidence_rejects_path_escape(tmp_path):
     fund["direct_plan_evidence"]["source_file"] = "../outside.pdf"
 
     assert _reviewed_direct_plan_evidence_status(fund) == "INVALID"
+
+
+def test_direct_plan_evidence_rejects_malformed_https_url(tmp_path):
+    fund = _fund(tmp_path)
+    fund["direct_plan_evidence"]["source_url"] = "https://amc.example/file name.pdf"
+
+    assert _reviewed_direct_plan_evidence_status(fund) == "INVALID"
