@@ -170,7 +170,10 @@ def verify_approval(
         if not SHA256_RE.fullmatch(str(payload["tri_fixture_sha256"])):
             raise ValueError("fixture SHA-256 is malformed")
         resolved_fixture = fixture_path.resolve(strict=True)
-        resolved_fixture.relative_to(root.resolve())
+        try:
+            resolved_fixture.relative_to(root.resolve())
+        except ValueError as exc:
+            raise ValueError("TRI fixture resolves outside the repository boundary") from exc
         if fixture_path.is_symlink() or not resolved_fixture.is_file():
             raise ValueError("TRI fixture must be a regular repository-contained file, not a symlink")
         actual_fixture = __import__("hashlib").sha256(resolved_fixture.read_bytes()).hexdigest()
