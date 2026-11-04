@@ -20,6 +20,10 @@ from urllib.parse import urlparse
 ENV_REGISTRY = "TRI_REVIEWER_TRUST_REGISTRY_JSON"
 ENV_APPROVAL = "TRI_REVIEWER_APPROVAL_JSON"
 MAX_APPROVAL_LIFETIME_DAYS = 90
+MAX_REGISTRY_BYTES = 256 * 1024
+MAX_APPROVAL_BYTES = 1024 * 1024
+MAX_EVIDENCE_FILE_BYTES = 100 * 1024 * 1024
+RFC3339_UTC_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z$")
 REQUIRED_BENCHMARKS = {
     "NIFTY 500 TRI", "NIFTY 500 MULTICAP 50:25:25 TRI", "NIFTY MIDCAP 150 TRI"
 }
@@ -27,15 +31,18 @@ OFFICIAL_HOSTS = {"nseindia.com", "www.nseindia.com", "niftyindices.com", "www.n
 
 
 def _official_https_url(value: Any) -> bool:
-    parsed = urlparse(value if isinstance(value, str) else "")
-    host = (parsed.hostname or "").lower()
-    return (
-        parsed.scheme == "https"
-        and host in OFFICIAL_HOSTS
-        and parsed.username is None
-        and parsed.password is None
-        and parsed.port in (None, 443)
-    )
+    try:
+        parsed = urlparse(value if isinstance(value, str) else "")
+        host = (parsed.hostname or "").lower()
+        return (
+            parsed.scheme == "https"
+            and host in OFFICIAL_HOSTS
+            and parsed.username is None
+            and parsed.password is None
+            and parsed.port in (None, 443)
+        )
+    except ValueError:
+        return False
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 REQUIRED_PAYLOAD_FIELDS = {
@@ -43,7 +50,7 @@ REQUIRED_PAYLOAD_FIELDS = {
     "reviewer_key_id", "issued_at", "expires_at", "repository",
     "commit_sha", "tri_fixture_sha256", "tri_source_documents",
     "calendar_source_path", "calendar_source_url", "calendar_source_sha256",
-    "calendar_sessions_sha256", "review_attestation",
+    "calendar_sessions_sha256", "review_attestation", "source_reconciliation_attestation",
 }
 
 
@@ -57,8 +64,8 @@ class ApprovalResult:
 
 
 def _utc(value: Any) -> datetime:
-    if not isinstance(value, str) or not value.endswith("Z"):
-        raise ValueError("timestamp must be UTC RFC3339 ending in Z")
+    if not isinstance(value, str) or not RFC3339_UTC_RE.fullmatch(value):
+        raise ValueError("timestamp must be canonical UTC RFC3339 with seconds and ending in Z")
     parsed = datetime.fromisoformat(value[:-1] + "+00:00")
     if parsed.tzinfo is None or parsed.utcoffset() != timezone.utc.utcoffset(parsed):
         raise ValueError("timestamp must be UTC")
@@ -73,7 +80,11 @@ def _strict_json(raw: str) -> Any:
                 raise ValueError(f"duplicate JSON key: {key}")
             result[key] = value
         return result
-    return json.loads(raw, object_pairs_hook=pairs)
+
+    def reject_constant(value: str) -> None:
+        raise ValueError(f"non-standard JSON numeric constant is not allowed: {value}")
+
+    return json.loads(raw, object_pairs_hook=pairs, parse_constant=reject_constant)
 
 
 def _b64url(value: Any, expected_length: int) -> bytes:
@@ -82,6 +93,8 @@ def _b64url(value: Any, expected_length: int) -> bytes:
     decoded = base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
     if len(decoded) != expected_length:
         raise ValueError("decoded cryptographic value has incorrect length")
+    if base64.urlsafe_b64encode(decoded).decode("ascii").rstrip("=") != value:
+        raise ValueError("cryptographic value is not canonically base64url-encoded")
     return decoded
 
 
@@ -117,6 +130,8 @@ def verify_approval(
             raise ValueError("approval_id is missing")
         if payload["review_attestation"] is not True:
             raise ValueError("review_attestation must be explicitly true")
+        if payload["source_reconciliation_attestation"] is not True:
+            raise ValueError("source_reconciliation_attestation must explicitly confirm source-to-fixture reconciliation")
         issued, expires = _utc(payload["issued_at"]), _utc(payload["expires_at"])
         clock = now or datetime.now(timezone.utc)
         if clock.tzinfo is None:
@@ -140,6 +155,8 @@ def verify_approval(
         entry = matches[0]
         if entry.get("reviewer_id") != payload["reviewer_id"]:
             raise ValueError("reviewer identity does not match trusted key registry")
+        if entry.get("reviewer_role") != "independent":
+            raise ValueError("reviewer key is not explicitly authorized for independent review")
         key_from, key_until = _utc(entry.get("valid_from")), _utc(entry.get("valid_until"))
         if issued < key_from or issued >= key_until or clock < key_from or clock >= key_until:
             raise ValueError("reviewer key is not valid at approval issuance and verification time")
@@ -152,7 +169,14 @@ def verify_approval(
 
         if not SHA256_RE.fullmatch(str(payload["tri_fixture_sha256"])):
             raise ValueError("fixture SHA-256 is malformed")
-        actual_fixture = __import__("hashlib").sha256(fixture_path.read_bytes()).hexdigest()
+        resolved_fixture = fixture_path.resolve(strict=True)
+        try:
+            resolved_fixture.relative_to(root.resolve())
+        except ValueError as exc:
+            raise ValueError("TRI fixture resolves outside the repository boundary") from exc
+        if fixture_path.is_symlink() or not resolved_fixture.is_file():
+            raise ValueError("TRI fixture must be a regular repository-contained file, not a symlink")
+        actual_fixture = __import__("hashlib").sha256(resolved_fixture.read_bytes()).hexdigest()
         if actual_fixture != payload["tri_fixture_sha256"]:
             raise ValueError("signed TRI fixture digest does not match")
         fixture_data = _strict_json(fixture_path.read_text(encoding="utf-8"))
@@ -187,6 +211,8 @@ def verify_approval(
             resolved.relative_to(root.resolve())
             if not resolved.is_file():
                 raise ValueError(f"signed source document is missing: {rel}")
+            if resolved.stat().st_size <= 0 or resolved.stat().st_size > MAX_EVIDENCE_FILE_BYTES:
+                raise ValueError(f"signed source document is empty or exceeds the 100 MiB evidence limit: {rel}")
             if not SHA256_RE.fullmatch(str(item["sha256"])):
                 raise ValueError(f"source document digest is malformed: {rel}")
             actual = __import__("hashlib").sha256(resolved.read_bytes()).hexdigest()
@@ -197,9 +223,11 @@ def verify_approval(
         if manifest_order != sorted(manifest_order):
             raise ValueError("signed source manifest must be sorted by benchmark identifier")
         cal = root / "data/policy/nse_trading_calendar.json"
-        if not cal.is_file():
-            raise ValueError("normalized NSE calendar file is missing")
-        calendar = _strict_json(cal.read_text(encoding="utf-8"))
+        resolved_cal = cal.resolve(strict=True)
+        resolved_cal.relative_to(root.resolve())
+        if cal.is_symlink() or not resolved_cal.is_file():
+            raise ValueError("normalized NSE calendar must be a regular repository-contained file, not a symlink")
+        calendar = _strict_json(resolved_cal.read_text(encoding="utf-8"))
         if not isinstance(calendar, dict):
             raise ValueError("NSE calendar document must be an object")
         cal_provenance = calendar.get("provenance")
@@ -219,15 +247,19 @@ def verify_approval(
             raise ValueError("original NSE calendar source path must be repository-relative")
         cal_source = (root / cal_source_path).resolve()
         cal_source.relative_to(root.resolve())
-        if not cal_source.is_file() or __import__("hashlib").sha256(cal_source.read_bytes()).hexdigest() != payload["calendar_source_sha256"]:
+        if not cal_source.is_file() or cal_source.stat().st_size <= 0 or cal_source.stat().st_size > MAX_EVIDENCE_FILE_BYTES:
+            raise ValueError("signed original NSE calendar source is empty or exceeds the 100 MiB evidence limit")
+        if __import__("hashlib").sha256(cal_source.read_bytes()).hexdigest() != payload["calendar_source_sha256"]:
             raise ValueError("signed original NSE calendar source digest is missing or mismatched")
         if cal_provenance.get("source_document_sha256") != payload["calendar_source_sha256"]:
             raise ValueError("NSE calendar provenance source digest differs from signed approval")
         if calendar.get("exchange") != "NSE" or str(calendar.get("status", "")).upper() != "VERIFIED":
             raise ValueError("NSE calendar must explicitly identify exchange=NSE and status=VERIFIED")
         sessions = calendar.get("sessions")
-        if not isinstance(sessions, list) or not sessions or sessions != sorted(set(sessions)):
-            raise ValueError("calendar sessions are malformed, unsorted or duplicated")
+        if not isinstance(sessions, list) or not sessions or any(not isinstance(day, str) for day in sessions):
+            raise ValueError("calendar sessions must be a non-empty list of ISO date strings")
+        if sessions != sorted(sessions) or len(sessions) != len(set(sessions)):
+            raise ValueError("calendar sessions are unsorted or duplicated")
         from datetime import date
         for day in sessions:
             parsed = date.fromisoformat(day)
@@ -251,11 +283,15 @@ def verify_approval_from_environment(
     raw_registry = os.environ.get(ENV_REGISTRY)
     if not raw_registry:
         return ApprovalResult(False, (f"{ENV_REGISTRY} is not configured; release remains blocked",))
+    if len(raw_registry.encode("utf-8")) > MAX_REGISTRY_BYTES:
+        return ApprovalResult(False, ("reviewer trust registry exceeds the configured size limit",))
     if not expected_commit:
         return ApprovalResult(False, ("expected release commit SHA was not supplied; release remains blocked",))
     raw_approval = os.environ.get(ENV_APPROVAL)
     if not raw_approval:
         return ApprovalResult(False, (f"{ENV_APPROVAL} is not configured; release remains blocked",))
+    if len(raw_approval.encode("utf-8")) > MAX_APPROVAL_BYTES:
+        return ApprovalResult(False, ("detached reviewer approval exceeds the configured size limit",))
     try:
         registry = _strict_json(raw_registry)
         envelope = _strict_json(raw_approval)

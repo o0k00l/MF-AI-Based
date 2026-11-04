@@ -11,6 +11,7 @@ import argparse
 import hashlib
 import json
 import math
+import re
 import sys
 from datetime import date
 from pathlib import Path
@@ -43,6 +44,10 @@ def _safe_repo_file(relative: object, description: str) -> tuple[Path | None, st
         return None, f"{description}: path escapes the repository"
     if not resolved.is_file():
         return None, f"{description}: file does not exist: {relative}"
+    if resolved.stat().st_size <= 0:
+        return None, f"{description}: evidence file is empty: {relative}"
+    if resolved.stat().st_size > 100 * 1024 * 1024:
+        return None, f"{description}: evidence file exceeds the 100 MiB size limit: {relative}"
     return resolved, None
 
 
@@ -68,12 +73,10 @@ def verify_fixture(path: Path) -> list[str]:
     if not isinstance(benchmarks, dict):
         failures.append(f"{label}: benchmarks must be a JSON object")
         benchmarks = {}
-    specs = (
-        ("NIFTY 500 TRI", "nifty_500_tri", "checksum_sha256_nifty_500_tri"),
-        ("NIFTY 50 TRI", "nifty_50_tri", "checksum_sha256_nifty_50_tri"),
-    )
-    for index_name, coverage_key, checksum_key in specs:
-        benchmark = benchmarks.get(index_name, {})
+    for index_name, benchmark in benchmarks.items():
+        if not isinstance(index_name, str):
+            failures.append(f"{label}: benchmark names must be strings")
+            continue
         if not isinstance(benchmark, dict):
             failures.append(f"{label}: {index_name}: benchmark entry must be a JSON object")
             continue
@@ -81,6 +84,9 @@ def verify_fixture(path: Path) -> list[str]:
         if not isinstance(levels, dict) or not levels:
             failures.append(f"{label}: {index_name}: levels must be a non-empty date/value object")
             continue
+        slug = re.sub(r"[^a-z0-9]+", "_", index_name.strip().lower()).strip("_")
+        checksum_key = f"checksum_sha256_{slug}"
+        coverage_key = slug
         expected = str(provenance.get(checksum_key, ""))
         computed = _canonical_sha256(levels)
         if len(expected) != 64 or computed.lower() != expected.lower():
@@ -128,15 +134,19 @@ def verify_fixture(path: Path) -> list[str]:
     return failures
 
 def _is_approved_official_url(value: object) -> bool:
-    parsed = urlparse(value if isinstance(value, str) else "")
-    host = (parsed.hostname or "").lower()
-    return (
-        parsed.scheme == "https"
-        and host in OFFICIAL_HOSTS
-        and parsed.username is None
-        and parsed.password is None
-        and parsed.port in (None, 443)
-    )
+    try:
+        parsed = urlparse(value if isinstance(value, str) else "")
+        host = (parsed.hostname or "").lower()
+        return (
+            parsed.scheme == "https"
+            and host in OFFICIAL_HOSTS
+            and parsed.username is None
+            and parsed.password is None
+            and parsed.port in (None, 443)
+        )
+    except ValueError:
+        # Malformed ports / bracketed hosts are ordinary invalid evidence, not crashes.
+        return False
 
 
 def alpha_release_blockers(fixture_path: Path, *, approval_verified: bool = False) -> list[str]:
@@ -175,14 +185,28 @@ def alpha_release_blockers(fixture_path: Path, *, approval_verified: bool = Fals
     if not isinstance(benchmarks, dict) or not benchmarks:
         blockers.append("benchmarks must be a non-empty object")
         benchmarks = {}
-    available_benchmarks = {str(name).strip().upper() for name in benchmarks}
-    missing_benchmarks = sorted(REQUIRED_BENCHMARKS - available_benchmarks)
+    benchmark_names: dict[str, str] = {}
+    for name in benchmarks:
+        if not isinstance(name, str) or not name.strip():
+            blockers.append("benchmark identifiers must be non-empty strings")
+            continue
+        normalized_name = name.strip().upper()
+        if normalized_name in benchmark_names:
+            blockers.append(f"duplicate benchmark identifier after normalization: {normalized_name}")
+            continue
+        benchmark_names[normalized_name] = name
+    missing_benchmarks = sorted(REQUIRED_BENCHMARKS - set(benchmark_names))
     if missing_benchmarks:
         blockers.append("required benchmark series missing: " + ", ".join(missing_benchmarks))
 
-    calendar_path = ROOT / "data/policy/nse_trading_calendar.json"
-    if not calendar_path.is_file():
-        blockers.append("independently sourced data/policy/nse_trading_calendar.json is absent")
+    calendar_path, calendar_path_error = _safe_repo_file(
+        "data/policy/nse_trading_calendar.json", "NSE trading calendar"
+    )
+    if calendar_path_error:
+        if "file does not exist" in calendar_path_error:
+            blockers.append("independently sourced data/policy/nse_trading_calendar.json is absent")
+        else:
+            blockers.append(calendar_path_error)
         return blockers
     try:
         calendar = json.loads(calendar_path.read_text(encoding="utf-8"))
@@ -196,18 +220,22 @@ def alpha_release_blockers(fixture_path: Path, *, approval_verified: bool = Fals
     if calendar.get("exchange") != "NSE" or str(calendar.get("status", "")).upper() != "VERIFIED":
         blockers.append("NSE calendar must identify exchange=NSE and status=VERIFIED")
     sessions = calendar.get("sessions")
-    if not isinstance(sessions, list) or not sessions or any(not isinstance(day, str) for day in sessions):
+    if not isinstance(sessions, list) or not sessions:
         blockers.append("NSE calendar sessions must be a non-empty list of ISO date strings")
         sessions = []
-    if sessions != sorted(set(sessions)):
-        blockers.append("NSE calendar sessions must be sorted and unique")
-    for day in sessions:
-        try:
-            if date.fromisoformat(day).isoformat() != day:
-                raise ValueError("non-canonical ISO date")
-        except ValueError:
-            blockers.append(f"NSE calendar contains invalid ISO session date {day!r}")
-            break
+    elif any(not isinstance(day, str) for day in sessions):
+        blockers.append("NSE calendar sessions must contain only ISO date strings")
+        sessions = []
+    else:
+        if sessions != sorted(sessions) or len(sessions) != len(set(sessions)):
+            blockers.append("NSE calendar sessions must be sorted and unique")
+        for day in sessions:
+            try:
+                if date.fromisoformat(day).isoformat() != day:
+                    raise ValueError("non-canonical ISO date")
+            except ValueError:
+                blockers.append(f"NSE calendar contains invalid ISO session date {day!r}")
+                break
     cal_provenance = calendar.get("provenance", {})
     if not isinstance(cal_provenance, dict):
         blockers.append("NSE calendar provenance must be a JSON object")
@@ -267,7 +295,8 @@ def alpha_release_blockers(fixture_path: Path, *, approval_verified: bool = Fals
     if not provenance.get("independent_reviewer_id"):
         blockers.append("independent reviewer identity is not recorded in provenance")
     for required_name in sorted(REQUIRED_BENCHMARKS):
-        entry = benchmarks.get(required_name)
+        actual_name = benchmark_names.get(required_name)
+        entry = benchmarks.get(actual_name) if actual_name is not None else None
         if not isinstance(entry, dict) or not isinstance(entry.get("levels"), dict) or not entry.get("levels"):
             blockers.append(f"required benchmark series missing or empty: {required_name}")
     if not approval_verified:

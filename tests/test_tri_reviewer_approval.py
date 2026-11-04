@@ -58,19 +58,19 @@ def _signed_case(tmp_path):
         "calendar_source_url": "https://www.nseindia.com/calendar.csv",
         "calendar_source_sha256": hashlib.sha256(b"calendar-source").hexdigest(),
         "calendar_sessions_sha256": hashlib.sha256(rfc8785.dumps(sessions)).hexdigest(),
-        "review_attestation": True,
+        "review_attestation": True, "source_reconciliation_attestation": True,
     }
     envelope = {"payload": payload, "signature": _b64(private.sign(rfc8785.dumps(payload)))}
     registry = {"schema_version": 1, "keys": [{
-        "key_id": "key-test", "reviewer_id": "reviewer-test",
+        "key_id": "key-test", "reviewer_id": "reviewer-test", "reviewer_role": "independent",
         "public_key": _b64(public), "valid_from": "2025-01-01T00:00:00Z",
         "valid_until": "2027-01-01T00:00:00Z", "revoked_at": None,
     }]}
-    return envelope, registry, fixture, root, now
+    return envelope, registry, fixture, root, now, private
 
 
 def _verify(case, **kwargs):
-    envelope, registry, fixture, root, now = case
+    envelope, registry, fixture, root, now, *_ = case
     return verify_approval(
         envelope, registry, repository="o0k00l/MF-AI-Based",
         expected_commit="a" * 40, fixture_path=fixture, root=root, now=now, **kwargs
@@ -153,3 +153,102 @@ def test_key_expiry_is_checked_at_verification_time(tmp_path):
     case = list(_signed_case(tmp_path))
     case[1]["keys"][0]["valid_until"] = "2026-01-02T12:00:00Z"
     assert not _verify(tuple(case)).ok
+
+
+
+def test_noncanonical_timestamp_is_rejected():
+    from tri_reviewer_approval import _utc
+
+    with pytest.raises(ValueError, match="canonical UTC RFC3339"):
+        _utc("20260102T000000Z")
+
+
+def test_trusted_key_must_be_authorized_for_independent_review(tmp_path):
+    case = list(_signed_case(tmp_path))
+    case[1]["keys"][0]["reviewer_role"] = "operator"
+    assert not _verify(tuple(case)).ok
+
+
+def test_trust_registry_and_approval_input_sizes_are_bounded(monkeypatch, tmp_path):
+    from tri_reviewer_approval import (
+        ENV_APPROVAL, ENV_REGISTRY, MAX_APPROVAL_BYTES, MAX_REGISTRY_BYTES,
+        verify_approval_from_environment,
+    )
+
+    monkeypatch.setenv(ENV_REGISTRY, " " * (MAX_REGISTRY_BYTES + 1))
+    monkeypatch.setenv(ENV_APPROVAL, "{}")
+    result = verify_approval_from_environment(
+        repository="o0k00l/MF-AI-Based", expected_commit="a" * 40,
+        fixture_path=tmp_path / "fixture.json", root=tmp_path,
+    )
+    assert not result.ok
+    assert "size limit" in result.errors[0]
+
+    monkeypatch.setenv(ENV_REGISTRY, "{}")
+    monkeypatch.setenv(ENV_APPROVAL, " " * (MAX_APPROVAL_BYTES + 1))
+    result = verify_approval_from_environment(
+        repository="o0k00l/MF-AI-Based", expected_commit="a" * 40,
+        fixture_path=tmp_path / "fixture.json", root=tmp_path,
+    )
+    assert not result.ok
+    assert "size limit" in result.errors[0]
+
+
+
+def test_source_reconciliation_attestation_must_be_true(tmp_path):
+    case = list(_signed_case(tmp_path))
+    case[0]["payload"]["source_reconciliation_attestation"] = False
+    result = _verify(tuple(case))
+    assert not result.ok
+    assert "source_reconciliation_attestation" in result.errors[0]
+
+
+def test_nonstandard_json_constants_are_rejected():
+    from tri_reviewer_approval import _strict_json
+
+    for raw in ('{"value":NaN}', '{"value":Infinity}', '{"value":-Infinity}'):
+        with pytest.raises(ValueError, match="non-standard JSON"):
+            _strict_json(raw)
+
+
+def test_malformed_official_url_port_is_rejected_without_exception():
+    from tri_reviewer_approval import _official_https_url
+
+    assert not _official_https_url("https://www.nseindia.com:invalid/file.csv")
+
+
+def test_empty_signed_source_document_is_rejected(tmp_path):
+    case = list(_signed_case(tmp_path))
+    source = tmp_path / "data/policy/nifty500.csv"
+    source.write_bytes(b"")
+    import hashlib
+    case[0]["payload"]["tri_source_documents"][1]["sha256"] = hashlib.sha256(b"").hexdigest()
+    case[0]["signature"] = _b64(case[5].sign(rfc8785.dumps(case[0]["payload"])))
+    result = _verify(tuple(case))
+    assert not result.ok
+    assert "empty" in result.errors[0]
+
+
+def test_fixture_symlink_cannot_escape_repository(tmp_path):
+    case = list(_signed_case(tmp_path))
+    outside = tmp_path.parent / "outside-fixture.json"
+    outside.write_text('{"provenance":{"independent_reviewer_id":"reviewer-test"}}', encoding="utf-8")
+    fixture = case[2]
+    fixture.unlink()
+    fixture.symlink_to(outside)
+    result = _verify(tuple(case))
+    assert not result.ok
+    assert "repository boundary" in result.errors[0]
+
+
+
+def test_signed_calendar_rejects_unhashable_session_entries(tmp_path):
+    case = _signed_case(tmp_path)
+    calendar_path = tmp_path / "data/policy/nse_trading_calendar.json"
+    calendar = json.loads(calendar_path.read_text(encoding="utf-8"))
+    calendar["sessions"] = [{"not": "a date"}]
+    calendar_path.write_text(json.dumps(calendar), encoding="utf-8")
+
+    result = _verify(case)
+    assert not result.ok
+    assert "non-empty list of ISO date strings" in result.errors[0]
