@@ -45,6 +45,7 @@ def _validate_source_document(
     require_reviewer_signature: bool = False,
     structured_records: Optional[Any] = None,
     scope: Optional[str] = None,
+    expected_scheme_id: Optional[str] = None,
 ) -> None:
     if not isinstance(metadata, dict):
         raise EvidenceProviderContractError(f"{label} source metadata must be a mapping.")
@@ -81,6 +82,7 @@ def _validate_source_document(
             expected_scope=scope,
             expected_source_sha256=actual_hash,
             structured_records=structured_records,
+            expected_scheme_id=expected_scheme_id,
             now=now_dt,
         )
         if not res.ok:
@@ -401,6 +403,7 @@ def validate_evidence_provider_payload(
                     "coverage_pct": signed_coverage,
                 },
                 scope="SIP_PORTFOLIO_DISCLOSURE",
+                expected_scheme_id=scheme_id,
             )
         else:
             _validate_source_document(
