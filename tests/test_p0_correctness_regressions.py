@@ -2518,4 +2518,4 @@ def test_candidate_scoring_fails_closed_when_category_return_anchor_is_missing()
         "ter_direct_pct": 0.7,
     }
     with pytest.raises(ValueError, match="no complete approved anchor set; missing: ret1y"):
-        calculate_candidate_6_pillar_score(candidate, category_key="Flexi Cap")
+        calculate_candidate_6_pillar_score(candidate, category_key="Flexi Cap", weights=ScoringWeights(0.25, 0.20, 0.15, 0.15, 0.15, 0.10))
