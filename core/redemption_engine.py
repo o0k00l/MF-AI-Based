@@ -14,7 +14,6 @@ No redemption order, tranche, tax estimate or realized saving is generated.
 """
 from __future__ import annotations
 
-import re
 from datetime import date
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
@@ -23,81 +22,9 @@ from core.models import (
     HoldingItem,
     PlanType,
     AssetClass,
-    RedemptionPriorityTier,
-    RedemptionTrancheItem,
     PersonalRedemptionPlan,
 )
-from tax.transition_planner import load_transactions, Lot, load_tax_rules
-
-
-def classify_holding_liquidation_priority(
-    holding: HoldingItem,
-    metrics_data: Optional[Dict[str, Any]] = None,
-    mature_gain_inr: float = 0.0,
-) -> Tuple[RedemptionPriorityTier, str]:
-    """
-    Classifies a portfolio holding into one of 4 strict fiduciary priority tiers.
-    """
-    name_lower = (holding.scheme or holding.fund_name or "").lower()
-    is_regular = (holding.plan == PlanType.REGULAR) or (not holding.is_direct) or ("regular" in name_lower)
-
-    # Theme and Sectoral keywords indicating high valuation / concentration risk
-    bubble_keywords = [
-        "defence", "defense", "energy", "special opportunities",
-        "manufacturing", "infrastructure", "thematic", "sectoral",
-        "commodities", "natural resources", "psu"
-    ]
-    is_sectoral_or_thematic = any(kw in name_lower for kw in bubble_keywords)
-
-    # Check top10 concentration if available
-    top10_conc = 0.0
-    if metrics_data:
-        top10_conc = float(metrics_data.get("top10_concentration_pct", metrics_data.get("top10", 0.0)) or 0.0)
-    elif holding.top_holdings and len(holding.top_holdings) <= 10:
-        # If top_holdings provided, estimate
-        pass
-
-    # Priority 1: Toxic Sector Bubbles & Extreme Concentration Derisking
-    # Sectoral/thematic funds (especially in Regular plans with bubble valuations like Defence/Energy)
-    if is_sectoral_or_thematic:
-        if is_regular:
-            return (
-                RedemptionPriorityTier.BUBBLE_DERISKING,
-                "Priority 1: Toxic Sector Bubble Derisking & High Concentration Derisking (Regular Plan)"
-            )
-        else:
-            return (
-                RedemptionPriorityTier.BUBBLE_DERISKING,
-                "Priority 1: Tactical Thematic Derisking (Direct Plan)"
-            )
-
-    # Priority 2: Fee Bleed Elimination (Regular Plans)
-    if is_regular:
-        if mature_gain_inr < 0:
-            return (
-                RedemptionPriorityTier.FEE_BLEED_ELIMINATION,
-                "Priority 2: Fee Bleed Elimination + Sec 70 Capital Loss Harvesting (Zero Tax & Shields Other Gains)"
-            )
-        else:
-            return (
-                RedemptionPriorityTier.FEE_BLEED_ELIMINATION,
-                "Priority 2: Regular Plan Intermediary Commission Bleed Elimination"
-            )
-
-    # Priority 3: SAA Rebalancing & Redundant Duplicates (Direct Plans)
-    # Direct funds with duplicate overlap (multi-caps, large & mid cap duplicates)
-    redundant_direct_keywords = ["multi cap", "multicap", "large and mid", "large & mid"]
-    if any(kw in name_lower for kw in redundant_direct_keywords):
-        return (
-            RedemptionPriorityTier.SAA_REBALANCING,
-            "Priority 3: Redundant Multi-Cap Overlap & SAA Rebalancing (Direct Plan)"
-        )
-
-    # Priority 4: Core Direct Compounding Anchors (Protected)
-    return (
-        RedemptionPriorityTier.CORE_CAPITAL_ANCHOR,
-        "Priority 4: Core Direct Compounding Anchor (Protected Capital — Liquidation Shielded)"
-    )
+from tax.transition_planner import Lot
 
 
 def match_fund_lots(
