@@ -1,3 +1,4 @@
+from datetime import date
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -66,12 +67,12 @@ def test_api_passes_temporary_cas_to_evidence_provider_and_removes_it(monkeypatc
         return {
             "metrics_path": None,
             "aliases_path": None,
-            "scheme_master": {"status": "VERIFIED"},
+            "scheme_master": {"status": "PROVISIONAL"},
             "scheme_master_source_bytes": b"master bytes",
             "portfolio_disclosures_by_scheme_id": {},
             "portfolio_disclosure_source_bytes_by_scheme_id": {},
-            "disclosure_as_of_date": None,
-            "candidate_universe": [],
+            "disclosure_as_of_date": date(2026, 11, 4),
+            "candidate_universe": [{"candidate_id": "synthetic-candidate"}],
         }
 
     monkeypatch.setattr(
