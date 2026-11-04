@@ -46,15 +46,15 @@ class Evidence:
     confidence: float = 1.0
 
     def to_dict(self) -> Dict[str, Any]:
-        return {
+        return _canonical_json_value({
             "evidence_id": self.evidence_id,
             "evidence_type": self.evidence_type.value,
             "source": self.source,
             "description": self.description,
             "data": self.data,
             "timestamp": self.timestamp.isoformat(),
-            "confidence": self.confidence
-        }
+            "confidence": self.confidence,
+        })
 
 @dataclass
 class Decision:
@@ -106,7 +106,7 @@ class Decision:
         return hashlib.sha256(encoded).hexdigest()
 
     def to_dict(self) -> Dict[str, Any]:
-        payload = self._hash_payload()
+        payload = _canonical_json_value(self._hash_payload())
         payload["hash"] = self.compute_hash()
         return payload
 
