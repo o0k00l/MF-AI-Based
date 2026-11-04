@@ -70,3 +70,52 @@
 - Add integration tests for CAS identity ambiguity, unknown asset classification, 20% cap feasibility, new-fund history, custom risk, stale disclosures, and whole-budget reconciliation.
 - Verify all positive allocations reconcile to the requested monthly budget, minimum ₹1,000 ticket, ₹500 increment, maximum six core funds, per-fund cap, and new-fund limit simultaneously.
 - Keep recommendation output HOLD / NO ACTION until candidate universe and all required portfolio evidence are authenticated and complete.
+
+
+## Additional findings from the CAS-to-SIP execution path (separate from the earlier six blockers)
+
+### 9. CAS holdings split across folios were reconciled row-by-row — FIXED
+- Previous behavior compared each CAS holding row with the aggregate transaction units for the scheme. Two folios in the same scheme could therefore be falsely marked discrepant.
+- Correction: aggregate CAS units by normalized exact scheme name before comparing.
+- Regression: `test_reconciliation_aggregates_same_scheme_across_multiple_folios`.
+
+### 10. Transaction scheme matching used substring matching and first-match wins — FIXED
+- Previous behavior accepted either-direction substring matches and stopped at the first match. Similar scheme names could be reconciled against the wrong transaction ledger.
+- Correction: use exact normalized scheme identity only. Ambiguous or variant names remain unresolved; no fuzzy fallback.
+- Regression: `test_reconciliation_does_not_use_substring_scheme_matching`.
+
+### 11. Active transaction schemes absent from the CAS were ignored — FIXED
+- Previous behavior checked each CAS holding but did not report non-zero net units in transaction schemes absent from the current CAS.
+- Correction: report unmatched active transaction schemes and return PARTIALLY_RECONCILED.
+- Regression: `test_reconciliation_detects_unmatched_active_transaction_scheme`.
+
+### 12. Transaction rows and unit values were not validated — FIXED
+- Previous behavior could throw on malformed row shapes or accept non-finite/negative units and unsupported transaction types into the reconciliation calculation.
+- Correction: validate the transactions container, row shape, scheme, supported type and finite non-negative unit quantity. Invalid input returns an explicit invalid/read-error state.
+- Regressions: malformed rows, invalid container and negative units.
+
+### 13. A supplied but unreconciled transaction file did not gate SIP output — FIXED
+- Previous behavior produced a SIP blueprint and only displayed reconciliation as a separate diagnostic.
+- Correction: when a transaction file is supplied but does not reconcile, zero all SIP line amounts and withhold the entire monthly budget. A CAS-only snapshot with no transaction file remains explicitly labelled NO_TRANSACTION_FILE; it is not falsely described as reconciled.
+- Regression coverage for the reconciliation states is in `tests/test_sip_cas_transaction_reconciliation.py`. An aggregator-level whole-budget integration test is still required.
+
+### 14. Missing IPS fields silently manufactured a ₹1 lakh monthly budget and Tier 6 risk — FIXED
+- Previous behavior defaulted missing config/budget/risk fields to a ₹1,00,000 monthly SIP and Tier 6. A second config read also overwrote a valid nested `ips.risk_tolerance` with a top-level-only lookup.
+- Correction: require a readable config with an `ips` object, an explicit risk tier, and an explicit finite positive `ips.monthly_sip_budget`; preserve the already validated top-level or nested risk value. Lumpsum defaults to zero, not an invented ₹2 lakh.
+- Integration coverage for missing/invalid IPS config remains to be added.
+
+## Further policy/integration blockers
+
+### 15. Three-tier risk mapping conflicts with the declared 3+1 SAA map — P0
+- `core/models.py` defines Conservative 20/80, Moderate 60/40 and Aggressive 95/5.
+- The SIP selector translates those labels to SEBI Tier 2, Tier 4 and Tier 6, whose checked-in SAA targets are 40/60, 75/25 and 95/5.
+- The Moderate and Conservative meanings therefore differ across the two policy representations. Do not silently choose one mapping; consolidate the investor-facing 3+1 risk contract and policy before enabling recommendations.
+
+### 16. Tier 6 IPS equity-only authorization is not wired through the aggregator — P0
+- `calculate_universal_tier_split` has an explicit authorization override, but the aggregator calls the SIP blueprint without passing a verified IPS authorization value.
+- Result: an investor authorization cannot reliably select the policy's 100% equity route through the end-to-end workflow.
+- Required fix: define the exact IPS field and schema, validate it as a literal boolean, bind it to the approved risk profile and pass it through the complete pipeline. Do not infer authorization from the risk tier.
+
+### 17. Candidate-universe size is global, not category-complete — P1
+- The minimum 30-fund universe check is global. It does not establish that each required sleeve (large, flexi/multi, mid and small) has a sufficient, current, eligible candidate set.
+- Required fix: category-level coverage gates, scheme identity deduplication, freshness checks and explicit per-sleeve NO_ACTION diagnostics before scoring.
