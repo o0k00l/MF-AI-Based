@@ -116,3 +116,55 @@ def attach_verified_disclosures(
         })
         enriched.append(holding)
     return enriched
+
+
+def resolve_scheme_identity(
+    cas_holding: Dict[str, Any],
+    scheme_master: Dict[str, Any],
+    *,
+    source_bytes: bytes,
+) -> Dict[str, Any]:
+    """Resolve CAS identity only against a separately verified scheme master.
+
+    Matching is exact on normalized full scheme name and AMC. No substring,
+    fuzzy, category-only or display-name-only fallback is permitted.
+    """
+    def unresolved(reason: str) -> Dict[str, Any]:
+        return {"status": "MISSING", "scheme_id": None, "isin": None, "reason": reason}
+
+    if not isinstance(scheme_master, dict) or not isinstance(source_bytes, bytes) or not source_bytes:
+        return unresolved("Verified scheme master or original source bytes are missing.")
+    expected_hash = scheme_master.get("source_document_sha256")
+    source_url = scheme_master.get("source_url")
+    if (scheme_master.get("status") != "VERIFIED"
+            or scheme_master.get("reviewer_attested") is not True
+            or not isinstance(expected_hash, str)
+            or hashlib.sha256(source_bytes).hexdigest().lower() != expected_hash.lower()
+            or not isinstance(source_url, str) or not source_url.startswith("https://")):
+        return unresolved("Scheme master provenance, hash or reviewer attestation is not verified.")
+    scheme = " ".join(str(cas_holding.get("scheme") or "").casefold().split())
+    amc = " ".join(str(cas_holding.get("amc_name") or "").casefold().split())
+    if not scheme or not amc:
+        return unresolved("CAS scheme name and AMC are both required for exact identity matching.")
+    records = scheme_master.get("schemes")
+    if not isinstance(records, list):
+        return unresolved("Verified scheme master has no schemes list.")
+    matches = []
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        record_scheme = " ".join(str(record.get("scheme_name") or "").casefold().split())
+        record_amc = " ".join(str(record.get("amc_name") or "").casefold().split())
+        if record_scheme == scheme and record_amc == amc:
+            matches.append(record)
+    if len(matches) != 1:
+        return unresolved("Exact scheme name + AMC match is absent or ambiguous.")
+    record = matches[0]
+    scheme_id = record.get("scheme_id") or record.get("isin")
+    isin = record.get("isin")
+    if not isinstance(scheme_id, str) or not scheme_id.strip():
+        return unresolved("Matched master record has no stable scheme identifier.")
+    if not isinstance(isin, str) or not isin.strip():
+        return unresolved("Matched master record has no ISIN; identity is not accepted.")
+    return {"status": "VERIFIED", "scheme_id": scheme_id.strip(),
+            "isin": isin.strip(), "reason": "Exact scheme name + AMC match in verified master."}
