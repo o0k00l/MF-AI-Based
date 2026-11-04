@@ -4946,6 +4946,7 @@ def compute_deterministic_sip_blueprint(
     stability_buffer_pct: Optional[float] = None,
     holdings: Optional[List[HoldingItem]] = None,
     client_aum: Optional[float] = None,
+    client_aum_verified: bool = False,
     thematic_deficit_theme: str = "Pharma",
     thematic_satellite_pct_of_equity: float = 0.0,
     thematic_satellite_authorized: bool = False,
@@ -4969,6 +4970,8 @@ def compute_deterministic_sip_blueprint(
         raise ValueError("An explicit validated investor risk profile is required; Tier 6 is never inferred")
     if client_aum is None:
         raise ValueError("Verified reconciled client AUM is required; missing AUM is not zero")
+    if not isinstance(client_aum_verified, bool):
+        raise ValueError("client_aum_verified must be an explicit boolean")
     try:
         b = float(monthly_budget)
         aum_value = float(client_aum)
@@ -5021,7 +5024,13 @@ def compute_deterministic_sip_blueprint(
         raise ValueError("Starter portfolio thresholds and weights must be finite and non-negative")
     if abs(starter_flexi_weight + starter_mid_weight + starter_large_weight - 100.0) > 0.01:
         raise ValueError("Starter portfolio equity sleeve weights must sum to 100%")
-    is_starter = client_aum < starter_aum_threshold or b < starter_budget_threshold
+    # CAS mutual-fund holdings alone are not total investor AUM. The
+    # starter heuristic is permitted only when the caller has independently
+    # reconciled and attested the complete portfolio perimeter.
+    is_starter = bool(
+        client_aum_verified
+        and (client_aum < starter_aum_threshold or b < starter_budget_threshold)
+    )
 
     # Dynamic Folio Discovery
     # Resolved dynamically through select_autonomous_blueprint_funds below
