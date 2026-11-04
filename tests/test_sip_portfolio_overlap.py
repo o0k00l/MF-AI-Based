@@ -158,3 +158,38 @@ def test_debt_liquid_and_international_holdings_are_included_in_total_saa_bucket
     assert result.current_allocation["Equity"] == pytest.approx(50.0)
     assert result.current_allocation["Debt"] == pytest.approx(50.0)
     assert "Other" not in result.current_allocation
+
+
+def test_portfolio_gate_summary_preserves_amc_identity_for_candidate_concentration_gate():
+    from types import SimpleNamespace
+    from core.math_engine import _build_portfolio_gate_summary
+
+    result = _build_portfolio_gate_summary([
+        SimpleNamespace(scheme="ABC Direct Growth", current_value_inr=25000.0, amc_name="ABC Asset Management")
+    ])
+    assert result == [{
+        "scheme": "ABC Direct Growth",
+        "value": 25000.0,
+        "amc_name": "ABC Asset Management",
+    }]
+
+
+@pytest.mark.parametrize("ips", [
+    {"monthly_sip_budget": True},
+    {"monthly_sip_budget": 10000, "lumpsum_budget": False},
+    {"monthly_sip_budget": 10000, "emergency_months": True},
+])
+def test_ips_numeric_contract_rejects_boolean_values(ips):
+    from core.math_engine import _validated_ips_numeric_inputs
+
+    with pytest.raises(ValueError, match="must not be booleans"):
+        _validated_ips_numeric_inputs(ips)
+
+
+def test_ips_numeric_contract_rejects_missing_budget_and_nonfinite_values():
+    from core.math_engine import _validated_ips_numeric_inputs
+
+    with pytest.raises(ValueError, match="monthly_sip_budget"):
+        _validated_ips_numeric_inputs({})
+    with pytest.raises(ValueError, match="finite"):
+        _validated_ips_numeric_inputs({"monthly_sip_budget": float("nan")})
