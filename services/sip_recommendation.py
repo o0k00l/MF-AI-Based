@@ -12,6 +12,8 @@ It does not download, infer, or manufacture source evidence.
 from __future__ import annotations
 
 from datetime import date
+import json
+import math
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +22,7 @@ from core.math_engine import (
     load_holdings_from_cas_excel,
 )
 from core.models import DeterministicSIPPlan, MandateExecutionState
+from core.portfolio_sip_controls import PortfolioInputError, calculate_saa_drift
 
 
 _ALLOWED_RISK_PROFILES = {
