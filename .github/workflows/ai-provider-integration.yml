@@ -2,6 +2,13 @@ name: AI provider integration
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "core/ai_engine.py"
+      - "scripts/smoke_test_ai_providers.py"
+      - "test_ai_provider_adapters.py"
+      - ".github/workflows/ai-provider-integration.yml"
 
 permissions:
   contents: read
