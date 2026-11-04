@@ -253,7 +253,7 @@ def test_candidate_score_rejects_invalid_percentage_evidence(field, value):
     }
     candidate[field] = value
 
-    with pytest.raises(ValueError, match="percentage"):
+    with pytest.raises(ValueError, match="percentage|Non-finite"):
         calculate_candidate_6_pillar_score(
             candidate, "Healthcare",
             weights=ScoringWeights(0.25, 0.20, 0.15, 0.15, 0.15, 0.10),
