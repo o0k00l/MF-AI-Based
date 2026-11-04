@@ -59,7 +59,7 @@ def test_missing_risk_profile_and_exposure_are_not_inferred():
     assert FiduciaryFactsPayload.model_fields["risk_tier_name"].default is None
     holding = _holding()
     assert holding.expense_ratio_pct is None
-    thematic = ThematicExposureItem(theme_name="unknown")
+    thematic = ThematicExposureItem(theme_name="unknown", coverage_status="UNKNOWN")
     assert thematic.dedicated_funds_pct is None
     assert thematic.look_through_stocks_pct is None
 
