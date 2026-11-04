@@ -179,10 +179,10 @@ def _risk_tier_to_int(tier: Any) -> int:
         return 5
     if "low to moderate" in tier_str:
         return 2
-    if tier_str in {"moderate", "risk_tier.moderate"}:
+    if tier_str in {"moderate", "risk_tier.moderate", "moderate risk"}:
+        # The product's three-profile "Moderate" maps to its approved middle
+        # profile (Tier 4). Literal SEBI Tier 3 remains expressible as "Tier 3".
         return 4
-    if "moderate" in tier_str:
-        return 3
     if tier_str in {"low", "preservation"}:
         return 1
     raise ValueError(f"Unrecognized risk tier: {tier!r}")
