@@ -82,3 +82,27 @@ def test_reconciliation_missing_file_is_explicitly_not_verified(tmp_path):
         tmp_path / "missing-transactions.json",
     )
     assert result["status"] == "NO_TRANSACTION_FILE"
+
+
+def test_cash_dividend_does_not_change_reconciled_unit_balance(tmp_path):
+    path = write_transactions(
+        tmp_path,
+        [txn("ABC Equity Direct Growth", 10), txn("ABC Equity Direct Growth", 0, "DIVIDEND")],
+    )
+    result = reconcile_cas_holdings_with_transactions(
+        [holding("ABC Equity Direct Growth", 10)], path
+    )
+    assert result["status"] == "VERIFIED_RECONCILED"
+
+
+def test_reconciliation_rejects_nonfinite_transaction_units(tmp_path):
+    path = tmp_path / "transactions.json"
+    path.write_text(
+        '{"transactions":[{"scheme":"ABC Equity Direct Growth","type":"PURCHASE","units":NaN}]}',
+        encoding="utf-8",
+    )
+    result = reconcile_cas_holdings_with_transactions(
+        [holding("ABC Equity Direct Growth", 10)], path
+    )
+    # JSON NaN is parsed by Python but rejected by the finite-number gate.
+    assert result["status"] == "INVALID_TRANSACTION"
