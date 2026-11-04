@@ -122,6 +122,12 @@ def _build_cas_portfolio_assessment(holdings: list[Any], risk_profile: str) -> d
             "valuation_date_verified": False,
             "total_value_inr": round(total, 2),
             "holding_count": len(holdings),
+            "current_sleeve_values_inr": {
+                key: round(value, 2) for key, value in sorted(current.items())
+            },
+            "target_sleeve_weights_pct": {
+                key: value for key, value in sorted(targets.items())
+            },
             "policy_profile": profile_key,
             "policy_as_of": policy.get("as_of"),
             "tolerance_band_pct": tolerance,
