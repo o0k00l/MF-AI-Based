@@ -707,6 +707,13 @@ def load_candidate_universe(
 
         cand = {
             "fund_id": m.get("id", ""),
+            # A scheme identifier is distinct from a display name. Do not infer
+            # it from a fund label; disclosure attachment requires an exact ID.
+            "scheme_id": m.get("scheme_id"),
+            "constituent_weights": None,
+            "constituent_weights_coverage_pct": None,
+            "lookthrough_status": "MISSING",
+            "lookthrough_reason": "Candidate universe metrics do not themselves establish source-verified portfolio constituents.",
             "fund_name": fund_name,
             "aum_crore": float(aum_crore) if aum_crore is not None else None,
             "aum_stable": m.get("aum_stable"),  # None if missing — gate will fail closed
