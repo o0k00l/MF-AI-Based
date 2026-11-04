@@ -6,10 +6,11 @@ from core.math_engine import (
 )
 
 
-def _holding(fund_id, weights, *, status="VERIFIED", coverage=100.0, top_holdings=None):
+def _holding(fund_id, weights, *, status="VERIFIED", coverage=100.0, top_holdings=None, equity_pct=100.0):
     return SimpleNamespace(
         fund_id=fund_id,
         scheme_id=fund_id,
+        equity_pct=equity_pct,
         current_value_inr=100000.0,
         equity_pct=100.0,
         constituent_weights=weights,

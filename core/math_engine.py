@@ -2576,7 +2576,7 @@ def weighted_lookthrough_overlap_status(holdings: List[HoldingItem]) -> str:
     for holding in holdings:
         try:
             value = float(holding.current_value_inr)
-            equity_pct = float(holding.equity_pct)
+            equity_pct = float(getattr(holding, "equity_pct", 100.0))
         except (TypeError, ValueError, AttributeError):
             return "UNAVAILABLE"
         if not math.isfinite(value) or value <= 0.0 or not math.isfinite(equity_pct) or not 0.0 <= equity_pct <= 100.0:
@@ -2640,7 +2640,8 @@ def calculate_weighted_lookthrough_overlap(
 
     by_fund: Dict[str, Dict[str, float]] = {}
     for holding in holdings:
-        if float(holding.equity_pct) == 0.0:
+        equity_pct = float(getattr(holding, "equity_pct", 100.0))
+        if equity_pct == 0.0:
             continue
         fund_id = str(holding.scheme_id)
         weights = {
