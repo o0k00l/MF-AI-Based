@@ -1794,6 +1794,15 @@ def parse_cas(xlsx_path: Path, scheme_master: Optional[Dict[str, Any]] = None, s
     return as_of_date, holdings
 
 
+def _tri_alpha_release_blockers() -> list[str]:
+    """Evaluate TRI release evidence independently of the process working directory."""
+    from verify_tri_provenance import alpha_release_blockers
+
+    repository_root = Path(__file__).resolve().parents[1]
+    fixture_path = repository_root / "data" / "policy" / "benchmark_tri_series.json"
+    return alpha_release_blockers(fixture_path)
+
+
 def _parse_cas_valuation_date(cas_path: Path) -> date:
     """Return the statement's explicit valuation date; never substitute today."""
     raw_date, _ = parse_cas(cas_path)
@@ -2141,11 +2150,7 @@ def aggregate_fiduciary_facts(
             # A mathematically computable result is not a releasable alpha
             # claim. Enforce the same independent evidence gate used by CI
             # before any benchmark or alpha value can enter the client report.
-            from verify_tri_provenance import alpha_release_blockers
-            repository_root = Path(__file__).resolve().parents[1]
-            release_blockers = alpha_release_blockers(
-                repository_root / "data" / "policy" / "benchmark_tri_series.json"
-            )
+            release_blockers = _tri_alpha_release_blockers()
             if release_blockers:
                 bench_audit_record = {
                     "release_status": "BLOCKED",
