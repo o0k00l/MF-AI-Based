@@ -200,7 +200,7 @@ class ThematicExposureItem(BaseModel):
     dedicated_funds_pct: Optional[float] = None
     look_through_stocks_inr: Optional[float] = None
     look_through_stocks_pct: Optional[float] = None
-    coverage_status: str  # e.g., 'FULL', 'ADEQUATE', 'NEGLECTED', 'BY_DESIGN_MINIMAL'
+    coverage_status: str = "MISSING"  # unavailable until source coverage is established
     key_underlying_holdings: List[str] = Field(default_factory=list)
 
 
