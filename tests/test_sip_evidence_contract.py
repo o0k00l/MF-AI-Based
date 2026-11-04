@@ -192,3 +192,38 @@ def test_contract_rejects_direct_plan_evidence_for_different_scheme_id(tmp_path)
 
     with pytest.raises(EvidenceProviderContractError, match="Direct-plan source evidence"):
         validate_evidence_provider_payload(payload)
+
+
+
+def test_contract_validates_optional_original_fund_metrics_source_bytes(tmp_path):
+    payload = valid_payload(tmp_path)
+    metrics_bytes = b"original metrics publisher document"
+    payload["metrics_source_metadata"] = {
+        **_source_metadata(metrics_bytes),
+        "source_type": "OFFICIAL_FUND_METRICS",
+    }
+    payload["metrics_source_bytes"] = metrics_bytes
+
+    result = validate_evidence_provider_payload(payload)
+
+    assert result["metrics_source_bytes"] == metrics_bytes
+
+
+def test_contract_rejects_fund_metrics_source_hash_mismatch(tmp_path):
+    payload = valid_payload(tmp_path)
+    payload["metrics_source_metadata"] = {
+        **_source_metadata(b"declared metrics source"),
+        "source_type": "OFFICIAL_FUND_METRICS",
+    }
+    payload["metrics_source_bytes"] = b"tampered metrics source"
+
+    with pytest.raises(EvidenceProviderContractError, match="Fund metrics source SHA-256 does not match"):
+        validate_evidence_provider_payload(payload)
+
+
+def test_contract_rejects_partial_fund_metrics_provenance_pair(tmp_path):
+    payload = valid_payload(tmp_path)
+    payload["metrics_source_bytes"] = b"metrics source without metadata"
+
+    with pytest.raises(EvidenceProviderContractError, match="must be supplied together"):
+        validate_evidence_provider_payload(payload)
