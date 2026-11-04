@@ -209,7 +209,7 @@ def test_contract_rejects_missing_fund_metrics_provenance(tmp_path):
     payload.pop("metrics_source_metadata")
     payload.pop("metrics_source_bytes")
 
-    with pytest.raises(EvidenceProviderContractError, match="metrics_source"):
+    with pytest.raises(EvidenceProviderContractError, match="mandatory"):
         validate_evidence_provider_payload(payload)
 
 
