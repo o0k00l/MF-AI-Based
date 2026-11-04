@@ -233,7 +233,11 @@ def test_api_real_service_ingests_cas_and_holds_on_missing_portfolio_disclosure(
     cas_bytes = stream.getvalue()
 
     metrics_path = tmp_path / "metrics.json"
-    metrics_path.write_text('{"funds": []}', encoding="utf-8")
+    metrics_path.write_text(json.dumps({"funds": [{
+        "id": "fund-api-e2e", "scheme": scheme_name, "name": scheme_name,
+        "cat": "Flexi Cap", "er": 0.65, "eq": 100.0, "debt": 0.0,
+        "lc": 50.0, "mc": 30.0, "sc": 20.0, "h": [],
+    }]}), encoding="utf-8")
     direct_source = Path(__file__)
     direct_bytes = direct_source.read_bytes()
     master_bytes = b"synthetic scheme master bytes"
