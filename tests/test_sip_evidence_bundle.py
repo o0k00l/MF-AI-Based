@@ -164,3 +164,40 @@ def test_provider_rejects_tampered_normalized_metrics_file(tmp_path):
 
     with pytest.raises(ValueError, match="Normalized fund metrics SHA-256"):
         build_sip_evidence_provider(tmp_path)
+
+
+def test_provider_loads_portfolio_context_and_original_source_bundle(tmp_path):
+    manifest = _bundle(tmp_path)
+    context_bytes = b"reviewed total portfolio context"
+    context_metadata = _source(context_bytes, "REVIEWED_TOTAL_PORTFOLIO_CONTEXT")
+    _write_json(tmp_path, "portfolio_context.json", {
+        "as_of_date": date.today().isoformat(),
+        "perimeter_complete": True,
+        "assets": [],
+    })
+    _write_json(tmp_path, "portfolio_context_metadata.json", context_metadata)
+    (tmp_path / "originals/portfolio_context.json").write_bytes(context_bytes)
+    manifest.update({
+        "portfolio_context_file": "portfolio_context.json",
+        "portfolio_context_metadata_file": "portfolio_context_metadata.json",
+        "portfolio_context_source_file": "originals/portfolio_context.json",
+    })
+    _write_json(tmp_path, "manifest.json", manifest)
+    cas_path = tmp_path / "cas.xlsx"
+    cas_path.write_bytes(b"temporary uploaded CAS")
+
+    provider = build_sip_evidence_provider(tmp_path)
+    validated = validate_evidence_provider_payload(provider(
+        cas_path=cas_path, monthly_budget_inr=15000, risk_profile="Moderate"
+    ))
+    assert validated["portfolio_context"]["perimeter_complete"] is True
+    assert validated["portfolio_context_source_bytes"] == context_bytes
+    assert validated["portfolio_context_source_metadata"]["source_type"] == "REVIEWED_TOTAL_PORTFOLIO_CONTEXT"
+
+
+def test_provider_rejects_partial_portfolio_context_manifest(tmp_path):
+    manifest = _bundle(tmp_path)
+    manifest["portfolio_context_file"] = "portfolio_context.json"
+    _write_json(tmp_path, "manifest.json", manifest)
+    with pytest.raises(ValueError, match="must be configured together"):
+        build_sip_evidence_provider(tmp_path)
