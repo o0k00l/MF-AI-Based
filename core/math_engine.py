@@ -2766,18 +2766,54 @@ def calculate_saa_drift_minimizer(
     
     gaps = {k: target_pct.get(k, 0) - current_pct.get(k, 0) for k in set(current_pct) | set(target_pct)}
     
-    positive_gaps = {k: v for k, v in gaps.items() if v > 0}
-    total_positive_gap = sum(positive_gaps.values())
-    
-    sip_alloc = {}
-    if total_positive_gap > 0:
-        for asset, gap in positive_gaps.items():
-            sip_alloc[asset] = sip_budget_inr * (gap / total_positive_gap)
+    if isinstance(sip_budget_inr, bool):
+        raise ValueError("SIP budget must be numeric")
+    try:
+        budget = float(sip_budget_inr)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("SIP budget must be numeric") from exc
+    if not math.isfinite(budget) or budget < 0.0:
+        raise ValueError("SIP budget must be finite and non-negative")
+
+    # Minimize squared post-contribution weight error using the post-SIP
+    # denominator. The unconstrained ideal contribution for sleeve i is
+    # target_i * (portfolio_value + SIP) - current_value_i. Project that
+    # vector onto the non-negative simplex whose sum is exactly the SIP budget.
+    # This correctly allows contributions to currently overweight sleeves
+    # when they are still below their desired post-SIP value, and naturally
+    # preserves zero-target sleeves at zero.
+    assets = list(target_pct)
+    new_total = total_val + budget
+    desired = [
+        (target_pct[asset] / 100.0) * new_total - current_alloc.get(asset, 0.0)
+        for asset in assets
+    ]
+    if budget == 0.0:
+        projected_contributions = [0.0 for _ in assets]
     else:
-        for asset in target_pct:
-            sip_alloc[asset] = sip_budget_inr / len(target_pct)
-    
-    new_total = total_val + sip_budget_inr
+        ordered = sorted(desired, reverse=True)
+        cumulative = 0.0
+        theta = None
+        for index, value in enumerate(ordered, start=1):
+            cumulative += value
+            candidate_theta = (cumulative - budget) / index
+            next_value = ordered[index] if index < len(ordered) else float("-inf")
+            if value > candidate_theta and next_value <= candidate_theta:
+                theta = candidate_theta
+                break
+        if theta is None:
+            raise ValueError("Unable to solve constrained post-SIP SAA allocation")
+        projected_contributions = [max(value - theta, 0.0) for value in desired]
+        # Correct floating-point residue deterministically without changing
+        # the active set or allowing a negative sleeve allocation.
+        residue = budget - sum(projected_contributions)
+        if abs(residue) > 1e-9:
+            active = [i for i, value in enumerate(projected_contributions) if value > 0.0]
+            if not active:
+                raise ValueError("SAA projection produced no eligible contribution sleeve")
+            projected_contributions[active[0]] += residue
+    sip_alloc = {asset: projected_contributions[i] for i, asset in enumerate(assets)}
+
     projected_alloc = {}
     for asset in set(current_pct) | set(target_pct):
         current_val = current_alloc.get(asset, 0)
