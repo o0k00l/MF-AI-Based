@@ -67,12 +67,35 @@ def test_api_passes_temporary_cas_to_evidence_provider_and_removes_it(monkeypatc
         return {
             "metrics_path": None,
             "aliases_path": None,
-            "scheme_master": {"status": "PROVISIONAL"},
+            "scheme_master": {
+                "status": "VERIFIED",
+                "source_url": "https://amfiindia.com/source",
+                "source_document_sha256": __import__("hashlib").sha256(b"master bytes").hexdigest(),
+                "reviewer_attested": True,
+                "effective_date": "2026-11-01",
+                "source_type": "OFFICIAL_SCHEME_MASTER",
+                "schemes": [{
+                    "scheme_id": "scheme-1", "isin": "INF000000001",
+                    "scheme_name": "Example Direct Growth", "amc_name": "Example AMC",
+                }],
+            },
             "scheme_master_source_bytes": b"master bytes",
             "portfolio_disclosures_by_scheme_id": {},
             "portfolio_disclosure_source_bytes_by_scheme_id": {},
             "disclosure_as_of_date": date(2026, 11, 4),
-            "candidate_universe": [{"candidate_id": "synthetic-candidate"}],
+            "candidate_universe": [{
+                "fund_id": "fund-1", "fund_name": "Example Direct Growth",
+                "scheme_id": "scheme-1", "isin": "INF000000001",
+                "amc_name": "Example AMC", "category": "Flexi Cap",
+            }],
+            "candidate_universe_source": {
+                "source_url": "https://amfiindia.com/candidates",
+                "source_document_sha256": __import__("hashlib").sha256(b"candidate bytes").hexdigest(),
+                "reviewer_attested": True,
+                "effective_date": "2026-11-01",
+                "source_type": "REVIEWED_CANDIDATE_UNIVERSE",
+            },
+            "candidate_universe_source_bytes": b"candidate bytes",
         }
 
     monkeypatch.setattr(
