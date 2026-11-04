@@ -30,6 +30,8 @@ A version-1 bundle uses a UTF-8 `manifest.json`:
   "candidate_universe_file": "records/candidate_universe.json",
   "candidate_universe_metadata_file": "records/candidate_universe_metadata.json",
   "candidate_universe_source_file": "originals/candidate_universe.csv",
+  "candidate_score_metadata_file": "records/candidate_score_metadata.json",
+  "candidate_score_source_file": "originals/candidate_rank_scores.csv",
   "portfolio_context_file": "records/total_portfolio_context.json",
   "portfolio_context_metadata_file": "records/total_portfolio_context_metadata.json",
   "portfolio_context_source_file": "originals/total_portfolio_context.xlsx"
@@ -37,7 +39,7 @@ A version-1 bundle uses a UTF-8 `manifest.json`:
 ```
 
 All paths are relative to the bundle root. The optional `aliases_file` may be
-null. The three `portfolio_context_*` fields are optional, but if one is present all three are required. Every referenced file must exist. Paths that escape the bundle,
+null. The three `portfolio_context_*` fields are optional, but if one is present all three are required. The two `candidate_score_*` fields are optional, but must be configured together when supplied. Every referenced file must exist. Paths that escape the bundle,
 absolute paths, symlink escapes and bundles located inside the Git checkout
 are rejected.
 
@@ -56,8 +58,22 @@ are rejected.
   status and reviewer-attested Direct-plan evidence. Its `source_file` is
   relative to the bundle root; the provider supplies the trusted root path.
 - `candidate_universe_metadata_file`: source metadata plus
-  `universe_complete: true` and a precise `coverage_scope`.
-- `metrics_file`: normalized fund metrics data file consumed by the engine.
+  `universe_complete: true`, a precise `coverage_scope`, and
+  `normalized_candidate_universe_sha256` matching the exact normalized JSON
+  file bytes. This prevents an independently edited candidate JSON file from
+  inheriting a valid original-source attestation.
+- `candidate_score_metadata_file` and `candidate_score_source_file`: optional
+  original ranking-score output and its reviewed source metadata. Every
+  candidate carrying a score must also carry `rank_score_source_ref` in the
+  form `sha256:<digest>`, `rank_score_as_of_date`, and
+  `rank_score_methodology_version`. Those values must match the original score
+  bytes, metadata effective date and methodology version. A score without this
+  separately attested bundle is rejected. The score values are consumed as
+  evidence; the SIP service does not manufacture a ranking model or claim that
+  the model is independently validated.
+- `metrics_file`: normalized fund metrics data file consumed by the engine. Its
+  exact normalized bytes must match `normalized_metrics_sha256` in the metadata.
+
   Metrics must not be inferred from scheme-master identity.
 - `metrics_metadata_file` and `metrics_source_file`: source metadata and
   unchanged original publisher bytes for the metrics dataset. Metadata must
