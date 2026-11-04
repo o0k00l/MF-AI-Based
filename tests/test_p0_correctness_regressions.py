@@ -789,14 +789,18 @@ def test_sip_builder_withholds_entire_budget_when_any_required_slot_is_unverifie
                 "allocation_pct": 30.0,
                 "rationale": "Test",
             },
-            "Slot 3: Large-Cap Bluechip Anchor": {
+            "Slot 3: Small-Cap Growth Engine": {
+                "scheme": "Example Small Fund", "fund_name": "Example Small Fund",
+                "fund_id": "test-small", "allocation_pct": 15.0, "rationale": "Test",
+            },
+            "Slot 4: Large-Cap Bluechip Anchor": {
                 "scheme": "Example Large Fund",
                 "fund_name": "Example Large Fund",
                 "fund_id": "test-large",
                 "allocation_pct": 15.0,
                 "rationale": "Test",
             },
-            "Slot 4: Tactical Thematic Satellite": {
+            "Slot 5: Tactical Thematic Satellite": {
                 "scheme": "NO_ACTION: no thematic allocation",
                 "fund_name": "NO_ACTION: no thematic allocation",
                 "allocation_pct": 0.0,
@@ -1640,16 +1644,18 @@ def test_selector_slot_targets_are_policy_weighted_and_not_hardcoded(monkeypatch
     saa = profile["saa_targets"]
     equity_parts = {
         "flexi": float(saa["flexi_multi_cap_pct"]),
-        "mid_small": float(saa["mid_cap_pct"]) + float(saa["small_cap_pct"]),
+        "mid": float(saa["mid_cap_pct"]),
+        "small": float(saa["small_cap_pct"]),
         "large": float(saa["large_cap_pct"]),
     }
     equity_total = sum(equity_parts.values())
     expected = {
         "Slot 1: Core Flexi-Cap Compounder": round(100.0 * equity_parts["flexi"] / equity_total, 1),
-        "Slot 2: Mid-Cap Alpha Engine": round(100.0 * equity_parts["mid_small"] / equity_total, 1),
+        "Slot 2: Mid-Cap Alpha Engine": round(100.0 * equity_parts["mid"] / equity_total, 1),
+        "Slot 3: Small-Cap Growth Engine": round(100.0 * equity_parts["small"] / equity_total, 1),
     }
-    expected["Slot 3: Large-Cap Bluechip Anchor"] = round(
-        100.0 - expected["Slot 1: Core Flexi-Cap Compounder"] - expected["Slot 2: Mid-Cap Alpha Engine"],
+    expected["Slot 4: Large-Cap Bluechip Anchor"] = round(
+        100.0 - expected["Slot 1: Core Flexi-Cap Compounder"] - expected["Slot 2: Mid-Cap Alpha Engine"] - expected["Slot 3: Small-Cap Growth Engine"],
         1,
     )
 
@@ -1674,6 +1680,7 @@ def test_selector_slot_targets_are_policy_weighted_and_not_hardcoded(monkeypatch
     candidates = [
         {"fund_id": "flexi", "fund_name": "Synthetic Flexi", "category": "Flexi Cap Equity", "is_direct": True, "score": 3.0},
         {"fund_id": "mid", "fund_name": "Synthetic Mid", "category": "Mid Cap Equity", "is_direct": True, "score": 2.0},
+        {"fund_id": "small", "fund_name": "Synthetic Small", "category": "Small Cap Equity", "is_direct": True, "score": 1.5},
         {"fund_id": "large", "fund_name": "Synthetic Large", "category": "Large Cap Equity", "is_direct": True, "score": 1.0},
         {"fund_id": "debt", "fund_name": "Synthetic Debt", "category": "Debt", "is_direct": True, "score": 1.0},
     ]
@@ -1700,7 +1707,7 @@ def test_selector_slot_targets_are_policy_weighted_and_not_hardcoded(monkeypatch
     assert result["High-Grade Debt Anchor"]["unallocated_pct"] == pytest.approx(float(saa["debt_liquid_pct"]))
     assert "no supported debt-specific ranking model" in result["High-Grade Debt Anchor"]["rationale"]
     assert result["High-Grade Debt Anchor"]["allocation_basis"] == "percent_of_total_portfolio"
-    assert scored_categories == ["Flexi Cap", "Mid Cap", "Large Cap"]
+    assert scored_categories == ["Flexi Cap", "Mid Cap", "Small Cap", "Large Cap"]
     assert result["High-Grade Debt Anchor"]["gate_passed"] is False
     assert str(result["High-Grade Debt Anchor"]["scheme"]).startswith("NO_ACTION")
 
@@ -1941,7 +1948,8 @@ def test_sip_selector_holds_all_slots_when_candidate_universe_is_below_policy_mi
     for slot_name in (
         "Slot 1: Core Flexi-Cap Compounder",
         "Slot 2: Mid-Cap Alpha Engine",
-        "Slot 3: Large-Cap Bluechip Anchor",
+        "Slot 3: Small-Cap Growth Engine",
+        "Slot 4: Large-Cap Bluechip Anchor",
     ):
         slot = result[slot_name]
         assert slot["gate_passed"] is False
