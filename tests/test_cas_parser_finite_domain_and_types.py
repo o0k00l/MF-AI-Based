@@ -1,4 +1,5 @@
 from io import BytesIO
+import math
 
 import openpyxl
 import pytest
@@ -8,11 +9,16 @@ from ingestion.cas_parser import parse_cas_xlsx, reconcile
 
 def _workbook(*, current=1000.0, invested=900.0, returns=100.0, units=10.0,
               stated_total=1000.0, transaction=None):
+    def excel_value(value):
+        if isinstance(value, float) and not math.isfinite(value):
+            return str(value)
+        return value
+
     workbook = openpyxl.Workbook()
     portfolio = workbook.active
     portfolio.title = "Portfolio Details"
     portfolio.append(["Current Portfolio Value"])
-    portfolio.append([stated_total])
+    portfolio.append([excel_value(stated_total)])
     portfolio.append(["To Date", "04-Nov-2026"])
     portfolio.append([
         "Scheme Name", "AMC Name", "Category", "Folio No.",
@@ -20,7 +26,7 @@ def _workbook(*, current=1000.0, invested=900.0, returns=100.0, units=10.0,
     ])
     portfolio.append([
         "Example Equity Fund - Direct Growth", "Example AMC", "Flexi Cap",
-        "FOLIO-1", invested, current, returns, units,
+        "FOLIO-1", excel_value(invested), excel_value(current), excel_value(returns), excel_value(units),
     ])
     if transaction is not None:
         sheet = workbook.create_sheet("Transaction Details")
@@ -28,8 +34,8 @@ def _workbook(*, current=1000.0, invested=900.0, returns=100.0, units=10.0,
         sheet.append([
             "Example Equity Fund - Direct Growth",
             transaction.get("date", "04-Nov-2026"),
-            transaction.get("amount", 100.0),
-            transaction.get("units", 1.0),
+            excel_value(transaction.get("amount", 100.0)),
+            excel_value(transaction.get("units", 1.0)),
             transaction.get("description", "Purchase"),
         ])
     stream = BytesIO()
