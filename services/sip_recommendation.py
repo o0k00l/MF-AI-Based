@@ -462,6 +462,10 @@ def _build_sip_decision_trace(
                 for key, value in sorted(portfolio_disclosure_source_bytes_by_scheme_id.items())
             },
             "candidate_direct_plan_sources": candidate_source_hashes,
+            "portfolio_context_bundle_sha256": (
+                context_assessment.get("source_bundle_sha256")
+                if isinstance(context_assessment, dict) else None
+            ),
         },
         "as_of_dates": {
             "disclosure_as_of_date": disclosure_as_of_date.isoformat(),
@@ -679,6 +683,9 @@ def recommend_sip(
         monthly_budget_inr=budget,
         portfolio_assessment=portfolio_assessment,
         context_assessment=context_assessment,
+    )
+    portfolio_assessment["recommendation_lifecycle"]["decision_trace_sha256"] = (
+        portfolio_assessment["decision_trace"]["sha256"]
     )
     return _hold_plan(budget, [
         "Evidence reached the deterministic SIP engine, but the independent benchmark/research release gate is not approved.",
