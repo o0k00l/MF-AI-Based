@@ -153,3 +153,89 @@ def test_missing_amc_column_cannot_be_resolved_by_scheme_name_alone(tmp_path):
     assert len(holdings) == 1
     assert holdings[0].scheme_id is None
     assert holdings[0].lookthrough_status == "MISSING"
+
+
+@pytest.mark.parametrize(
+    "headers",
+    [
+        ["Scheme Name", "Invested Value", "Current Value", "Units"],
+        ["Scheme Name", "Folio No.", "Current Value", "Units"],
+        ["Scheme Name", "Folio No.", "Invested Value", "Units"],
+        ["Scheme Name", "Folio No.", "Invested Value", "Current Value"],
+    ],
+)
+def test_cas_rejects_missing_required_financial_headers(tmp_path, headers):
+    workbook = openpyxl.Workbook()
+    sheet = workbook.active
+    sheet.title = "Portfolio Details"
+    sheet.append(["Synthetic CAS"])
+    sheet.append(headers)
+    sheet.append(["Example Direct Fund", "FOLIO", 100.0, 100.0, 10.0][:len(headers)])
+    path = tmp_path / "incomplete.xlsx"
+    workbook.save(path)
+
+    with pytest.raises(ValueError, match="missing required .* columns"):
+        load_holdings_from_cas_excel(path)
+
+
+def test_cas_rejects_missing_scheme_header_instead_of_using_legacy_positions(tmp_path):
+    workbook = openpyxl.Workbook()
+    sheet = workbook.active
+    sheet.title = "Portfolio Details"
+    sheet.append(["not", "a", "supported", "header"])
+    for _ in range(15):
+        sheet.append(["Example Direct Fund", None, None, 100.0, 90.0, 100.0, None, 10.0])
+    path = tmp_path / "legacy-layout.xlsx"
+    workbook.save(path)
+
+    with pytest.raises(ValueError, match="no 'Scheme Name' header"):
+        load_holdings_from_cas_excel(path)
+
+
+def test_cas_rejects_duplicate_headers(tmp_path):
+    workbook = openpyxl.Workbook()
+    sheet = workbook.active
+    sheet.title = "Portfolio Details"
+    sheet.append(["Scheme Name", "Folio No.", "Invested Value", "Current Value", "Units", "Units"])
+    sheet.append([SCHEME_NAME, "FOLIO", 90000.0, 100000.0, 1000.0, 1000.0])
+    path = tmp_path / "duplicate-headers.xlsx"
+    workbook.save(path)
+
+    with pytest.raises(ValueError, match="duplicate column headers"):
+        load_holdings_from_cas_excel(path)
+
+
+def test_cas_rejects_malformed_financial_row_instead_of_silently_skipping_it(tmp_path):
+    workbook = openpyxl.Workbook()
+    sheet = workbook.active
+    sheet.title = "Portfolio Details"
+    sheet.append(["Scheme Name", "Folio No.", "Invested Value", "Current Value", "Units"])
+    sheet.append([SCHEME_NAME, "FOLIO", "not-a-number", 100000.0, 1000.0])
+    path = tmp_path / "malformed-values.xlsx"
+    workbook.save(path)
+
+    with pytest.raises(ValueError, match="malformed financial values"):
+        load_holdings_from_cas_excel(path)
+
+
+def test_cas_uses_header_positions_not_fixed_legacy_column_positions(tmp_path):
+    workbook = openpyxl.Workbook()
+    sheet = workbook.active
+    sheet.title = "Portfolio Details"
+    sheet.append(["Scheme Name", "Units", "Current Value", "Folio No.", "Invested Value", "AMC Name"])
+    sheet.append([SCHEME_NAME, 1000.0, 100000.0, "FOLIO-SHIFTED", 90000.0, AMC_NAME])
+    path = tmp_path / "shifted-columns.xlsx"
+    workbook.save(path)
+
+    holdings = load_holdings_from_cas_excel(
+        path,
+        scheme_master=_scheme_master()[0],
+        scheme_master_source_bytes=_scheme_master()[1],
+        disclosure_as_of_date=AS_OF,
+    )
+
+    assert len(holdings) == 1
+    assert holdings[0].folio == "FOLIO-SHIFTED"
+    assert holdings[0].invested_value_inr == 90000.0
+    assert holdings[0].current_value_inr == 100000.0
+    assert holdings[0].units == 1000.0
