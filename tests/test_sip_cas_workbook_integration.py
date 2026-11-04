@@ -101,6 +101,7 @@ def test_cas_workbook_exact_identity_and_verified_disclosure_are_attached(tmp_pa
     assert holding.amc_name == AMC_NAME
     assert holding.is_direct is True
     assert holding.lookthrough_status == "VERIFIED"
+    assert holding.metrics_status == "MISSING"
     assert holding.constituent_weights == {"RELIANCE": 50.0, "HDFCBANK": 50.0}
     assert holding.constituent_weights_coverage_pct == 100.0
 
