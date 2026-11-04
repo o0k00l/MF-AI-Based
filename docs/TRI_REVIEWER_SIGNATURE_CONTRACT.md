@@ -116,3 +116,18 @@ Historical-data portal: https://www.niftyindices.com/reports/historical-data
 These URLs are navigation and index-identity references only. They are **not** substitutes for the downloaded raw CSV evidence files, exact date-range parameters, retrieval timestamp, SHA-256 digests, and reviewer source-to-fixture reconciliation. The historical-data portal is interactive; the repository must not fabricate a local CSV from rendered page text or substitute an undocumented third-party API.
 
 For the NSE session calendar, preserve each applicable official annual holiday notice and any special-session circulars covering the entire benchmark period. Reconcile the union of official trading sessions, including exceptional weekend sessions, rather than assuming all Saturdays/Sundays are closed.
+
+
+### NSE calendar source references
+
+The current official NSE Market Timings & Holidays page is:
+https://www.nseindia.com/resources/exchange-communication-holidays
+
+Official Capital Market holiday circulars located during this review:
+- 2024: https://nsearchives.nseindia.com/content/circulars/CMTR59722.pdf
+- 2025: https://nsearchives.nseindia.com/content/circulars/CMTR65587.pdf
+- 2026: https://nsearchives.nseindia.com/content/circulars/CMTR71775.pdf
+
+The NSE page currently identifies Sunday, 8 November 2026 as the Diwali Laxmi Pujan / Muhurat Trading date. A weekend must therefore not be classified as closed solely by weekday. The final session set must reconcile the applicable Capital Market circulars, later amendments, special-session circulars and actual index publication dates. These links are source-discovery references; preserve the downloaded original bytes and digest before treating them as signed evidence.
+
+**Outstanding calendar coverage:** the 2023 Capital Market holiday circular and any amendments/special sessions for the full 2023–2026 benchmark date range still need to be located, downloaded and independently reconciled. Do not mark the normalized calendar VERIFIED until that gap is closed.
