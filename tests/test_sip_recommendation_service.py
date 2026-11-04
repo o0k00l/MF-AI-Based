@@ -220,16 +220,18 @@ def _complete_portfolio_context():
         "as_of_date": as_of,
         "perimeter_complete": True,
         "assets": [
-            {"asset_id": "mf-large", "asset_class": "mutual_fund", "saa_bucket": "large_cap",
-             "value_inr": "100000", "source_ref": "sha256:cas", "owner_scope": "household", "as_of_date": as_of},
-            {"asset_id": "mid", "asset_class": "mutual_fund", "saa_bucket": "mid_cap",
-             "value_inr": "250000", "source_ref": "sha256:cas", "owner_scope": "household", "as_of_date": as_of},
-            {"asset_id": "small", "asset_class": "mutual_fund", "saa_bucket": "small_cap",
-             "value_inr": "250000", "source_ref": "sha256:cas", "owner_scope": "household", "as_of_date": as_of},
-            {"asset_id": "flexi", "asset_class": "mutual_fund", "saa_bucket": "flexi_multi_cap",
-             "value_inr": "250000", "source_ref": "sha256:cas", "owner_scope": "household", "as_of_date": as_of},
+            {"asset_id": "cas-mf", "asset_class": "cas_mutual_fund", "saa_bucket": "large_cap",
+             "value_inr": "125000", "source_ref": "sha256:cas", "owner_scope": "household", "as_of_date": as_of},
+            {"asset_id": "mid", "asset_class": "equity", "saa_bucket": "mid_cap",
+             "value_inr": "200000", "source_ref": "sha256:demat", "owner_scope": "household", "as_of_date": as_of},
+            {"asset_id": "small", "asset_class": "equity", "saa_bucket": "small_cap",
+             "value_inr": "200000", "source_ref": "sha256:demat", "owner_scope": "household", "as_of_date": as_of},
+            {"asset_id": "flexi", "asset_class": "equity", "saa_bucket": "flexi_multi_cap",
+             "value_inr": "175000", "source_ref": "sha256:demat", "owner_scope": "household", "as_of_date": as_of},
             {"asset_id": "debt", "asset_class": "deposit", "saa_bucket": "debt_liquid",
-             "value_inr": "150000", "source_ref": "sha256:bank", "owner_scope": "household", "as_of_date": as_of},
+             "value_inr": "100000", "source_ref": "sha256:bank", "owner_scope": "household", "as_of_date": as_of},
+            {"asset_id": "cash", "asset_class": "bank_cash", "saa_bucket": "debt_liquid",
+             "value_inr": "200000", "source_ref": "sha256:bank", "owner_scope": "household", "as_of_date": as_of},
         ],
         "excluded_assets": [],
         "goal_policy": {
@@ -281,7 +283,20 @@ def _complete_portfolio_context():
                 "subscription_status_evidence_ref": "sha256:subscription",
             },
         },
-        "concentration_policy": {"max_issuer_pct_of_portfolio": "20"},
+        "ips": {
+            "approved": True, "source_ref": "sha256:approved-ips",
+            "effective_date": as_of,
+            "target_weights_pct": {
+                "large_cap": "20", "mid_cap": "25", "small_cap": "25",
+                "flexi_multi_cap": "25", "debt_liquid": "5",
+            },
+            "tolerance_band_pct": "5",
+            "tier6_equity_only_authorized": True,
+        },
+        "concentration_policy": {
+            "max_issuer_pct_of_portfolio": "20",
+            "source_ref": "sha256:issuer-policy", "effective_date": as_of,
+        },
         "freshness": {
             "recommendation_as_of_date": as_of, "max_age_days": 90,
             "event_flags": {"manager_change": False, "life_event": False},
@@ -318,7 +333,7 @@ def test_complete_portfolio_workflow_integrates_issues_23_to_34_without_authoriz
     context = result["portfolio_assessment"]["total_portfolio_context"]
     assert context["status"] == "ASSESSMENT_COMPLETE"
     assert context["portfolio_reconciliation"]["total_value_inr"] == "1000000"
-    assert context["saa"]["drift"]["underweight_sleeves"] == ["large_cap"]
+    assert context["saa"]["drift"]["underweight_sleeves"] == ["flexi_multi_cap", "large_cap", "mid_cap", "small_cap"]
     assert context["goal_suitability"]["status"] == "VALIDATED"
     assert context["liquidity_and_affordability"]["status"] == "AFFORDABLE"
     assert context["affordability_stress"]["all_scenarios_sustainable"] is True
@@ -326,7 +341,7 @@ def test_complete_portfolio_workflow_integrates_issues_23_to_34_without_authoriz
     assert context["scheme_operational_feasibility"]["CANDIDATE-1"]["status"] == "FEASIBLE_FOR_REVIEW"
     assert context["candidate_overlap_diagnostics"]["CANDIDATE-1"]["status"] == "ASSESSED"
     assert context["candidate_overlap_diagnostics"]["CANDIDATE-1"]["shared_issuers"] == ["ISSUER-A"]
-    assert context["incremental_sip_routing_simulation"]["allocations_inr"] == {"large_cap": "10000"}
+    assert context["incremental_sip_routing_simulation"]["allocations_inr"] == {"large_cap": "2500", "flexi_multi_cap": "2500", "mid_cap": "2500", "small_cap": "2500"}
     assert context["freshness"]["status"] == "CURRENT"
     assert context["recommendation_authorized"] is False
     assert context["execution_authorized"] is False
