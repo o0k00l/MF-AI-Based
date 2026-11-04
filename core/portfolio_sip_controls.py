@@ -249,6 +249,141 @@ def screen_candidates_before_scoring(
             "scoring_permitted": bool(eligible)}
 
 
+
+def allocate_candidate_sip(
+    sleeve_budgets_inr: Mapping[str, Any],
+    candidates: Iterable[Mapping[str, Any]],
+    *,
+    as_of_date: str,
+    min_sip_per_fund_inr: Any,
+    rounding_increment_inr: Any,
+    max_funds: int,
+) -> dict[str, Any]:
+    """Allocate sleeve budgets to ranked, evidenced, operationally clear funds.
+
+    Scores are consumed, never manufactured here. A candidate needs a dated
+    score reference plus eligibility, look-through and operational clearance.
+    Unfillable sleeve money remains unallocated in that same sleeve.
+    """
+    today = _date(as_of_date, "as_of_date")
+    minimum = _decimal(min_sip_per_fund_inr, "min_sip_per_fund_inr")
+    increment = _decimal(rounding_increment_inr, "rounding_increment_inr")
+    if minimum <= 0 or increment <= 0:
+        raise PortfolioInputError("minimum SIP and rounding increment must be positive")
+    if isinstance(max_funds, bool) or not isinstance(max_funds, int) or max_funds < 1:
+        raise PortfolioInputError("max_funds must be a positive integer")
+
+    budgets = {str(k): _decimal(v, f"sleeve_budget[{k}]") for k, v in sleeve_budgets_inr.items()}
+    if any(value < 0 for value in budgets.values()):
+        raise PortfolioInputError("sleeve budgets cannot be negative")
+    rows = list(candidates)
+    ranked: dict[str, list[tuple[Decimal, str]]] = {key: [] for key in budgets}
+    rejected = {}
+    seen = set()
+    for row in rows:
+        if not isinstance(row, Mapping):
+            raise PortfolioInputError("candidate allocation rows must be mappings")
+        candidate_id = row.get("candidate_id")
+        sleeve = row.get("sleeve")
+        reasons = []
+        if not isinstance(candidate_id, str) or not candidate_id.strip():
+            reasons.append("CANDIDATE_ID_MISSING")
+        elif candidate_id in seen:
+            reasons.append("DUPLICATE_CANDIDATE_ID")
+        else:
+            seen.add(candidate_id)
+        if sleeve not in budgets:
+            reasons.append("SLEEVE_NOT_ROUTED")
+        if row.get("eligibility_status") != "ELIGIBLE":
+            reasons.append("CANDIDATE_NOT_ELIGIBLE")
+        if row.get("overlap_status") != "ASSESSED":
+            reasons.append("LOOKTHROUGH_OR_CONCENTRATION_NOT_CLEARED")
+        if row.get("operational_status") != "FEASIBLE_FOR_REVIEW":
+            reasons.append("OPERATIONAL_FEASIBILITY_NOT_CLEARED")
+        score_ref = row.get("score_evidence_ref")
+        if not isinstance(score_ref, str) or not score_ref.strip():
+            reasons.append("RANK_SCORE_SOURCE_REFERENCE_MISSING")
+        try:
+            score_date = _date(row.get("score_as_of_date"), "score_as_of_date")
+            if (today - score_date).days < 0 or (today - score_date).days > 45:
+                reasons.append("RANK_SCORE_STALE_OR_FUTURE")
+        except PortfolioInputError:
+            reasons.append("RANK_SCORE_DATE_MISSING_OR_INVALID")
+        try:
+            score = _decimal(row.get("rank_score"), "rank_score")
+            if score <= 0:
+                reasons.append("RANK_SCORE_NOT_POSITIVE")
+        except PortfolioInputError:
+            score = Decimal("0")
+            reasons.append("RANK_SCORE_MISSING_OR_INVALID")
+        if reasons:
+            rejected[str(candidate_id or "UNKNOWN")] = reasons
+            continue
+        ranked[sleeve].append((score, candidate_id))
+
+    ranked_candidates = []
+    for sleeve, values in ranked.items():
+        ranked_candidates.extend((sleeve, score, candidate_id) for score, candidate_id in values)
+    ranked_candidates.sort(key=lambda item: (-item[1], item[0], item[2]))
+    selected = ranked_candidates[:max_funds]
+    selected_ids = {candidate_id for _, _, candidate_id in selected}
+    for sleeve, values in ranked.items():
+        for _, candidate_id in values:
+            if candidate_id not in selected_ids:
+                rejected[candidate_id] = ["MAX_CORE_FUND_COUNT_REACHED"]
+
+    allocations = []
+    unallocated_by_sleeve = {}
+    for sleeve, budget in budgets.items():
+        sleeve_rows = [(score, candidate_id) for candidate_sleeve, score, candidate_id in selected
+                       if candidate_sleeve == sleeve]
+        if budget == 0:
+            unallocated_by_sleeve[sleeve] = "0"
+            continue
+        if not sleeve_rows or budget < minimum * len(sleeve_rows):
+            unallocated_by_sleeve[sleeve] = str(budget)
+            continue
+        score_total = sum((score for score, _ in sleeve_rows), Decimal("0"))
+        sleeve_allocations = []
+        remaining = budget
+        for index, (score, candidate_id) in enumerate(sorted(sleeve_rows, key=lambda x: (-x[0], x[1]))):
+            remaining_slots = len(sleeve_rows) - index
+            if remaining_slots == 1:
+                amount = (remaining / increment).quantize(Decimal("1"), rounding=ROUND_DOWN) * increment
+            else:
+                raw = budget * score / score_total
+                amount = (raw / increment).quantize(Decimal("1"), rounding=ROUND_DOWN) * increment
+                amount = max(minimum, amount)
+                amount = min(amount, remaining - minimum * (remaining_slots - 1))
+                amount = (amount / increment).quantize(Decimal("1"), rounding=ROUND_DOWN) * increment
+            if amount < minimum:
+                sleeve_allocations = []
+                break
+            sleeve_allocations.append((candidate_id, amount))
+            remaining -= amount
+        if not sleeve_allocations or sum((amount for _, amount in sleeve_allocations), Decimal("0")) > budget:
+            unallocated_by_sleeve[sleeve] = str(budget)
+            continue
+        for candidate_id, amount in sleeve_allocations:
+            allocations.append({"candidate_id": candidate_id, "sleeve": sleeve, "monthly_sip_inr": str(amount)})
+        unallocated_by_sleeve[sleeve] = str(budget - sum((amount for _, amount in sleeve_allocations), Decimal("0")))
+
+    requested = sum(budgets.values(), Decimal("0"))
+    allocated = sum((_decimal(item["monthly_sip_inr"], "allocation") for item in allocations), Decimal("0"))
+    unallocated = sum((_decimal(value, "unallocated") for value in unallocated_by_sleeve.values()), Decimal("0"))
+    return {
+        "status": "ALLOCATED" if allocated > 0 else "HOLD",
+        "allocations": allocations,
+        "rejected_candidates": rejected,
+        "requested_budget_inr": str(requested),
+        "allocated_budget_inr": str(allocated),
+        "unallocated_budget_inr": str(unallocated),
+        "unallocated_by_sleeve_inr": unallocated_by_sleeve,
+        "reconciliation_ok": allocated + unallocated == requested,
+        "ranking_basis": "SOURCE_REFERENCED_RANK_SCORE_DESCENDING",
+    }
+
+
 def calculate_lookthrough_exposure(
     holdings: Iterable[Mapping[str, Any]],
     *,
