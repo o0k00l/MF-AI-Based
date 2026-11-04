@@ -17,6 +17,18 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 
+# P0 RELEASE GATE: this legacy executable contains provisional tax rates,
+# generic exit-load assumptions, hard-coded transition instructions and
+# unvalidated SIP/lumpsum recommendations. Stop before loading private client
+# data or creating output directories. Keep the source for controlled migration
+# and historical review only.
+raise SystemExit(
+    "Legacy advisor CLI is disabled pending independent tax/legal review, "
+    "validated investment-policy evidence and production release approval. "
+    "No client data was read and no report was generated."
+)
+
+
 def get_default_client_dir() -> Path:
     import os
 
