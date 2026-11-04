@@ -281,6 +281,7 @@ def allocate_candidate_sip(
     min_sip_per_fund_inr: Any,
     rounding_increment_inr: Any,
     max_funds: int,
+    max_score_age_days: int,
 ) -> dict[str, Any]:
     """Allocate sleeve budgets using fund-specific minimums and evidenced scores.
 
@@ -296,6 +297,8 @@ def allocate_candidate_sip(
         raise PortfolioInputError("minimum SIP and rounding increment must be positive")
     if isinstance(max_funds, bool) or not isinstance(max_funds, int) or max_funds < 0:
         raise PortfolioInputError("max_funds must be a non-negative integer")
+    if isinstance(max_score_age_days, bool) or not isinstance(max_score_age_days, int) or max_score_age_days < 0:
+        raise PortfolioInputError("max_score_age_days must be a non-negative integer")
 
     def rounded_minimum(value: Decimal) -> Decimal:
         return (value / increment).to_integral_value(rounding=ROUND_CEILING) * increment
@@ -350,7 +353,7 @@ def allocate_candidate_sip(
             reasons.append("RANK_SCORE_SOURCE_REFERENCE_MISSING")
         try:
             score_date = _date(row.get("score_as_of_date"), "score_as_of_date")
-            if (today - score_date).days < 0 or (today - score_date).days > 45:
+            if (today - score_date).days < 0 or (today - score_date).days > max_score_age_days:
                 reasons.append("RANK_SCORE_STALE_OR_FUTURE")
         except PortfolioInputError:
             reasons.append("RANK_SCORE_DATE_MISSING_OR_INVALID")
