@@ -30,7 +30,7 @@ The principal deterministic path is:
 | SIP-007 | P1 | The six-pillar score uses fixed category anchors and rewards defensive buffer and international exposure as generic positive factors for every equity category. | Score design may favour the wrong characteristics and is not a validated category-relative fund-selection model. |
 | SIP-008 | P1 | The policy's stated 30-candidate minimum, 20% per-fund cap and default sleeve targets are not yet shown to be mutually feasible. | A policy contradiction may make valid SIP construction impossible or encourage silent reallocation. |
 | SIP-009 | P1 | The final plan checks missing Direct status only for positive rounded monthly amounts; the plan model does not itself enforce allocated + unallocated = requested budget or exact percentage reconciliation. | Edge cases involving small budgets, rounding or malformed plan construction need explicit invariants. |
-| SIP-010 | P0 | The Very High SAA combines mid-cap and small-cap targets into one `mid_small` sleeve, but the selector then chooses only a Mid Cap fund for the combined amount. | The resulting recommendation can materially misstate the intended small-cap exposure and does not implement the investor's SAA. Separate mid- and small-cap sleeves are required. |
+| SIP-010 | P0 — partially fixed | Selector and SIP-plan construction now have distinct mid-cap and small-cap sleeves, with SAA-based split for established portfolios and SAA-proportional split of the starter combined mid/small budget. | The new small-cap category currently has no approved category scoring anchor, so candidates remain unscorable and the dependent plan must stay on hold until a defensible small-cap research model is approved. |
 
 ## 3. Implementation progress on `main`
 
@@ -47,7 +47,9 @@ The principal deterministic path is:
 | SIP-007 | Open. | Replace arbitrary anchors/weights with an investor-approved, benchmark-consistent research model. |
 | SIP-008 | Open. | Resolve the policy contradiction between sleeve weights and the 20% per-fund cap. |
 | SIP-009 | Open. | Add plan-level exact amount and percentage invariants. |
-| SIP-010 | Open — P0. | Separate mid-cap and small-cap allocations; the current selector combines both budgets but routes the combined amount to a Mid Cap fund. |
+| SIP-010 | Partially fixed — P0. | Separate mid-cap and small-cap allocations are now routed as distinct slots. |
+
+**Mid/small sleeve implementation:** commits `2526d25`, `b23ace6`, `6ad94d2`, `38a8fcd`, `9de9147` and `b16049e` add separate Mid Cap and Small Cap selector slots, pass them into SIP plan construction, preserve the starter combined mid/small policy while splitting by SAA proportions, and require fail-closed verification for each positively weighted sleeve. The selector unit test uses a stub scorer to verify category routing; it does **not** validate a real small-cap scoring model. The current scoring anchor table has no `Small Cap` entry, intentionally preventing a live small-cap ranking from being invented. The production SIP therefore remains blocked for any mandate with a positive small-cap target until the benchmark-consistent small-cap research model is validated.
 
 **CI evidence:** `07c7a2f` — full suite 138 passed / 31 skipped; fiduciary invariants 15 passed / 1 skipped; correctness regressions 77 passed / 30 skipped. This is software verification, not research or production approval.
 
