@@ -30,6 +30,7 @@ from core.portfolio_sip_controls import (
     calculate_saa_drift,
     reconcile_total_portfolio,
     route_incremental_sip,
+    allocate_candidate_sip,
     screen_candidates_before_scoring,
     validate_goal_mandate,
     assess_liquidity_and_sip_surplus,
@@ -456,6 +457,34 @@ def _assess_complete_portfolio_context(
                 "breaching_issuers": breaches,
                 "reason": "Candidate one-instalment issuer impact against existing holdings.",
             }
+        screening_by_id = {
+            row.get("candidate_id"): row
+            for row in screening.get("candidate_results", [])
+            if isinstance(row, dict) and row.get("candidate_id")
+        }
+        candidate_allocation_inputs = []
+        for candidate in candidate_universe:
+            candidate_id = str(candidate.get("fund_id") or candidate.get("scheme_id") or "")
+            candidate_allocation_inputs.append({
+                "candidate_id": candidate_id,
+                "sleeve": candidate_policy.get("candidate_sleeves", {}).get(candidate_id),
+                "eligibility_status": screening_by_id.get(candidate_id, {}).get("status"),
+                "overlap_status": overlap_results.get(candidate_id, {}).get("status"),
+                "operational_status": operational_results.get(candidate_id, {}).get("status"),
+                "rank_score": candidate.get("rank_score"),
+                "score_evidence_ref": candidate.get("rank_score_source_ref"),
+                "score_as_of_date": candidate.get("rank_score_as_of_date"),
+            })
+        allocation_policy = policy["sip_allocation_policy"]
+        remaining_fund_slots = int(allocation_policy["max_core_fund_count"]) - int(context["current_core_fund_count"])
+        candidate_allocation = allocate_candidate_sip(
+            routing.get("allocations_inr", {}),
+            candidate_allocation_inputs,
+            as_of_date=as_of.isoformat(),
+            min_sip_per_fund_inr=allocation_policy["min_sip_per_fund_inr"],
+            rounding_increment_inr=allocation_policy["sip_increment_inr"],
+            max_funds=max(0, remaining_fund_slots),
+        )
         freshness_input = context["freshness"]
         freshness = evaluate_recommendation_freshness(
             recommendation_as_of_date=freshness_input["recommendation_as_of_date"],
@@ -475,6 +504,8 @@ def _assess_complete_portfolio_context(
             and bool(eligible_ids)
             and freshness["status"] == "CURRENT"
             and routing["status"] in {"ROUTED", "HOLD"}
+            and candidate_allocation["status"] == "ALLOCATED"
+            and candidate_allocation["reconciliation_ok"] is True
             and external_lookthrough.get("status") == "CALCULATED"
             and all(overlap_results.get(candidate_id, {}).get("status") == "ASSESSED"
                     for candidate_id in eligible_ids)
@@ -496,6 +527,7 @@ def _assess_complete_portfolio_context(
             "candidate_overlap_diagnostics": overlap_results,
             "external_asset_lookthrough": external_lookthrough,
             "incremental_sip_routing_simulation": routing,
+            "candidate_level_sip_allocation_simulation": candidate_allocation,
             "freshness": freshness,
             "all_input_gates_pass": all_gates_pass,
             "recommendation_authorized": False,
