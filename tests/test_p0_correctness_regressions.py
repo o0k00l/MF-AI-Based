@@ -1677,6 +1677,16 @@ def test_selector_slot_targets_are_policy_weighted_and_not_hardcoded(monkeypatch
         {"fund_id": "large", "fund_name": "Synthetic Large", "category": "Large Cap Equity", "is_direct": True, "score": 1.0},
         {"fund_id": "debt", "fund_name": "Synthetic Debt", "category": "Debt", "is_direct": True, "score": 1.0},
     ]
+    candidates.extend(
+        {
+            "fund_id": f"universe-filler-{index}",
+            "fund_name": f"Synthetic Filler {index}",
+            "category": "Debt",
+            "is_direct": True,
+            "score": 0.0,
+        }
+        for index in range(26)
+    )
     result = math_engine.select_autonomous_blueprint_funds(
         holdings=[],
         candidate_universe=candidates,
@@ -1911,3 +1921,28 @@ def test_candidate_scoring_marks_absent_optional_pillars_neutral_not_as_observed
     assert pillars["downside_buffer"] == 50.0
     assert pillars["geographic_moat"] == 50.0
     assert pillars["portfolio_overlap"] == 50.0
+
+
+
+def test_sip_selector_holds_all_slots_when_candidate_universe_is_below_policy_minimum():
+    from core.math_engine import select_autonomous_blueprint_funds
+
+    candidates = [
+        {"fund_id": f"candidate-{index}", "fund_name": f"Candidate {index}", "category": "Flexi Cap Equity"}
+        for index in range(29)
+    ]
+    result = select_autonomous_blueprint_funds(
+        holdings=[],
+        candidate_universe=candidates,
+        client_risk_tier=6,
+    )
+    for slot_name in (
+        "Slot 1: Core Flexi-Cap Compounder",
+        "Slot 2: Mid-Cap Alpha Engine",
+        "Slot 3: Large-Cap Bluechip Anchor",
+    ):
+        slot = result[slot_name]
+        assert slot["gate_passed"] is False
+        assert slot["allocation_pct"] == 0.0
+        assert slot["unallocated_pct"] > 0.0
+        assert "candidate universe insufficient (29 < 30)" in slot["rationale"]
