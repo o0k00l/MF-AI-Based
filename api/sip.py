@@ -170,6 +170,13 @@ def create_sip_app(
                     "disclosure_as_of_date": evidence["disclosure_as_of_date"],
                     "candidate_universe": evidence["candidate_universe"],
                 }
+                for provenance_field in (
+                    "metrics_source_bytes",
+                    "candidate_universe_source_bytes",
+                    "portfolio_context_source_bytes",
+                ):
+                    if provenance_field in evidence:
+                        service_inputs[provenance_field] = evidence[provenance_field]
                 provider_portfolio_context = evidence.get("portfolio_context")
                 if provider_portfolio_context is not None:
                     provider_portfolio_context["evidence_attested_by_provider"] = True
