@@ -32,6 +32,7 @@ def test_primary_cas_holdings_loader_resolves_verified_scheme_identity(tmp_path)
     )
     assert len(holdings) == 1
     assert holdings[0].scheme_id == 'SCHEME-001'
+    assert holdings[0].metrics_status == 'MISSING'
     assert holdings[0].lookthrough_status == 'MISSING'
     assert holdings[0].constituent_weights is None
 
