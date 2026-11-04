@@ -94,6 +94,8 @@ def test_api_passes_temporary_cas_to_evidence_provider_and_removes_it(monkeypatc
                 "reviewer_attested": True,
                 "effective_date": "2026-11-01",
                 "source_type": "REVIEWED_CANDIDATE_UNIVERSE",
+                "universe_complete": True,
+                "coverage_scope": "Synthetic API test universe",
             },
             "candidate_universe_source_bytes": b"candidate bytes",
         }
