@@ -19,7 +19,7 @@ def test_normative_architecture_specification_is_present_and_complete():
     assert "**Specification Version:** 1.0.0" in content
     assert "Normative architecture baseline" in content
     assert "NOT APPROVED FOR PRODUCTION" in content
-    assert "Execution Authority: NONE" in content
+    assert "**Execution Authority:** NONE" in content
 
     # Canonical entry points documented
     assert "api/sip_production.py" in content
