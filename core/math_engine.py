@@ -211,12 +211,15 @@ def reconcile_cas_holdings_with_transactions(holdings: List[HoldingItem], transa
         scheme_name = transaction.get("scheme")
         scheme_key = key(scheme_name)
         txn_type = str(transaction.get("type", "UNKNOWN")).upper()
+        raw_units = transaction.get("units")
         try:
-            units = float(transaction.get("units", 0.0) or 0.0)
+            units = float(raw_units if raw_units is not None else 0.0)
         except (TypeError, ValueError):
             units = float("nan")
-        if (not scheme_key or txn_type not in supported_types or not math.isfinite(units)
-                or units < 0.0):
+        requires_units = txn_type not in {"DIVIDEND", "CHARGES"}
+        if (not scheme_key or txn_type not in supported_types
+                or (requires_units and raw_units is None)
+                or not math.isfinite(units) or units < 0.0):
             return {"status": "INVALID_TRANSACTION", "error": f"Invalid scheme, type or units at transaction row {index}",
                     "reconciled_schemes": 0, "total_schemes": len(holdings),
                     "discrepancies": [], "unmatched_transaction_schemes": []}
