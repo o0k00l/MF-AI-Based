@@ -35,6 +35,8 @@ def valid_payload(tmp_path):
             "schemes": [{
                 "scheme_id": "scheme-1", "isin": "INF000000001",
                 "scheme_name": "Example Direct Growth", "amc_name": "Example AMC",
+                "category": "Flexi Cap", "benchmark_identity": "Nifty 500 TRI",
+                "scheme_structure": "OPEN_ENDED_EQUITY", "riskometer_score": 5,
             }],
         },
         "scheme_master_source_bytes": master_bytes,
@@ -45,6 +47,8 @@ def valid_payload(tmp_path):
             "fund_id": "fund-1", "fund_name": "Example Direct Growth",
             "scheme_id": "scheme-1", "isin": "INF000000001",
             "amc_name": "Example AMC", "category": "Flexi Cap",
+            "benchmark_identity": "Nifty 500 TRI",
+            "scheme_structure": "OPEN_ENDED_EQUITY", "riskometer_score": 5,
             "is_direct": True,
             "_evidence_root": str(tmp_path),
             "direct_plan_evidence": {
@@ -352,3 +356,27 @@ def _attach_reviewed_rank_score_evidence(payload, score_bytes, *, include_score_
         payload["candidate_score_source_metadata"] = score_metadata
         payload["candidate_score_source_bytes"] = score_bytes
 
+
+
+def test_contract_rejects_candidate_category_conflicting_with_verified_scheme_master(tmp_path):
+    payload = valid_payload(tmp_path)
+    payload["candidate_universe"][0]["category"] = "Small Cap"
+
+    with pytest.raises(EvidenceProviderContractError, match="category conflicts"):
+        validate_evidence_provider_payload(payload)
+
+
+def test_contract_rejects_candidate_benchmark_or_riskometer_override(tmp_path):
+    payload = valid_payload(tmp_path)
+    payload["candidate_universe"][0]["riskometer_score"] = 2
+
+    with pytest.raises(EvidenceProviderContractError, match="riskometer_score conflicts"):
+        validate_evidence_provider_payload(payload)
+
+
+def test_contract_requires_scheme_master_suitability_classification(tmp_path):
+    payload = valid_payload(tmp_path)
+    payload["scheme_master"]["schemes"][0].pop("category")
+
+    with pytest.raises(EvidenceProviderContractError, match="category, benchmark or structure"):
+        validate_evidence_provider_payload(payload)
