@@ -37,3 +37,12 @@ def test_release_gate_requires_nonempty_series_for_all_required_benchmarks():
         "NIFTY 500 MULTICAP 50:25:25 TRI",
         "NIFTY MIDCAP 150 TRI",
     }
+
+
+def test_provenance_urls_reject_lookalike_hosts_and_nonstandard_ports():
+    from verify_tri_provenance import _is_approved_official_url
+
+    assert _is_approved_official_url("https://www.nseindia.com/archive/tri.csv")
+    assert not _is_approved_official_url("https://nseindia.com.attacker.example/tri.csv")
+    assert not _is_approved_official_url("https://nseindia.com:444/tri.csv")
+    assert not _is_approved_official_url("https://user@nseindia.com/tri.csv")

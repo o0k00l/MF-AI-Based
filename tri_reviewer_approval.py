@@ -98,7 +98,6 @@ def verify_approval(
     errors: list[str] = []
     try:
         import rfc8785
-        from cryptography.exceptions import InvalidSignature
         from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
         if not isinstance(envelope, dict) or set(envelope) != {"payload", "signature"}:

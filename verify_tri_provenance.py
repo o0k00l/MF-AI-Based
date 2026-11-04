@@ -130,8 +130,12 @@ def verify_fixture(path: Path) -> list[str]:
 def _is_approved_official_url(value: object) -> bool:
     parsed = urlparse(value if isinstance(value, str) else "")
     host = (parsed.hostname or "").lower()
-    return parsed.scheme == "https" and any(
-        host == allowed or host.endswith("." + allowed) for allowed in OFFICIAL_HOSTS
+    return (
+        parsed.scheme == "https"
+        and host in OFFICIAL_HOSTS
+        and parsed.username is None
+        and parsed.password is None
+        and parsed.port in (None, 443)
     )
 
 
