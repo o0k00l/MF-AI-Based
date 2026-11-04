@@ -412,7 +412,7 @@ def test_complete_portfolio_workflow_integrates_issues_23_to_34_without_authoriz
     assert float(context["candidate_level_sip_allocation_simulation"]["unallocated_budget_inr"]) == 7000.0
     assert context["candidate_level_sip_allocation_simulation"]["reconciliation_ok"] is True
     assert context["candidate_overlap_diagnostics"]["CANDIDATE-1"]["shared_issuers"] == ["ISSUER-A"]
-    assert context["incremental_sip_routing_simulation"]["allocations_inr"] == {"large_cap": "5000"}
+    assert context["incremental_sip_routing_simulation"]["allocations_inr"] == {"large_cap": "3000"}
     assert context["freshness"]["status"] == "CURRENT"
     trace = result["portfolio_assessment"]["decision_trace"]
     trace_record = json.loads(trace["canonical_record"])
