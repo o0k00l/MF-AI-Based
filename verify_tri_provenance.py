@@ -135,7 +135,7 @@ def _is_approved_official_url(value: object) -> bool:
     )
 
 
-def alpha_release_blockers(fixture_path: Path) -> list[str]:
+def alpha_release_blockers(fixture_path: Path, *, approval_verified: bool = False) -> list[str]:
     blockers: list[str] = []
     try:
         data = json.loads(fixture_path.read_text(encoding="utf-8"))
@@ -266,6 +266,11 @@ def alpha_release_blockers(fixture_path: Path) -> list[str]:
         entry = benchmarks.get(required_name)
         if not isinstance(entry, dict) or not isinstance(entry.get("levels"), dict) or not entry.get("levels"):
             blockers.append(f"required benchmark series missing or empty: {required_name}")
+    if not approval_verified:
+        blockers.append(
+            "external release approval is still required: source authenticity and reviewer identity "
+            "must be cryptographically authenticated"
+        )
     return blockers
 
 
@@ -294,17 +299,18 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     print("\nLevels-file integrity: PASS for available TRI fixtures")
-    blockers = alpha_release_blockers(FIXTURES[1])
+    approval_verified = False
+    approval_errors: list[str] = []
     if args.require_alpha_release:
         from tri_reviewer_approval import verify_approval_from_environment
         approval_result = verify_approval_from_environment(
             repository="o0k00l/MF-AI-Based", expected_commit=args.expected_commit,
             fixture_path=FIXTURES[1], root=ROOT,
         )
-        if not approval_result.ok:
-            blockers.extend(approval_result.errors)
-    else:
-        blockers.append("signed reviewer approval is required for alpha release")
+        approval_verified = approval_result.ok
+        approval_errors.extend(approval_result.errors)
+    blockers = alpha_release_blockers(FIXTURES[1], approval_verified=approval_verified)
+    blockers.extend(approval_errors)
     if blockers:
         print("TRI alpha release eligibility: BLOCKED")
         for blocker in blockers:
