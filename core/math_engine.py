@@ -3226,10 +3226,10 @@ def _parse_sebi_risk_tier(risk_tier: str) -> int:
     # approved middle profile (SEBI Tier 4). Explicit SEBI labels such as
     # "Tier 3 (Moderate)" have already been resolved by the Tier N parser
     # above and retain their literal Riskometer meaning.
-    if tier_str == "moderate":
+    if tier_str in {"moderate", "risk_tier.moderate", "moderate risk"}:
+        # Plain investor-facing Moderate is Tier 4. Literal SEBI Tier 3
+        # remains available only through an explicit "Tier 3" label.
         return 4
-    if "moderate" in tier_str and "high" not in tier_str:
-        return 3
     if tier_str == "high" or tier_str.startswith("high "):
         return 5
     raise ValueError(f"Unrecognized SEBI risk tier: {risk_tier!r}")
