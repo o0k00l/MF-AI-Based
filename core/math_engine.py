@@ -2173,6 +2173,22 @@ def aggregate_fiduciary_facts(
             "snapshot is independently verified."
         )
 
+    # An empty active-holdings set is not a verified zero-drift portfolio.
+    # A cash-only portfolio needs its own independently verified cash evidence;
+    # IPS config cash values alone are not evidence of an account balance.
+    if not holdings:
+        raise ValueError(
+            "Portfolio diagnostics unavailable: CAS contains no verified active holdings; "
+            "zero drift and zero risk cannot be inferred from an empty portfolio."
+        )
+    portfolio_value = math.fsum(float(holding.current_value_inr) for holding in holdings)
+    if not math.isfinite(portfolio_value) or portfolio_value <= 0.0:
+        raise ValueError(
+            "Portfolio diagnostics unavailable: verified active holdings have no positive "
+            "finite portfolio value; HOLD until a supported cash-only or invested portfolio "
+            "snapshot is independently verified."
+        )
+
     # SIP generation requires an explicit investor mandate. Never manufacture
     # a ₹1 lakh budget or Tier 6 risk profile when client inputs are absent.
     if not config_path.is_file():
