@@ -84,7 +84,7 @@ def valid_payload(tmp_path):
 
 def test_contract_accepts_source_backed_candidate_identity(tmp_path):
     payload = valid_payload(tmp_path)
-    result = validate_evidence_provider_payload(payload)
+    result = validate_evidence_provider_payload(payload, require_reviewer_signature=False)
 
     assert REQUIRED_EVIDENCE_FIELDS <= set(result)
 
@@ -94,7 +94,7 @@ def test_contract_rejects_missing_required_field(tmp_path):
     payload.pop("candidate_universe")
 
     with pytest.raises(EvidenceProviderContractError, match="candidate_universe"):
-        validate_evidence_provider_payload(payload)
+        validate_evidence_provider_payload(payload, require_reviewer_signature=False)
 
 
 def test_contract_rejects_unexpected_and_request_override_fields(tmp_path):
@@ -102,7 +102,7 @@ def test_contract_rejects_unexpected_and_request_override_fields(tmp_path):
     payload["monthly_budget_inr"] = 50000
 
     with pytest.raises(EvidenceProviderContractError, match="unsupported fields"):
-        validate_evidence_provider_payload(payload)
+        validate_evidence_provider_payload(payload, require_reviewer_signature=False)
 
 
 def test_contract_rejects_source_hash_mismatch(tmp_path):
@@ -110,7 +110,7 @@ def test_contract_rejects_source_hash_mismatch(tmp_path):
     payload["candidate_universe_source_bytes"] = b"tampered"
 
     with pytest.raises(EvidenceProviderContractError, match="SHA-256 does not match"):
-        validate_evidence_provider_payload(payload)
+        validate_evidence_provider_payload(payload, require_reviewer_signature=False)
 
 
 def test_contract_requires_reviewer_attestation(tmp_path):
@@ -118,7 +118,7 @@ def test_contract_requires_reviewer_attestation(tmp_path):
     payload["candidate_universe_source"]["reviewer_attested"] = False
 
     with pytest.raises(EvidenceProviderContractError, match="reviewer attestation"):
-        validate_evidence_provider_payload(payload)
+        validate_evidence_provider_payload(payload, require_reviewer_signature=False)
 
 
 def test_contract_requires_exact_disclosure_source_key_coverage(tmp_path):
@@ -126,7 +126,7 @@ def test_contract_requires_exact_disclosure_source_key_coverage(tmp_path):
     payload["portfolio_disclosure_source_bytes_by_scheme_id"] = {}
 
     with pytest.raises(EvidenceProviderContractError, match="identical scheme-ID keys"):
-        validate_evidence_provider_payload(payload)
+        validate_evidence_provider_payload(payload, require_reviewer_signature=False)
 
 
 def test_contract_rejects_disclosure_scheme_id_not_in_master(tmp_path):
@@ -135,7 +135,7 @@ def test_contract_rejects_disclosure_scheme_id_not_in_master(tmp_path):
     payload["portfolio_disclosure_source_bytes_by_scheme_id"] = {"other": b"source"}
 
     with pytest.raises(EvidenceProviderContractError, match="absent from verified scheme master"):
-        validate_evidence_provider_payload(payload)
+        validate_evidence_provider_payload(payload, require_reviewer_signature=False)
 
 
 def test_contract_rejects_timestamp_as_decision_date(tmp_path):
@@ -143,7 +143,7 @@ def test_contract_rejects_timestamp_as_decision_date(tmp_path):
     payload["disclosure_as_of_date"] = datetime(2026, 11, 4)
 
     with pytest.raises(EvidenceProviderContractError, match="not a timestamp"):
-        validate_evidence_provider_payload(payload)
+        validate_evidence_provider_payload(payload, require_reviewer_signature=False)
 
 
 def test_contract_rejects_duplicate_candidate_fund_ids(tmp_path):
@@ -151,7 +151,7 @@ def test_contract_rejects_duplicate_candidate_fund_ids(tmp_path):
     payload["candidate_universe"].append(dict(payload["candidate_universe"][0]))
 
     with pytest.raises(EvidenceProviderContractError, match="Duplicate candidate fund_id"):
-        validate_evidence_provider_payload(payload)
+        validate_evidence_provider_payload(payload, require_reviewer_signature=False)
 
 
 def test_contract_rejects_scheme_master_missing_plan_or_option_identity(tmp_path):
@@ -159,7 +159,7 @@ def test_contract_rejects_scheme_master_missing_plan_or_option_identity(tmp_path
     payload["scheme_master"]["schemes"][0].pop("option_type")
 
     with pytest.raises(EvidenceProviderContractError, match="option_type"):
-        validate_evidence_provider_payload(payload)
+        validate_evidence_provider_payload(payload, require_reviewer_signature=False)
 
 
 def test_contract_rejects_candidate_option_conflicting_with_scheme_master(tmp_path):
@@ -167,7 +167,7 @@ def test_contract_rejects_candidate_option_conflicting_with_scheme_master(tmp_pa
     payload["candidate_universe"][0]["option_type"] = "IDCW"
 
     with pytest.raises(EvidenceProviderContractError, match="option_type conflicts"):
-        validate_evidence_provider_payload(payload)
+        validate_evidence_provider_payload(payload, require_reviewer_signature=False)
 
 
 def test_contract_rejects_regular_candidate_for_direct_sip_universe(tmp_path):
@@ -177,7 +177,7 @@ def test_contract_rejects_regular_candidate_for_direct_sip_universe(tmp_path):
     payload["candidate_universe"][0]["is_direct"] = False
 
     with pytest.raises(EvidenceProviderContractError, match="explicitly verified Direct"):
-        validate_evidence_provider_payload(payload)
+        validate_evidence_provider_payload(payload, require_reviewer_signature=False)
 
 
 def test_contract_rejects_candidate_identity_conflicting_with_scheme_master(tmp_path):
@@ -185,7 +185,7 @@ def test_contract_rejects_candidate_identity_conflicting_with_scheme_master(tmp_
     payload["candidate_universe"][0]["isin"] = "INF999999999"
 
     with pytest.raises(EvidenceProviderContractError, match="identity conflicts"):
-        validate_evidence_provider_payload(payload)
+        validate_evidence_provider_payload(payload, require_reviewer_signature=False)
 
 
 def test_contract_rejects_candidate_missing_required_identity_field(tmp_path):
@@ -193,7 +193,7 @@ def test_contract_rejects_candidate_missing_required_identity_field(tmp_path):
     payload["candidate_universe"][0].pop("amc_name")
 
     with pytest.raises(EvidenceProviderContractError, match="requires amc_name"):
-        validate_evidence_provider_payload(payload)
+        validate_evidence_provider_payload(payload, require_reviewer_signature=False)
 
 
 def test_contract_rejects_unattested_incomplete_candidate_universe(tmp_path):
@@ -201,7 +201,7 @@ def test_contract_rejects_unattested_incomplete_candidate_universe(tmp_path):
     payload["candidate_universe_source"]["universe_complete"] = False
 
     with pytest.raises(EvidenceProviderContractError, match="explicitly reviewer-attested as complete"):
-        validate_evidence_provider_payload(payload)
+        validate_evidence_provider_payload(payload, require_reviewer_signature=False)
 
 
 def test_contract_rejects_stale_candidate_universe_source(tmp_path):
@@ -209,7 +209,7 @@ def test_contract_rejects_stale_candidate_universe_source(tmp_path):
     payload["candidate_universe_source"]["effective_date"] = "2026-08-01"
 
     with pytest.raises(EvidenceProviderContractError, match="source is stale"):
-        validate_evidence_provider_payload(payload)
+        validate_evidence_provider_payload(payload, require_reviewer_signature=False)
 
 
 def test_contract_rejects_source_url_with_whitespace(tmp_path):
@@ -217,7 +217,7 @@ def test_contract_rejects_source_url_with_whitespace(tmp_path):
     payload["candidate_universe_source"]["source_url"] = "https://example.com/file name.pdf"
 
     with pytest.raises(EvidenceProviderContractError, match="source URL must be HTTPS"):
-        validate_evidence_provider_payload(payload)
+        validate_evidence_provider_payload(payload, require_reviewer_signature=False)
 
 
 def test_contract_rejects_regular_plan_candidate(tmp_path):
@@ -225,7 +225,7 @@ def test_contract_rejects_regular_plan_candidate(tmp_path):
     payload["candidate_universe"][0]["direct_plan_evidence"]["plan"] = "Regular"
 
     with pytest.raises(EvidenceProviderContractError, match="Direct-plan source evidence"):
-        validate_evidence_provider_payload(payload)
+        validate_evidence_provider_payload(payload, require_reviewer_signature=False)
 
 
 def test_contract_rejects_direct_plan_evidence_for_different_scheme_id(tmp_path):
@@ -233,7 +233,7 @@ def test_contract_rejects_direct_plan_evidence_for_different_scheme_id(tmp_path)
     payload["candidate_universe"][0]["direct_plan_evidence"]["scheme_id"] = "another-scheme"
 
     with pytest.raises(EvidenceProviderContractError, match="Direct-plan source evidence"):
-        validate_evidence_provider_payload(payload)
+        validate_evidence_provider_payload(payload, require_reviewer_signature=False)
 
 
 
@@ -243,7 +243,7 @@ def test_contract_rejects_missing_fund_metrics_provenance(tmp_path):
     payload.pop("metrics_source_bytes")
 
     with pytest.raises(EvidenceProviderContractError, match="mandatory"):
-        validate_evidence_provider_payload(payload)
+        validate_evidence_provider_payload(payload, require_reviewer_signature=False)
 
 
 def test_contract_validates_optional_original_fund_metrics_source_bytes(tmp_path):
@@ -256,7 +256,7 @@ def test_contract_validates_optional_original_fund_metrics_source_bytes(tmp_path
     }
     payload["metrics_source_bytes"] = metrics_bytes
 
-    result = validate_evidence_provider_payload(payload)
+    result = validate_evidence_provider_payload(payload, require_reviewer_signature=False)
 
     assert result["metrics_source_bytes"] == metrics_bytes
 
@@ -266,7 +266,7 @@ def test_contract_rejects_tampered_normalized_metrics_file(tmp_path):
     payload["metrics_path"].write_bytes(b'{"funds":[{"eq":100}]}')
 
     with pytest.raises(EvidenceProviderContractError, match="normalized file SHA-256"):
-        validate_evidence_provider_payload(payload)
+        validate_evidence_provider_payload(payload, require_reviewer_signature=False)
 
 
 def test_contract_rejects_fund_metrics_source_hash_mismatch(tmp_path):
@@ -278,7 +278,7 @@ def test_contract_rejects_fund_metrics_source_hash_mismatch(tmp_path):
     payload["metrics_source_bytes"] = b"tampered metrics source"
 
     with pytest.raises(EvidenceProviderContractError, match="Fund metrics source SHA-256 does not match"):
-        validate_evidence_provider_payload(payload)
+        validate_evidence_provider_payload(payload, require_reviewer_signature=False)
 
 
 def test_contract_rejects_partial_fund_metrics_provenance_pair(tmp_path):
@@ -287,7 +287,7 @@ def test_contract_rejects_partial_fund_metrics_provenance_pair(tmp_path):
     payload["metrics_source_bytes"] = b"metrics source without metadata"
 
     with pytest.raises(EvidenceProviderContractError, match="must be supplied together"):
-        validate_evidence_provider_payload(payload)
+        validate_evidence_provider_payload(payload, require_reviewer_signature=False)
 
 
 def test_contract_accepts_provider_attested_total_portfolio_bundle(tmp_path):
@@ -304,7 +304,7 @@ def test_contract_accepts_provider_attested_total_portfolio_bundle(tmp_path):
     }
     payload["portfolio_context_source_bytes"] = context_bytes
 
-    result = validate_evidence_provider_payload(payload)
+    result = validate_evidence_provider_payload(payload, require_reviewer_signature=False)
 
     assert result["portfolio_context"]["evidence_attested_by_provider"] is True
     assert result["portfolio_context_source_bytes"] == context_bytes
@@ -315,7 +315,7 @@ def test_contract_rejects_partial_total_portfolio_bundle(tmp_path):
     payload["portfolio_context"] = {"evidence_attested_by_provider": True}
 
     with pytest.raises(EvidenceProviderContractError, match="must be supplied together"):
-        validate_evidence_provider_payload(payload)
+        validate_evidence_provider_payload(payload, require_reviewer_signature=False)
 
 
 def test_contract_rejects_unverified_total_portfolio_source_bundle(tmp_path):
@@ -329,7 +329,7 @@ def test_contract_rejects_unverified_total_portfolio_source_bundle(tmp_path):
     payload["portfolio_context_source_bytes"] = context_bytes
 
     with pytest.raises(EvidenceProviderContractError, match="reviewer attestation"):
-        validate_evidence_provider_payload(payload)
+        validate_evidence_provider_payload(payload, require_reviewer_signature=False)
 
 
 def test_contract_accepts_rank_score_only_with_reviewed_source_bytes(tmp_path):
@@ -337,7 +337,7 @@ def test_contract_accepts_rank_score_only_with_reviewed_source_bytes(tmp_path):
     score_bytes = b"independently reviewed ranking scores"
     _attach_reviewed_rank_score_evidence(payload, score_bytes)
 
-    result = validate_evidence_provider_payload(payload)
+    result = validate_evidence_provider_payload(payload, require_reviewer_signature=False)
     assert result["candidate_universe"][0]["rank_score"] == "2.75"
 
 
@@ -347,7 +347,7 @@ def test_contract_rejects_rank_score_without_reviewed_source_bundle(tmp_path):
         payload, b"ranking scores", include_score_bundle=False
     )
     with pytest.raises(EvidenceProviderContractError, match="without a reviewed score source bundle"):
-        validate_evidence_provider_payload(payload)
+        validate_evidence_provider_payload(payload, require_reviewer_signature=False)
 
 
 def test_contract_rejects_rank_score_source_hash_or_methodology_mismatch(tmp_path):
@@ -357,7 +357,7 @@ def test_contract_rejects_rank_score_source_hash_or_methodology_mismatch(tmp_pat
     payload["candidate_universe"][0]["rank_score_source_ref"] = "sha256:" + "f" * 64
     payload["candidate_universe"][0]["rank_score_methodology_version"] = "wrong-version"
     with pytest.raises(EvidenceProviderContractError, match="source reference does not match"):
-        validate_evidence_provider_payload(payload)
+        validate_evidence_provider_payload(payload, require_reviewer_signature=False)
 
 
 def _attach_reviewed_rank_score_evidence(payload, score_bytes, *, include_score_bundle=True):
@@ -419,21 +419,21 @@ def test_contract_rejects_candidate_category_conflicting_with_verified_scheme_ma
     payload = valid_payload(tmp_path)
     payload["candidate_universe"][0]["category"] = "Small Cap"
     with pytest.raises(EvidenceProviderContractError, match="category conflicts"):
-        validate_evidence_provider_payload(payload)
+        validate_evidence_provider_payload(payload, require_reviewer_signature=False)
 
 
 def test_contract_rejects_candidate_suitability_override(tmp_path):
     payload = valid_payload(tmp_path)
     payload["candidate_universe"][0]["riskometer_score"] = 2
     with pytest.raises(EvidenceProviderContractError, match="riskometer_score conflicts"):
-        validate_evidence_provider_payload(payload)
+        validate_evidence_provider_payload(payload, require_reviewer_signature=False)
 
 
 def test_contract_requires_scheme_master_category_benchmark_and_structure(tmp_path):
     payload = valid_payload(tmp_path)
     payload["scheme_master"]["schemes"][0].pop("category")
     with pytest.raises(EvidenceProviderContractError, match="category, benchmark or structure"):
-        validate_evidence_provider_payload(payload)
+        validate_evidence_provider_payload(payload, require_reviewer_signature=False)
 
 def test_signed_source_validation_uses_utc_aware_review_time(tmp_path, monkeypatch):
     from types import SimpleNamespace
