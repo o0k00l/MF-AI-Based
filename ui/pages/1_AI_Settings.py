@@ -1,4 +1,4 @@
-"""Local configuration page for the three supported AI providers."""
+"""Local configuration page for verified free AI providers."""
 from __future__ import annotations
 
 import streamlit as st
@@ -38,12 +38,6 @@ with st.form("ai_provider_keys"):
         placeholder="Leave blank to keep the existing key",
         help="OPENROUTER_API_KEY",
     )
-    gemini = st.text_input(
-        "Google Gemini API key",
-        type="password",
-        placeholder="Leave blank to keep the existing key",
-        help="GEMINI_API_KEY",
-    )
     st.caption("Only non-empty fields are updated.")
     submitted = st.form_submit_button("Save API keys", type="primary")
 
@@ -52,7 +46,6 @@ if submitted:
         result = save_ai_keys({
             "REQUESTY_API_KEY": requesty,
             "OPENROUTER_API_KEY": openrouter,
-            "GEMINI_API_KEY": gemini,
         })
         st.success("Settings saved locally.")
         for provider, configured in result.items():
