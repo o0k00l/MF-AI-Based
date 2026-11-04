@@ -172,6 +172,7 @@ def _assess_complete_portfolio_context(
     risk_profile: str,
     existing_lookthrough: dict[str, Any],
     cas_holdings_total_inr: float,
+    evidence_as_of_date: date,
 ) -> dict[str, Any]:
     """Orchestrate portfolio, suitability, affordability and candidate gates.
 
@@ -180,6 +181,10 @@ def _assess_complete_portfolio_context(
     """
     try:
         as_of = context["as_of_date"]
+        if date.fromisoformat(as_of) != evidence_as_of_date:
+            raise PortfolioInputError("portfolio context and evidence decision dates do not match")
+        if context.get("cas_valuation_date") != as_of:
+            raise PortfolioInputError("CAS valuation date is not reconciled to the total-portfolio date")
         assets = context["assets"]
         if not isinstance(assets, list) or not assets:
             raise PortfolioInputError("complete portfolio asset rows are required")
@@ -472,6 +477,7 @@ def _assess_complete_portfolio_context(
             "source_bundle_sha256": context.get("_source_bundle_sha256"),
             "trust_level": "UNVERIFIED_CLIENT_DECLARATIONS" if client_supplied_unverified else ("PROVIDER_ATTESTED" if provider_attested else "UNVERIFIED_CONTEXT"),
             "portfolio_reconciliation": reconciliation,
+            "cas_valuation_date_verified": True,
             "saa": {"current_sleeve_values_inr": current, "target_weights_pct": targets,
                     "drift": drift, "policy_as_of": policy.get("as_of")},
             "goal_suitability": goals,
@@ -731,6 +737,7 @@ def recommend_sip(
                 risk_profile=risk_profile,
                 existing_lookthrough=portfolio_assessment.get("lookthrough", {}),
                 cas_holdings_total_inr=sum(float(holding.current_value_inr) for holding in holdings),
+                evidence_as_of_date=disclosure_as_of_date,
             )
         portfolio_assessment["total_portfolio_context"] = context_assessment
     portfolio_assessment["recommendation_lifecycle"] = {
