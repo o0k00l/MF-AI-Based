@@ -138,7 +138,14 @@ class HoldingItem(BaseModel):
     isin: Optional[str] = None
     lookthrough_status: str = "MISSING"
     lookthrough_reason: Optional[str] = "No verified stock-level disclosure attached."
+    lookthrough_effective_date: Optional[str] = None
+    lookthrough_source_url: Optional[str] = None
+    lookthrough_source_document_sha256: Optional[str] = None
     risk_tier: Optional[str] = None
+    riskometer_score: Optional[int] = None
+    riskometer_as_of_date: Optional[str] = None
+    riskometer_source_url: Optional[str] = None
+    riskometer_source_document_sha256: Optional[str] = None
     # Metrics are independent of scheme identity. MISSING/INCOMPLETE metrics
     # must never be interpreted as zero exposure or used for SIP scoring.
     metrics_status: str = "MISSING"
@@ -443,6 +450,7 @@ class WeightedOverlapResult(BaseModel):
     verdict: str  # "HIGH_CONCENTRATION", "MODERATE", "ACCEPTABLE", "UNKNOWN", "UNAVAILABLE"
     status: str = "VERIFIED"  # "VERIFIED", "UNKNOWN", "UNAVAILABLE", "LIMITED_COVERAGE"
     source: Optional[str] = None
+    source_refs: List[Dict[str, str]] = Field(default_factory=list)
     effective_date: Optional[str] = None
     coverage_status: Optional[str] = None
     coverage_pct: Optional[float] = None
