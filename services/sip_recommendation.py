@@ -23,6 +23,8 @@ from core.math_engine import (
     load_holdings_from_cas_excel,
 )
 from core.models import DeterministicSIPPlan, MandateExecutionState
+from services.sip_lifecycle_store import persist_draft_snapshot
+
 from core.portfolio_sip_controls import (
     PortfolioInputError,
     build_decision_trace,
@@ -842,6 +844,17 @@ def recommend_sip(
     portfolio_assessment["recommendation_lifecycle"]["decision_trace_sha256"] = (
         portfolio_assessment["decision_trace"]["sha256"]
     )
+    try:
+        lifecycle_persistence = persist_draft_snapshot(
+            decision_trace_sha256=portfolio_assessment["decision_trace"]["sha256"]
+        )
+    except (OSError, ValueError):
+        lifecycle_persistence = {
+            "state": "DRAFT",
+            "state_persisted": False,
+            "persistence_status": "STORE_ERROR",
+        }
+    portfolio_assessment["recommendation_lifecycle"].update(lifecycle_persistence)
     return _hold_plan(budget, [
         "Evidence reached the deterministic SIP engine, but the independent benchmark/research release gate is not approved.",
         "Provisional engine allocations are suppressed; the full monthly budget remains unallocated.",
