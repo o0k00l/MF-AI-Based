@@ -60,6 +60,7 @@ def test_thematic_satellite_authorization_cannot_bypass_unapproved_taxonomy():
             risk_tier="Tier 6 (Very High)",
             stability_buffer_pct=0.0,
             client_aum=5000000.0,
+            client_aum_verified=True,
             thematic_satellite_pct_of_equity=5.0,
             thematic_satellite_authorized=True,
         )
