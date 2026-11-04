@@ -142,3 +142,87 @@ def test_decision_trace_is_deterministic_and_requires_full_lineage():
     assert first["algorithm"] == "SHA-256-CANONICAL-JSON-v1"
     with pytest.raises(PortfolioInputError):
         build_decision_trace({"decision": "HOLD"})
+
+
+def test_goal_mandate_requires_approval_and_approved_horizon():
+    from core.portfolio_sip_controls import validate_goal_mandate
+
+    result = validate_goal_mandate([{
+        "goal_id": "education", "mandate_approved": True,
+        "source_ref": "sha256:goal", "evidence_as_of_date": "2026-10-31",
+        "target_amount_inr": "2500000", "liabilities_inr": "100000",
+        "target_date": "2034-10-31", "asset_class": "equity",
+        "approved_risk_profile": "Moderate",
+    }], as_of_date="2026-10-31", max_evidence_age_days=90,
+       minimum_horizon_days_by_asset_class={"equity": 365 * 5})
+    assert result["status"] == "VALIDATED"
+
+
+def test_liquidity_reserve_and_monthly_surplus_are_separate_controls():
+    from core.portfolio_sip_controls import assess_liquidity_and_sip_surplus
+
+    refs = {k: "source:" + k for k in
+            ("cash", "reserve", "obligations", "income", "expenses", "debt_service")}
+    refs["as_of_dates"] = {k: "2026-10-31" for k in
+                           ("cash", "reserve", "obligations", "income", "expenses", "debt_service")}
+    result = assess_liquidity_and_sip_surplus(
+        verified_cash_inr="100000", approved_reserve_target_inr="50000",
+        near_term_obligations_inr="10000", monthly_net_income_inr="100000",
+        essential_monthly_expenses_inr="50000", monthly_debt_service_inr="10000",
+        proposed_monthly_sip_inr="30000", evidence_refs=refs,
+        as_of_date="2026-10-31", max_evidence_age_days=30,
+    )
+    assert result["status"] == "AFFORDABLE"
+    assert result["sustainable_monthly_sip_inr"] == "40000"
+
+
+def test_liquidity_missing_source_or_insufficient_reserve_holds():
+    from core.portfolio_sip_controls import assess_liquidity_and_sip_surplus
+
+    result = assess_liquidity_and_sip_surplus(
+        verified_cash_inr="1000", approved_reserve_target_inr="5000",
+        near_term_obligations_inr="1000", monthly_net_income_inr="100000",
+        essential_monthly_expenses_inr="20000", monthly_debt_service_inr="0",
+        proposed_monthly_sip_inr="10000", evidence_refs={},
+        as_of_date="2026-10-31", max_evidence_age_days=30,
+    )
+    assert result["status"] == "HOLD"
+    assert result["reason"] == "LIQUIDITY_EVIDENCE_REFERENCE_MISSING"
+
+
+def test_affordability_stress_test_does_not_assume_future_income_growth():
+    from core.portfolio_sip_controls import stress_test_sip_affordability
+
+    result = stress_test_sip_affordability(
+        monthly_net_income_inr="100000", essential_monthly_expenses_inr="50000",
+        monthly_debt_service_inr="10000", proposed_monthly_sip_inr="30000",
+        scenarios=[{"scenario_id": "income-down", "income_reduction_pct": "20",
+                    "expense_increase_pct": "10"}],
+    )
+    assert result["all_scenarios_sustainable"] is False
+    assert result["scenarios"][0]["status"] == "UNSUSTAINABLE"
+
+
+def test_scheme_operational_feasibility_requires_current_evidence_and_minimum():
+    from core.portfolio_sip_controls import validate_scheme_operational_feasibility
+
+    scheme = {
+        "scheme_identity": {"scheme_id": "1", "isin": "INF000000001",
+                            "plan": "Direct", "option": "Growth", "amc": "AMC"},
+        "evidence_ref": "sha256:scheme", "evidence_as_of_date": "2026-10-31",
+        "scheme_status": "ACTIVE", "minimum_monthly_sip_inr": "500",
+        "exit_load_evidence_ref": "sha256:exit",
+        "lockin_evidence_ref": "sha256:lock",
+        "subscription_status_evidence_ref": "sha256:subscription",
+    }
+    result = validate_scheme_operational_feasibility(
+        scheme, requested_monthly_sip_inr="1000",
+        as_of_date="2026-10-31", max_evidence_age_days=30,
+    )
+    assert result["status"] == "FEASIBLE_FOR_REVIEW"
+    assert result["execution_authorized"] is False
+    too_small = validate_scheme_operational_feasibility(
+        scheme, requested_monthly_sip_inr="100",
+        as_of_date="2026-10-31", max_evidence_age_days=30,
+    )
+    assert "REQUEST_BELOW_SCHEME_MINIMUM" in too_small["reasons"]
