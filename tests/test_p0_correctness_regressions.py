@@ -1961,7 +1961,10 @@ def test_candidate_scoring_marks_absent_optional_pillars_neutral_not_as_observed
         "sharpe_3y": 0.8,
         "ter_direct_pct": 0.7,
     }
-    _, pillars = calculate_candidate_6_pillar_score(candidate, category_key="Flexi Cap")
+    # Healthcare has a complete approved anchor set; this test isolates the
+    # neutral treatment of absent optional pillars rather than inventing
+    # Flexi Cap 1Y return anchors that have not been independently approved.
+    _, pillars = calculate_candidate_6_pillar_score(candidate, category_key="Healthcare")
     assert pillars["downside_buffer"] == 50.0
     assert pillars["geographic_moat"] == 50.0
     assert pillars["portfolio_overlap"] == 50.0
@@ -2502,3 +2505,16 @@ def test_mixed_asset_portfolio_never_uses_single_equity_index_for_alpha():
     assert audit["benchmark_matched_xirr_pct"] is None
     assert audit["alpha_pct"] is None
     assert "mixed-asset portfolio" in audit["error"]
+
+
+def test_candidate_scoring_fails_closed_when_category_return_anchor_is_missing():
+    from core.candidate_scoring import calculate_candidate_6_pillar_score
+
+    candidate = {
+        "alpha_3y": 2.0,
+        "return_1y": 12.0,
+        "sharpe_3y": 0.8,
+        "ter_direct_pct": 0.7,
+    }
+    with pytest.raises(ValueError, match="no complete approved anchor set; missing: ret1y"):
+        calculate_candidate_6_pillar_score(candidate, category_key="Flexi Cap")
