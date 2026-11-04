@@ -2065,6 +2065,16 @@ def _validated_ips_numeric_inputs(ips: Dict[str, Any]) -> Tuple[float, float, fl
     return monthly_sip, lumpsum_budget, emergency_months
 
 
+def _validated_equity_only_sip_authorization(ips: Dict[str, Any], risk_tier: str) -> bool:
+    """Read the explicit IPS authorization for Tier 6 equity-only SIP routing."""
+    value = ips.get("equity_only_sip_authorized", False)
+    if not isinstance(value, bool):
+        raise ValueError("IPS equity_only_sip_authorized must be an explicit boolean")
+    if value and _parse_sebi_risk_tier(risk_tier) != 6:
+        raise ValueError("Equity-only SIP authorization is valid only for SEBI Tier 6")
+    return value
+
+
 def _build_portfolio_gate_summary(holdings: List[HoldingItem]) -> List[Dict[str, Any]]:
     """Preserve the AMC identity/value fields required by candidate AMC gates."""
     return [
@@ -2211,6 +2221,9 @@ def aggregate_fiduciary_facts(
     else:
         deficit_theme = "Pharma"
 
+    equity_only_sip_authorized = _validated_equity_only_sip_authorization(
+        ips, client_risk_tier
+    )
     det_sip_plan = compute_deterministic_sip_blueprint(
         monthly_budget=monthly_sip,
         risk_tier=client_risk_tier,
@@ -2218,6 +2231,7 @@ def aggregate_fiduciary_facts(
         holdings=holdings,
         client_aum=tot_cur,
         thematic_deficit_theme=deficit_theme,
+        equity_sip_routing_override=equity_only_sip_authorized,
         portfolio_disclosures_by_scheme_id=portfolio_disclosures_by_scheme_id,
         portfolio_disclosure_source_bytes_by_scheme_id=portfolio_disclosure_source_bytes_by_scheme_id,
         disclosure_as_of_date=disclosure_as_of_date,
