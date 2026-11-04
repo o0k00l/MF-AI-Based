@@ -117,3 +117,13 @@ def test_category_aum_caps_reject_invalid_policy_values(bad_limit):
     rule["limits_crore"]["Small Cap"] = bad_limit
     with pytest.raises(ValueError, match="AUM limit for Small Cap"):
         _load_category_aum_caps(policy)
+
+
+def test_screening_policy_rejects_unknown_schema_version(tmp_path):
+    path = tmp_path / "unsupported-screening-policy.json"
+    path.write_text(json.dumps({
+        "_schema": "fiduciary.screening_criteria.v999",
+        "flag_rules": [],
+    }), encoding="utf-8")
+    with pytest.raises(ValueError, match="schema must be fiduciary.screening_criteria.v1"):
+        load_fund_screening_policy(path)
