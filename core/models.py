@@ -10,6 +10,7 @@ from enum import Enum
 
 
 class PlanType(str, Enum):
+    UNKNOWN = "Unknown"
     REGULAR = "Regular"
     DIRECT = "Direct"
 
@@ -88,8 +89,10 @@ class HoldingItem(BaseModel):
     fund_name: str
     amc_name: Optional[str] = None
     folio: str
-    is_direct: bool
-    plan: PlanType
+    is_direct: Optional[bool] = None
+    plan: PlanType = PlanType.UNKNOWN
+    plan_option_status: str = "MISSING"
+    option_type: Optional[str] = None
     asset_class: AssetClass
     equity_pct: float
     debt_pct: float
