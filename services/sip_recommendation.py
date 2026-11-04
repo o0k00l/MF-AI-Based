@@ -170,6 +170,7 @@ def _assess_complete_portfolio_context(
     candidate_universe: list[dict[str, Any]],
     monthly_budget_inr: float,
     risk_profile: str,
+    existing_lookthrough: dict[str, Any],
 ) -> dict[str, Any]:
     """Orchestrate portfolio, suitability, affordability and candidate gates.
 
@@ -255,8 +256,8 @@ def _assess_complete_portfolio_context(
             identity = {
                 "scheme_id": candidate.get("scheme_id") or direct.get("scheme_id"),
                 "isin": candidate.get("isin") or direct.get("isin"),
-                "plan": direct.get("plan", "Direct" if candidate.get("is_direct") else ""),
-                "option": direct.get("option", "Growth"),
+                "plan": direct.get("plan"),
+                "option": direct.get("option"),
                 "amc": candidate.get("amc_name") or direct.get("amc_name"),
                 "category": candidate.get("category"),
                 "benchmark": candidate.get("benchmark") or direct.get("benchmark"),
@@ -301,10 +302,20 @@ def _assess_complete_portfolio_context(
             eligible_sleeves=eligible_sleeves,
             rounding_increment_inr=candidate_policy.get("rounding_increment_inr", "500"),
         )
-        # Candidate incremental exposure is shown as a per-ticket diagnostic.
-        # No threshold is invented; unknown or absent constituents remain HOLD.
-        existing_exposure = _build_cas_portfolio_assessment([], risk_profile)
-        existing_issuer_values: dict[str, float] = {}
+        # Candidate incremental exposure is compared with existing CAS look-through.
+        # Concentration is measured against the reconciled total portfolio.
+        concentration_policy = context.get("concentration_policy", {})
+        max_issuer_pct = float(concentration_policy.get("max_issuer_pct_of_portfolio", 0))
+        if not 0 < max_issuer_pct <= 100:
+            raise PortfolioInputError("an approved max_issuer_pct_of_portfolio policy is required")
+        existing_issuer_values = {}
+        if existing_lookthrough.get("status") == "CALCULATED":
+            existing_issuer_values = {
+                key: float(value)
+                for key, value in existing_lookthrough.get("issuer_exposure_inr", {}).items()
+            }
+        elif existing_lookthrough.get("status") != "HOLD":
+            raise PortfolioInputError("existing portfolio look-through state is invalid")
         overlap_results = {}
         for candidate in candidate_universe:
             candidate_id = str(candidate.get("fund_id") or candidate.get("scheme_id") or "")
@@ -325,13 +336,28 @@ def _assess_complete_portfolio_context(
                 overlap_results[candidate_id] = candidate_exposure
                 continue
             issuers = candidate_exposure["issuer_exposure_inr"]
+            combined_values = {
+                issuer: existing_issuer_values.get(issuer, 0.0) + float(value)
+                for issuer, value in issuers.items()
+            }
+            for issuer, value in existing_issuer_values.items():
+                combined_values.setdefault(issuer, value)
+            concentrations = {
+                issuer: value / total * 100 for issuer, value in combined_values.items()
+            }
+            breaches = sorted(
+                issuer for issuer, pct in concentrations.items()
+                if pct > max_issuer_pct
+            )
             overlap_results[candidate_id] = {
-                "status": "DIAGNOSTIC_ONLY",
+                "status": "HOLD" if breaches else "ASSESSED",
                 "ticket_basis_inr": monthly_budget_inr,
-                "shared_issuers": sorted(issuers),
+                "shared_issuers": sorted(set(issuers) & set(existing_issuer_values)),
                 "candidate_issuer_exposure_inr": issuers,
-                "concentration_limit_applied": False,
-                "reason": "Issuer overlap is visible; approved issuer/sector thresholds are not configured.",
+                "combined_issuer_concentration_pct": concentrations,
+                "max_issuer_pct_of_portfolio": max_issuer_pct,
+                "breaching_issuers": breaches,
+                "reason": "Candidate one-instalment issuer impact against existing holdings.",
             }
         freshness_input = context["freshness"]
         freshness = evaluate_recommendation_freshness(
@@ -348,6 +374,7 @@ def _assess_complete_portfolio_context(
             and bool(eligible_ids)
             and freshness["status"] == "CURRENT"
             and routing["status"] in {"ROUTED", "HOLD"}
+            and all(item.get("status") == "ASSESSED" for item in overlap_results.values())
         )
         return {
             "status": "ASSESSMENT_COMPLETE" if all_gates_pass else "HOLD",
@@ -605,6 +632,7 @@ def recommend_sip(
                 candidate_universe=candidate_universe,
                 monthly_budget_inr=budget,
                 risk_profile=risk_profile,
+                existing_lookthrough=portfolio_assessment.get("lookthrough", {}),
             )
         portfolio_assessment["total_portfolio_context"] = context_assessment
     portfolio_assessment["decision_trace"] = _build_sip_decision_trace(
