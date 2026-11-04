@@ -65,21 +65,24 @@ def test_openai_request_omits_optional_generation_parameters(monkeypatch):
     assert calls == [{"model": "vendor/model", "messages": [{"role": "user", "content": "test"}]}]
 
 
-def test_gemini_uses_discovered_model_and_no_seed(monkeypatch):
-    calls = []
-    class Models:
-        def list(self):
-            return [SimpleNamespace(name="models/gemini-test", supported_actions=["generateContent"])]
-        def generate_content(self, **kwargs):
-            calls.append(kwargs)
-            return SimpleNamespace(text="READY")
-    class Client:
-        def __init__(self, **kwargs):
-            self.models = Models()
-    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
-    monkeypatch.setitem(__import__("sys").modules, "google", SimpleNamespace(genai=SimpleNamespace(Client=Client)))
-    assert ai_engine._call_gemini("test") == "READY"
-    assert calls == [{"model": "gemini-test", "contents": "test", "config": None}]
+def test_gemini_fails_closed_when_zero_cost_pricing_is_unverifiable():
+    with pytest.raises(ai_engine.ProviderError, match="FREE_ONLY"):
+        ai_engine._call_gemini("test")
+
+
+def test_narrative_provider_chain_excludes_gemini(monkeypatch):
+    attempted = []
+    def unavailable(prompt, system_prompt=""):
+        attempted.append("openrouter")
+        raise ai_engine.ProviderError("OpenRouter", "unavailable")
+    def requesty(prompt, system_prompt=""):
+        attempted.append("requesty")
+        return "READY"
+    monkeypatch.setattr(ai_engine, "_call_openrouter", unavailable)
+    monkeypatch.setattr(ai_engine, "_call_requesty", requesty)
+    monkeypatch.setattr(ai_engine, "_get_narrative_cache", lambda: {})
+    assert ai_engine.call_llm("test", use_cache=False) == "READY"
+    assert attempted == ["openrouter", "requesty"]
 
 
 def test_provider_http_error_preserves_status_without_body():
