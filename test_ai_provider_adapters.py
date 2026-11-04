@@ -133,3 +133,21 @@ def test_openai_does_not_try_other_models_after_quota_failure(monkeypatch):
         ai_engine._call_openrouter("test")
     assert caught.value.status_code == 429
     assert attempted == ["vendor/model-a"]
+
+
+
+@pytest.mark.parametrize("exc,expected_status,expected_code", [
+    (SimpleNamespace(code=400, status="INVALID_ARGUMENT"), 400, "INVALID_ARGUMENT"),
+    (SimpleNamespace(status_code=403, reason="PERMISSION_DENIED"), 403, "PERMISSION_DENIED"),
+    (SimpleNamespace(code=429, status="RESOURCE_EXHAUSTED"), 429, "RESOURCE_EXHAUSTED"),
+    (SimpleNamespace(code="INVALID_ARGUMENT", status=""), None, "INVALID_ARGUMENT"),
+])
+def test_google_exception_diagnostics_are_structured_and_safe(exc, expected_status, expected_code):
+    assert ai_engine._exception_http_status(exc) == expected_status
+    assert ai_engine._safe_exception_code(exc) == expected_code
+
+
+def test_google_exception_diagnostics_do_not_expose_free_form_message():
+    exc = SimpleNamespace(code=400, status="INVALID_ARGUMENT", message="secret prompt and API key")
+    assert ai_engine._safe_exception_code(exc) == "INVALID_ARGUMENT"
+    assert "secret" not in (ai_engine._safe_exception_code(exc) or "")
