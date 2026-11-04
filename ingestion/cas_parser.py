@@ -401,6 +401,8 @@ def reconcile(parsed: dict, tolerance: float = 1.0) -> dict:
         if any(not math.isfinite(value) or value < 0 for value in values):
             raise ValueError("parsed holding values must be finite and non-negative")
         total = sum(values)
+        if not math.isfinite(total):
+            raise ValueError("parsed portfolio total must be finite")
         stated = parsed.get("stated_total")
         if stated is not None and (not math.isfinite(float(stated)) or float(stated) < 0):
             raise ValueError("stated total must be finite and non-negative")
