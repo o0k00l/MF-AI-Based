@@ -81,3 +81,39 @@ def test_policy_loader_rejects_contradictory_thematic_action(tmp_path):
     with pytest.raises(ValueError, match="Contradictory action 'IMMEDIATE_EXIT'"):
         load_fund_screening_policy(path)
 
+
+
+@pytest.mark.parametrize(
+    "bad_policy",
+    [
+        {"flag_rules": []},
+        {"flag_rules": [{"id": "AUM_OUT_OF_BAND", "limits_crore": {"Small Cap": 20000}}]},
+        {"flag_rules": [
+            {"id": "AUM_OUT_OF_BAND", "limits_crore": {
+                "Small Cap": 20000, "Mid Cap": 40000, "Flexi Cap": 90000,
+                "Large Cap": 250000, "Multi Cap": 40000,
+            }},
+            {"id": "AUM_OUT_OF_BAND", "limits_crore": {
+                "Small Cap": 20000, "Mid Cap": 40000, "Flexi Cap": 90000,
+                "Large Cap": 250000, "Multi Cap": 40000,
+            }},
+        ]},
+    ],
+)
+def test_category_aum_caps_fail_closed_for_missing_incomplete_or_duplicate_policy(bad_policy):
+    with pytest.raises(ValueError, match="AUM_OUT_OF_BAND"):
+        _load_category_aum_caps(bad_policy)
+
+
+@pytest.mark.parametrize("bad_limit", [None, True, 0, -1, "not-a-number", float("nan"), float("inf")])
+def test_category_aum_caps_reject_invalid_policy_values(bad_limit):
+    policy = load_fund_screening_policy()
+    policy["flag_rules"] = [
+        dict(rule, limits_crore=dict(rule.get("limits_crore", {})))
+        if isinstance(rule, dict) and rule.get("id") == "AUM_OUT_OF_BAND" else rule
+        for rule in policy["flag_rules"]
+    ]
+    rule = next(rule for rule in policy["flag_rules"] if rule.get("id") == "AUM_OUT_OF_BAND")
+    rule["limits_crore"]["Small Cap"] = bad_limit
+    with pytest.raises(ValueError, match="AUM limit for Small Cap"):
+        _load_category_aum_caps(policy)
