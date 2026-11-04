@@ -20,7 +20,6 @@ from core import ai_engine
 PROVIDERS = (
     ("Requesty", "REQUESTY_API_KEY", ai_engine._call_requesty),
     ("OpenRouter", "OPENROUTER_API_KEY", ai_engine._call_openrouter),
-    ("Gemini", "GEMINI_API_KEY", ai_engine._call_gemini),
 )
 PROMPT = "Reply with exactly the word READY. This is a provider connectivity test."
 
