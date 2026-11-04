@@ -164,3 +164,12 @@
 - Previous behavior: when the client supplied no usable equity target, the function silently substituted 95% equity / 5% debt. This could materially distort portfolio deficits and the reported SIP-to-SAA fit for a conservative or moderate investor.
 - Correction: require explicit equity, debt and cash targets; validate each as finite and within 0–100 and require the three buckets to sum to 100%. An explicitly supplied 0% equity target is preserved.
 - Regression coverage: missing target rejected; explicit 0/100/0 target accepted.
+
+
+### 24. CAS-to-metrics fuzzy matching could attach another scheme's exposures — FIXED IN CODE; EXECUTION NOT YET VERIFIED
+- File: `core/math_engine.py`, `_find_matching_metric` and `load_holdings_from_cas_excel`.
+- Previous behavior: token-overlap similarity selected the best-scoring metrics record at a 50% threshold. Similar scheme names could therefore inherit another scheme's category, market-cap split and metrics.
+- Correction: match only exact normalized identity or an explicit reviewed alias; ambiguous matches remain unresolved. An unmatched CAS scheme now raises a validation error rather than defaulting to 100% equity. Missing market-cap exposure fields also withhold portfolio-aware SIP analysis.
+- Regression coverage added for fuzzy-match rejection, exact identity, reviewed alias and ambiguous-name rejection in `tests/test_sip_portfolio_overlap.py`.
+- Commit sequence: `310a91d` (code), `02fd3f0` (tests).
+- Limitation: tests have not yet been executed; scheme-master/ISIN-first matching remains a follow-up improvement. Reviewed aliases are still a controlled manual bridge for source naming differences.
