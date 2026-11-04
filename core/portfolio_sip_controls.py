@@ -278,13 +278,17 @@ def calculate_lookthrough_exposure(
             raise PortfolioInputError("constituent weights missing")
         if coverage < 100 and not constituents:
             continue
+        disclosed_weight_total = Decimal("0")
         for issuer, weight_raw in constituents.items():
             if not isinstance(issuer, str) or not issuer.strip():
                 raise PortfolioInputError("invalid issuer identifier")
             weight = _decimal(weight_raw, f"constituent[{issuer}]")
             if weight < 0 or weight > 100:
                 raise PortfolioInputError("constituent weight must be between 0 and 100")
+            disclosed_weight_total += weight
             issuer_exposure[issuer] = issuer_exposure.get(issuer, Decimal("0")) + value * weight / 100
+        if coverage >= required and abs(disclosed_weight_total - Decimal("100")) > Decimal("0.5"):
+            raise PortfolioInputError("constituent weights do not reconcile to reported coverage")
     if total_value <= 0:
         raise PortfolioInputError("total holdings value must be positive")
     coverage_pct = covered_value / total_value * 100
