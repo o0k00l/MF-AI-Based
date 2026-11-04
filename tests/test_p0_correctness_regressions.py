@@ -2489,3 +2489,16 @@ def test_tri_release_gate_is_independent_of_process_working_directory(tmp_path, 
     assert blockers
     assert not any("high-coverage TRI fixture cannot be read" in item for item in blockers)
     assert any("independently sourced data/policy/nse_trading_calendar.json is absent" in item for item in blockers)
+
+
+
+def test_mixed_asset_portfolio_never_uses_single_equity_index_for_alpha():
+    from core.math_engine import _aggregate_portfolio_benchmark_unavailable
+
+    audit = _aggregate_portfolio_benchmark_unavailable()
+
+    assert audit["release_status"] == "UNAVAILABLE"
+    assert audit["validation_stage"] == "portfolio_composite_benchmark_not_implemented"
+    assert audit["benchmark_matched_xirr_pct"] is None
+    assert audit["alpha_pct"] is None
+    assert "mixed-asset portfolio" in audit["error"]
