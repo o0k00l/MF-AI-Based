@@ -49,3 +49,12 @@ def test_xirr_calculates_when_all_transaction_rows_are_valid(tmp_path):
         _write_ledger(tmp_path, _valid_rows()), [], cas_current=2200.0, as_of_date=date(2025, 2, 1)
     )
     assert result is not None
+
+
+def test_xirr_is_unavailable_when_charge_cashflow_semantics_are_unverified(tmp_path):
+    rows = _valid_rows() + [
+        {"date": "2025-01-15", "type": "CHARGES", "amount": -25.0, "units": 0.0}
+    ]
+    assert calculate_portfolio_xirr(
+        _write_ledger(tmp_path, rows), [], cas_current=2200.0, as_of_date=date(2025, 2, 1)
+    ) is None
