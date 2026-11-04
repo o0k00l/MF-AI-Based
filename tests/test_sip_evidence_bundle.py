@@ -28,6 +28,10 @@ def _source(raw: bytes, source_type: str) -> dict:
 def _bundle(root: Path) -> dict:
     root.mkdir(parents=True, exist_ok=True)
     (root / "metrics.json").write_text('{"funds": []}', encoding="utf-8")
+    metrics_bytes = b"original fund metrics source"
+    (root / "originals").mkdir(parents=True, exist_ok=True)
+    (root / "originals/metrics.csv").write_bytes(metrics_bytes)
+    _write_json(root, "metrics_metadata.json", _source(metrics_bytes, "OFFICIAL_FUND_METRICS"))
     master_bytes = b"original scheme master"
     universe_bytes = b"original candidate universe"
     disclosure_bytes = b"original portfolio disclosure"
@@ -90,6 +94,8 @@ def _bundle(root: Path) -> dict:
         "schema_version": 1,
         "disclosure_as_of_date": date.today().isoformat(),
         "metrics_file": "metrics.json",
+        "metrics_metadata_file": "metrics_metadata.json",
+        "metrics_source_file": "originals/metrics.csv",
         "aliases_file": None,
         "scheme_master_file": "scheme_master.json",
         "scheme_master_source_file": "originals/master.xlsx",
@@ -126,6 +132,7 @@ def test_provider_loads_only_explicit_bundle_and_passes_source_contract(tmp_path
     validated = validate_evidence_provider_payload(payload)
 
     assert validated["scheme_master"]["schemes"][0]["scheme_id"] == "scheme-1"
+    assert validated["metrics_source_bytes"] == b"original fund metrics source"
     assert validated["portfolio_disclosure_source_bytes_by_scheme_id"]["scheme-1"] == b"original portfolio disclosure"
     assert validated["candidate_universe"][0]["_evidence_root"] == str(tmp_path.resolve())
 
