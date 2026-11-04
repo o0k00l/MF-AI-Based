@@ -385,3 +385,32 @@ def test_classified_concentration_holds_on_missing_classification_or_stale_sourc
     assert missing["unclassified_issuers"] == ["issuer-a"]
     assert stale["status"] == "HOLD"
     assert stale["reason"] == "ISSUER_CLASSIFICATION_STALE_OR_FUTURE"
+
+
+def test_candidate_allocator_preserves_first_candidate_per_routed_sleeve():
+    candidates = [
+        {"candidate_id": "large-a", "sleeve": "large_cap", "eligibility_status": "ELIGIBLE",
+         "overlap_status": "ASSESSED", "operational_status": "FEASIBLE_FOR_REVIEW",
+         "rank_score": "100", "score_evidence_ref": "sha256:a", "score_as_of_date": "2026-11-04"},
+        {"candidate_id": "large-b", "sleeve": "large_cap", "eligibility_status": "ELIGIBLE",
+         "overlap_status": "ASSESSED", "operational_status": "FEASIBLE_FOR_REVIEW",
+         "rank_score": "90", "score_evidence_ref": "sha256:b", "score_as_of_date": "2026-11-04"},
+        {"candidate_id": "mid-a", "sleeve": "mid_cap", "eligibility_status": "ELIGIBLE",
+         "overlap_status": "ASSESSED", "operational_status": "FEASIBLE_FOR_REVIEW",
+         "rank_score": "1", "score_evidence_ref": "sha256:c", "score_as_of_date": "2026-11-04"},
+        {"candidate_id": "debt-a", "sleeve": "debt_liquid", "eligibility_status": "ELIGIBLE",
+         "overlap_status": "ASSESSED", "operational_status": "FEASIBLE_FOR_REVIEW",
+         "rank_score": "2", "score_evidence_ref": "sha256:d", "score_as_of_date": "2026-11-04"},
+    ]
+    result = allocate_candidate_sip(
+        {"large_cap": "5000", "mid_cap": "3000", "debt_liquid": "2000"},
+        candidates,
+        as_of_date="2026-11-04",
+        min_sip_per_fund_inr="1000",
+        rounding_increment_inr="500",
+        max_funds=3,
+    )
+    assert result["reconciliation_ok"] is True
+    assert {row["candidate_id"] for row in result["allocations"]} == {
+        "large-a", "mid-a", "debt-a",
+    }
