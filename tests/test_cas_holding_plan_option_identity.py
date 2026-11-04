@@ -28,6 +28,7 @@ def _master(scheme_name, *, plan_type=None, option_type=None):
         "isin": "INF000000001",
         "scheme_name": scheme_name,
         "amc_name": "Example AMC",
+        "riskometer_score": 5,
     }
     if plan_type is not None:
         record["plan_type"] = plan_type
@@ -120,3 +121,13 @@ def test_growth_and_idcw_option_identity_remains_separate(tmp_path):
     assert growth.plan == idcw.plan == PlanType.DIRECT
     assert growth.option_type == "GROWTH"
     assert idcw.option_type == "IDCW"
+
+
+def test_holding_risk_tier_comes_from_verified_scheme_master(tmp_path):
+    holding = _load(
+        tmp_path,
+        "Example Equity Fund",
+        plan_type="Direct",
+        option_type="Growth",
+    )
+    assert holding.risk_tier == "Tier 5"
