@@ -31,7 +31,11 @@ def _bundle(root: Path) -> dict:
     metrics_bytes = b"original fund metrics source"
     (root / "originals").mkdir(parents=True, exist_ok=True)
     (root / "originals/metrics.csv").write_bytes(metrics_bytes)
-    _write_json(root, "metrics_metadata.json", _source(metrics_bytes, "OFFICIAL_FUND_METRICS"))
+    metrics_metadata = _source(metrics_bytes, "OFFICIAL_FUND_METRICS")
+    metrics_metadata["normalized_metrics_sha256"] = hashlib.sha256(
+        (root / "metrics.json").read_bytes()
+    ).hexdigest()
+    _write_json(root, "metrics_metadata.json", metrics_metadata)
     master_bytes = b"original scheme master"
     universe_bytes = b"original candidate universe"
     disclosure_bytes = b"original portfolio disclosure"
@@ -151,3 +155,12 @@ def test_provider_rejects_bundle_inside_repository_checkout():
     repository_root = Path(__file__).resolve().parents[1]
     with pytest.raises(ValueError, match="outside the Git checkout"):
         build_sip_evidence_provider(repository_root)
+
+
+
+def test_provider_rejects_tampered_normalized_metrics_file(tmp_path):
+    _bundle(tmp_path)
+    (tmp_path / "metrics.json").write_text('{"funds": [{"id": "unreviewed"}]}', encoding="utf-8")
+
+    with pytest.raises(ValueError, match="Normalized fund metrics SHA-256"):
+        build_sip_evidence_provider(tmp_path)
