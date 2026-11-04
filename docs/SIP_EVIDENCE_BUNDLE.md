@@ -16,6 +16,8 @@ A version-1 bundle uses a UTF-8 `manifest.json`:
   "schema_version": 1,
   "disclosure_as_of_date": "YYYY-MM-DD",
   "metrics_file": "metrics/fund_metrics.json",
+  "metrics_metadata_file": "records/fund_metrics_metadata.json",
+  "metrics_source_file": "originals/fund_metrics_source.xlsx",
   "aliases_file": "metrics/reviewed_aliases.json",
   "scheme_master_file": "records/scheme_master.json",
   "scheme_master_source_file": "originals/scheme_master.xlsx",
@@ -52,8 +54,12 @@ are rejected.
   relative to the bundle root; the provider supplies the trusted root path.
 - `candidate_universe_metadata_file`: source metadata plus
   `universe_complete: true` and a precise `coverage_scope`.
-- `metrics_file`: existing fund metrics data file consumed by the engine.
+- `metrics_file`: normalized fund metrics data file consumed by the engine.
   Metrics must not be inferred from scheme-master identity.
+- `metrics_metadata_file` and `metrics_source_file`: source metadata and
+  unchanged original publisher bytes for the metrics dataset. The provider
+  verifies HTTPS URL, digest, reviewer attestation and freshness before the
+  evidence contract accepts the bundle.
 - `aliases_file`: optional reviewed exact-alias mapping; fuzzy matching is
   not supported.
 
