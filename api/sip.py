@@ -173,6 +173,9 @@ def create_sip_app(
                 provider_portfolio_context = evidence.get("portfolio_context")
                 if provider_portfolio_context is not None:
                     provider_portfolio_context["evidence_attested_by_provider"] = True
+                    provider_portfolio_context["_source_bundle_sha256"] = evidence[
+                        "portfolio_context_source_metadata"
+                    ]["source_document_sha256"]
                     service_inputs["portfolio_context"] = provider_portfolio_context
                 elif portfolio_context is not None:
                     # Client declarations are useful for scenario diagnostics,
