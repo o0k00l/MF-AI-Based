@@ -7,6 +7,9 @@
 # using the procedure in DEPENDENCY_LOCKING.md.
 # ==============================================================================
 
+# --- Canonical Audit Serialization ---
+rfc8785==0.1.4              # RFC 8785 JSON Canonicalization Scheme for decision hashes
+
 # --- Core Data Ingestion & CAS Statement Parsers ---
 openpyxl==3.1.5               # Read .xlsx capital-gains and portfolio statements
 msoffcrypto-tool>=5.0.0       # Decrypt password-protected Microsoft Excel files
