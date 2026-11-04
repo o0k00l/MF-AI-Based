@@ -71,9 +71,13 @@ class AssetAllocationTarget(BaseModel):
         return self
 
 # The deterministic 3+1 Policy Map
+# Keep the investor-facing 3-tier labels aligned with the authoritative
+# behavioural-risk SAA profiles used by the SIP engine:
+# Conservative -> SEBI Tier 2 (40/60), Moderate -> Tier 4 (75/25),
+# Aggressive -> Tier 6 (95/5). Custom remains explicit and separately approved.
 SAA_POLICY_MAP = {
-    RiskTier.CONSERVATIVE: AssetAllocationTarget(equity_pct=20.0, debt_pct=80.0, cash_pct=0.0),
-    RiskTier.MODERATE: AssetAllocationTarget(equity_pct=60.0, debt_pct=40.0, cash_pct=0.0),
+    RiskTier.CONSERVATIVE: AssetAllocationTarget(equity_pct=40.0, debt_pct=60.0, cash_pct=0.0),
+    RiskTier.MODERATE: AssetAllocationTarget(equity_pct=75.0, debt_pct=25.0, cash_pct=0.0),
     RiskTier.AGGRESSIVE: AssetAllocationTarget(equity_pct=95.0, debt_pct=5.0, cash_pct=0.0),
 }
 
