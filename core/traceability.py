@@ -1,5 +1,5 @@
 from __future__ import annotations
-import json
+import rfc8785
 import uuid
 import hashlib
 import threading
@@ -90,19 +90,15 @@ class Decision:
         }
 
     def compute_hash(self) -> str:
-        """Return a full SHA-256 digest over deterministic canonical JSON.
+        """Return SHA-256 over RFC 8785/JCS canonical UTF-8 bytes.
 
-        This is a deterministic Python JSON canonicalization contract. It is
-        deliberately not advertised as RFC 8785/JCS until a conforming
-        implementation is adopted and cross-language test vectors are added.
+        Exact Decimal audit values are normalized to JSON strings before JCS
+        serialization so monetary precision is not silently rounded to an
+        IEEE-754 binary float. Other JSON numbers must satisfy the I-JSON
+        number domain enforced by the RFC 8785 implementation.
         """
-        encoded = json.dumps(
-            _canonical_json_value(self._hash_payload()),
-            sort_keys=True,
-            separators=(",", ":"),
-            ensure_ascii=False,
-            allow_nan=False,
-        ).encode("utf-8")
+        canonical_value = _canonical_json_value(self._hash_payload())
+        encoded = rfc8785.dumps(canonical_value)
         return hashlib.sha256(encoded).hexdigest()
 
     def to_dict(self) -> Dict[str, Any]:
