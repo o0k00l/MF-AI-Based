@@ -178,6 +178,9 @@ def test_provider_loads_portfolio_context_and_original_source_bundle(tmp_path):
         "perimeter_complete": True,
         "assets": [],
     })
+    context_metadata["normalized_portfolio_context_sha256"] = hashlib.sha256(
+        (tmp_path / "portfolio_context.json").read_bytes()
+    ).hexdigest()
     _write_json(tmp_path, "portfolio_context_metadata.json", context_metadata)
     (tmp_path / "originals/portfolio_context.json").write_bytes(context_bytes)
     manifest.update({
@@ -254,4 +257,26 @@ def test_provider_rejects_partial_candidate_score_manifest(tmp_path):
     manifest["candidate_score_metadata_file"] = "candidate_score_metadata.json"
     _write_json(tmp_path, "manifest.json", manifest)
     with pytest.raises(ValueError, match="must be configured together"):
+        build_sip_evidence_provider(tmp_path)
+
+
+def test_provider_rejects_tampered_normalized_portfolio_context(tmp_path):
+    manifest = _bundle(tmp_path)
+    context_bytes = b"reviewed total portfolio context"
+    metadata = _source(context_bytes, "REVIEWED_TOTAL_PORTFOLIO_CONTEXT")
+    _write_json(tmp_path, "portfolio_context.json", {"perimeter_complete": True})
+    metadata["normalized_portfolio_context_sha256"] = hashlib.sha256(
+        (tmp_path / "portfolio_context.json").read_bytes()
+    ).hexdigest()
+    _write_json(tmp_path, "portfolio_context_metadata.json", metadata)
+    (tmp_path / "originals/portfolio_context.json").write_bytes(context_bytes)
+    manifest.update({
+        "portfolio_context_file": "portfolio_context.json",
+        "portfolio_context_metadata_file": "portfolio_context_metadata.json",
+        "portfolio_context_source_file": "originals/portfolio_context.json",
+    })
+    _write_json(tmp_path, "manifest.json", manifest)
+    _write_json(tmp_path, "portfolio_context.json", {"perimeter_complete": False})
+
+    with pytest.raises(ValueError, match="Normalized portfolio context SHA-256"):
         build_sip_evidence_provider(tmp_path)
