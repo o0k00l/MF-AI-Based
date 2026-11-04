@@ -447,3 +447,78 @@ def test_sip_routing_rounding_remainder_remains_unallocated():
     assert result["allocated_budget_inr"] == "500"
     assert result["unallocated_budget_inr"] == "500"
     assert result["reconciliation_ok"] is True
+
+
+def test_candidate_allocator_enforces_actual_per_scheme_minimum_not_total_budget():
+    candidates = [
+        {"candidate_id": "a", "sleeve": "large_cap", "eligibility_status": "ELIGIBLE",
+         "overlap_status": "ASSESSED", "operational_status": "FEASIBLE_FOR_REVIEW",
+         "minimum_monthly_sip_inr": "6000", "rank_score": "2",
+         "score_evidence_ref": "sha256:a", "score_as_of_date": "2026-11-04"},
+        {"candidate_id": "b", "sleeve": "large_cap", "eligibility_status": "ELIGIBLE",
+         "overlap_status": "ASSESSED", "operational_status": "FEASIBLE_FOR_REVIEW",
+         "minimum_monthly_sip_inr": "6000", "rank_score": "1",
+         "score_evidence_ref": "sha256:b", "score_as_of_date": "2026-11-04"},
+    ]
+    result = allocate_candidate_sip(
+        {"large_cap": "10000"}, candidates,
+        as_of_date="2026-11-04",
+        min_sip_per_fund_inr="1000",
+        rounding_increment_inr="500",
+        max_funds=6,
+    )
+    assert result["status"] == "ALLOCATED"
+    assert len(result["allocations"]) == 1
+    assert result["allocations"][0]["candidate_id"] == "a"
+    assert result["allocations"][0]["monthly_sip_inr"] == "10000"
+    assert Decimal(result["allocations"][0]["monthly_sip_inr"]) >= Decimal(
+        result["allocations"][0]["scheme_minimum_monthly_sip_inr"]
+    )
+    assert result["rejected_candidates"]["b"] == ["SLEEVE_BUDGET_CANNOT_SUPPORT_SCHEME_MINIMUM"]
+
+
+def test_candidate_allocator_holds_when_sleeve_budget_cannot_meet_scheme_minimum():
+    result = allocate_candidate_sip(
+        {"large_cap": "5000"},
+        [{"candidate_id": "a", "sleeve": "large_cap", "eligibility_status": "ELIGIBLE",
+          "overlap_status": "ASSESSED", "operational_status": "FEASIBLE_FOR_REVIEW",
+          "minimum_monthly_sip_inr": "6000", "rank_score": "2",
+          "score_evidence_ref": "sha256:a", "score_as_of_date": "2026-11-04"}],
+        as_of_date="2026-11-04",
+        min_sip_per_fund_inr="1000",
+        rounding_increment_inr="500",
+        max_funds=6,
+    )
+    assert result["status"] == "HOLD"
+    assert result["allocated_budget_inr"] == "0"
+    assert result["unallocated_budget_inr"] == "5000"
+    assert result["rejected_candidates"]["a"] == [
+        "ALLOCATED_SLEEVE_BUDGET_BELOW_EFFECTIVE_SCHEME_MINIMUM"
+    ]
+
+
+def test_scheme_operational_precheck_defers_minimum_comparison_until_fund_allocation():
+    from core.portfolio_sip_controls import validate_scheme_operational_feasibility
+
+    scheme = {
+        "scheme_identity": {"scheme_id": "1", "isin": "INF000000001",
+                            "plan": "Direct", "option": "Growth", "amc": "AMC"},
+        "evidence_ref": "sha256:scheme", "evidence_as_of_date": "2026-11-04",
+        "scheme_status": "ACTIVE", "minimum_monthly_sip_inr": "6000",
+        "exit_load_evidence_ref": "sha256:exit",
+        "lockin_evidence_ref": "sha256:lock",
+        "subscription_status_evidence_ref": "sha256:subscription",
+    }
+    precheck = validate_scheme_operational_feasibility(
+        scheme, requested_monthly_sip_inr="10000",
+        as_of_date="2026-11-04", max_evidence_age_days=30,
+        check_requested_minimum=False,
+    )
+    final_check = validate_scheme_operational_feasibility(
+        scheme, requested_monthly_sip_inr="5000",
+        as_of_date="2026-11-04", max_evidence_age_days=30,
+    )
+    assert precheck["status"] == "FEASIBLE_FOR_REVIEW"
+    assert precheck["minimum_monthly_sip_inr"] == "6000"
+    assert final_check["status"] == "HOLD"
+    assert "REQUEST_BELOW_SCHEME_MINIMUM" in final_check["reasons"]
