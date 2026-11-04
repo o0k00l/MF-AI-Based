@@ -27,7 +27,7 @@ A release is assessed against one exact commit SHA. Evidence from older commits,
 - [ ] Old clones, forks, Actions artifacts, caches, releases and PR refs have been reviewed; collaborator clones have been replaced.
 - [ ] Any committed credential has been rotated.
 
-**Current status:** The current tree contains no client-specific data directory or portfolio records. Both advisor entry points now require an explicit external data directory, and generated outputs stay outside the repository. Historical Git objects, old clones, forks and retained artifacts have not been purged or independently reviewed. See `SECURITY_DATA_HANDLING.md`.
+**Current status:** The current tree contains no client-specific data directory or portfolio records. Both advisor entry points require an explicit external data directory, and generated outputs stay outside the repository. History review confirmed committed client configuration/transactions and a `.env` containing third-party API credentials in the initial commit (`b28f008b`); later file deletion did not purge those objects. The repository is currently private, but affected credentials must be rotated and history, old clones, forks and retained artifacts have not been purged or independently reviewed. See `SECURITY_DATA_HANDLING.md`.
 
 ## Gate 2 — Candidate universe and recommendation integrity
 
