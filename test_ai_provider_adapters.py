@@ -71,7 +71,7 @@ def test_openai_request_omits_optional_generation_parameters(monkeypatch):
         def __init__(self, **kwargs):
             self.chat = SimpleNamespace(completions=Completions())
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
-    monkeypatch.setattr(ai_engine, "discover_openrouter_free_models", lambda key: ["vendor/model"])
+    monkeypatch.setattr(ai_engine, "discover_openrouter_free_models", lambda key, force_refresh=False: ["vendor/model"])
     monkeypatch.setitem(__import__("sys").modules, "openai", SimpleNamespace(OpenAI=Client))
     assert ai_engine._call_openrouter("test") == "READY"
     assert calls == [{"model": "vendor/model", "messages": [{"role": "user", "content": "test"}]}]
@@ -141,7 +141,7 @@ def test_openai_does_not_try_other_models_after_quota_failure(monkeypatch):
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
     monkeypatch.setattr(
         ai_engine, "discover_openrouter_free_models",
-        lambda key: ["vendor/model-a", "vendor/model-b", "vendor/model-c"],
+        lambda key, force_refresh=False: ["vendor/model-a", "vendor/model-b", "vendor/model-c"],
     )
     monkeypatch.setitem(__import__("sys").modules, "openai", SimpleNamespace(OpenAI=Client))
     with pytest.raises(ai_engine.ProviderError) as caught:
