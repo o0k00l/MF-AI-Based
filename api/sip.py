@@ -34,19 +34,23 @@ def create_sip_app(
 
     @app.get("/ready")
     def readiness() -> dict[str, Any]:
-        """Report whether the SIP evidence dependency is configured."""
+        """Report dependency configuration, never recommendation eligibility."""
         if evidence_provider is None:
             return {
                 "status": "not_ready",
                 "service": "sip-decision-support",
                 "checks": {"evidence_provider": "not_configured"},
+                "evidence_validation_available": False,
                 "recommendations_enabled": False,
             }
         return {
             "status": "ready_for_evidence_validation",
             "service": "sip-decision-support",
             "checks": {"evidence_provider": "configured"},
-            "recommendations_enabled": True,
+            "evidence_validation_available": True,
+            # Provider configuration is not evidence validation. The service
+            # remains HOLD-only until independent release gates are approved.
+            "recommendations_enabled": False,
         }
 
     @app.post("/v1/sip/recommendations")
