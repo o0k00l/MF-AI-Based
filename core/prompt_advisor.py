@@ -11,6 +11,7 @@ Takes verified quantitative facts from math_engine and generates:
 import os
 import re
 import time
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 from dotenv import load_dotenv
@@ -281,6 +282,28 @@ REPORT REQUIREMENTS:
 7. Preserve the mandate state. No action is executable unless all external authorization controls are independently satisfied.
 """
     return _call_llm_with_retry(prompt)
+
+def _validate_lumpsum_plan_for_reporting(plan: Any, requested_amount: Any) -> tuple[bool, str]:
+    """Validate basic cash gate and amount reconciliation before exposing tranches."""
+    try:
+        requested = Decimal(str(requested_amount))
+        total = Decimal(str(plan.total_lumpsum_inr))
+        unallocated = Decimal(str(plan.unallocated_amount_inr))
+        tranche_amounts = [Decimal(str(item.amount_inr)) for item in plan.tranches]
+    except (AttributeError, InvalidOperation, TypeError, ValueError):
+        return False, "Required lumpsum plan amounts are missing or invalid."
+
+    values = [requested, total, unallocated, *tranche_amounts]
+    if any(not value.is_finite() or value < 0 for value in values):
+        return False, "Lumpsum plan contains a negative or non-finite amount."
+    if plan.cash_validation_passed is not True:
+        return False, "Independent bank-cash validation has not passed."
+    if abs(total - requested) > Decimal("0.01"):
+        return False, "Plan total does not match the requested lumpsum budget."
+    if abs(total - (sum(tranche_amounts, Decimal("0")) + unallocated)) > Decimal("0.01"):
+        return False, "Tranche amounts plus unallocated amount do not reconcile to the plan total."
+    return True, ""
+
 
 def _build_dynamic_selection_dossier(facts: FiduciaryFactsPayload) -> str:
     """Build a dossier only from supplied deterministic plans and eligibility evidence."""
