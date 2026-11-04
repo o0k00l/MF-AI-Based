@@ -78,6 +78,7 @@ def test_eligibility_fails_closed_when_amc_and_portfolio_data_are_missing():
     assert result.direct_plan_gate is False
 
 
+@pytest.mark.skip(reason="Investor-facing tax/exit-load calculation is intentionally disabled pending independent approval; covered by fail-closed API tests.")
 def test_tax_classification_requires_verified_equity_allocation():
     lot = Lot(
         fund_id="fund-x",
@@ -92,6 +93,7 @@ def test_tax_classification_requires_verified_equity_allocation():
         classify_fund_for_tax(lot, {"classification_test": {"equity_oriented_threshold_pct": 65.0}})
 
 
+@pytest.mark.skip(reason="Investor-facing tax/exit-load calculation is intentionally disabled pending independent approval; covered by fail-closed API tests.")
 def test_tax_classification_recomputes_source_document_digest_and_blocks_path_escape():
     lot = Lot(
         fund_id="fund-x",
@@ -127,6 +129,7 @@ def test_tax_classification_recomputes_source_document_digest_and_blocks_path_es
         classify_fund_for_tax(lot, rules, sale_date=date(2026, 11, 3))
 
 
+@pytest.mark.skip(reason="Investor-facing tax/exit-load calculation is intentionally disabled pending independent approval; covered by fail-closed API tests.")
 def test_tax_planner_allocates_each_lot_only_once():
     lot = Lot(
         fund_id="fund-x",
@@ -288,6 +291,7 @@ def test_tri_internal_switch_pair_is_netted_across_different_schemes(tmp_path):
     assert result["methodology"] == "Zero cashflows"
 
 
+@pytest.mark.skip(reason="Investor-facing tax/exit-load calculation is intentionally disabled pending independent approval; covered by fail-closed API tests.")
 def test_tax_planner_respects_prior_ltcg_realized_in_current_fy():
     lot = Lot(
         fund_id="fund-x",
@@ -332,6 +336,7 @@ def test_tax_planner_respects_prior_ltcg_realized_in_current_fy():
     assert sum(row["taxable"] for row in first_fy_rows) == pytest.approx(0.0)
 
 
+@pytest.mark.skip(reason="Investor-facing tax/exit-load calculation is intentionally disabled pending independent approval; covered by fail-closed API tests.")
 def test_tax_planner_refuses_non_equity_tax_class_in_equity_exemption_path():
     lot = Lot(
         fund_id="fund-x",
@@ -455,6 +460,7 @@ def test_daily_tri_calculation_uses_exact_observations_and_reports_unverified_so
     assert result["provenance_audit"]["source_authenticity_verified"] is False
 
 
+@pytest.mark.skip(reason="Investor-facing tax/exit-load calculation is intentionally disabled pending independent approval; covered by fail-closed API tests.")
 def test_tax_planner_rejects_missing_nav_and_insufficient_verified_lots():
     lot = Lot(
         fund_id="fund-x",
@@ -501,6 +507,7 @@ def test_tax_planner_rejects_missing_nav_and_insufficient_verified_lots():
         )
 
 
+@pytest.mark.skip(reason="Investor-facing tax/exit-load calculation is intentionally disabled pending independent approval; covered by fail-closed API tests.")
 def test_tax_planner_rejects_negative_sale_even_when_no_lots_exist():
     with pytest.raises(ValueError, match="Invalid sale amount"):
         plan_fy_tranches(
@@ -580,6 +587,7 @@ def test_fifo_tax_lot_loader_carries_verified_scheme_equity_allocation(tmp_path)
     assert lot.equity_pct_evidence_root == str(_TEST_TAX_EVIDENCE_ROOT.resolve())
 
 
+@pytest.mark.skip(reason="Investor-facing tax/exit-load calculation is intentionally disabled pending independent approval; covered by fail-closed API tests.")
 def test_build_fifo_tax_lots_processes_all_rows_and_reconciles_units(tmp_path):
     import json
     from types import SimpleNamespace
@@ -611,6 +619,7 @@ def test_build_fifo_tax_lots_processes_all_rows_and_reconciles_units(tmp_path):
     assert len(lots["F1"]) == 2
 
 
+@pytest.mark.skip(reason="Investor-facing tax/exit-load calculation is intentionally disabled pending independent approval; covered by fail-closed API tests.")
 def test_build_fifo_tax_lots_rejects_fuzzy_scheme_match_and_unreconciled_units(tmp_path):
     import json
     from types import SimpleNamespace
@@ -638,6 +647,7 @@ def test_build_fifo_tax_lots_rejects_fuzzy_scheme_match_and_unreconciled_units(t
         build_fifo_tax_lots(tx_path, holdings)
 
 
+@pytest.mark.skip(reason="Investor-facing tax/exit-load calculation is intentionally disabled pending independent approval; covered by fail-closed API tests.")
 def test_build_fifo_tax_lots_rejects_orphan_reversal(tmp_path):
     import json
     from types import SimpleNamespace
@@ -705,6 +715,7 @@ def test_transition_fifo_loader_rejects_unknown_or_incomplete_transaction_rows(t
         (date(2026, 5, 1), 9.0),
     ],
 )
+@pytest.mark.skip(reason="Investor-facing tax/exit-load calculation is intentionally disabled pending independent approval; covered by fail-closed API tests.")
 def test_current_fy_exit_load_uses_actual_planning_date(purchase_date, expected_exit_load):
     lot = Lot(
         fund_id="fund-x",
@@ -963,6 +974,7 @@ def test_sip_blueprint_rejects_invalid_numeric_inputs(monkeypatch, kwargs):
         engine.compute_deterministic_sip_blueprint(**args)
 
 
+@pytest.mark.skip(reason="Investor-facing tax/exit-load calculation is intentionally disabled pending independent approval; covered by fail-closed API tests.")
 def test_tax_planner_requires_verified_prior_ltcg_headroom(tmp_path):
     lot = Lot(
         fund_id="fund-x",
@@ -1070,6 +1082,7 @@ def _daily_coverage_evidence(snapshots):
     )
 
 
+@pytest.mark.skip(reason="Investor-facing tax/exit-load calculation is intentionally disabled pending independent approval; covered by fail-closed API tests.")
 def test_section_50aa_original_equity_test_applies_through_fy_2025_26():
     from core.math_engine import classify_specified_mutual_fund
 
@@ -1110,6 +1123,7 @@ def test_section_50aa_original_equity_test_applies_through_fy_2025_26():
     assert not_qualifying["specified_50AA"]["qualifies"] is False
 
 
+@pytest.mark.skip(reason="Investor-facing tax/exit-load calculation is intentionally disabled pending independent approval; covered by fail-closed API tests.")
 def test_section_50aa_mld_is_independent_of_unit_acquisition_date():
     from core.math_engine import classify_specified_mutual_fund
 
@@ -1125,6 +1139,7 @@ def test_section_50aa_mld_is_independent_of_unit_acquisition_date():
     assert "Market-Linked Debenture" in result["specified_50AA"]["provision"]
 
 
+@pytest.mark.skip(reason="Investor-facing tax/exit-load calculation is intentionally disabled pending independent approval; covered by fail-closed API tests.")
 def test_section_76_requires_acquisition_date_and_daily_series_coverage():
     from core.math_engine import classify_specified_mutual_fund
     from core.models import InsufficientDataError
@@ -1167,6 +1182,7 @@ def test_section_76_requires_acquisition_date_and_daily_series_coverage():
         (64.51, 0.5, True),  # 65.01% qualifies
     ],
 )
+@pytest.mark.skip(reason="Investor-facing tax/exit-load calculation is intentionally disabled pending independent approval; covered by fail-closed API tests.")
 def test_section_76_strict_debt_plus_money_market_boundary(debt_pct, money_market_pct, expected):
     from core.math_engine import classify_specified_mutual_fund
 
@@ -1197,6 +1213,7 @@ def test_section_76_strict_debt_plus_money_market_boundary(debt_pct, money_marke
     ("fof_pct", "expected"),
     [(64.99, False), (65.0, True)],
 )
+@pytest.mark.skip(reason="Investor-facing tax/exit-load calculation is intentionally disabled pending independent approval; covered by fail-closed API tests.")
 def test_section_76_fund_of_funds_threshold_is_inclusive(fof_pct, expected):
     from core.math_engine import classify_specified_mutual_fund
 
@@ -1239,6 +1256,7 @@ def test_daily_average_rejects_duplicate_and_non_finite_composition_observations
         compute_annual_average_daily_closing(invalid, fy_start, fy_end, "debt_pct")
 
 
+@pytest.mark.skip(reason="Investor-facing tax/exit-load calculation is intentionally disabled pending independent approval; covered by fail-closed API tests.")
 def test_tax_policy_has_separate_section_50aa_and_section_76_effective_dates():
     import json
     from pathlib import Path
@@ -1379,6 +1397,7 @@ def test_universal_tier_split_uses_policy_base_and_stability_threshold(tier, pro
             assert calculate_universal_tier_split(tier, threshold) == (100.0, 0.0)
 
 
+@pytest.mark.skip(reason="Investor-facing tax/exit-load calculation is intentionally disabled pending independent approval; covered by fail-closed API tests.")
 def test_section_76_rejects_missing_dates_even_with_calendar_provenance():
     from core.math_engine import (
         DailySnapshotCoverageEvidence,
@@ -1416,6 +1435,7 @@ def test_section_76_rejects_missing_dates_even_with_calendar_provenance():
     ("fof_units_pct", "underlying_equity_pct", "expected"),
     [(90.0, 90.0, True), (89.99, 99.0, False), (99.0, 89.99, False)],
 )
+@pytest.mark.skip(reason="Investor-facing tax/exit-load calculation is intentionally disabled pending independent approval; covered by fail-closed API tests.")
 def test_section_198_fund_of_funds_requires_both_monthly_90_percent_limb_conditions(
     fof_units_pct, underlying_equity_pct, expected
 ):
@@ -1441,6 +1461,7 @@ def test_section_198_fund_of_funds_requires_both_monthly_90_percent_limb_conditi
     assert result.source_data_status == "PROVISIONAL_MONTHLY_COVERAGE_RECONCILED"
 
 
+@pytest.mark.skip(reason="Investor-facing tax/exit-load calculation is intentionally disabled pending independent approval; covered by fail-closed API tests.")
 def test_section_198_uses_average_of_monthly_opening_and_closing_figures():
     from core.math_engine import MonthlyPortfolioSnapshot, compute_annual_average_monthly_opening_closing
     from core.models import InsufficientDataError
@@ -1456,6 +1477,7 @@ def test_section_198_uses_average_of_monthly_opening_and_closing_figures():
         compute_annual_average_monthly_opening_closing(rows[:-1], fy_start, fy_end)
 
 
+@pytest.mark.skip(reason="Investor-facing tax/exit-load calculation is intentionally disabled pending independent approval; covered by fail-closed API tests.")
 def test_tax_planner_rejects_point_in_time_or_stale_equity_allocation_evidence():
     lot = Lot(
         fund_id="fund-x",
@@ -1684,6 +1706,7 @@ def test_selector_does_not_select_candidate_using_direct_name_suffix_only():
     assert slot["unallocated_pct"] > 0.0
 
 
+@pytest.mark.skip(reason="Investor-facing tax/exit-load calculation is intentionally disabled pending independent approval; covered by fail-closed API tests.")
 def test_section_198_direct_fund_threshold_is_at_least_65_percent():
     from core.math_engine import qualifies_as_equity_oriented_under_section_198
 
@@ -1719,6 +1742,7 @@ def test_section_198_direct_fund_threshold_is_at_least_65_percent():
     assert result_above_threshold.qualifies is True
 
 
+@pytest.mark.skip(reason="Investor-facing tax/exit-load calculation is intentionally disabled pending independent approval; covered by fail-closed API tests.")
 def test_legacy_tax_classifier_never_defaults_unknown_or_non_equity_to_equity():
     from types import SimpleNamespace
     from core.math_engine import _classify_fund_for_tax
@@ -1745,6 +1769,7 @@ def test_tri_release_flag_fails_closed_while_fixture_is_provisional():
     assert "TRI alpha release eligibility: BLOCKED" in completed.stdout
 
 
+@pytest.mark.skip(reason="Investor-facing tax/exit-load calculation is intentionally disabled pending independent approval; covered by fail-closed API tests.")
 def test_tax_planner_equity_classification_uses_at_least_65_percent():
     lot = Lot(
         fund_id="synthetic-fund", folio_name="synthetic-folio",
@@ -1815,3 +1840,22 @@ def test_candidate_universe_rejects_repository_local_client_data(monkeypatch):
             client_risk_tier=6,
         )
 
+
+
+def test_all_statutory_tax_classification_apis_fail_closed_pending_independent_review():
+    import pytest
+    from core import math_engine
+
+    disabled_apis = [
+        math_engine.get_statutory_tax_citation,
+        math_engine.classify_specified_mutual_fund,
+        math_engine.qualifies_as_equity_oriented_under_section_198,
+        math_engine.qualifies_as_specified_mutual_fund_under_section_50AA,
+        math_engine.qualifies_as_specified_mutual_fund_under_section_76,
+        math_engine.compute_fifo_tax_lots,
+        math_engine.build_fifo_tax_lots,
+        math_engine._classify_fund_for_tax,
+    ]
+    for api in disabled_apis:
+        with pytest.raises(math_engine.TaxClassificationDisabledError):
+            api()
