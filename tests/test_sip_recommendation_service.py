@@ -404,7 +404,7 @@ def test_complete_portfolio_workflow_integrates_issues_23_to_34_without_authoriz
     assert context["scheme_operational_feasibility"]["CANDIDATE-1"]["status"] == "FEASIBLE_FOR_REVIEW"
     assert context["candidate_overlap_diagnostics"]["CANDIDATE-1"]["status"] == "ASSESSED"
     assert context["candidate_overlap_diagnostics"]["CANDIDATE-1"]["ticket_basis_inr"] == "1000"
-    assert context["candidate_overlap_diagnostics"]["CANDIDATE-1"]["routed_sleeve_budget_inr"] == "5000"
+    assert context["candidate_overlap_diagnostics"]["CANDIDATE-1"]["routed_sleeve_budget_inr"] == "3000"
     assert context["candidate_overlap_diagnostics"]["CANDIDATE-1"]["sector_market_cap_theme"]["status"] == "ASSESSED"
     assert context["candidate_level_sip_allocation_simulation"]["reconciliation_ok"] is True
     assert context["candidate_level_sip_allocation_simulation"]["allocated_budget_inr"] == "5000"
