@@ -32,7 +32,26 @@ The principal deterministic path is:
 | SIP-009 | P1 | The final plan checks missing Direct status only for positive rounded monthly amounts; the plan model does not itself enforce allocated + unallocated = requested budget or exact percentage reconciliation. | Edge cases involving small budgets, rounding or malformed plan construction need explicit invariants. |
 | SIP-010 | P0 | The Very High SAA combines mid-cap and small-cap targets into one `mid_small` sleeve, but the selector then chooses only a Mid Cap fund for the combined amount. | The resulting recommendation can materially misstate the intended small-cap exposure and does not implement the investor's SAA. Separate mid- and small-cap sleeves are required. |
 
-## 3. Non-negotiable SIP acceptance criteria
+## 3. Implementation progress on `main`
+
+**Latest repository HEAD at this update:** `e419405153b78a0570d64976ac3e4c6b8ab4889e`. The code changes below were fully CI-verified on `07c7a2f102e45952003ed59fa864c7c63e4d3450`; the later HEAD change only updates this audit document.
+
+| Finding | Progress | Remaining work |
+|---|---|---|
+| SIP-001 | Partially fixed: selector passes a category-specific scoring key; unsupported categories no longer inherit Healthcare anchors. | Actual portfolio overlap is still not passed into the score; debt and unsupported thematic categories still lack a dedicated model. |
+| SIP-002 | Partially fixed: alpha, 1Y return, Sharpe and TER are required; absent optional pillars are neutral rather than fabricated. | Evidence provenance/freshness must be enforced at the metric level; scoring methodology itself still needs redesign and independent validation. |
+| SIP-003 | Open. | Weighted holdings look-through is not yet connected to SIP selection and its current equal-weight assumptions are not acceptable. |
+| SIP-004 | Partially fixed: selector now holds all slots when the supplied universe is below the policy minimum of 30. | Category coverage, universe completeness and source freshness are not yet enforced. |
+| SIP-005 | Open. | Resolve and implement per-fund cap, minimum ticket, increment, new-fund-count and core-fund-count constraints. |
+| SIP-006 | Open. | Prove holdings/AMC attribution completeness and reconciliation before concentration gates can pass. |
+| SIP-007 | Open. | Replace arbitrary anchors/weights with an investor-approved, benchmark-consistent research model. |
+| SIP-008 | Open. | Resolve the policy contradiction between sleeve weights and the 20% per-fund cap. |
+| SIP-009 | Open. | Add plan-level exact amount and percentage invariants. |
+| SIP-010 | Open — P0. | Separate mid-cap and small-cap allocations; the current selector combines both budgets but routes the combined amount to a Mid Cap fund. |
+
+**CI evidence:** `07c7a2f` — full suite 138 passed / 31 skipped; fiduciary invariants 15 passed / 1 skipped; correctness regressions 77 passed / 30 skipped. This is software verification, not research or production approval.
+
+## 4. Non-negotiable SIP acceptance criteria
 
 A SIP recommendation may be marked research-ready only when all of the following are demonstrated:
 
@@ -50,7 +69,7 @@ A SIP recommendation may be marked research-ready only when all of the following
 - Output distinguishes VERIFIED, PROVISIONAL, MISSING, STALE, CONFLICTING and UNAVAILABLE evidence; all proposals remain non-executable until separate approval.
 - Regression, property and boundary tests cover risk tiers, starter/established portfolios, zero/small budgets, rounding, missing slots, incomplete universes, stale data, duplicate identities and policy contradictions.
 
-## 4. Remediation sequence
+## 5. Remediation sequence
 
 1. **P0 — Correct scoring inputs and evidence semantics:** remove silent defaults; pass the actual category; prohibit unsupported zero-overlap assumptions; return an explicit unscorable/NO_ACTION state when required metrics are absent.
 2. **P0 — Enforce candidate-universe completeness:** validate the declared universe scope, minimum size, category coverage, duplicate identities and source freshness before selection.
@@ -60,7 +79,7 @@ A SIP recommendation may be marked research-ready only when all of the following
 6. **P1 — Strengthen plan invariants and report traceability:** exact amount reconciliation, allocation percentages, evidence lineage, candidate rejection matrix and reproducible decision hash.
 7. **Release gate:** run the full test suite and targeted synthetic/private-data integration tests on one exact `main` commit; independent review remains required.
 
-## 5. Change discipline
+## 6. Change discipline
 
 - All changes are committed directly to `main`; do not create feature branches.
 - One issue or tightly coupled issue group per commit.
@@ -69,6 +88,6 @@ A SIP recommendation may be marked research-ready only when all of the following
 - Do not weaken fail-closed behaviour to make a SIP appear.
 - A passing test suite is necessary but does not establish investment merit or legal/compliance approval.
 
-## 6. Current conclusion
+## 7. Current conclusion
 
 The SIP code has a deterministic allocation builder, eligibility checks and a report path, but the current ranking path does not yet use the promised category and portfolio-fit context, policy constraints are not fully enforced, and universe/constituent evidence requirements are not complete. Therefore it is **not ready to issue actionable or production SIP recommendations**.
