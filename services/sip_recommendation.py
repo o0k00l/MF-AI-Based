@@ -607,19 +607,32 @@ def _assess_complete_portfolio_context(
         routing_reconciles = bool(routing.get("reconciliation_ok", False))
         fund_requested = Decimal(str(candidate_allocation.get("requested_budget_inr", "0")))
         if candidate_set_concentration.get("status") != "ASSESSED":
+            blocked_by_sleeve = {
+                key: Decimal(str(value))
+                for key, value in routing.get("unallocated_by_sleeve_inr", {}).items()
+            }
+            for sleeve, value in routing.get("allocations_inr", {}).items():
+                blocked_by_sleeve[sleeve] = (
+                    blocked_by_sleeve.get(sleeve, Decimal("0"))
+                    + Decimal(str(value))
+                )
             candidate_allocation = {
                 **candidate_allocation,
                 "status": "HOLD",
                 "pre_concentration_status": candidate_allocation.get("status"),
                 "allocations": [],
                 "allocated_budget_inr": "0",
-                "unallocated_budget_inr": str(monthly_budget_inr),
-                "unallocated_by_sleeve_inr": routing.get("allocations_inr", {}),
+                "unallocated_budget_inr": str(Decimal(str(monthly_budget_inr))),
+                "unallocated_by_sleeve_inr": {
+                    key: str(value) for key, value in sorted(blocked_by_sleeve.items())
+                },
                 "concentration_blocked": True,
             }
+            # Preserve the SAA split: amounts never routed to an eligible sleeve
+            # stay in the unrouted bucket; the exact routed sleeve budget is
+            # unallocated because the selected set failed concentration.
             fund_allocated = Decimal("0")
-            routing_unallocated = Decimal("0")
-            fund_unallocated = Decimal(str(monthly_budget_inr))
+            fund_unallocated = routed_budget
         overall_unallocated = routing_unallocated + fund_unallocated
         candidate_allocation.update({
             "requested_budget_inr": str(Decimal(str(monthly_budget_inr))),
