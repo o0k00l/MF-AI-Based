@@ -341,7 +341,8 @@ def test_p0_4_candidate_universe_and_no_action_branch(tmp_path):
         candidate_funds=[
             {"fund_id": "C2", "fund_name": "Alpha Fund Direct", "eligibility": {"passed": True}, "composite_score": 75.0}
         ],
-        min_improvement_threshold=5.0
+        min_improvement_threshold=5.0,
+        client_risk_tier_num=6,
     )
     assert proceed.action == "PROCEED"
     assert proceed.current_portfolio_adequate is False
@@ -428,9 +429,9 @@ def test_p0_6_multi_horizon_selection_and_peer_evaluation(tmp_path):
     best = pharma_cands["SYNTH-HEALTH-A"]
     second = pharma_cands["SYNTH-HEALTH-B"]
     worst = pharma_cands["SYNTH-HEALTH-D"]
-    score_best = compute_multi_horizon_fiduciary_score(best, category_key="Healthcare")
-    score_second = compute_multi_horizon_fiduciary_score(second, category_key="Healthcare")
-    score_worst = compute_multi_horizon_fiduciary_score(worst, category_key="Healthcare")
+    score_best = compute_multi_horizon_fiduciary_score(best, category_key="Healthcare", scoring_weights=ScoringWeights(0.25, 0.20, 0.15, 0.15, 0.15, 0.10))
+    score_second = compute_multi_horizon_fiduciary_score(second, category_key="Healthcare", scoring_weights=ScoringWeights(0.25, 0.20, 0.15, 0.15, 0.15, 0.10))
+    score_worst = compute_multi_horizon_fiduciary_score(worst, category_key="Healthcare", scoring_weights=ScoringWeights(0.25, 0.20, 0.15, 0.15, 0.15, 0.10))
     assert score_best > score_worst
     assert score_second > score_worst
     assert best["return_1y"] > worst["return_1y"]
@@ -785,7 +786,7 @@ def test_p0_10_gate4_fail_closed_and_missing_metrics(tmp_path):
     assert res_disguise.sharpe_alpha_gate is False, "Active funds masquerading with index substring must NOT bypass Gate 4"
     assert res_disguise.passed is False
 
-    # 13. Genuine verified passive index fund exemption
+    # 13. Sample passive scheme metadata must not be treated as verified evidence
     passive_cand = dict(
         base_active,
         fund_name="Nifty 50 Index Fund - Direct Plan - Growth",
@@ -796,7 +797,7 @@ def test_p0_10_gate4_fail_closed_and_missing_metrics(tmp_path):
         alpha_3y=None
     )
     res_passive = check_eligibility_gates(passive_cand)
-    assert res_passive.sharpe_alpha_gate is True, "Genuine passive index funds are exempted from active alpha hurdles"
+    assert res_passive.sharpe_alpha_gate is False, "Sample scheme master cannot exempt an unverified passive candidate"
 
     print("[PASS] P0.10 Gate 4 Fail-Closed & Missing Metrics Verified")
 
