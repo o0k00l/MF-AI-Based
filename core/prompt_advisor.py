@@ -61,7 +61,8 @@ def generate_health_audit_report(facts: FiduciaryFactsPayload) -> str:
     
     weighted_overlap = getattr(facts, 'weighted_overlap', [])
     risk_distribution = getattr(facts, 'risk_distribution', None)
-    # Unverified caller-provided cost records are never admitted to investor-facing prompts.\n    switch_costs = []
+    # Unverified caller-provided cost records are never admitted to investor-facing prompts.
+    switch_costs = []
     eligibility_results = getattr(facts, 'eligibility_results', [])
     no_action = getattr(facts, 'no_action', None)
     
@@ -113,8 +114,8 @@ INPUT FACT PAYLOAD:
 - Weighted Look-Through Overlap: {len(getattr(facts, 'weighted_overlap', []))} high-overlap pairs identified
 - Weighted Overlap Details: {[{'fund_a': p.fund_a, 'fund_b': p.fund_b, 'weighted_overlap_pct': p.weighted_overlap_pct, 'verdict': p.verdict} for p in getattr(facts, 'weighted_overlap', [])[:5]]}
 - Risk Distribution (Ordinal SEBI Tiers): {getattr(facts, 'risk_distribution', None).model_dump() if getattr(facts, 'risk_distribution', None) else 'Not available'}
-- Switch Cost Evidence: {len(getattr(facts, 'switch_costs', []))} records supplied; treat unavailable records as NO ACTION, never as zero cost
-- Switch Cost Details: {[{'fund': s['fund_name'], 'cost_inr': s['switch_cost_inr'], 'cost_pct': s['switch_cost_pct'], 'warning': s['warning'], 'available': s.get('available', False)} for s in getattr(facts, 'switch_costs', [])[:5]]}
+- Switch Cost Evidence: UNAVAILABLE — caller-provided cost records are not trusted or displayed.
+- Switch Cost Details: NO ACTION — scheme/plan/lot-specific exit-load and independently approved tax evidence is unavailable.
 - Eligibility Gates Results: {len(getattr(facts, 'eligibility_results', []))} candidate funds evaluated with binary gates
 - NO ACTION Decision: {getattr(facts, 'no_action', None).action if getattr(facts, 'no_action', None) else 'N/A'} - {getattr(facts, 'no_action', None).reason if getattr(facts, 'no_action', None) else 'N/A'}
 - Mandate Execution State: {mandate_state}
@@ -591,24 +592,16 @@ def answer_interactive_query(facts: FiduciaryFactsPayload, user_query: str, chat
     # Intent 3: Redemption / Withdrawal / Cash Out
     if any(k in q_lower for k in ("redeem", "redemption", "withdraw", "need cash", "take out money", "emergency withdrawal")):
         stability = getattr(facts, "stability_buffer", None)
-        tax_lots = getattr(facts, "tax_lots_summary", None)
-        if tax_lots is not None and hasattr(tax_lots, "model_dump"):
-            tax_lot_details = tax_lots.model_dump()
-        elif isinstance(tax_lots, dict):
-            tax_lot_details = tax_lots
-        else:
-            tax_lot_details = None
+        # Caller-supplied tax-lot payloads have no approved provenance contract.
+        # Never repeat their values in investor-facing redemption responses.
+        tax_lot_details = None
 
         cash_text = (
             f"Reported bank deployable cash: INR {stability.bank_deployable_cash_inr:,.2f}."
             if stability is not None
             else "Bank deployable cash: unavailable; do not infer a cash balance."
         )
-        tax_text = (
-            f"Supplied tax-lot summary: {tax_lot_details}"
-            if tax_lot_details is not None
-            else "Tax-lot evidence unavailable: NO ACTION on tax-optimized redemption or switching."
-        )
+        tax_text = "Tax-lot evidence unavailable: NO ACTION on tax-optimized redemption or switching."
         return (
             "### Redemption and withdrawal review\n\n"
             f"- {cash_text}\n"
