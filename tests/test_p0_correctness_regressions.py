@@ -2626,3 +2626,43 @@ def test_saa_drift_minimizer_preserves_exact_target_and_zero_weight_cash():
     assert result.recommended_sip_allocation["Debt"] == pytest.approx(0.0)
     assert result.recommended_sip_allocation["Cash"] == pytest.approx(0.0)
     assert result.total_drift_l2_norm == pytest.approx(0.0)
+
+
+def test_scheme_riskometer_is_not_inferred_from_asset_class():
+    from core.math_engine import _asset_class_to_risk_tier, calculate_risk_distribution
+    from core.models import AssetClass
+
+    assert _asset_class_to_risk_tier(AssetClass.DEBT) is None
+    holding = _saa_holding(AssetClass.EQUITY, 100000.0)
+    holding.risk_tier = None
+    distribution = calculate_risk_distribution([holding])
+    assert distribution.availability_status == "UNAVAILABLE"
+    assert distribution.verified_coverage_pct == 0.0
+    assert distribution.unknown_value_inr == 100000.0
+    assert distribution.risk_tier_values == {"Unknown": 100.0}
+
+
+def test_empty_and_zero_value_portfolios_cannot_report_zero_saa_drift():
+    from core.math_engine import calculate_saa_drift_minimizer
+    from core.models import AssetClass
+
+    with pytest.raises(ValueError, match="no verified active holdings"):
+        calculate_saa_drift_minimizer(
+            [], {"equity_pct": 75.0, "debt_pct": 25.0, "cash_pct": 0.0}, 10000.0
+        )
+    zero = _saa_holding(AssetClass.EQUITY, 0.0)
+    with pytest.raises(ValueError, match="denominator must be positive"):
+        calculate_saa_drift_minimizer(
+            [zero], {"equity_pct": 75.0, "debt_pct": 25.0, "cash_pct": 0.0}, 10000.0
+        )
+
+
+def test_aggregate_portfolio_diagnostics_hold_when_cas_has_no_active_holdings(monkeypatch, tmp_path):
+    import core.math_engine as engine
+    monkeypatch.setattr(engine, "load_holdings_from_cas_excel", lambda *args, **kwargs: [])
+    with pytest.raises(ValueError, match="no verified active holdings"):
+        engine.aggregate_fiduciary_facts(
+            cas_path=tmp_path / "empty.xlsx",
+            metrics_path=tmp_path / "metrics.json",
+            config_path=tmp_path / "client.json",
+        )
