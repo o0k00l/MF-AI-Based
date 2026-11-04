@@ -284,3 +284,33 @@ def test_lumpsum_reporting_rejects_non_reconciling_plan():
 
     assert valid is False
     assert "do not reconcile" in reason
+
+
+def test_switch_cost_engine_reports_unavailable_instead_of_zero():
+    from types import SimpleNamespace
+    from core.math_engine import calculate_switch_cost_analysis
+
+    result = calculate_switch_cost_analysis(
+        source_fund="Synthetic Regular Fund",
+        target_fund="Synthetic Direct Fund",
+        source_holding=SimpleNamespace(),
+        target_fund_ter=0.5,
+    )
+
+    assert result.is_available is False
+    assert result.net_switch_cost_inr is None
+    assert result.exit_load_inr is None
+    assert result.capital_gains_tax_inr is None
+    assert "not zero" in result.warning.lower()
+
+
+def test_tax_rules_loader_rejects_provisional_policy():
+    from pathlib import Path
+    import pytest
+    from core.math_engine import _load_tax_rules
+    from core.models import InsufficientDataError
+
+    policy_path = Path(__file__).resolve().parents[1] / "data" / "policy" / "tax_rules.json"
+
+    with pytest.raises(InsufficientDataError, match="provisional or lack independent"):
+        _load_tax_rules(policy_path)
