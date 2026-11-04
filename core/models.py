@@ -450,7 +450,7 @@ class WeightedOverlapResult(BaseModel):
     verdict: str  # "HIGH_CONCENTRATION", "MODERATE", "ACCEPTABLE", "UNKNOWN", "UNAVAILABLE"
     status: str = "VERIFIED"  # "VERIFIED", "UNKNOWN", "UNAVAILABLE", "LIMITED_COVERAGE"
     source: Optional[str] = None
-    source_refs: List[Dict[str, str]] = Field(default_factory=list)
+    source_refs: List[Dict[str, Any]] = Field(default_factory=list)
     effective_date: Optional[str] = None
     coverage_status: Optional[str] = None
     coverage_pct: Optional[float] = None
