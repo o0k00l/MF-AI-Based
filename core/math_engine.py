@@ -2031,22 +2031,39 @@ def aggregate_fiduciary_facts(
         disclosure_max_age_days=disclosure_max_age_days,
     )
 
-    # Load client config
-    client_name = "Client"
-    monthly_sip = 100000.0
-    target_saa = {}
-    emergency_months = 6.0
-    if config_path.exists():
-        with open(config_path, "r", encoding="utf-8") as f:
-            cfg = json.load(f)
-            client_name = cfg.get("client_name") or cfg.get("ips", {}).get("client_name") or "Valued Client"
-            client_age_val = int(cfg.get("ips", {}).get("client_age", 35))
-            horizon_yrs_val = int(cfg.get("ips", {}).get("horizon_years", 10))
-            client_risk_tier = cfg.get("risk_tier") or cfg.get("ips", {}).get("risk_tolerance", "Tier 6 (Very High)")
-            monthly_sip = float(cfg.get("ips", {}).get("monthly_sip_budget", 100000.0))
-            lumpsum_budget = float(cfg.get("ips", {}).get("lumpsum_budget", 200000.0))
-            target_saa = cfg.get("target_allocation", {})
-            emergency_months = float(cfg.get("ips", {}).get("emergency_months", 6.0))
+    # SIP generation requires an explicit investor mandate. Never manufacture
+    # a ₹1 lakh budget or Tier 6 risk profile when client inputs are absent.
+    if not config_path.is_file():
+        raise ValueError("Client IPS config is required for SIP analysis; no default budget or risk tier is permitted")
+    try:
+        with open(config_path, "r", encoding="utf-8") as config_handle:
+            cfg = json.load(config_handle)
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise ValueError("Client IPS config is unreadable or invalid JSON") from exc
+    if not isinstance(cfg, dict) or not isinstance(cfg.get("ips"), dict):
+        raise ValueError("Client IPS config must contain an ips object")
+    ips = cfg["ips"]
+    client_name = cfg.get("client_name") or ips.get("client_name") or "Valued Client"
+    client_age_val = ips.get("client_age")
+    horizon_yrs_val = ips.get("horizon_years")
+    client_risk_tier = cfg.get("risk_tier") or ips.get("risk_tolerance")
+    if not isinstance(client_risk_tier, str) or not client_risk_tier.strip():
+        raise ValueError("An explicit investor risk_tolerance or risk_tier is required for SIP analysis")
+    if "monthly_sip_budget" not in ips:
+        raise ValueError("Explicit ips.monthly_sip_budget is required; no default SIP budget is permitted")
+    try:
+        monthly_sip = float(ips["monthly_sip_budget"])
+        lumpsum_budget = float(ips.get("lumpsum_budget", 0.0))
+        emergency_months = float(ips.get("emergency_months", 6.0))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("IPS SIP, lumpsum and emergency-month inputs must be numeric") from exc
+    if not math.isfinite(monthly_sip) or monthly_sip <= 0.0:
+        raise ValueError("IPS monthly_sip_budget must be finite and greater than zero")
+    if not math.isfinite(lumpsum_budget) or lumpsum_budget < 0.0:
+        raise ValueError("IPS lumpsum_budget must be finite and non-negative")
+    if not math.isfinite(emergency_months) or emergency_months < 0.0:
+        raise ValueError("IPS emergency_months must be finite and non-negative")
+    target_saa = cfg.get("target_allocation", {})
 
     tot_cur = sum(h.current_value_inr for h in holdings)
     tot_inv = sum(h.invested_value_inr for h in holdings)
@@ -2127,10 +2144,7 @@ def aggregate_fiduciary_facts(
         target_debt_pct=saa.target_debt_pct
     )
     thematic_exps = calculate_thematic_exposures(holdings, metrics_path, aliases_path)
-    client_risk_tier = "Tier 6 (Very High)"
-    if config_path.exists():
-        with open(config_path, "r", encoding="utf-8") as cf:
-            client_risk_tier = json.load(cf).get("risk_tier", "Tier 6 (Very High)")
+    # Keep the already validated risk profile from the IPS; do not overwrite it.
 
     neglected_themes = [th for th in thematic_exps if th.coverage_status == "NEGLECTED"]
     if neglected_themes:
