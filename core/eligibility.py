@@ -7,6 +7,7 @@ import math
 import json
 from pathlib import Path
 from typing import List, Dict, Any, Optional
+from datetime import date
 from core.models import EligibilityGateResult, NOActionResult, RiskTier
 
 
@@ -652,7 +653,11 @@ def evaluate_no_action(
 
 def load_candidate_universe(
     metrics_path: Path,
-    screening_policy_path: Optional[Path] = None
+    screening_policy_path: Optional[Path] = None,
+    portfolio_disclosures_by_scheme_id: Optional[Dict[str, Dict[str, Any]]] = None,
+    portfolio_disclosure_source_bytes_by_scheme_id: Optional[Dict[str, bytes]] = None,
+    disclosure_as_of_date: Optional[date] = None,
+    disclosure_max_age_days: int = 45,
 ) -> List[Dict[str, Any]]:
     """
     Loads candidate universe from fund_metrics.json and enriches with screening policy rules.
@@ -705,15 +710,41 @@ def load_candidate_universe(
         else:
             direct_flag = None
 
-        cand = {
-            "fund_id": m.get("id", ""),
-            # A scheme identifier is distinct from a display name. Do not infer
-            # it from a fund label; disclosure attachment requires an exact ID.
-            "scheme_id": m.get("scheme_id"),
+        scheme_id = m.get("scheme_id")
+        lookthrough = {
             "constituent_weights": None,
             "constituent_weights_coverage_pct": None,
-            "lookthrough_status": "MISSING",
-            "lookthrough_reason": "Candidate universe metrics do not themselves establish source-verified portfolio constituents.",
+            "status": "MISSING",
+            "reason": "Candidate metrics do not themselves establish source-verified constituents.",
+        }
+        if (isinstance(scheme_id, str) and scheme_id
+                and portfolio_disclosures_by_scheme_id is not None
+                and portfolio_disclosure_source_bytes_by_scheme_id is not None
+                and disclosure_as_of_date is not None):
+            from ingestion.portfolio_disclosure import validate_portfolio_disclosure
+            disclosure_record = portfolio_disclosures_by_scheme_id.get(scheme_id)
+            disclosure_bytes = portfolio_disclosure_source_bytes_by_scheme_id.get(scheme_id)
+            if disclosure_record is not None and disclosure_bytes is not None:
+                lookthrough = validate_portfolio_disclosure(
+                    disclosure_record, disclosure_bytes,
+                    as_of=disclosure_as_of_date,
+                    max_age_days=disclosure_max_age_days,
+                )
+                if lookthrough.get("scheme_id") != scheme_id:
+                    lookthrough = {
+                        "constituent_weights": None,
+                        "constituent_weights_coverage_pct": None,
+                        "status": "CONFLICTING",
+                        "reason": "Disclosure scheme identifier does not match candidate scheme identifier.",
+                    }
+
+        cand = {
+            "fund_id": m.get("id", ""),
+            "scheme_id": scheme_id,
+            "constituent_weights": lookthrough.get("constituent_weights"),
+            "constituent_weights_coverage_pct": lookthrough.get("constituent_weights_coverage_pct"),
+            "lookthrough_status": lookthrough["status"],
+            "lookthrough_reason": lookthrough["reason"],
             "fund_name": fund_name,
             "aum_crore": float(aum_crore) if aum_crore is not None else None,
             "aum_stable": m.get("aum_stable"),  # None if missing — gate will fail closed
