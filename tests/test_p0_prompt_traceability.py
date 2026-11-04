@@ -187,7 +187,7 @@ def test_switch_report_fails_closed_without_tax_or_cost_evidence(monkeypatch):
 
     assert "NO ACTION" in prompt
     assert "tax-lot conclusions and tax-optimized switch schedules are NO ACTION" in prompt
-    assert "no scheme-level exit-load and tax cost evidence is unavailable" not in prompt
+    assert "NO ACTION: scheme-level exit-load and tax cost evidence is unavailable." in prompt
     assert "do not infer missing exit-load or tax values" in prompt
     assert "20% STCG" not in prompt
     assert "12.5% LTCG" not in prompt
