@@ -2576,13 +2576,22 @@ def weighted_lookthrough_overlap_status(holdings: List[HoldingItem]) -> str:
     for holding in holdings:
         try:
             value = float(holding.current_value_inr)
+            equity_pct = float(holding.equity_pct)
+        except (TypeError, ValueError, AttributeError):
+            return "UNAVAILABLE"
+        if not math.isfinite(value) or value <= 0.0 or not math.isfinite(equity_pct) or not 0.0 <= equity_pct <= 100.0:
+            return "UNAVAILABLE"
+        # Pure debt/cash holdings do not contribute to stock overlap and do
+        # not require equity constituent disclosures.
+        if equity_pct == 0.0:
+            continue
+        try:
             coverage = float(holding.constituent_weights_coverage_pct)
             raw = holding.constituent_weights
         except (TypeError, ValueError, AttributeError):
             return "UNAVAILABLE"
         if (
             getattr(holding, "lookthrough_status", "MISSING") != "VERIFIED"
-            or not math.isfinite(value) or value <= 0.0
             or not math.isfinite(coverage) or not 99.5 <= coverage <= 100.0
             or not isinstance(raw, dict) or not raw
         ):
@@ -2600,8 +2609,8 @@ def weighted_lookthrough_overlap_status(holdings: List[HoldingItem]) -> str:
             or not 99.5 <= sum(weights.values()) <= 100.5
         ):
             return "UNAVAILABLE"
-        scheme_id = str(getattr(holding, "scheme_id", None) or getattr(holding, "fund_id", ""))
-        if not scheme_id:
+        scheme_id = getattr(holding, "scheme_id", None)
+        if not isinstance(scheme_id, str) or not scheme_id.strip():
             return "UNAVAILABLE"
         prior = seen.get(scheme_id)
         if prior is not None and prior != weights:
