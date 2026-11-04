@@ -283,21 +283,21 @@ def _call_openai_compatible(provider: str, base_url: str, prompt: str,
     lock = _requesty_mutex if provider == "Requesty" else _NullLock()
     with lock:
         for model in models[:5]:
-            try:
-                # Re-check the live catalogue immediately before each generation
-                # attempt. A model that was free during initial discovery may
-                # have been repriced or withdrawn before this request.
-                current_models = (
-                    discover_requesty_free_models(key) if provider == "Requesty"
-                    else discover_openrouter_free_models(key)
+            # Re-check outside the generation exception handler so catalogue
+            # failures remain explicit and cannot be mistaken for model retries.
+            # A model may be repriced or withdrawn after initial discovery.
+            current_models = (
+                discover_requesty_free_models(key) if provider == "Requesty"
+                else discover_openrouter_free_models(key)
+            )
+            if model not in current_models:
+                last_error = ProviderError(
+                    provider,
+                    f"{provider} model is no longer verified as zero-priced; generation blocked.",
+                    model=model,
                 )
-                if model not in current_models:
-                    last_error = ProviderError(
-                        provider,
-                        f"{provider} model is no longer verified as zero-priced; generation blocked.",
-                        model=model,
-                    )
-                    continue
+                continue
+            try:
                 # Intentionally send only the portable required fields. Do not
                 # assume temperature, seed, max_tokens, or other optional knobs.
                 response = client.chat.completions.create(model=model, messages=messages)
