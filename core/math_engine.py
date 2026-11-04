@@ -2567,108 +2567,114 @@ def aggregate_fiduciary_facts(
 # ARCHITECTURAL CORRECTIONS - NEW FUNCTIONS
 # ============================================================
 
+def weighted_lookthrough_overlap_status(holdings: List[HoldingItem]) -> str:
+    """Return VERIFIED only when every active holding has complete weighted disclosure."""
+    if not holdings:
+        return "UNAVAILABLE"
+    seen: Dict[str, Dict[str, float]] = {}
+    for holding in holdings:
+        try:
+            value = float(holding.current_value_inr)
+            coverage = float(holding.constituent_weights_coverage_pct)
+            raw = holding.constituent_weights
+        except (TypeError, ValueError, AttributeError):
+            return "UNAVAILABLE"
+        if (
+            getattr(holding, "lookthrough_status", "MISSING") != "VERIFIED"
+            or not math.isfinite(value) or value <= 0.0
+            or not math.isfinite(coverage) or not 99.5 <= coverage <= 100.0
+            or not isinstance(raw, dict) or not raw
+        ):
+            return "UNAVAILABLE"
+        try:
+            weights = {
+                re.sub(r"[^a-z0-9]", "", str(stock).casefold()): float(weight)
+                for stock, weight in raw.items()
+            }
+        except (TypeError, ValueError):
+            return "UNAVAILABLE"
+        if (
+            any(not stock or not math.isfinite(weight) or not 0.0 <= weight <= 100.0
+                for stock, weight in weights.items())
+            or not 99.5 <= sum(weights.values()) <= 100.5
+        ):
+            return "UNAVAILABLE"
+        scheme_id = str(getattr(holding, "scheme_id", None) or getattr(holding, "fund_id", ""))
+        if not scheme_id:
+            return "UNAVAILABLE"
+        prior = seen.get(scheme_id)
+        if prior is not None and prior != weights:
+            return "UNAVAILABLE"
+        seen[scheme_id] = weights
+    return "VERIFIED"
+
+
 def calculate_weighted_lookthrough_overlap(
     holdings: List[HoldingItem],
     metrics_path: Optional[Path] = None,
     threshold_pct: float = 10.0
 ) -> List[WeightedOverlapResult]:
+    """Calculate pairwise overlap from complete verified constituent weights only.
+
+    The metrics_path parameter is retained for compatibility but is never read.
+    Top-holdings lists and equal-weight approximations are not portfolio evidence.
+    An empty result means callers must consult weighted_lookthrough_overlap_status;
+    it must not be interpreted as verified zero overlap.
     """
-    Calculate weighted look-through overlap using actual top-10 holding weights from fund_metrics.json.
-    
-    The fund_metrics.json contains top-10 holdings and their percentage of portfolio (top10 field).
-    We assume equal weight within the top-10 holdings: each stock = top10% / 10.
-    """
-    # Load fund metrics for actual top-10 weights
-    fund_metrics: Dict[str, Dict] = {}
-    if metrics_path and metrics_path.exists():
-        try:
-            with open(metrics_path, "r", encoding="utf-8") as f:
-                m_data = json.load(f)
-                for m in m_data.get("funds", []):
-                    fund_id = m.get("id", "")
-                    if fund_id:
-                        top10_pct = m.get("top10", 0.0)
-                        top_holdings = m.get("h", [])
-                        # Weight per stock = top10% / 10 (assuming equal weight within top-10)
-                        weight_per_stock = top10_pct / 10.0 if top_holdings else 0.0
-                        fund_metrics[fund_id] = {
-                            "top10_pct": top10_pct,
-                            "top_holdings": top_holdings,
-                            "weight_per_stock": weight_per_stock
-                        }
-        except Exception:
-            pass
-    
-    stock_fund_weights: Dict[str, Dict[str, float]] = {}
-    fund_total_value: Dict[str, float] = {}
-    
-    for h in holdings:
-        if not h.top_holdings:
-            continue
-        fund_total_value[h.fund_id] = h.current_value_inr
-        
-        # Get actual weight per stock from fund_metrics
-        metrics = fund_metrics.get(h.fund_id, {})
-        weight_per_stock = metrics.get("weight_per_stock", 0.0)
-        top_holdings = metrics.get("top_holdings", h.top_holdings)
-        
-        for stock in top_holdings:
-            if stock not in stock_fund_weights:
-                stock_fund_weights[stock] = {}
-            stock_fund_weights[stock][h.fund_id] = weight_per_stock
-    
-    fund_ids = list(fund_total_value.keys())
+    if weighted_lookthrough_overlap_status(holdings) != "VERIFIED":
+        return []
+    if isinstance(threshold_pct, bool) or not isinstance(threshold_pct, (int, float)):
+        raise ValueError("threshold_pct must be a finite number from 0 to 100")
+    if not math.isfinite(float(threshold_pct)) or not 0.0 <= float(threshold_pct) <= 100.0:
+        raise ValueError("threshold_pct must be a finite number from 0 to 100")
+
+    by_fund: Dict[str, Dict[str, float]] = {}
+    for holding in holdings:
+        fund_id = str(getattr(holding, "scheme_id", None) or holding.fund_id)
+        weights = {
+            re.sub(r"[^a-z0-9]", "", str(stock).casefold()): float(weight)
+            for stock, weight in holding.constituent_weights.items()
+        }
+        if fund_id in by_fund and by_fund[fund_id] != weights:
+            return []
+        by_fund[fund_id] = weights
+
     results = []
-    
-    for i in range(len(fund_ids)):
-        for j in range(i + 1, len(fund_ids)):
-            fa = fund_ids[i]
-            fb = fund_ids[j]
-            
-            shared_stocks = []
-            weighted_overlap = 0.0
-            sector_weights: Dict[str, float] = {}
-            
-            for stock, fund_weights in stock_fund_weights.items():
-                if fa in fund_weights and fb in fund_weights:
-                    weight_a = fund_weights[fa]
-                    weight_b = fund_weights[fb]
-                    combined = weight_a + weight_b
-                    
-                    shared_stocks.append({
-                        "stock": stock,
-                        "weight_a_pct": round(weight_a, 2),
-                        "weight_b_pct": round(weight_b, 2),
-                        "combined_weight_pct": round(combined, 2)
-                    })
-                    weighted_overlap += min(weight_a, weight_b)
-            
-            if not shared_stocks:
+    fund_ids = sorted(by_fund)
+    for index, fund_a in enumerate(fund_ids):
+        for fund_b in fund_ids[index + 1:]:
+            weights_a, weights_b = by_fund[fund_a], by_fund[fund_b]
+            shared = sorted(set(weights_a) & set(weights_b))
+            if not shared:
                 continue
-            
-            set_a = set(stock for stock in stock_fund_weights if fa in stock_fund_weights[stock])
-            set_b = set(stock for stock in stock_fund_weights if fb in stock_fund_weights[stock])
-            jaccard = len(set_a & set_b) / len(set_a | set_b) if (set_a | set_b) else 0
-            
+            weighted_overlap = sum(min(weights_a[stock], weights_b[stock]) for stock in shared)
+            union = set(weights_a) | set(weights_b)
+            jaccard = len(shared) / len(union) if union else 0.0
             if weighted_overlap >= 20.0:
                 verdict = "HIGH_CONCENTRATION"
             elif weighted_overlap >= 10.0:
                 verdict = "MODERATE"
             else:
                 verdict = "ACCEPTABLE"
-            
-            if weighted_overlap >= threshold_pct:
+            if weighted_overlap >= float(threshold_pct):
                 results.append(WeightedOverlapResult(
-                    fund_a=fa,
-                    fund_b=fb,
+                    fund_a=fund_a,
+                    fund_b=fund_b,
                     weighted_overlap_pct=round(weighted_overlap, 2),
-                    jaccard_similarity=round(jaccard * 100, 2),
-                    shared_stocks=shared_stocks,
-                    sector_concentration=sector_weights,
-                    verdict=verdict
+                    jaccard_similarity=round(jaccard * 100.0, 2),
+                    shared_stocks=[
+                        {
+                            "stock": stock,
+                            "weight_a_pct": round(weights_a[stock], 2),
+                            "weight_b_pct": round(weights_b[stock], 2),
+                            "combined_weight_pct": round(weights_a[stock] + weights_b[stock], 2),
+                        }
+                        for stock in shared
+                    ],
+                    sector_concentration={},
+                    verdict=verdict,
                 ))
-    
-    results.sort(key=lambda x: x.weighted_overlap_pct, reverse=True)
+    results.sort(key=lambda item: item.weighted_overlap_pct, reverse=True)
     return results
 
 
