@@ -1048,7 +1048,8 @@ def load_holdings_from_cas_excel(
 
     # Load aliases dictionary if provided
     aliases_map = {}
-    if fund_aliases_path and fund_aliases_path.exists():
+    if (not require_exact_metric_identity and fund_aliases_path
+            and fund_aliases_path.exists()):
         with open(fund_aliases_path, "r", encoding="utf-8") as f:
             raw_aliases = json.load(f)
             if "aliases" in raw_aliases:
