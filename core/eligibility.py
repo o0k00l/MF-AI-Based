@@ -674,8 +674,6 @@ def check_eligibility_gates(
         or (fund_data.get("decision_as_of_date") if isinstance(fund_data, dict) else None)
         or (fund_data.get("disclosure_as_of_date") if isinstance(fund_data, dict) else None)
     )
-    if eval_as_of is None:
-        eval_as_of = date.today()
     direct_evidence_status = _reviewed_direct_plan_evidence_status(
         fund_data,
         as_of_date=eval_as_of,
@@ -987,19 +985,9 @@ def load_candidate_universe(
         provenance_raw = m.get("_provenance")
         fund_name = m.get("name", m.get("scheme_name", m.get("id", "")))
         scheme_id = m.get("scheme_id")
-        if disclosure_as_of_date is None:
-            cand_as_of = m.get("as_of_date") or m.get("disclosure_as_of_date") or data.get("as_of_date")
-            if isinstance(cand_as_of, date) and not isinstance(cand_as_of, datetime):
-                effective_as_of = cand_as_of
-            elif isinstance(cand_as_of, str) and cand_as_of.strip():
-                try:
-                    effective_as_of = date.fromisoformat(cand_as_of.strip())
-                except ValueError:
-                    effective_as_of = date.today()
-            else:
-                effective_as_of = date.today()
-        else:
-            effective_as_of = disclosure_as_of_date
+        # Eligibility replay must be bound to the caller's decision date.
+        # Never substitute the process wall clock for missing as-of evidence.
+        effective_as_of = disclosure_as_of_date
 
         evidence_context = {
             "direct_plan_evidence": m.get("direct_plan_evidence"),
