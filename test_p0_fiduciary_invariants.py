@@ -1156,3 +1156,18 @@ def test_p0_19_tri_release_gate_rejects_malformed_calendar(
     blockers = verifier.alpha_release_blockers(fixture_path)
     assert any(expected_blocker in blocker for blocker in blockers)
 
+
+
+def test_unverified_cas_only_aum_holds_the_entire_sip_budget():
+    plan = compute_deterministic_sip_blueprint(
+        monthly_budget=25000.0,
+        risk_tier="Tier 4 (Moderately High)",
+        stability_buffer_pct=0.0,
+        client_aum=200000.0,
+        # Deliberately omit client_aum_verified: CAS-only value is not total AUM.
+    )
+    assert plan.execution_status == "HOLD_PORTFOLIO_AUM_UNVERIFIED"
+    assert plan.items == []
+    assert plan.equity_sip_pct == 0.0
+    assert plan.debt_sip_pct == 0.0
+    assert plan.unallocated_budget_inr == 25000.0
