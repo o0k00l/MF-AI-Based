@@ -2409,30 +2409,6 @@ def calculate_switch_cost_analysis(
     )
 
 
-def _estimate_holding_days_from_portfolio(holding_item: HoldingItem) -> int:
-    """
-    Estimate holding days based on portfolio characteristics when actual lot data is unavailable.
-    This is a fallback - in production, actual lot data should be used.
-    """
-    if hasattr(holding_item, 'xirr_pct') and holding_item.xirr_pct is not None:
-        if holding_item.xirr_pct > 15:
-            return 365 * 3  # High XIRR suggests long holding
-        elif holding_item.xirr_pct > 8:
-            return 365 * 2  # Medium XIRR suggests medium holding
-        elif holding_item.xirr_pct > 3:
-            return 365 * 1.5  # Lower XIRR suggests shorter holding
-        else:
-            return 365 * 1  # Default to 1 year
-    
-    # Fallback based on investment amount
-    if holding_item.current_value_inr > 1000000:
-        return 365 * 2.5
-    elif holding_item.current_value_inr > 500000:
-        return 365 * 2
-    else:
-        return 365 * 1
-
-
 def calculate_saa_drift_minimizer(
     holdings: List[HoldingItem],
     target_allocation: Dict[str, float],
