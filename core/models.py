@@ -100,6 +100,10 @@ class HoldingItem(BaseModel):
     # Missing or partial look-through data must not be interpreted as zero overlap.
     constituent_weights: Optional[Dict[str, float]] = None
     constituent_weights_coverage_pct: Optional[float] = None
+    # Stable identity and disclosure state are separate from display names.
+    scheme_id: Optional[str] = None
+    lookthrough_status: str = "MISSING"
+    lookthrough_reason: Optional[str] = "No verified stock-level disclosure attached."
     risk_tier: Optional[str] = None
     xirr_pct: Optional[float] = None
     expense_ratio_pct: float = 0.0
