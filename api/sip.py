@@ -32,6 +32,23 @@ def create_sip_app(
     def health() -> dict[str, str]:
         return {"status": "ok", "service": "sip-decision-support"}
 
+    @app.get("/ready")
+    def readiness() -> dict[str, Any]:
+        """Report whether the SIP evidence dependency is configured."""
+        if evidence_provider is None:
+            return {
+                "status": "not_ready",
+                "service": "sip-decision-support",
+                "checks": {"evidence_provider": "not_configured"},
+                "recommendations_enabled": False,
+            }
+        return {
+            "status": "ready_for_evidence_validation",
+            "service": "sip-decision-support",
+            "checks": {"evidence_provider": "configured"},
+            "recommendations_enabled": True,
+        }
+
     @app.post("/v1/sip/recommendations")
     async def create_recommendation(
         cas_file: UploadFile = File(...),
