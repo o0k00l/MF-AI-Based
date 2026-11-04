@@ -313,6 +313,28 @@ def _call_openrouter(prompt: str, system_prompt: str = "") -> str:
     return _call_openai_compatible("OpenRouter", OPENROUTER_BASE_URL, prompt, system_prompt)
 
 
+def _exception_http_status(exc: Exception) -> int | None:
+    for attribute in ("status_code", "code"):
+        value = getattr(exc, attribute, None)
+        if isinstance(value, int) and 100 <= value <= 599:
+            return value
+    return None
+
+
+def _safe_exception_code(exc: Exception) -> str | None:
+    """Return a bounded symbolic provider code, never the raw error message."""
+    for attribute in ("status", "reason", "code"):
+        value = getattr(exc, attribute, None)
+        if value is None or isinstance(value, int):
+            continue
+        candidate = str(value).strip()
+        if candidate and len(candidate) <= 80 and all(
+            char.isalnum() or char in "_-." for char in candidate
+        ):
+            return candidate
+    return None
+
+
 def _call_gemini(prompt: str, system_prompt: str = "") -> str:
     key = os.getenv("GEMINI_API_KEY", "")
     if not key:
@@ -333,9 +355,11 @@ def _call_gemini(prompt: str, system_prompt: str = "") -> str:
                 models.append(model_id)
         models = list(dict.fromkeys(models))
     except Exception as exc:
-        status = getattr(exc, "code", None)
-        raise ProviderError("Gemini", f"Gemini model discovery failed ({type(exc).__name__}).",
-                            status_code=status if isinstance(status, int) else None) from None
+        raise ProviderError(
+            "Gemini", f"Gemini model discovery failed ({type(exc).__name__}).",
+            status_code=_exception_http_status(exc),
+            code=_safe_exception_code(exc),
+        ) from None
     if not models:
         raise ProviderError("Gemini", "Gemini returned no generateContent-capable models.")
     config = {"system_instruction": system_prompt} if system_prompt else None
@@ -350,11 +374,10 @@ def _call_gemini(prompt: str, system_prompt: str = "") -> str:
                 return result
             last_error = ProviderError("Gemini", "Gemini returned an empty response.", model=model)
         except Exception as exc:
-            status = getattr(exc, "code", None)
             last_error = ProviderError(
                 "Gemini", f"Gemini generation failed ({type(exc).__name__}).",
-                status_code=status if isinstance(status, int) else None,
-                code=str(getattr(exc, "status", ""))[:80] or None,
+                status_code=_exception_http_status(exc),
+                code=_safe_exception_code(exc),
                 model=model,
             )
             if not _should_try_next_model(last_error):
