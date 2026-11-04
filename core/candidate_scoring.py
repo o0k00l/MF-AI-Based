@@ -173,7 +173,7 @@ def calculate_candidate_6_pillar_score(
     ter_bounds = anchors.get("ter", (0.50, 1.10))
     buf_bounds = anchors.get("buffer", (0.0, 10.0))
     intl_bounds = anchors.get("intl", (0.0, 25.0))
-    ovl_bounds = anchors.get("overlap", (0.0, 15.0) if overlap < 10.0 else (10.0, 25.0))
+    ovl_bounds = anchors.get("overlap", (0.0, 25.0))
 
     # 1. Alpha & Return Pillar (60% Alpha, 40% 1Y Return Momentum)
     p_alpha = normalize_metric(alpha_3y, alpha_bounds[0], alpha_bounds[1])
