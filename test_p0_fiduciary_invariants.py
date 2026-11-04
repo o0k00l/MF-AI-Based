@@ -50,6 +50,9 @@ def _attach_reviewed_direct_test_evidence(candidate, tmp_path):
     import hashlib
 
     scheme_name = candidate["fund_name"]
+    candidate.setdefault("scheme_id", f"TEST-SCHEME-{candidate['fund_id']}")
+    candidate.setdefault("isin", f"TEST-ISIN-{candidate['fund_id']}")
+    candidate.setdefault("amc_name", "TEST AMC")
     source_bytes = (
         f"SYNTHETIC TEST FIXTURE ONLY\\nScheme: {scheme_name}\\nPlan: Direct\\n"
     ).encode("utf-8")
@@ -64,6 +67,9 @@ def _attach_reviewed_direct_test_evidence(candidate, tmp_path):
         "reviewer_attested": True,
         "reviewed_at": date.today().isoformat(),
         "scheme_name": scheme_name,
+        "scheme_id": candidate["scheme_id"],
+        "isin": candidate["isin"],
+        "amc_name": candidate["amc_name"],
         "plan": "Direct",
     }
     candidate["_evidence_root"] = str(tmp_path.resolve())
