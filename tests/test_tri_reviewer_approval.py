@@ -239,3 +239,16 @@ def test_fixture_symlink_cannot_escape_repository(tmp_path):
     result = _verify(tuple(case))
     assert not result.ok
     assert "repository boundary" in result.errors[0]
+
+
+
+def test_signed_calendar_rejects_unhashable_session_entries(tmp_path):
+    case = _signed_case(tmp_path)
+    calendar_path = tmp_path / "data/policy/nse_trading_calendar.json"
+    calendar = json.loads(calendar_path.read_text(encoding="utf-8"))
+    calendar["sessions"] = [{"not": "a date"}]
+    calendar_path.write_text(json.dumps(calendar), encoding="utf-8")
+
+    result = _verify(case)
+    assert not result.ok
+    assert "non-empty list of ISO date strings" in result.errors[0]
