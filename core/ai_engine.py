@@ -178,12 +178,14 @@ def _discover_openai_models(provider: str, url: str, key: str) -> list[str]:
             pricing = item.get("pricing") or {}
             if not isinstance(pricing, dict):
                 continue
-            is_free_slug = model_id.endswith(":free")
+            # A `:free` suffix is a catalogue label, not sufficient
+            # billing evidence. Require explicit zero prompt AND completion
+            # prices for every model, including models carrying that suffix.
             is_zero_price = (
                 _is_zero_price(pricing.get("prompt"))
                 and _is_zero_price(pricing.get("completion"))
             )
-            if not (is_free_slug or is_zero_price):
+            if not is_zero_price:
                 continue
         # Only text-capable chat models are useful for this adapter.
         architecture = item.get("architecture") or {}
@@ -303,6 +305,20 @@ def _call_openai_compatible(provider: str, base_url: str, prompt: str,
     with lock:
         for model in models[:5]:
             try:
+                # Re-fetch the live catalogue immediately before generation.
+                # Cached IDs alone cannot prove that a model is still free.
+                currently_free = (
+                    discover_requesty_free_models(key, force_refresh=True)
+                    if provider == "Requesty"
+                    else discover_openrouter_free_models(key, force_refresh=True)
+                )
+                if model not in currently_free:
+                    last_error = ProviderError(
+                        provider,
+                        f"{provider} model is no longer verified as zero-priced; generation blocked.",
+                        model=model,
+                    )
+                    continue
                 # Intentionally send only the portable required fields. Do not
                 # assume temperature, seed, max_tokens, or other optional knobs.
                 response = client.chat.completions.create(model=model, messages=messages)
