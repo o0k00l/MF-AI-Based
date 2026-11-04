@@ -392,6 +392,8 @@ def test_complete_portfolio_workflow_integrates_issues_23_to_34_without_authoriz
     assert len(context["candidate_screening"]["eligible_candidate_ids"]) == 30
     assert context["scheme_operational_feasibility"]["CANDIDATE-1"]["status"] == "FEASIBLE_FOR_REVIEW"
     assert context["candidate_overlap_diagnostics"]["CANDIDATE-1"]["status"] == "ASSESSED"
+    assert context["candidate_overlap_diagnostics"]["CANDIDATE-1"]["ticket_basis_inr"] == "1000"
+    assert context["candidate_overlap_diagnostics"]["CANDIDATE-1"]["routed_sleeve_budget_inr"] == "5000"
     assert context["candidate_overlap_diagnostics"]["CANDIDATE-1"]["sector_market_cap_theme"]["status"] == "ASSESSED"
     assert context["candidate_level_sip_allocation_simulation"]["reconciliation_ok"] is True
     assert context["candidate_level_sip_allocation_simulation"]["allocated_budget_inr"] == "5000"
@@ -664,3 +666,34 @@ def test_combined_selected_funds_cannot_collectively_breach_sector_cap(tmp_path,
     assert allocation["reconciliation_ok"] is True
     assert result["plan"]["items"] == []
     assert result["plan"]["unallocated_budget_inr"] == 10000
+
+
+def test_individual_concentration_uses_fund_minimum_and_combined_selection_uses_actual_allocations(tmp_path, monkeypatch):
+    args = _inputs(tmp_path)
+    args["candidate_universe"] = _candidate_universe()
+    monkeypatch.setattr(service, "load_holdings_from_cas_excel", lambda *a, **k: [_holding()])
+    monkeypatch.setattr(
+        service, "compute_deterministic_sip_blueprint",
+        lambda **kwargs: SimpleNamespace(items=[]),
+    )
+    context = _complete_portfolio_context()
+    context["concentration_policy"]["max_issuer_pct_of_portfolio"] = "100"
+    context["concentration_policy"]["max_sector_pct_of_portfolio"] = "12.8"
+    context["candidate_policy"]["candidate_sleeves"] = {
+        f"CANDIDATE-{index}": (
+            "large_cap" if index <= 15 else "flexi_multi_cap"
+        )
+        for index in range(1, 31)
+    }
+
+    result = service.recommend_sip(**args, portfolio_context=context)
+
+    assessment = result["portfolio_assessment"]["total_portfolio_context"]
+    individual = assessment["candidate_overlap_diagnostics"]["CANDIDATE-1"]
+    assert individual["status"] == "ASSESSED"
+    assert individual["ticket_basis_inr"] == "1000"
+    assert individual["routed_sleeve_budget_inr"] == "5000"
+    allocation = assessment["candidate_level_sip_allocation_simulation"]
+    assert allocation["reconciliation_ok"] is True
+    assert Decimal(allocation["allocated_budget_inr"]) <= Decimal("10000")
+    assert Decimal(allocation["unallocated_budget_inr"]) + Decimal(allocation["allocated_budget_inr"]) == Decimal("10000")
