@@ -10,6 +10,12 @@ import io
 import os
 import sys
 
+# Running a script by path puts scripts/ (not the repository root) on sys.path.
+# Add the checkout root so the project's core package can be imported.
+REPOSITORY_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if REPOSITORY_ROOT not in sys.path:
+    sys.path.insert(0, REPOSITORY_ROOT)
+
 from core import ai_engine
 
 
