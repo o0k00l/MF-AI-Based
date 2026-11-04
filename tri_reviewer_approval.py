@@ -20,6 +20,9 @@ from urllib.parse import urlparse
 ENV_REGISTRY = "TRI_REVIEWER_TRUST_REGISTRY_JSON"
 ENV_APPROVAL = "TRI_REVIEWER_APPROVAL_JSON"
 MAX_APPROVAL_LIFETIME_DAYS = 90
+MAX_REGISTRY_BYTES = 256 * 1024
+MAX_APPROVAL_BYTES = 1024 * 1024
+RFC3339_UTC_RE = re.compile(r"^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,6})?Z$")
 REQUIRED_BENCHMARKS = {
     "NIFTY 500 TRI", "NIFTY 500 MULTICAP 50:25:25 TRI", "NIFTY MIDCAP 150 TRI"
 }
@@ -57,8 +60,8 @@ class ApprovalResult:
 
 
 def _utc(value: Any) -> datetime:
-    if not isinstance(value, str) or not value.endswith("Z"):
-        raise ValueError("timestamp must be UTC RFC3339 ending in Z")
+    if not isinstance(value, str) or not RFC3339_UTC_RE.fullmatch(value):
+        raise ValueError("timestamp must be canonical UTC RFC3339 with seconds and ending in Z")
     parsed = datetime.fromisoformat(value[:-1] + "+00:00")
     if parsed.tzinfo is None or parsed.utcoffset() != timezone.utc.utcoffset(parsed):
         raise ValueError("timestamp must be UTC")
@@ -82,6 +85,8 @@ def _b64url(value: Any, expected_length: int) -> bytes:
     decoded = base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
     if len(decoded) != expected_length:
         raise ValueError("decoded cryptographic value has incorrect length")
+    if base64.urlsafe_b64encode(decoded).decode("ascii").rstrip("=") != value:
+        raise ValueError("cryptographic value is not canonically base64url-encoded")
     return decoded
 
 
@@ -140,6 +145,8 @@ def verify_approval(
         entry = matches[0]
         if entry.get("reviewer_id") != payload["reviewer_id"]:
             raise ValueError("reviewer identity does not match trusted key registry")
+        if entry.get("reviewer_role") != "independent":
+            raise ValueError("reviewer key is not explicitly authorized for independent review")
         key_from, key_until = _utc(entry.get("valid_from")), _utc(entry.get("valid_until"))
         if issued < key_from or issued >= key_until or clock < key_from or clock >= key_until:
             raise ValueError("reviewer key is not valid at approval issuance and verification time")
@@ -251,11 +258,15 @@ def verify_approval_from_environment(
     raw_registry = os.environ.get(ENV_REGISTRY)
     if not raw_registry:
         return ApprovalResult(False, (f"{ENV_REGISTRY} is not configured; release remains blocked",))
+    if len(raw_registry.encode("utf-8")) > MAX_REGISTRY_BYTES:
+        return ApprovalResult(False, ("reviewer trust registry exceeds the configured size limit",))
     if not expected_commit:
         return ApprovalResult(False, ("expected release commit SHA was not supplied; release remains blocked",))
     raw_approval = os.environ.get(ENV_APPROVAL)
     if not raw_approval:
         return ApprovalResult(False, (f"{ENV_APPROVAL} is not configured; release remains blocked",))
+    if len(raw_approval.encode("utf-8")) > MAX_APPROVAL_BYTES:
+        return ApprovalResult(False, ("detached reviewer approval exceeds the configured size limit",))
     try:
         registry = _strict_json(raw_registry)
         envelope = _strict_json(raw_approval)
