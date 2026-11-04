@@ -159,8 +159,15 @@ def route_incremental_sip(
         tolerance_band_pct=tolerance_band_pct, portfolio_total_inr=portfolio_total_inr,
     )
     eligible = set(eligible_sleeves)
+    # Tolerance is a dead-band: a sleeve is not treated as underweight until
+    # its shortfall exceeds the approved tolerance. Route only the excess gap.
+    # This prevents small measurement/valuation noise from driving SIP flows.
+    tolerance = _decimal(tolerance_band_pct, "tolerance_band_pct")
     all_gaps = {
-        sleeve: max(Decimal("0"), -_decimal(drift["drift_pct_points"][sleeve], sleeve))
+        sleeve: max(
+            Decimal("0"),
+            -_decimal(drift["drift_pct_points"][sleeve], sleeve) - tolerance,
+        )
         for sleeve in target_weights_pct
     }
     all_gaps = {key: value for key, value in all_gaps.items() if value > 0}
