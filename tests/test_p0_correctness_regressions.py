@@ -1934,6 +1934,9 @@ def test_candidate_scoring_rejects_unknown_category_instead_of_using_healthcare_
         "return_1y": 12.0,
         "sharpe_3y": 0.8,
         "ter_direct_pct": 0.7,
+        "cash_debt_buffer_pct": 10.0,
+        "international_equity_pct": 0.0,
+        "overlap_pct": 0.0,
     }
     with pytest.raises(ValueError, match="Unsupported scoring category"):
         calculate_candidate_6_pillar_score(candidate, category_key="Debt", weights=ScoringWeights(0.25, 0.20, 0.15, 0.15, 0.15, 0.10))
@@ -1953,7 +1956,7 @@ def test_candidate_scoring_rejects_missing_core_evidence_instead_of_filling_defa
         calculate_candidate_6_pillar_score(candidate, category_key="Flexi Cap", weights=ScoringWeights(0.25, 0.20, 0.15, 0.15, 0.15, 0.10))
 
 
-def test_candidate_scoring_marks_absent_optional_pillars_neutral_not_as_observed_zero():
+def test_candidate_scoring_blocks_absent_optional_pillars_instead_of_assigning_neutral_scores():
     from core.candidate_scoring import calculate_candidate_6_pillar_score
 
     candidate = {
@@ -1962,13 +1965,11 @@ def test_candidate_scoring_marks_absent_optional_pillars_neutral_not_as_observed
         "sharpe_3y": 0.8,
         "ter_direct_pct": 0.7,
     }
-    # Healthcare has a complete approved anchor set; this test isolates the
-    # neutral treatment of absent optional pillars rather than inventing
-    # Flexi Cap 1Y return anchors that have not been independently approved.
-    _, pillars = calculate_candidate_6_pillar_score(candidate, category_key="Healthcare", weights=ScoringWeights(0.25, 0.20, 0.15, 0.15, 0.15, 0.10))
-    assert pillars["downside_buffer"] == 50.0
-    assert pillars["geographic_moat"] == 50.0
-    assert pillars["portfolio_overlap"] == 50.0
+    with pytest.raises(ValueError, match="cash/debt buffer"):
+        calculate_candidate_6_pillar_score(
+            candidate, category_key="Healthcare",
+            weights=ScoringWeights(0.25, 0.20, 0.15, 0.15, 0.15, 0.10),
+        )
 
 
 
