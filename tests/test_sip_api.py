@@ -315,3 +315,24 @@ def test_api_real_service_ingests_cas_and_holds_on_missing_portfolio_disclosure(
     assert body["plan"]["total_monthly_budget_inr"] == 25000.0
     assert body["plan"]["unallocated_budget_inr"] == 25000.0
     assert any("constituent disclosure is MISSING" in reason for reason in body["reasons"])
+
+
+def test_api_rejects_custom_until_custom_saa_contract_is_implemented():
+    called = []
+    client = TestClient(
+        sip.create_sip_app(evidence_provider=lambda **kwargs: called.append(kwargs))
+    )
+
+    response = _upload(
+        client,
+        monthly_budget_inr="25000",
+        risk_profile="Custom",
+    )
+
+    assert response.status_code == 422
+    body = response.json()
+    assert body["status"] == "HOLD"
+    assert body["decision"] == "NO_ACTION"
+    assert body["unallocated_budget_inr"] == 25000
+    assert any("Custom SAA is not implemented" in reason for reason in body["reasons"])
+    assert called == []
