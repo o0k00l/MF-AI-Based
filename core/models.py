@@ -165,9 +165,9 @@ class SAADriftAnalysis(BaseModel):
     rebalance_required: bool
     equity_gap_inr: float
     debt_gap_inr: float
-    look_through_debt_inr: float = 0.0
-    look_through_cash_inr: float = 0.0
-    look_through_stability_buffer_pct: float = 0.0
+    look_through_debt_inr: Optional[float] = None
+    look_through_cash_inr: Optional[float] = None
+    look_through_stability_buffer_pct: Optional[float] = None
 
 
 class CashDeploymentPlan(BaseModel):
@@ -259,8 +259,8 @@ class DeterministicSIPPlan(BaseModel):
         return self
 
     total_monthly_budget_inr: float
-    unallocated_budget_inr: float = 0.0
-    equity_sip_pct: float
+    unallocated_budget_inr: float
+    equity_sip_pct
     debt_sip_pct: float
     items: List[DeterministicSIPRecommendation] = Field(default_factory=list)
     mandate_state: MandateExecutionState = MandateExecutionState.HOLD_PENDING_TRI_VALIDATION
@@ -292,14 +292,14 @@ class DeterministicLumpsumPlan(BaseModel):
         return self
 
     total_lumpsum_inr: float
-    unallocated_amount_inr: float = 0.0
+    unallocated_amount_inr: float
     is_big_ticket: bool
     stp_duration_months: int
     immediate_amount_inr: float
     stp_total_amount_inr: float
     monthly_stp_total_inr: float
     parking_vehicle: str
-    tax_savings_vs_debt_fund_inr: float = 0.0
+    tax_savings_vs_debt_fund_inr: Optional[float] = None
     cash_validation_passed: Optional[bool] = None
     cash_validation_message: str = ""
     tranches: List[LumpsumTrancheItem] = Field(default_factory=list)
@@ -441,22 +441,47 @@ class SwitchCostAnalysis(BaseModel):
 
 
 class EligibilityGateResult(BaseModel):
-    """Binary eligibility gates - must pass ALL to enter scoring."""
+    """Tri-state eligibility gates; absence of evidence must never pass."""
+
     fund_id: str
     fund_name: str
     passed: bool
     failed_gates: List[str] = Field(default_factory=list)
-    amc_concentration_gate: bool = True
-    aum_stability_gate: bool = True
-    concentration_gate: bool = True
-    sharpe_alpha_gate: bool = True
-    liquidity_gate: bool = True
-    mandate_suitability_gate: bool = True
-    data_integrity_gate: bool = True
-    manager_tenure_gate: bool = True
-    thematic_satellite_gate: bool = True
-    direct_plan_gate: bool = True
+    amc_concentration_gate: Optional[bool] = None
+    aum_stability_gate: Optional[bool] = None
+    concentration_gate: Optional[bool] = None
+    sharpe_alpha_gate: Optional[bool] = None
+    liquidity_gate: Optional[bool] = None
+    mandate_suitability_gate: Optional[bool] = None
+    data_integrity_gate: Optional[bool] = None
+    manager_tenure_gate: Optional[bool] = None
+    thematic_satellite_gate: Optional[bool] = None
+    direct_plan_gate: Optional[bool] = None
     details: Dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_gate_evidence_matches_verdict(self) -> "EligibilityGateResult":
+        gate_names = (
+            "amc_concentration_gate",
+            "aum_stability_gate",
+            "concentration_gate",
+            "sharpe_alpha_gate",
+            "liquidity_gate",
+            "mandate_suitability_gate",
+            "data_integrity_gate",
+            "manager_tenure_gate",
+            "thematic_satellite_gate",
+            "direct_plan_gate",
+        )
+        gate_values = [getattr(self, name) for name in gate_names]
+        if self.passed is True:
+            if any(value is not True for value in gate_values):
+                raise ValueError("Eligibility cannot pass while any gate is false or unevaluated")
+            if self.failed_gates:
+                raise ValueError("A passing eligibility result cannot contain failed gates")
+        elif not self.failed_gates:
+            raise ValueError("A failed or unevaluated eligibility result requires explicit failed/unknown reasons")
+        return self
 
 
 class NOActionResult(BaseModel):
@@ -524,15 +549,15 @@ class RedemptionTrancheItem(BaseModel):
     gross_amount_inr: float
     units_to_redeem: float
     nav: float
-    exit_load_inr: float = 0.0
-    realized_capital_gain_inr: float = 0.0
-    is_long_term: bool = True
-    projected_stcg_tax_inr: float = 0.0
-    projected_ltcg_tax_inr: float = 0.0
-    tax_sheltered_under_112a_inr: float = 0.0
-    net_tax_liability_inr: float = 0.0
-    net_cash_realized_inr: float
-    annual_commission_saved_inr: float = 0.0
+    exit_load_inr: Optional[float] = None
+    realized_capital_gain_inr: Optional[float] = None
+    is_long_term: Optional[bool] = None
+    projected_stcg_tax_inr: Optional[float] = None
+    projected_ltcg_tax_inr: Optional[float] = None
+    tax_sheltered_under_112a_inr: Optional[float] = None
+    net_tax_liability_inr: Optional[float] = None
+    net_cash_realized_inr: Optional[float] = None
+    annual_commission_saved_inr: Optional[float] = None
     is_full_redemption: bool = False
     action_step: str
 
