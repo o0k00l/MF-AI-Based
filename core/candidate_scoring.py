@@ -340,15 +340,35 @@ class FiduciaryFundSelector:
         self.fund_metrics = self._load_metrics()
 
     def _load_metrics(self) -> Dict[str, Any]:
-        if not self.fund_metrics_path.exists():
-            return {}
+        if not self.fund_metrics_path.is_file():
+            raise FileNotFoundError(
+                f"Required fund metrics evidence file is missing: {self.fund_metrics_path}"
+            )
         try:
             with open(self.fund_metrics_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
-            funds_list = data.get("funds", [])
-            return {f.get("id", f.get("name", "")): f for f in funds_list}
-        except Exception:
-            return {}
+        except (OSError, json.JSONDecodeError) as exc:
+            raise ValueError(
+                f"Fund metrics evidence file is unreadable or invalid JSON: {self.fund_metrics_path}"
+            ) from exc
+
+        if not isinstance(data, dict) or not isinstance(data.get("funds"), list):
+            raise ValueError("Fund metrics evidence must contain a 'funds' list")
+
+        indexed: Dict[str, Any] = {}
+        for index, record in enumerate(data["funds"]):
+            if not isinstance(record, dict):
+                raise ValueError(f"Fund metrics record {index} must be an object")
+            identity = str(record.get("id") or record.get("name") or "").strip()
+            if not identity:
+                raise ValueError(f"Fund metrics record {index} has no stable id or name")
+            if identity in indexed:
+                raise ValueError(f"Duplicate fund metrics identity: {identity}")
+            indexed[identity] = record
+
+        if not indexed:
+            raise ValueError("Fund metrics evidence contains no fund records")
+        return indexed
 
     def score_flexi_cap_candidates(self) -> Dict[str, FundScorecard]:
         results = {}
