@@ -1866,7 +1866,10 @@ def parse_cas(xlsx_path: Path, scheme_master: Optional[Dict[str, Any]] = None, s
                     "folio": vals[hdr.get("Folio No.", 0)],
                     "value": cur_val,
                     "invested": inv_val,
-                    "is_direct": "direct" in scheme_name.lower(),
+                    "is_direct": None,
+                    "plan": None,
+                    "option_type": None,
+                    "plan_option_status": "MISSING",
                     "constituent_weights": None,
                     "constituent_weights_coverage_pct": None,
                     "lookthrough_status": "MISSING",
@@ -1888,6 +1891,14 @@ def parse_cas(xlsx_path: Path, scheme_master: Optional[Dict[str, Any]] = None, s
                         "isin": identity.get("isin"),
                         "scheme_identity_status": identity["status"],
                         "scheme_identity_reason": identity["reason"],
+                        "plan": identity.get("plan_type"),
+                        "option_type": identity.get("option_type"),
+                        "plan_option_status": identity.get("plan_option_status", "MISSING"),
+                        "is_direct": (
+                            identity.get("plan_type") == "DIRECT"
+                            if identity.get("plan_option_status") == "VERIFIED"
+                            else None
+                        ),
                     })
                 holdings.append(holding)
 
