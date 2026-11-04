@@ -19,7 +19,7 @@ def _synthetic_tax_evidence_kwargs():
 from core.eligibility import _finite_number, _risk_tier_to_int, check_eligibility_gates
 from types import SimpleNamespace
 from core.math_engine import compute_candidate_portfolio_overlap, select_autonomous_blueprint_funds
-from core.models import AssetAllocationTarget, DeterministicSIPPlan, RiskTier
+from core.models import AssetAllocationTarget, DeterministicSIPPlan, DeterministicSIPRecommendation, RiskTier
 from tax.transition_planner import Lot, FundSellPlan, plan_fy_tranches, classify_fund_for_tax
 
 
@@ -2080,7 +2080,16 @@ def test_sip_plan_accepts_fully_unallocated_budget_when_on_hold():
         unallocated_budget_inr=10000.0,
         equity_sip_pct=100.0,
         debt_sip_pct=0.0,
-        items=[],
+        items=[
+            DeterministicSIPRecommendation(
+                category_role="Core",
+                scheme_name="NO_ACTION: candidate not verified",
+                monthly_inr=0.0,
+                allocation_pct=100.0,
+                rational_code="CORE_COMPOUNDER",
+                fiduciary_rationale="Held pending evidence",
+            )
+        ],
     )
     assert plan.unallocated_budget_inr == plan.total_monthly_budget_inr
 
