@@ -202,7 +202,7 @@ def reconcile_cas_holdings_with_transactions(holdings: List[HoldingItem], transa
     transaction_units: Dict[str, float] = {}
     transaction_names: Dict[str, str] = {}
     supported_types = {"PURCHASE", "SIP", "SWITCH_IN", "STP_IN", "DIVIDEND_REINVEST",
-                       "REDEMPTION", "SWITCH_OUT", "STP_OUT"}
+                       "DIVIDEND", "REDEMPTION", "SWITCH_OUT", "STP_OUT"}
     for index, transaction in enumerate(data["transactions"]):
         if not isinstance(transaction, dict):
             return {"status": "INVALID_TRANSACTION", "error": f"Transaction row {index} is not an object",
@@ -220,7 +220,10 @@ def reconcile_cas_holdings_with_transactions(holdings: List[HoldingItem], transa
             return {"status": "INVALID_TRANSACTION", "error": f"Invalid scheme, type or units at transaction row {index}",
                     "reconciled_schemes": 0, "total_schemes": len(holdings),
                     "discrepancies": [], "unmatched_transaction_schemes": []}
-        sign = -1.0 if txn_type in {"REDEMPTION", "SWITCH_OUT", "STP_OUT"} else 1.0
+        if txn_type == "DIVIDEND":
+            sign = 0.0  # Cash payout does not change mutual-fund units.
+        else:
+            sign = -1.0 if txn_type in {"REDEMPTION", "SWITCH_OUT", "STP_OUT"} else 1.0
         transaction_units[scheme_key] = transaction_units.get(scheme_key, 0.0) + sign * units
         transaction_names.setdefault(scheme_key, str(scheme_name))
 
