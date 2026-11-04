@@ -3126,8 +3126,10 @@ def compute_candidate_portfolio_overlap(
 
 def compute_multi_horizon_fiduciary_score(
     c: Dict[str, Any],
-    category_key: str = "Healthcare",
-    portfolio_overlap_pct: Optional[float] = None
+    category_key: str,
+    portfolio_overlap_pct: Optional[float] = None,
+    *,
+    scoring_weights: Any,
 ) -> float:
     """
     Standardized 6-Pillar Fiduciary Normalized Scoring Engine (0 - 100 Scale):
@@ -3136,7 +3138,9 @@ def compute_multi_horizon_fiduciary_score(
     Incorporates actual candidate-to-portfolio weighted stock look-through overlap.
     """
     from core.candidate_scoring import calculate_candidate_6_pillar_score
-    score, _ = calculate_candidate_6_pillar_score(c, category_key, portfolio_overlap_pct)
+    score, _ = calculate_candidate_6_pillar_score(
+        c, category_key, portfolio_overlap_pct, weights=scoring_weights
+    )
     return score
 
 
@@ -3633,8 +3637,10 @@ def qualifies_as_specified_mutual_fund_under_section_50AA(
 
 def compute_multi_horizon_fiduciary_score(
     c: Dict[str, Any],
-    category_key: str = "Healthcare",
-    portfolio_overlap_pct: Optional[float] = None
+    category_key: str,
+    portfolio_overlap_pct: Optional[float] = None,
+    *,
+    scoring_weights: Any,
 ) -> float:
     """
     Standardized 6-Pillar Fiduciary Normalized Scoring Engine (0 - 100 Scale):
@@ -3643,7 +3649,9 @@ def compute_multi_horizon_fiduciary_score(
     Incorporates actual candidate-to-portfolio weighted stock look-through overlap.
     """
     from core.candidate_scoring import calculate_candidate_6_pillar_score
-    score, _ = calculate_candidate_6_pillar_score(c, category_key, portfolio_overlap_pct)
+    score, _ = calculate_candidate_6_pillar_score(
+        c, category_key, portfolio_overlap_pct, weights=scoring_weights
+    )
     return score
 
 
