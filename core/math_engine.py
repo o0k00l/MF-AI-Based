@@ -2158,7 +2158,13 @@ def aggregate_fiduciary_facts(
 
     # Architectural Correction 5 & 6: Eligibility Gates & NO ACTION
     # Ingest candidate universe from fund_metrics and run all 10 binary gates
-    candidate_universe = load_candidate_universe(metrics_path)
+    candidate_universe = load_candidate_universe(
+                metrics_path,
+                portfolio_disclosures_by_scheme_id=portfolio_disclosures_by_scheme_id,
+                portfolio_disclosure_source_bytes_by_scheme_id=portfolio_disclosure_source_bytes_by_scheme_id,
+                disclosure_as_of_date=disclosure_as_of_date,
+                disclosure_max_age_days=disclosure_max_age_days,
+            )
     current_portfolio_summary = [{"scheme": h.scheme, "value": h.current_value_inr} for h in holdings]
     tier_num = _parse_sebi_risk_tier(client_risk_tier)
 
@@ -3774,6 +3780,10 @@ def select_autonomous_blueprint_funds(
     thematic_deficit_theme: str = "Pharma",
     thematic_satellite_authorized: bool = False,
     thematic_satellite_pct_of_equity: float = 0.0,
+    portfolio_disclosures_by_scheme_id: Optional[Dict[str, Dict[str, Any]]] = None,
+    portfolio_disclosure_source_bytes_by_scheme_id: Optional[Dict[str, bytes]] = None,
+    disclosure_as_of_date: Optional[date] = None,
+    disclosure_max_age_days: int = 45,
 ) -> Dict[str, Dict[str, Any]]:
     """
     Select candidates only from the supplied, source-backed universe.
@@ -4254,6 +4264,10 @@ def compute_deterministic_lumpsum_blueprint(
         thematic_deficit_theme=thematic_deficit_theme,
         thematic_satellite_authorized=thematic_satellite_authorized,
         thematic_satellite_pct_of_equity=satellite_pct,
+        portfolio_disclosures_by_scheme_id=portfolio_disclosures_by_scheme_id,
+        portfolio_disclosure_source_bytes_by_scheme_id=portfolio_disclosure_source_bytes_by_scheme_id,
+        disclosure_as_of_date=disclosure_as_of_date,
+        disclosure_max_age_days=disclosure_max_age_days,
     )
     equity_pct, debt_pct = calculate_universal_tier_split(
         tier_num, stability_buffer_pct, equity_sip_routing_override=equity_sip_routing_override
@@ -4407,6 +4421,10 @@ def compute_deterministic_sip_blueprint(
     thematic_satellite_authorized: bool = False,
     candidate_universe: Optional[List[Dict[str, Any]]] = None,
     equity_sip_routing_override: bool = False,
+    portfolio_disclosures_by_scheme_id: Optional[Dict[str, Dict[str, Any]]] = None,
+    portfolio_disclosure_source_bytes_by_scheme_id: Optional[Dict[str, bytes]] = None,
+    disclosure_as_of_date: Optional[date] = None,
+    disclosure_max_age_days: int = 45,
 ) -> DeterministicSIPPlan:
     """
     Computes deterministic SIP blueprint dynamically tailored across all SEBI risk tiers
