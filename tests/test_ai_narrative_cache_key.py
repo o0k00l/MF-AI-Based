@@ -37,3 +37,4 @@ def test_cache_key_is_deterministic_and_sha256_hex():
     assert key_a == key_b
     assert len(key_a) == 64
     assert int(key_a, 16) > 0
+

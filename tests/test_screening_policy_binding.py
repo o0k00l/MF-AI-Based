@@ -80,3 +80,4 @@ def test_policy_loader_rejects_contradictory_thematic_action(tmp_path):
 
     with pytest.raises(ValueError, match="Contradictory action 'IMMEDIATE_EXIT'"):
         load_fund_screening_policy(path)
+

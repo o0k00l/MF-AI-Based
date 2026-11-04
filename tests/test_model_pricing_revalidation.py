@@ -110,3 +110,4 @@ def test_models_with_free_suffix_without_explicit_zero_price_are_excluded(monkey
     discovered = _discover_openai_models("OpenRouter", "https://openrouter.ai/api/v1/models", "test-key")
     assert "real-free-model:free" in discovered
     assert "some-model:free" not in discovered
+

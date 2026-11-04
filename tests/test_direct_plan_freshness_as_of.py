@@ -117,3 +117,4 @@ def test_check_eligibility_gates_propagates_as_of_date(tmp_path):
         as_of_date=date(2026, 9, 1),
     )
     assert res_stale.direct_plan_gate is False
+

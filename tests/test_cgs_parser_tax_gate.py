@@ -46,3 +46,4 @@ def test_cgs_parser_does_not_output_hardcoded_tax_exemption_or_headroom(tmp_path
     # SHA256 digest must be present
     assert "source_sha256" in result
     assert len(result["source_sha256"]) == 64
+

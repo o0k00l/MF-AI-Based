@@ -387,3 +387,4 @@ def create_sip_trust_registry(keys: List[Dict[str, Any]]) -> Dict[str, Any]:
         "schema_version": 1,
         "keys": keys,
     }
+

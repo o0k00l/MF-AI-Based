@@ -67,3 +67,4 @@ def test_small_cap_category_anchors_are_approved_and_scoreable():
     )
     assert 0.0 <= score <= 100.0
     assert len(pillars) == 6
+

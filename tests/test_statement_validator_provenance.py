@@ -78,3 +78,4 @@ def test_cgs_excel_with_kfintech_evidence_reports_kfintech():
     res = validate_cgs_excel(file_bytes, "kfintech_cgs.xlsx")
     assert res.is_valid is True
     assert res.rta_source == "KFintech"
+
