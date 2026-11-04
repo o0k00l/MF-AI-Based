@@ -56,113 +56,118 @@ def discover_cgs_report(
 
 
 def parse_cgs_excel(cgs_path: str | Path) -> Dict[str, Any]:
-    """
-    Parses an official Capital Gains Statement (CGS) Excel workbook.
-    Returns clean dictionary of realized capital gains, available losses, and tax headroom.
-    """
+    """Extract CGS source-reported figures only; never calculate tax or headroom."""
     path = Path(cgs_path)
-    if not path.exists():
+    if not path.exists() or not path.is_file():
         raise FileNotFoundError(f"CGS statement not found at: {path}")
 
     wb = openpyxl.load_workbook(path, data_only=True)
     summary_data = {
-        "stcg_inr": 0.0,
-        "ltcg_inr": 0.0,
-        "total_outflows": 0.0,
-        "total_cost": 0.0,
+        "stcg_inr": None,
+        "ltcg_inr": None,
+        "total_outflows": None,
+        "total_cost": None,
     }
-    schemes = []
-    transactions = []
+    parse_errors: list[str] = []
+    schemes: list[dict[str, Any]] = []
+    transactions: list[dict[str, Any]] = []
 
-    # 1. Overall Summary Sheet
+    def number(value: Any, label: str) -> float:
+        if isinstance(value, bool) or value is None:
+            raise ValueError(f"{label} is missing or not numeric")
+        parsed = float(value)
+        import math
+        if not math.isfinite(parsed):
+            raise ValueError(f"{label} is non-finite")
+        return parsed
+
+    # 1. Overall summary: preserve missing fields as None, not fabricated zero.
     if "Summary" in wb.sheetnames:
-        s = wb["Summary"]
-        for row in s.iter_rows(values_only=True):
-            r = [c for c in row if c is not None and str(c).strip()]
-            if len(r) >= 2:
-                lbl = str(r[0]).strip().lower()
-                val = r[-1]
-                if "short term capital gain/loss" in lbl:
-                    try:
-                        summary_data["stcg_inr"] = float(val)
-                    except (ValueError, TypeError):
-                        pass
-                elif "longtermwithoutindex-capitalgain/loss" in lbl:
-                    try:
-                        summary_data["ltcg_inr"] = float(val)
-                    except (ValueError, TypeError):
-                        pass
-                elif "full value consideration" in lbl and summary_data["total_outflows"] == 0.0:
-                    try:
-                        summary_data["total_outflows"] = float(val)
-                    except (ValueError, TypeError):
-                        pass
-                elif "cost of acquisition" in lbl and summary_data["total_cost"] == 0.0:
-                    try:
-                        summary_data["total_cost"] = float(val)
-                    except (ValueError, TypeError):
-                        pass
-
-    # 2. Scheme Level Summary
-    if "Scheme_Level_Summary" in wb.sheetnames:
-        s = wb["Scheme_Level_Summary"]
-        for row in s.iter_rows(min_row=5, values_only=True):
-            if row[0]:
-                scheme_name = str(row[0]).strip()
-                if scheme_name.lower() == "total":
-                    # Capture exact totals row if present
-                    try:
-                        if len(row) > 3 and row[2]:
-                            summary_data["total_outflows"] = float(row[2])
-                        if len(row) > 3 and row[3]:
-                            summary_data["total_cost"] = float(row[3])
-                        if len(row) > 6 and row[6] is not None:
-                            summary_data["stcg_inr"] = float(row[6])
-                        if len(row) > 7 and row[7] is not None:
-                            summary_data["ltcg_inr"] = float(row[7])
-                    except (ValueError, TypeError):
-                        pass
-                else:
-                    try:
-                        outflow = float(row[2] or 0.0)
-                        cost = float(row[3] or 0.0)
-                        stcg = float(row[6] or 0.0)
-                        ltcg = float(row[7] or 0.0)
-                        net_gain = outflow - cost
-                        schemes.append({
-                            "scheme": scheme_name,
-                            "outflow_inr": outflow,
-                            "cost_inr": cost,
-                            "net_gain_inr": net_gain,
-                            "stcg_inr": stcg,
-                            "ltcg_inr": ltcg,
-                            "is_loss": net_gain < 0
-                        })
-                    except (ValueError, TypeError, IndexError):
-                        pass
-
-    # 3. Lot-Level Transaction Details
-    if "TransactionDetails" in wb.sheetnames:
-        s = wb["TransactionDetails"]
-        for r in s.iter_rows(min_row=6, values_only=True):
-            if len(r) > 16 and r[2] and r[3]:
+        sheet = wb["Summary"]
+        for row_number, row in enumerate(sheet.iter_rows(values_only=True), start=1):
+            values = [cell for cell in row if cell is not None and str(cell).strip()]
+            if len(values) < 2:
+                continue
+            label = str(values[0]).strip().casefold()
+            source_value = values[-1]
+            field = None
+            if "short term capital gain/loss" in label:
+                field = "stcg_inr"
+            elif "longtermwithoutindex-capitalgain/loss" in label:
+                field = "ltcg_inr"
+            elif "full value consideration" in label:
+                field = "total_outflows"
+            elif "cost of acquisition" in label:
+                field = "total_cost"
+            if field:
                 try:
-                    transactions.append({
-                        "folio": str(r[2]).strip(),
-                        "scheme": str(r[3]).strip(),
-                        "purchase_type": str(r[4] or "").strip(),
-                        "purchase_date": str(r[5] or "").strip(),
-                        "purchase_units": float(r[6] or 0.0),
-                        "redemption_type": str(r[9] or "").strip(),
-                        "redemption_date": str(r[10] or "").strip(),
-                        "redemption_amount": float(r[12] or 0.0),
-                        "stcg_inr": float(r[16] or 0.0),
-                        "ltcg_inr": float(r[19] or 0.0)
-                    })
-                except (ValueError, TypeError, IndexError):
-                    pass
+                    summary_data[field] = number(source_value, field)
+                except (TypeError, ValueError, OverflowError) as exc:
+                    parse_errors.append(f"Summary row {row_number}: {exc}")
 
+    # 2. Scheme summary: exact totals may fill missing overall summary values.
+    if "Scheme_Level_Summary" in wb.sheetnames:
+        sheet = wb["Scheme_Level_Summary"]
+        for row_number, row in enumerate(sheet.iter_rows(min_row=5, values_only=True), start=5):
+            if not row or not row[0]:
+                continue
+            scheme_name = str(row[0]).strip()
+            try:
+                if scheme_name.casefold() == "total":
+                    for index, field in ((2, "total_outflows"), (3, "total_cost"),
+                                         (6, "stcg_inr"), (7, "ltcg_inr")):
+                        if len(row) > index and row[index] is not None:
+                            summary_data[field] = number(row[index], field)
+                    continue
+                if len(row) <= 7:
+                    raise ValueError("scheme summary row is missing required columns")
+                outflow = number(row[2], "outflow")
+                cost = number(row[3], "cost")
+                stcg = number(row[6], "STCG")
+                ltcg = number(row[7], "LTCG")
+                schemes.append({
+                    "scheme": scheme_name,
+                    "outflow_inr": outflow,
+                    "cost_inr": cost,
+                    "net_gain_inr": outflow - cost,
+                    "stcg_inr": stcg,
+                    "ltcg_inr": ltcg,
+                    "is_loss": outflow - cost < 0,
+                })
+            except (TypeError, ValueError, OverflowError, IndexError) as exc:
+                parse_errors.append(f"Scheme summary row {row_number}: {exc}")
+
+    # 3. Transaction details: rows are either fully parsed or explicitly flagged.
+    if "TransactionDetails" in wb.sheetnames:
+        sheet = wb["TransactionDetails"]
+        for row_number, row in enumerate(sheet.iter_rows(min_row=6, values_only=True), start=6):
+            if not row or len(row) <= 3 or not (row[2] or row[3]):
+                continue
+            try:
+                if len(row) <= 19:
+                    raise ValueError("transaction row is missing required columns through LTCG")
+                transactions.append({
+                    "folio": str(row[2]).strip(),
+                    "scheme": str(row[3]).strip(),
+                    "purchase_type": str(row[4] or "").strip(),
+                    "purchase_date": str(row[5] or "").strip(),
+                    "purchase_units": number(row[6], "purchase units"),
+                    "redemption_type": str(row[9] or "").strip(),
+                    "redemption_date": str(row[10] or "").strip(),
+                    "redemption_amount": number(row[12], "redemption amount"),
+                    "stcg_inr": number(row[16], "transaction STCG"),
+                    "ltcg_inr": number(row[19], "transaction LTCG"),
+                })
+            except (TypeError, ValueError, OverflowError, IndexError) as exc:
+                parse_errors.append(f"Transaction row {row_number}: {exc}")
+
+    wb.close()
     source_sha256 = hashlib.sha256(path.read_bytes()).hexdigest()
+    required_summary = {"stcg_inr", "ltcg_inr", "total_outflows", "total_cost"}
+    missing_summary = sorted(field for field in required_summary if summary_data[field] is None)
+    if missing_summary:
+        parse_errors.append("Missing source-reported summary fields: " + ", ".join(missing_summary))
+    parse_status = "COMPLETE" if not parse_errors else "INCOMPLETE"
 
     return {
         "statement_path": str(path),
@@ -171,9 +176,14 @@ def parse_cgs_excel(cgs_path: str | Path) -> Dict[str, Any]:
         "summary": summary_data,
         "schemes": schemes,
         "transactions": transactions,
+        "parse_status": parse_status,
+        "parse_errors": parse_errors,
         "has_cgs": True,
-        "stcg_loss_available": abs(summary_data["stcg_inr"]) if summary_data["stcg_inr"] < 0 else 0.0,
+        "stcg_loss_available": (
+            abs(summary_data["stcg_inr"])
+            if summary_data["stcg_inr"] is not None and summary_data["stcg_inr"] < 0
+            else (0.0 if summary_data["stcg_inr"] is not None else None)
+        ),
         "tax_advice_enabled": False,
         "headroom_status": "Tax headroom and statutory exemption calculation is disabled pending independent tax review.",
     }
-
