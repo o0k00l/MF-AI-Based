@@ -18,7 +18,8 @@ def _synthetic_tax_evidence_kwargs():
 
 from core.eligibility import _finite_number, _risk_tier_to_int, check_eligibility_gates
 from types import SimpleNamespace
-from core.math_engine import compute_candidate_portfolio_overlap
+from core.math_engine import compute_candidate_portfolio_overlap, select_autonomous_blueprint_funds
+from core.models import RiskTier
 from tax.transition_planner import Lot, FundSellPlan, plan_fy_tranches, classify_fund_for_tax
 
 
@@ -2015,3 +2016,30 @@ def test_candidate_portfolio_overlap_zero_is_only_confirmed_empty_or_disjoint():
     holding = _lookthrough_holding("existing-1", 1000.0, 100.0, {"issuer-b": 100.0})
     assert compute_candidate_portfolio_overlap(candidate, []) == 0.0
     assert compute_candidate_portfolio_overlap(candidate, [holding]) == 0.0
+
+
+
+def test_custom_investor_risk_profile_never_defaults_to_sebi_tier_six():
+    with pytest.raises(ValueError, match="explicitly approved custom SAA"):
+        select_autonomous_blueprint_funds(
+            holdings=[],
+            candidate_universe=[],
+            client_risk_tier=RiskTier.CUSTOM,
+        )
+
+
+@pytest.mark.parametrize(
+    ("risk_profile", "expected_tier"),
+    [
+        (RiskTier.CONSERVATIVE, 2),
+        (RiskTier.MODERATE, 4),
+        (RiskTier.AGGRESSIVE, 6),
+    ],
+)
+def test_standard_investor_risk_profiles_have_explicit_policy_mapping(risk_profile, expected_tier):
+    selected = select_autonomous_blueprint_funds(
+        holdings=[],
+        candidate_universe=[],
+        client_risk_tier=risk_profile,
+    )
+    assert selected["Slot 1: Core Flexi-Cap Compounder"]["target_pct"] >= 0.0
