@@ -263,6 +263,7 @@ def test_api_real_service_ingests_cas_and_holds_on_missing_portfolio_disclosure(
     metrics_path = tmp_path / "metrics.json"
     metrics_path.write_text(json.dumps({"funds": [{
         "id": "fund-api-e2e", "scheme": scheme_name, "name": scheme_name,
+        "scheme_id": scheme_id, "isin": isin,
         "cat": "Flexi Cap", "er": 0.65, "eq": 100.0, "debt": 0.0,
         "lc": 50.0, "mc": 30.0, "sc": 20.0, "h": [],
     }]}), encoding="utf-8")
