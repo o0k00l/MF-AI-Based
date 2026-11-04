@@ -2119,18 +2119,44 @@ def aggregate_fiduciary_facts(
     bench_audit_record = None
     if portfolio_xirr is not None and transactions_path.exists():
         try:
-            bench_audit = calculate_cashflow_matched_benchmark_xirr(
+            # The terminal valuation date must come from this CAS statement,
+            # never from today's date or the latest transaction date.
+            cas_as_of_raw, _ = parse_cas(cas_path)
+            cas_as_of_text = str(cas_as_of_raw).strip()
+            try:
+                cas_as_of_date = datetime.fromisoformat(cas_as_of_text).date()
+            except ValueError:
+                cas_as_of_date = None
+                for date_format in ("%d-%b-%Y", "%d/%m/%Y", "%d-%m-%Y"):
+                    try:
+                        cas_as_of_date = datetime.strptime(cas_as_of_text, date_format).date()
+                        break
+                    except ValueError:
+                        continue
+                if cas_as_of_date is None:
+                    raise TriProvenanceError(
+                        f"CAS valuation date is missing or unsupported: {cas_as_of_text!r}",
+                        benchmark="NIFTY 500 TRI",
+                        validation_stage="cas_valuation_date_invalid"
+                    )
+            bench_audit_record = calculate_cashflow_matched_benchmark_xirr(
                 transactions_path=transactions_path,
-                as_of_date=None,
+                as_of_date=cas_as_of_date,
                 benchmark_key="NIFTY 500 TRI",
                 cas_current=tot_cur
             )
-            bench_audit_record = bench_audit
-            if bench_audit.get("benchmark_matched_xirr_pct") is not None:
-                benchmark_xirr = bench_audit["benchmark_matched_xirr_pct"] / 100.0
-                alpha_pct = bench_audit.get("alpha_pct")
+            if bench_audit_record.get("benchmark_matched_xirr_pct") is not None:
+                benchmark_xirr = bench_audit_record["benchmark_matched_xirr_pct"] / 100.0
+                alpha_pct = bench_audit_record.get("alpha_pct")
         except TriProvenanceError as e:
             bench_audit_record = {"error": str(e), "validation_stage": e.validation_stage}
+            benchmark_xirr = None
+            alpha_pct = None
+        except (TypeError, ValueError) as e:
+            bench_audit_record = {
+                "error": f"Unable to establish CAS valuation date: {e}",
+                "validation_stage": "cas_valuation_date_invalid",
+            }
             benchmark_xirr = None
             alpha_pct = None
 
@@ -2149,7 +2175,7 @@ def aggregate_fiduciary_facts(
             bench_out_path = client_root / "outputs" / "benchmark_xirr.json"
             bench_out_path.parent.mkdir(parents=True, exist_ok=True)
             with open(bench_out_path, "w", encoding="utf-8") as f_b:
-                json.dump(bench_audit, f_b, indent=2)
+                json.dump(bench_audit_record, f_b, indent=2)
 
     # Mandate Authority & Runtime Hold Enforcement
     from core.models import MandateExecutionState
