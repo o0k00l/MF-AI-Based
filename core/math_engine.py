@@ -3129,12 +3129,15 @@ def calculate_thematic_exposures(
         look_through_inr = 0.0
         key_stocks_found = set()
         if complete_lookthrough:
-            theme_stocks = {normalize_name(stock) for stock in definition["stocks"]}
+            theme_stock_labels = {
+                normalize_name(stock): stock for stock in definition["stocks"]
+            }
+            theme_stocks = set(theme_stock_labels)
             for value, equity_pct, weights in validated_holdings:
                 for stock_key, weight_pct in weights.items():
                     if stock_key in theme_stocks:
                         look_through_inr += value * (equity_pct / 100.0) * (weight_pct / 100.0)
-                        key_stocks_found.add(stock_key)
+                        key_stocks_found.add(theme_stock_labels[stock_key])
             look_through_pct = look_through_inr / total_val * 100.0
             if dedicated_pct > 3.0 or look_through_pct > 4.0:
                 status = "FULL"
