@@ -330,6 +330,7 @@ def _assess_complete_portfolio_context(
                     operational, requested_monthly_sip_inr=monthly_budget_inr,
                     as_of_date=as_of,
                     max_evidence_age_days=int(candidate_policy["max_evidence_age_days"]),
+                    check_requested_minimum=False,
                 )
             else:
                 operational_results[candidate_id] = {
@@ -488,6 +489,7 @@ def _assess_complete_portfolio_context(
                 "eligibility_status": screening_by_id.get(candidate_id, {}).get("status"),
                 "overlap_status": overlap_results.get(candidate_id, {}).get("status"),
                 "operational_status": operational_results.get(candidate_id, {}).get("status"),
+                "minimum_monthly_sip_inr": operational_results.get(candidate_id, {}).get("minimum_monthly_sip_inr"),
                 "rank_score": candidate.get("rank_score"),
                 "score_evidence_ref": candidate.get("rank_score_source_ref"),
                 "score_as_of_date": candidate.get("rank_score_as_of_date"),
