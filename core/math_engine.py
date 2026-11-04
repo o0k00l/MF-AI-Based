@@ -3767,6 +3767,13 @@ def select_autonomous_blueprint_funds(
         debt_target_pct = float(saa["debt_liquid_pct"])
         satellite_policy = allocation_policy["thematic_satellite_policy"]
         satellite_cap = float(satellite_policy["max_pct_of_equity"])
+        universe_policy = allocation_policy["fund_universe_requirements"]
+        raw_minimum_universe = universe_policy["min_candidate_universe_size"]
+        if isinstance(raw_minimum_universe, bool):
+            raise ValueError("min_candidate_universe_size must be a positive integer")
+        minimum_candidate_universe = int(raw_minimum_universe)
+        if minimum_candidate_universe < 1 or float(raw_minimum_universe) != minimum_candidate_universe:
+            raise ValueError("min_candidate_universe_size must be a positive integer")
     except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
         raise ValueError(f"Invalid allocation policy for risk tier {tier_int}") from exc
     if any(not math.isfinite(v) or v < 0.0 for v in equity_parts.values()):
@@ -3813,6 +3820,12 @@ def select_autonomous_blueprint_funds(
         seen_ids.add(fund_id)
         normalized_candidates.append(candidate)
 
+    universe_insufficient = len(normalized_candidates) < minimum_candidate_universe
+    universe_insufficient_reason = (
+        f"candidate universe insufficient ({len(normalized_candidates)} < "
+        f"{minimum_candidate_universe}); all SIP slots remain unallocated"
+    )
+
     theme_aliases = {
         "Pharma": "Healthcare",
         "Pharmaceutical": "Healthcare",
@@ -3850,6 +3863,8 @@ def select_autonomous_blueprint_funds(
     ) -> Dict[str, Any]:
         if target_pct <= 0.0:
             return no_action(slot_name, 0.0, "no allocation is authorized for this slot", basis)
+        if universe_insufficient:
+            return no_action(slot_name, target_pct, universe_insufficient_reason, basis)
         evaluated = []
         for candidate in normalized_candidates:
             name = candidate.get("fund_name") or candidate.get("name") or ""
