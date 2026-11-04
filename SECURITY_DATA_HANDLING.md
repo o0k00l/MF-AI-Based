@@ -25,11 +25,17 @@ git clone --mirror https://github.com/o0k00l/MF-AI-Based.git MF-AI-Based-purge.g
 cd MF-AI-Based-purge.git
 ```
 
-Remove the former client-data directory from every commit reachable from the mirrored refs:
+Remove every confirmed sensitive path from every commit reachable from the mirrored refs. The initial commit contained the provider-key file, client CAS/CGS statements, transaction/configuration/metrics/alias files, and generated investor reports:
 
 ```bash
-git filter-repo --path data/lalit_portfolio/ --invert-paths
+git filter-repo \
+  --path .env \
+  --path data/lalit_portfolio/ \
+  --path outputs/ \
+  --invert-paths
 ```
+
+Before pushing the rewritten history, inspect the full initial-commit path list and all path-specific history for any additional client-data or credential files. Add every confirmed path to the same filter operation; do not assume the three paths above are exhaustive.
 
 `git-filter-repo` may remove the `origin` remote as a safety measure. Re-add it and force-update the branches and tags only after inspecting the rewritten history:
 
