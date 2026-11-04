@@ -119,3 +119,42 @@ def test_actual_sip_overlap_is_zero_for_verified_debt_only_portfolio():
     }
 
     assert compute_candidate_portfolio_overlap(candidate, [debt_holding]) == 0.0
+
+
+def test_explicit_multi_cap_category_is_not_misclassified_as_flexi_cap():
+    from core.math_engine import _infer_asset_class
+    from core.models import AssetClass
+
+    assert _infer_asset_class("Multi Cap", 95.0, 5.0, 35.0, 35.0, 25.0) == AssetClass.MULTI_CAP
+
+
+def test_explicit_large_cap_category_is_not_misclassified_as_flexi_cap():
+    from core.math_engine import _infer_asset_class
+    from core.models import AssetClass
+
+    assert _infer_asset_class("Large Cap", 95.0, 5.0, 85.0, 10.0, 5.0) == AssetClass.LARGE_CAP
+
+
+def test_explicit_international_equity_category_is_preserved():
+    from core.math_engine import _infer_asset_class
+    from core.models import AssetClass
+
+    assert _infer_asset_class("International Equity", 98.0, 2.0, 0.0, 0.0, 0.0) == AssetClass.INTERNATIONAL
+
+
+def test_debt_liquid_and_international_holdings_are_included_in_total_saa_buckets():
+    from types import SimpleNamespace
+    from core.math_engine import calculate_saa_drift_minimizer
+    from core.models import AssetClass
+
+    holdings = [
+        SimpleNamespace(current_value_inr=1000.0, asset_class=AssetClass.DEBT_LIQUID, equity_pct=0.0, debt_pct=100.0),
+        SimpleNamespace(current_value_inr=1000.0, asset_class=AssetClass.INTERNATIONAL, equity_pct=100.0, debt_pct=0.0),
+    ]
+    result = calculate_saa_drift_minimizer(
+        holdings, {"equity_pct": 50.0, "debt_liquid_pct": 50.0, "cash_pct": 0.0}, 0.0
+    )
+
+    assert result.current_allocation["Equity"] == pytest.approx(50.0)
+    assert result.current_allocation["Debt"] == pytest.approx(50.0)
+    assert "Other" not in result.current_allocation
