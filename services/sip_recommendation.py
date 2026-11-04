@@ -512,6 +512,7 @@ def _assess_complete_portfolio_context(
             min_sip_per_fund_inr=allocation_policy["min_sip_per_fund_inr"],
             rounding_increment_inr=allocation_policy["sip_increment_inr"],
             max_funds=max(0, remaining_fund_slots),
+            max_score_age_days=int(candidate_policy["max_evidence_age_days"]),
         )
 
         # Re-check the actual selected set together. Individual candidate
@@ -641,8 +642,10 @@ def _assess_complete_portfolio_context(
             and candidate_allocation["reconciliation_ok"] is True
             and candidate_set_concentration["status"] == "ASSESSED"
             and external_lookthrough.get("status") == "CALCULATED"
-            and all(overlap_results.get(candidate_id, {}).get("status") == "ASSESSED"
-                    for candidate_id in eligible_ids)
+            and all(
+                overlap_results.get(item["candidate_id"], {}).get("status") == "ASSESSED"
+                for item in candidate_allocation.get("allocations", [])
+            )
         )
         return {
             "status": "ASSESSMENT_COMPLETE" if all_gates_pass else "HOLD",
