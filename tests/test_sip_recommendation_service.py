@@ -369,3 +369,75 @@ def test_incomplete_total_portfolio_context_holds_and_keeps_budget_unallocated(t
     assert assessment["portfolio_reconciliation"]["reason"] == "PORTFOLIO_PERIMETER_NOT_ATTESTED"
     assert result["plan"]["unallocated_budget_inr"] == 10000
     assert result["plan"]["items"] == []
+
+
+def test_client_declared_portfolio_context_never_passes_provider_provenance_gate(tmp_path, monkeypatch):
+    args = _inputs(tmp_path)
+    monkeypatch.setattr(service, "load_holdings_from_cas_excel", lambda *a, **k: [_holding()])
+    monkeypatch.setattr(
+        service, "compute_deterministic_sip_blueprint",
+        lambda **kwargs: SimpleNamespace(items=[]),
+    )
+    context = _complete_portfolio_context()
+    context["_client_supplied_unverified"] = True
+    context["evidence_attested_by_provider"] = False
+
+    result = service.recommend_sip(**args, portfolio_context=context)
+
+    assessment = result["portfolio_assessment"]["total_portfolio_context"]
+    assert assessment["trust_level"] == "UNVERIFIED_CLIENT_DECLARATIONS"
+    assert assessment["all_input_gates_pass"] is False
+    assert assessment["status"] == "HOLD"
+    assert result["plan"]["unallocated_budget_inr"] == 10000
+
+
+def test_candidate_issuer_concentration_breach_blocks_portfolio_assessment(tmp_path, monkeypatch):
+    args = _inputs(tmp_path)
+    candidate = {
+        "fund_id": "CANDIDATE-1", "scheme_id": "CANDIDATE-SCHEME-1",
+        "isin": "INF000000010", "amc_name": "Example AMC",
+        "category": "Large Cap", "benchmark": "Nifty 100 TRI",
+        "is_direct": True, "constituent_weights": {"ISSUER-A": 100},
+        "constituent_weights_coverage_pct": 100,
+        "direct_plan_evidence": {
+            "scheme_id": "CANDIDATE-SCHEME-1", "isin": "INF000000010",
+            "plan": "Direct", "option": "Growth", "amc_name": "Example AMC",
+            "benchmark": "Nifty 100 TRI", "reviewed_at": date.today().isoformat(),
+            "source_document_sha256": "a" * 64,
+        },
+    }
+    args["candidate_universe"] = [candidate]
+    monkeypatch.setattr(service, "load_holdings_from_cas_excel", lambda *a, **k: [_holding()])
+    monkeypatch.setattr(
+        service, "compute_deterministic_sip_blueprint",
+        lambda **kwargs: SimpleNamespace(items=[]),
+    )
+    context = _complete_portfolio_context()
+    context["concentration_policy"]["max_issuer_pct_of_portfolio"] = "7"
+
+    result = service.recommend_sip(**args, portfolio_context=context)
+
+    assessment = result["portfolio_assessment"]["total_portfolio_context"]
+    assert assessment["candidate_overlap_diagnostics"]["CANDIDATE-1"]["status"] == "HOLD"
+    assert "ISSUER-A" in assessment["candidate_overlap_diagnostics"]["CANDIDATE-1"]["breaching_issuers"]
+    assert assessment["all_input_gates_pass"] is False
+    assert result["plan"]["items"] == []
+    assert result["plan"]["unallocated_budget_inr"] == 10000
+
+
+def test_cas_asset_value_mismatch_blocks_total_portfolio_saa(tmp_path, monkeypatch):
+    args = _inputs(tmp_path)
+    monkeypatch.setattr(service, "load_holdings_from_cas_excel", lambda *a, **k: [_holding()])
+    monkeypatch.setattr(
+        service, "compute_deterministic_sip_blueprint",
+        lambda **kwargs: SimpleNamespace(items=[]),
+    )
+    context = _complete_portfolio_context()
+    context["assets"][0]["value_inr"] = "100000"
+
+    result = service.recommend_sip(**args, portfolio_context=context)
+
+    assessment = result["portfolio_assessment"]["total_portfolio_context"]
+    assert assessment["status"] == "HOLD"
+    assert "PORTFOLIO_CONTEXT_INVALID_OR_INCOMPLETE" in assessment["reason"]
+    assert result["plan"]["unallocated_budget_inr"] == 10000
