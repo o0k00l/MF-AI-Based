@@ -2539,6 +2539,7 @@ def aggregate_fiduciary_facts(
         fee_bleed=fee_bleed,
         overlap_matrix=overlap,
         weighted_overlap=weighted_overlap,
+        weighted_overlap_status=weighted_lookthrough_overlap_status(holdings),
         risk_distribution=risk_distribution,
         saa_drift=saa,
         cash_plan=cash,
