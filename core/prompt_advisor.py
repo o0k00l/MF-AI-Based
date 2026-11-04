@@ -535,40 +535,77 @@ def answer_interactive_query(facts: FiduciaryFactsPayload, user_query: str, chat
     # Intent 1: Switch / Transition / Commission Bleed
     if any(k in q_lower for k in ("should i switch", "is switching worth it", "switch plan", "commission bleed", "broker fee", "regular vs direct", "switch cost")):
         f1 = facts.fee_bleed
-        reg_val = f1.regular_portfolio_value_inr
-        bleed = f1.annual_bleed_inr
-        loss10 = f1.ten_year_compounded_loss_inr
-        top_leaks = "\n".join([f"- **{f.get('fund_name', 'Scheme')}**: INR {f.get('annual_bleed_inr', 0):,.0f}/yr leak (Current: INR {f.get('current_value_inr', 0):,.0f})" for f in f1.details[:4]])
+        top_leaks = "\\n".join(
+            f"- **{item.get('fund_name', 'Scheme')}**: "
+            f"INR {item.get('annual_bleed_inr', 0):,.2f}/yr (current value "
+            f"INR {item.get('current_value_inr', 0):,.2f})"
+            for item in f1.details[:4]
+        )
         return (
-            f"### 🛡️ Fiduciary Recommendation: Switch to 100% Direct Plans\n\n"
-            f"**Yes, switching is a mathematical imperative.** Here is the fiduciary evidence from your portfolio:\n\n"
-            f"1. **Guaranteed Commission Bleed:** You currently hold **{f1.regular_funds_count} Regular plans** valued at **INR {reg_val:,.2f}**.\n"
-            f"2. **Annual Fee Leakage:** You are bleeding **INR {bleed:,.2f} per year** in unnecessary distributor commissions that provide zero alpha.\n"
-            f"3. **10-Year Compounded Loss:** Over a 10-year compounding horizon at 12% CAGR, this commission leakage compounds to **INR {loss10:,.2f}** in destroyed wealth.\n\n"
-            f"**Largest Fee Leaks:**\n{top_leaks}\n\n"
-            f"**Execution Safeguard:** We mandate a disciplined **3-Phase Switch Schedule**:\n"
-            f"- **Phase 1:** Immediately switch loss-making and mature lots within the annual **INR 1,25,000 Section 112A LTCG tax-free exemption**.\n"
-            f"- **Phase 2:** Hold immature SIP lots (<365 days) until **Day 366** to eliminate 1.0% exit load penalties and 20% STCG.\n"
-            f"- **Phase 3:** Execute remaining tranches in the subsequent financial year under a fresh INR 1.25L tax-free window."
+            "### Regular-versus-Direct review\\n\\n"
+            f"- Regular-plan holdings reported: {f1.regular_funds_count}.\\n"
+            f"- Reported Regular-plan value: INR {f1.regular_portfolio_value_inr:,.2f}.\\n"
+            f"- Estimated annual expense difference in supplied analysis: INR {f1.annual_bleed_inr:,.2f}.\\n"
+            f"- Largest reported differences:\\n{top_leaks}\\n\\n"
+            "These figures are estimates from the supplied fee analysis, not guaranteed returns or "
+            "risk-free gains. A switch must be evaluated scheme-by-scheme for current Direct/Regular "
+            "TER evidence, exit load, tax lots, transaction costs, mandate and investor constraints. "
+            "No automatic switch schedule or tax outcome is prescribed."
         )
 
     # Intent 2: Fresh Money / SIP / Lumpsum Blueprint
     if any(k in q_lower for k in ("sip plan", "fresh money", "where should i invest", "fresh sip", "sip blueprint", "4-slot", "lumpsum deployment", "fresh deployment")):
-        sip = facts.deterministic_sip_plan
-        lump = facts.deterministic_lumpsum_plan
-        sip_rows = "\n".join([f"- **{it.category_role}**: {it.scheme_name} | {it.allocation_pct:.1f}% (INR {it.monthly_inr:,.0f}/mo) | Target: {it.folio_target or 'New Direct Folio'}" for it in sip.items]) if sip else "SIP plan calculated per IPS."
-        lump_imm = lump.immediate_amount_inr if lump else 40000.0
-        lump_stp = lump.stp_total_amount_inr if lump else 160000.0
-        lump_mo = lump.monthly_stp_total_inr if lump else 26667.0
-        lump_dur = lump.stp_duration_months if lump else 6
+        sip = getattr(facts, "deterministic_sip_plan", None)
+        lump = getattr(facts, "deterministic_lumpsum_plan", None)
+
+        sip_rows = []
+        if sip is not None:
+            sip_rows.extend(
+                f"- **{item.category_role}**: {item.scheme_name} | "
+                f"{item.allocation_pct:.2f}% | INR {item.monthly_inr:,.2f}/month"
+                for item in sip.items
+            )
+            if sip.unallocated_budget_inr > 0:
+                sip_rows.append(f"- **UNALLOCATED:** INR {sip.unallocated_budget_inr:,.2f}/month")
+        if not sip_rows:
+            sip_rows.append(
+                f"- **NO ACTION:** No deterministic SIP plan supplied. "
+                f"INR {facts.monthly_sip_budget_inr:,.2f}/month remains unallocated."
+            )
+
+        if lump is None:
+            lump_status = (
+                f"NO ACTION: no deterministic lumpsum plan supplied. "
+                f"INR {facts.lumpsum_budget_inr:,.2f} remains unallocated. "
+                "No split, STP duration, parking vehicle or tax treatment is inferred."
+            )
+            lump_rows = []
+        else:
+            lump_status = (
+                f"Plan status: {lump.execution_status}; requested INR {lump.total_lumpsum_inr:,.2f}; "
+                f"unallocated INR {lump.unallocated_amount_inr:,.2f}; "
+                f"cash validation passed: {lump.cash_validation_passed}. "
+                f"{lump.cash_validation_message}"
+            )
+            lump_rows = [
+                f"- {tr.role}: {tr.scheme_name} | INR {tr.amount_inr:,.2f} | "
+                f"{tr.allocation_pct:.2f}% | {tr.timing}"
+                for tr in lump.tranches
+            ]
+            if not lump_rows:
+                lump_rows.append("- NO ACTION: no validated deployment tranche supplied.")
+            if lump.unallocated_amount_inr > 0:
+                lump_rows.append(f"- UNALLOCATED: INR {lump.unallocated_amount_inr:,.2f}")
+            lump_status += " No tax-saving or statutory tax conclusion is asserted."
+
         return (
-            f"### 🎯 The Deterministic Fresh Money Blueprint\n\n"
-            f"Your fresh capital is deployed across **100% Direct Plans** under the documented 4-Slot Sizing Engine:\n\n"
-            f"**Monthly SIP Allocation (Budget: INR {facts.monthly_sip_budget_inr:,.2f}):**\n{sip_rows}\n\n"
-            f"**Universal 20/80 Lumpsum Deployment:**\n"
-            f"- **Day 1 Immediate Entry (20%):** INR {lump_imm:,.0f} deployed into the Large-Cap Bluechip Anchor.\n"
-            f"- **Systematic STP (80%):** INR {lump_stp:,.0f} parked in an **Equity Arbitrage Fund - Direct Plan** and staggered over {lump_dur} months (INR {lump_mo:,.0f}/mo).\n"
-            f"- **Tax Protection:** Arbitrage parking bypasses Section 50AA debt slab taxation (saving tax drag) and enjoys equity capital gains treatment under Sections 111A/112A."
+            "### Fresh-money deployment review\\n\\n"
+            "**Monthly SIP plan:**\\n" + "\\n".join(sip_rows) + "\\n\\n"
+            "**Lumpsum plan:**\\n" + lump_status + "\\n"
+            + ("\\n".join(lump_rows) if lump_rows else "- NO ACTION: no validated tranche supplied.")
+            + "\\n\\nAll figures are proposals only. Do not infer a deployment split, STP, parking "
+            "instrument, tax benefit, destination scheme or execution authority beyond the supplied "
+            "deterministic plan and mandate controls."
         )
 
     # Intent 3: Redemption / Withdrawal / Cash Out
