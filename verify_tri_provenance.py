@@ -130,15 +130,19 @@ def verify_fixture(path: Path) -> list[str]:
     return failures
 
 def _is_approved_official_url(value: object) -> bool:
-    parsed = urlparse(value if isinstance(value, str) else "")
-    host = (parsed.hostname or "").lower()
-    return (
-        parsed.scheme == "https"
-        and host in OFFICIAL_HOSTS
-        and parsed.username is None
-        and parsed.password is None
-        and parsed.port in (None, 443)
-    )
+    try:
+        parsed = urlparse(value if isinstance(value, str) else "")
+        host = (parsed.hostname or "").lower()
+        return (
+            parsed.scheme == "https"
+            and host in OFFICIAL_HOSTS
+            and parsed.username is None
+            and parsed.password is None
+            and parsed.port in (None, 443)
+        )
+    except ValueError:
+        # Malformed ports / bracketed hosts are ordinary invalid evidence, not crashes.
+        return False
 
 
 def alpha_release_blockers(fixture_path: Path, *, approval_verified: bool = False) -> list[str]:
@@ -177,8 +181,11 @@ def alpha_release_blockers(fixture_path: Path, *, approval_verified: bool = Fals
     if not isinstance(benchmarks, dict) or not benchmarks:
         blockers.append("benchmarks must be a non-empty object")
         benchmarks = {}
-    available_benchmarks = {str(name).strip().upper() for name in benchmarks}
-    missing_benchmarks = sorted(REQUIRED_BENCHMARKS - available_benchmarks)
+    benchmark_names = {
+        str(name).strip().upper(): name for name in benchmarks
+        if isinstance(name, str)
+    }
+    missing_benchmarks = sorted(REQUIRED_BENCHMARKS - set(benchmark_names))
     if missing_benchmarks:
         blockers.append("required benchmark series missing: " + ", ".join(missing_benchmarks))
 
@@ -201,15 +208,19 @@ def alpha_release_blockers(fixture_path: Path, *, approval_verified: bool = Fals
     if not isinstance(sessions, list) or not sessions or any(not isinstance(day, str) for day in sessions):
         blockers.append("NSE calendar sessions must be a non-empty list of ISO date strings")
         sessions = []
-    if sessions != sorted(set(sessions)):
-        blockers.append("NSE calendar sessions must be sorted and unique")
-    for day in sessions:
-        try:
-            if date.fromisoformat(day).isoformat() != day:
-                raise ValueError("non-canonical ISO date")
-        except ValueError:
-            blockers.append(f"NSE calendar contains invalid ISO session date {day!r}")
-            break
+    if any(not isinstance(day, str) for day in sessions):
+        blockers.append("NSE calendar sessions must contain only ISO date strings")
+        sessions = []
+    else:
+        if sessions != sorted(sessions) or len(sessions) != len(set(sessions)):
+            blockers.append("NSE calendar sessions must be sorted and unique")
+        for day in sessions:
+            try:
+                if date.fromisoformat(day).isoformat() != day:
+                    raise ValueError("non-canonical ISO date")
+            except ValueError:
+                blockers.append(f"NSE calendar contains invalid ISO session date {day!r}")
+                break
     cal_provenance = calendar.get("provenance", {})
     if not isinstance(cal_provenance, dict):
         blockers.append("NSE calendar provenance must be a JSON object")
@@ -269,7 +280,8 @@ def alpha_release_blockers(fixture_path: Path, *, approval_verified: bool = Fals
     if not provenance.get("independent_reviewer_id"):
         blockers.append("independent reviewer identity is not recorded in provenance")
     for required_name in sorted(REQUIRED_BENCHMARKS):
-        entry = benchmarks.get(required_name)
+        actual_name = benchmark_names.get(required_name)
+        entry = benchmarks.get(actual_name) if actual_name is not None else None
         if not isinstance(entry, dict) or not isinstance(entry.get("levels"), dict) or not entry.get("levels"):
             blockers.append(f"required benchmark series missing or empty: {required_name}")
     if not approval_verified:
