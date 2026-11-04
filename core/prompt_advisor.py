@@ -553,22 +553,35 @@ def answer_interactive_query(facts: FiduciaryFactsPayload, user_query: str, chat
             )
             lump_rows = []
         else:
-            lump_status = (
-                f"Plan status: {lump.execution_status}; requested INR {lump.total_lumpsum_inr:,.2f}; "
-                f"unallocated INR {lump.unallocated_amount_inr:,.2f}; "
-                f"cash validation passed: {lump.cash_validation_passed}. "
-                f"{lump.cash_validation_message}"
+            plan_valid, validation_reason = _validate_lumpsum_plan_for_reporting(
+                lump, facts.lumpsum_budget_inr
             )
-            lump_rows = [
-                f"- {tr.role}: {tr.scheme_name} | INR {tr.amount_inr:,.2f} | "
-                f"{tr.allocation_pct:.2f}% | {tr.timing}"
-                for tr in lump.tranches
-            ]
-            if not lump_rows:
-                lump_rows.append("- NO ACTION: no validated deployment tranche supplied.")
-            if lump.unallocated_amount_inr > 0:
-                lump_rows.append(f"- UNALLOCATED: INR {lump.unallocated_amount_inr:,.2f}")
-            lump_status += " No tax-saving or statutory tax conclusion is asserted."
+            if not plan_valid:
+                lump_status = (
+                    f"NO ACTION: lumpsum plan failed validation. {validation_reason} "
+                    f"INR {facts.lumpsum_budget_inr:,.2f} remains on HOLD and unallocated."
+                )
+                lump_rows = []
+            elif not lump.tranches:
+                lump_status = (
+                    f"NO ACTION: no qualifying tranche supplied. "
+                    f"INR {lump.total_lumpsum_inr:,.2f} remains unallocated."
+                )
+                lump_rows = []
+            else:
+                lump_status = (
+                    f"Validated cash gate passed; requested INR {lump.total_lumpsum_inr:,.2f}; "
+                    f"unallocated INR {lump.unallocated_amount_inr:,.2f}. "
+                    "No tax-saving or statutory tax conclusion is asserted."
+                )
+                lump_rows = [
+                    f"- {tr.role}: {tr.scheme_name} | INR {tr.amount_inr:,.2f} | "
+                    f"{tr.allocation_pct:.2f}% | {tr.timing}"
+                    for tr in lump.tranches
+                ]
+                if lump.unallocated_amount_inr > 0:
+                    lump_rows.append(f"- UNALLOCATED: INR {lump.unallocated_amount_inr:,.2f}")
+
 
         return (
             "### Fresh-money deployment review\n\n"
