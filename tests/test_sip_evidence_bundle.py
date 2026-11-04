@@ -220,13 +220,45 @@ def test_provider_loads_separately_reviewed_candidate_score_source_bundle(tmp_pa
     manifest = _bundle(tmp_path)
     score_bytes = b"original reviewed ranking-model score export"
     score_metadata = _source(score_bytes, "REVIEWED_CANDIDATE_RANKING")
-    score_metadata["methodology_version"] = "risk-quality-v1"
+    score_metadata.update({
+        "methodology_version": "risk-quality-v1",
+        "score_scope": "PORTFOLIO_AWARE",
+        "missing_overlap_policy": "BLOCK_SCORE",
+    })
+    anchor_bytes = b"original approved category benchmark anchor file"
+    anchor_metadata = _source(anchor_bytes, "APPROVED_CATEGORY_BENCHMARK_ANCHORS")
+    anchor_metadata.update({
+        "reviewer_id": "independent-reviewer",
+        "policy_version": "category-anchor-v1",
+        "category_anchors": {
+            "Flexi Cap": {
+                "status": "APPROVED",
+                "benchmark_identity": "Nifty 500 TRI",
+                "reviewer_id": "independent-reviewer",
+                "policy_version": "category-anchor-v1",
+                "effective_date": anchor_metadata["effective_date"],
+                "anchor_set": {
+                    "alpha": [0, 8], "ret1y": [0, 35], "sharpe": [0.2, 1.2],
+                    "ter": [0.2, 1.2], "buffer": [0, 25], "intl": [0, 40],
+                    "overlap": [0, 100],
+                },
+            }
+        },
+    })
     candidates = json.loads((tmp_path / "candidates.json").read_text(encoding="utf-8"))
     candidates[0].update({
         "rank_score": "3.5",
         "rank_score_source_ref": "sha256:" + hashlib.sha256(score_bytes).hexdigest(),
         "rank_score_as_of_date": score_metadata["effective_date"],
         "rank_score_methodology_version": "risk-quality-v1",
+        "rank_score_scope": "PORTFOLIO_AWARE",
+        "rank_score_portfolio_overlap_status": "VERIFIED",
+        "rank_score_portfolio_overlap_pct": "12.5",
+        "rank_score_portfolio_overlap_coverage_pct": "99.8",
+        "rank_score_portfolio_overlap_source_ref": "sha256:" + hashlib.sha256(b"overlap").hexdigest(),
+        "rank_score_category_anchor_source_ref": "sha256:" + hashlib.sha256(anchor_bytes).hexdigest(),
+        "rank_score_category_anchor_policy_version": "category-anchor-v1",
+        "rank_score_benchmark_identity": "Nifty 500 TRI",
     })
     _write_json(tmp_path, "candidates.json", candidates)
     candidate_metadata = json.loads((tmp_path / "candidate_metadata.json").read_text(encoding="utf-8"))
@@ -236,9 +268,13 @@ def test_provider_loads_separately_reviewed_candidate_score_source_bundle(tmp_pa
     _write_json(tmp_path, "candidate_metadata.json", candidate_metadata)
     (tmp_path / "originals/candidate_scores.csv").write_bytes(score_bytes)
     _write_json(tmp_path, "candidate_score_metadata.json", score_metadata)
+    (tmp_path / "originals/category_anchors.json").write_bytes(anchor_bytes)
+    _write_json(tmp_path, "category_anchor_metadata.json", anchor_metadata)
     manifest.update({
         "candidate_score_metadata_file": "candidate_score_metadata.json",
         "candidate_score_source_file": "originals/candidate_scores.csv",
+        "category_anchor_metadata_file": "category_anchor_metadata.json",
+        "category_anchor_source_file": "originals/category_anchors.json",
     })
     _write_json(tmp_path, "manifest.json", manifest)
     cas_path = tmp_path / "cas.xlsx"
@@ -249,6 +285,7 @@ def test_provider_loads_separately_reviewed_candidate_score_source_bundle(tmp_pa
         cas_path=cas_path, monthly_budget_inr=10000, risk_profile="Moderate"
     ))
     assert validated["candidate_score_source_bytes"] == score_bytes
+    assert validated["category_anchor_source_bytes"] == anchor_bytes
     assert validated["candidate_universe"][0]["rank_score"] == "3.5"
 
 
@@ -279,4 +316,12 @@ def test_provider_rejects_tampered_normalized_portfolio_context(tmp_path):
     _write_json(tmp_path, "portfolio_context.json", {"perimeter_complete": False})
 
     with pytest.raises(ValueError, match="Normalized portfolio context SHA-256"):
+        build_sip_evidence_provider(tmp_path)
+
+
+def test_provider_rejects_partial_category_anchor_manifest(tmp_path):
+    manifest = _bundle(tmp_path)
+    manifest["category_anchor_metadata_file"] = "category_anchor_metadata.json"
+    _write_json(tmp_path, "manifest.json", manifest)
+    with pytest.raises(ValueError, match="must be configured together"):
         build_sip_evidence_provider(tmp_path)
