@@ -157,3 +157,10 @@
 - The latest GitHub commit has no reported status checks or associated workflow runs in the connector response. The new tests have been committed but are not reported as executed.
 - The current test file contains 13 test functions; this is source-level coverage, not a passing test result.
 - Run the focused SIP tests and full repository CI on a clean checkout before treating these corrections as validated.
+
+
+### 23. Missing client SAA silently became an aggressive 95/5 target — FIXED
+- File: `core/math_engine.py`, `calculate_saa_drift_minimizer`.
+- Previous behavior: when the client supplied no usable equity target, the function silently substituted 95% equity / 5% debt. This could materially distort portfolio deficits and the reported SIP-to-SAA fit for a conservative or moderate investor.
+- Correction: require explicit equity, debt and cash targets; validate each as finite and within 0–100 and require the three buckets to sum to 100%. An explicitly supplied 0% equity target is preserved.
+- Regression coverage: missing target rejected; explicit 0/100/0 target accepted.
