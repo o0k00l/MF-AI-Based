@@ -57,6 +57,7 @@ def test_non_finite_current_value_is_rejected_and_breaks_reconciliation(value):
     "field,value",
     [
         ("invested", float("inf")),
+        ("invested", True),
         ("invested", -1.0),
         ("returns", float("nan")),
         ("units", float("-inf")),
