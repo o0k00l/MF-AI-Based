@@ -2477,3 +2477,14 @@ def test_tri_audit_rejects_missing_or_ambiguous_cas_valuation_date(tmp_path):
 
     with pytest.raises(ValueError, match="unsupported format"):
         _parse_cas_valuation_date(path)
+
+
+
+def test_tri_release_gate_is_independent_of_process_working_directory(tmp_path, monkeypatch):
+    from core.math_engine import _tri_alpha_release_blockers
+
+    monkeypatch.chdir(tmp_path)
+    blockers = _tri_alpha_release_blockers()
+
+    assert blockers
+    assert any("external release approval is still required" in item for item in blockers)
