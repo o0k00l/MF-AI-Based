@@ -202,7 +202,7 @@ def reconcile_cas_holdings_with_transactions(holdings: List[HoldingItem], transa
     transaction_units: Dict[str, float] = {}
     transaction_names: Dict[str, str] = {}
     supported_types = {"PURCHASE", "SIP", "SWITCH_IN", "STP_IN", "DIVIDEND_REINVEST",
-                       "DIVIDEND", "REDEMPTION", "SWITCH_OUT", "STP_OUT"}
+                       "DIVIDEND", "REDEMPTION", "SWITCH_OUT", "STP_OUT", "CHARGES"}
     for index, transaction in enumerate(data["transactions"]):
         if not isinstance(transaction, dict):
             return {"status": "INVALID_TRANSACTION", "error": f"Transaction row {index} is not an object",
@@ -210,7 +210,7 @@ def reconcile_cas_holdings_with_transactions(holdings: List[HoldingItem], transa
                     "discrepancies": [], "unmatched_transaction_schemes": []}
         scheme_name = transaction.get("scheme")
         scheme_key = key(scheme_name)
-        txn_type = str(transaction.get("type", "PURCHASE")).upper()
+        txn_type = str(transaction.get("type", "UNKNOWN")).upper()
         try:
             units = float(transaction.get("units", 0.0) or 0.0)
         except (TypeError, ValueError):
@@ -220,8 +220,8 @@ def reconcile_cas_holdings_with_transactions(holdings: List[HoldingItem], transa
             return {"status": "INVALID_TRANSACTION", "error": f"Invalid scheme, type or units at transaction row {index}",
                     "reconciled_schemes": 0, "total_schemes": len(holdings),
                     "discrepancies": [], "unmatched_transaction_schemes": []}
-        if txn_type == "DIVIDEND":
-            sign = 0.0  # Cash payout does not change mutual-fund units.
+        if txn_type in {"DIVIDEND", "CHARGES"}:
+            sign = 0.0  # Cash payouts and charges do not change mutual-fund units.
         else:
             sign = -1.0 if txn_type in {"REDEMPTION", "SWITCH_OUT", "STP_OUT"} else 1.0
         transaction_units[scheme_key] = transaction_units.get(scheme_key, 0.0) + sign * units
@@ -301,8 +301,17 @@ def calculate_portfolio_xirr(
                 continue
             txn_date = datetime.strptime(d_str[:10], '%Y-%m-%d').date()
             amount = float(txn.get('amount', 0))
-            txn_type = txn.get('type', '').upper()
+            txn_type = str(txn.get('type', 'UNKNOWN')).upper()
             desc = txn.get('description', '').lower()
+            supported_xirr_types = {
+                'PURCHASE', 'SIP', 'REDEMPTION', 'SWITCH_IN', 'SWITCH_OUT',
+                'STP_IN', 'STP_OUT', 'DIVIDEND', 'DIVIDEND_REINVEST', 'SWP',
+            }
+            # Charges have no units and their investor cash-flow treatment is
+            # not proven by the parser contract; unknown types are also unsafe.
+            # Withhold XIRR rather than silently assigning them purchase semantics.
+            if txn_type == 'CHARGES' or txn_type not in supported_xirr_types:
+                return None
             
             # Skip zero-amount non-financial transactions (address/nominee updates)
             if amount == 0:
