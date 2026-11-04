@@ -239,6 +239,8 @@ def classify_fund_category(
         "dynamic asset allocation": "Hybrid Equity",
     }
     return exact_categories.get(normalized, "Unknown")
+
+
 def get_fund_passive_alternatives(category: str) -> List[str]:
     """Retrieve verified institutional passive index alternatives for a category."""
     universe = _load_passive_universe()
