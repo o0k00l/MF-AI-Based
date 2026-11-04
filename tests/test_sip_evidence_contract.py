@@ -269,3 +269,51 @@ def test_contract_rejects_unverified_total_portfolio_source_bundle(tmp_path):
 
     with pytest.raises(EvidenceProviderContractError, match="reviewer attestation"):
         validate_evidence_provider_payload(payload)
+
+
+def test_contract_accepts_rank_score_only_with_reviewed_source_bytes(tmp_path):
+    payload = valid_payload(tmp_path)
+    score_bytes = b"independently reviewed ranking scores"
+    metadata = _source_metadata(score_bytes)
+    metadata["methodology_version"] = "risk-quality-v1"
+    payload["candidate_score_source_metadata"] = metadata
+    payload["candidate_score_source_bytes"] = score_bytes
+    candidate = payload["candidate_universe"][0]
+    candidate.update({
+        "rank_score": "2.75",
+        "rank_score_source_ref": "sha256:" + hashlib.sha256(score_bytes).hexdigest(),
+        "rank_score_as_of_date": metadata["effective_date"],
+        "rank_score_methodology_version": "risk-quality-v1",
+    })
+
+    result = validate_evidence_provider_payload(payload)
+    assert result["candidate_universe"][0]["rank_score"] == "2.75"
+
+
+def test_contract_rejects_rank_score_without_reviewed_source_bundle(tmp_path):
+    payload = valid_payload(tmp_path)
+    payload["candidate_universe"][0].update({
+        "rank_score": "2.75",
+        "rank_score_source_ref": "sha256:" + "a" * 64,
+        "rank_score_as_of_date": "2026-11-01",
+        "rank_score_methodology_version": "risk-quality-v1",
+    })
+    with pytest.raises(EvidenceProviderContractError, match="without a reviewed score source bundle"):
+        validate_evidence_provider_payload(payload)
+
+
+def test_contract_rejects_rank_score_source_hash_or_methodology_mismatch(tmp_path):
+    payload = valid_payload(tmp_path)
+    score_bytes = b"reviewed scores"
+    metadata = _source_metadata(score_bytes)
+    metadata["methodology_version"] = "risk-quality-v1"
+    payload["candidate_score_source_metadata"] = metadata
+    payload["candidate_score_source_bytes"] = score_bytes
+    payload["candidate_universe"][0].update({
+        "rank_score": "2.75",
+        "rank_score_source_ref": "sha256:" + "f" * 64,
+        "rank_score_as_of_date": metadata["effective_date"],
+        "rank_score_methodology_version": "wrong-version",
+    })
+    with pytest.raises(EvidenceProviderContractError, match="source reference does not match"):
+        validate_evidence_provider_payload(payload)
