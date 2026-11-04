@@ -54,10 +54,16 @@ def _build_cas_portfolio_assessment(holdings: list[Any], risk_profile: str) -> d
         profile = policy["behavioral_risk_profiles"][profile_key]
         raw_targets = profile["saa_targets"]
         tolerance = profile["tolerance_band_pct"]
-        required = ("large_cap", "mid_cap", "small_cap", "flexi_multi_cap", "debt_liquid")
-        if set(raw_targets) != set(required):
+        policy_bucket_map = {
+            "large_cap_pct": "large_cap",
+            "mid_cap_pct": "mid_cap",
+            "small_cap_pct": "small_cap",
+            "flexi_multi_cap_pct": "flexi_multi_cap",
+            "debt_liquid_pct": "debt_liquid",
+        }
+        if set(raw_targets) != set(policy_bucket_map):
             raise ValueError("SAA policy buckets do not match service contract")
-        targets = {key: raw_targets[key] for key in required}
+        targets = {bucket: raw_targets[source] for source, bucket in policy_bucket_map.items()}
         targets["unclassified"] = 0
         current = {key: 0.0 for key in targets}
         total = 0.0
@@ -65,8 +71,10 @@ def _build_cas_portfolio_assessment(holdings: list[Any], risk_profile: str) -> d
             value = float(holding.current_value_inr)
             if not math.isfinite(value) or value <= 0:
                 raise ValueError("holding valuation is invalid")
-            asset_class = getattr(holding.asset_class, "value", holding.asset_class)
-            bucket = _ASSET_CLASS_TO_SAA_BUCKET.get(str(asset_class), "unclassified")
+            asset_class = getattr(holding, "asset_class", None)
+            asset_class = getattr(asset_class, "value", asset_class)
+            normalized_class = str(asset_class).upper().replace("-", "_").replace(" ", "_")
+            bucket = _ASSET_CLASS_TO_SAA_BUCKET.get(normalized_class, "unclassified")
             current[bucket] += value
             total += value
         if not math.isfinite(total) or total <= 0:
