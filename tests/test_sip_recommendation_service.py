@@ -628,3 +628,39 @@ def test_service_persists_draft_lifecycle_snapshot_outside_checkout(tmp_path, mo
         "schema_version", "state", "decision_trace_sha256",
         "created_at", "execution_authorized",
     }
+
+
+def test_combined_selected_funds_cannot_collectively_breach_sector_cap(tmp_path, monkeypatch):
+    args = _inputs(tmp_path)
+    candidates = _candidate_universe()
+    args["candidate_universe"] = candidates
+    monkeypatch.setattr(service, "load_holdings_from_cas_excel", lambda *a, **k: [_holding()])
+    monkeypatch.setattr(
+        service, "compute_deterministic_sip_blueprint",
+        lambda **kwargs: SimpleNamespace(items=[]),
+    )
+    context = _complete_portfolio_context()
+    context["candidate_policy"]["candidate_sleeves"] = {
+        f"CANDIDATE-{index}": (
+            "large_cap" if index <= 15 else "flexi_multi_cap"
+        )
+        for index in range(1, 31)
+    }
+    context["concentration_policy"]["max_issuer_pct_of_portfolio"] = "100"
+    context["concentration_policy"]["max_sector_pct_of_portfolio"] = "12.8"
+
+    result = service.recommend_sip(**args, portfolio_context=context)
+
+    assessment = result["portfolio_assessment"]["total_portfolio_context"]
+    individual = assessment["candidate_overlap_diagnostics"]["CANDIDATE-1"]
+    combined = assessment["proposed_candidate_set_concentration"]
+    allocation = assessment["candidate_level_sip_allocation_simulation"]
+    assert individual["status"] == "ASSESSED"
+    assert combined["status"] == "HOLD"
+    assert combined["sector_market_cap_theme"]["breaches"]["sector"]["Financials"] > "12.8"
+    assert allocation["status"] == "HOLD"
+    assert allocation["allocated_budget_inr"] == "0"
+    assert allocation["unallocated_budget_inr"] == "10000"
+    assert allocation["reconciliation_ok"] is True
+    assert result["plan"]["items"] == []
+    assert result["plan"]["unallocated_budget_inr"] == 10000
