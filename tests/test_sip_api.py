@@ -145,7 +145,11 @@ def test_api_passes_temporary_cas_to_evidence_provider_and_removes_it(monkeypatc
         assert metrics_path == Path(__file__)
         assert risk_profile == "Moderate"
         assert candidate_universe[0]["is_direct"] is True
-        assert portfolio_context == {"as_of_date": "2026-11-04", "perimeter_complete": False}
+        assert portfolio_context == {
+            "as_of_date": date.today().isoformat(),
+            "perimeter_complete": False,
+            "_client_supplied_unverified": True,
+        }
         return {
             "status": "HOLD",
             "decision": "NO_ACTION",
@@ -160,7 +164,7 @@ def test_api_passes_temporary_cas_to_evidence_provider_and_removes_it(monkeypatc
         client,
         monthly_budget_inr="15000",
         risk_profile="Moderate",
-        portfolio_context_json='{"as_of_date":"2026-11-04","perimeter_complete":false}',
+        portfolio_context_json='{"as_of_date":"' + date.today().isoformat() + '","perimeter_complete":false}',
     )
 
     assert response.status_code == 200
