@@ -38,7 +38,7 @@ def _validate_source_document(metadata: Any, source_bytes: Any, *, label: str, a
 
     source_url = metadata.get("source_url")
     declared_hash = metadata.get("source_document_sha256")
-    if not isinstance(source_url, str) or not re.fullmatch(r"https://[^\\s]+", source_url):
+    if not isinstance(source_url, str) or not re.fullmatch(r"https://\\S+", source_url):
         raise EvidenceProviderContractError(f"{label} source URL must be HTTPS.")
     if not isinstance(declared_hash, str) or not re.fullmatch(r"[0-9a-fA-F]{64}", declared_hash):
         raise EvidenceProviderContractError(f"{label} source SHA-256 must be 64 hexadecimal characters.")
