@@ -205,10 +205,10 @@ def alpha_release_blockers(fixture_path: Path, *, approval_verified: bool = Fals
     if calendar.get("exchange") != "NSE" or str(calendar.get("status", "")).upper() != "VERIFIED":
         blockers.append("NSE calendar must identify exchange=NSE and status=VERIFIED")
     sessions = calendar.get("sessions")
-    if not isinstance(sessions, list) or not sessions or any(not isinstance(day, str) for day in sessions):
+    if not isinstance(sessions, list) or not sessions:
         blockers.append("NSE calendar sessions must be a non-empty list of ISO date strings")
         sessions = []
-    if any(not isinstance(day, str) for day in sessions):
+    elif any(not isinstance(day, str) for day in sessions):
         blockers.append("NSE calendar sessions must contain only ISO date strings")
         sessions = []
     else:
