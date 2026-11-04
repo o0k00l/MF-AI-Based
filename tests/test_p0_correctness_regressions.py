@@ -2054,7 +2054,7 @@ def test_standard_investor_risk_profiles_have_explicit_policy_mapping(risk_profi
     ],
 )
 def test_custom_saa_rejects_non_reconciling_or_invalid_percentages(allocation):
-    with pytest.raises((ValueError, Exception)):
+    with pytest.raises(ValueError):
         AssetAllocationTarget(**allocation)
 
 
