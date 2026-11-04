@@ -4306,10 +4306,6 @@ def compute_deterministic_lumpsum_blueprint(
         thematic_deficit_theme=thematic_deficit_theme,
         thematic_satellite_authorized=thematic_satellite_authorized,
         thematic_satellite_pct_of_equity=satellite_pct,
-        portfolio_disclosures_by_scheme_id=portfolio_disclosures_by_scheme_id,
-        portfolio_disclosure_source_bytes_by_scheme_id=portfolio_disclosure_source_bytes_by_scheme_id,
-        disclosure_as_of_date=disclosure_as_of_date,
-        disclosure_max_age_days=disclosure_max_age_days,
     )
     equity_pct, debt_pct = calculate_universal_tier_split(
         tier_num, stability_buffer_pct, equity_sip_routing_override=equity_sip_routing_override
