@@ -4559,8 +4559,8 @@ _classify_fund_for_tax = _tax_classification_disabled
 # legal mapping receives independent, current-law review.
 get_statutory_tax_citation = _tax_classification_disabled
 
-// Date-/instrument-specific statutory classification remains disabled until
-// the successor-Act mapping and source evidence receive independent review.
+# Date-/instrument-specific statutory classification remains disabled until
+# the successor-Act mapping and source evidence receive independent review.
 classify_specified_mutual_fund = _tax_classification_disabled
 qualifies_as_equity_oriented_under_section_198 = _tax_classification_disabled
 qualifies_as_specified_mutual_fund_under_section_50AA = _tax_classification_disabled
