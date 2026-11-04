@@ -401,4 +401,7 @@ def call_llm(
                 return result
         except Exception as exc:
             errors.append(f"{name}: {type(exc).__name__}")
-    raise RuntimeError("All configured AI providers failed: " + "; ".join(errors))
+    raise ProviderError(
+        "FreeProviders",
+        "All eligible free narrative providers are unavailable: " + "; ".join(errors),
+    )
