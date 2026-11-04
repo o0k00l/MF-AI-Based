@@ -262,3 +262,23 @@ def test_metrics_matching_rejects_ambiguous_exact_name():
         "scheme_b": {"id": "scheme_b", "scheme": "ABC Flexi Cap Fund"},
     }
     assert _find_matching_metric("ABC Flexi Cap Fund", metrics, {}) is None
+
+
+
+def test_three_tier_saa_matches_authoritative_sip_risk_profiles():
+    from core.models import RiskTier, SAA_POLICY_MAP
+
+    assert SAA_POLICY_MAP[RiskTier.CONSERVATIVE].equity_pct == 40.0
+    assert SAA_POLICY_MAP[RiskTier.CONSERVATIVE].debt_pct == 60.0
+    assert SAA_POLICY_MAP[RiskTier.MODERATE].equity_pct == 75.0
+    assert SAA_POLICY_MAP[RiskTier.MODERATE].debt_pct == 25.0
+    assert SAA_POLICY_MAP[RiskTier.AGGRESSIVE].equity_pct == 95.0
+    assert SAA_POLICY_MAP[RiskTier.AGGRESSIVE].debt_pct == 5.0
+
+
+def test_three_tier_saa_allocations_reconcile_to_one_hundred_percent():
+    from core.models import RiskTier, SAA_POLICY_MAP
+
+    for tier in (RiskTier.CONSERVATIVE, RiskTier.MODERATE, RiskTier.AGGRESSIVE):
+        target = SAA_POLICY_MAP[tier]
+        assert target.equity_pct + target.debt_pct + target.cash_pct == 100.0
