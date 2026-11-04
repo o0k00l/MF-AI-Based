@@ -149,6 +149,32 @@ def test_contract_rejects_duplicate_candidate_fund_ids(tmp_path):
         validate_evidence_provider_payload(payload)
 
 
+def test_contract_rejects_scheme_master_missing_plan_or_option_identity(tmp_path):
+    payload = valid_payload(tmp_path)
+    payload["scheme_master"]["schemes"][0].pop("option_type")
+
+    with pytest.raises(EvidenceProviderContractError, match="option_type"):
+        validate_evidence_provider_payload(payload)
+
+
+def test_contract_rejects_candidate_option_conflicting_with_scheme_master(tmp_path):
+    payload = valid_payload(tmp_path)
+    payload["candidate_universe"][0]["option_type"] = "IDCW"
+
+    with pytest.raises(EvidenceProviderContractError, match="option_type conflicts"):
+        validate_evidence_provider_payload(payload)
+
+
+def test_contract_rejects_regular_candidate_for_direct_sip_universe(tmp_path):
+    payload = valid_payload(tmp_path)
+    payload["candidate_universe"][0]["plan_type"] = "Regular"
+    payload["scheme_master"]["schemes"][0]["plan_type"] = "Regular"
+    payload["candidate_universe"][0]["is_direct"] = False
+
+    with pytest.raises(EvidenceProviderContractError, match="explicitly verified Direct"):
+        validate_evidence_provider_payload(payload)
+
+
 def test_contract_rejects_candidate_identity_conflicting_with_scheme_master(tmp_path):
     payload = valid_payload(tmp_path)
     payload["candidate_universe"][0]["isin"] = "INF999999999"
