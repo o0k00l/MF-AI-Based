@@ -118,3 +118,28 @@ def test_check_eligibility_gates_propagates_as_of_date(tmp_path):
     )
     assert res_stale.direct_plan_gate is False
 
+
+
+def test_eligibility_does_not_substitute_wall_clock_when_decision_date_missing(tmp_path):
+    fund = _make_fund_evidence(tmp_path, "2026-01-15")
+    fund.update({
+        "category": "Large Cap",
+        "aum_crore": 5000.0,
+        "top10_concentration_pct": 40.0,
+        "sector_concentration_pct": 25.0,
+        "sharpe_ratio": 0.8,
+        "alpha_3y": 2.5,
+        "downside_capture_ratio": 80.0,
+        "upside_capture_ratio": 95.0,
+        "riskometer_score": 4,
+        "benchmark_tri": "NIFTY 50 TRI",
+        "data_confidence_score": 0.95,
+        "manager_tenure_years": 4.0,
+    })
+    result = check_eligibility_gates(
+        fund,
+        portfolio_holdings=[{"amc_name": "Other AMC", "value": 10000.0}],
+        client_risk_tier_num=4,
+    )
+    assert result.direct_plan_gate is False
+    assert any("Direct Plan Mandate" in reason for reason in result.failed_gates)
