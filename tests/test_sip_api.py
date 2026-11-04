@@ -115,16 +115,32 @@ def test_api_passes_temporary_cas_to_evidence_provider_and_removes_it(monkeypatc
             "candidate_universe_source_bytes": b"candidate bytes",
         }
 
-    monkeypatch.setattr(
-        sip,
-        "recommend_sip",
-        lambda **kwargs: {
+    def strict_service_contract(
+        *,
+        cas_path,
+        metrics_path,
+        aliases_path,
+        monthly_budget_inr,
+        risk_profile,
+        scheme_master,
+        scheme_master_source_bytes,
+        portfolio_disclosures_by_scheme_id,
+        portfolio_disclosure_source_bytes_by_scheme_id,
+        disclosure_as_of_date,
+        candidate_universe,
+    ):
+        assert cas_path.is_file()
+        assert metrics_path == Path(__file__)
+        assert risk_profile == "Moderate"
+        assert candidate_universe[0]["is_direct"] is True
+        return {
             "status": "HOLD",
             "decision": "NO_ACTION",
             "reasons": ["Synthetic API integration test."],
-            "unallocated_budget_inr": kwargs["monthly_budget_inr"],
-        },
-    )
+            "unallocated_budget_inr": monthly_budget_inr,
+        }
+
+    monkeypatch.setattr(sip, "recommend_sip", strict_service_contract)
     client = TestClient(sip.create_sip_app(evidence_provider=provider))
 
     response = _upload(
