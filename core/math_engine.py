@@ -202,7 +202,7 @@ def reconcile_cas_holdings_with_transactions(holdings: List[HoldingItem], transa
     transaction_units: Dict[str, float] = {}
     transaction_names: Dict[str, str] = {}
     supported_types = {"PURCHASE", "SIP", "SWITCH_IN", "STP_IN", "DIVIDEND_REINVEST",
-                       "DIVIDEND", "REDEMPTION", "SWITCH_OUT", "STP_OUT"}
+                       "DIVIDEND", "REDEMPTION", "SWITCH_OUT", "STP_OUT", "CHARGES"}
     for index, transaction in enumerate(data["transactions"]):
         if not isinstance(transaction, dict):
             return {"status": "INVALID_TRANSACTION", "error": f"Transaction row {index} is not an object",
@@ -210,18 +210,20 @@ def reconcile_cas_holdings_with_transactions(holdings: List[HoldingItem], transa
                     "discrepancies": [], "unmatched_transaction_schemes": []}
         scheme_name = transaction.get("scheme")
         scheme_key = key(scheme_name)
-        txn_type = str(transaction.get("type", "PURCHASE")).upper()
+        txn_type = str(transaction.get("type", "UNKNOWN")).upper().strip()
         try:
             units = float(transaction.get("units", 0.0) or 0.0)
+            amount = float(transaction.get("amount", 0.0) or 0.0)
         except (TypeError, ValueError):
             units = float("nan")
         if (not scheme_key or txn_type not in supported_types or not math.isfinite(units)
-                or units < 0.0):
+                or units < 0.0 or not math.isfinite(amount)
+                or (txn_type in {"DIVIDEND", "CHARGES"} and units != 0.0)):
             return {"status": "INVALID_TRANSACTION", "error": f"Invalid scheme, type or units at transaction row {index}",
                     "reconciled_schemes": 0, "total_schemes": len(holdings),
                     "discrepancies": [], "unmatched_transaction_schemes": []}
-        if txn_type == "DIVIDEND":
-            sign = 0.0  # Cash payout does not change mutual-fund units.
+        if txn_type in {"DIVIDEND", "CHARGES"}:
+            sign = 0.0  # Cash-only events do not change mutual-fund units.
         else:
             sign = -1.0 if txn_type in {"REDEMPTION", "SWITCH_OUT", "STP_OUT"} else 1.0
         transaction_units[scheme_key] = transaction_units.get(scheme_key, 0.0) + sign * units
@@ -285,7 +287,7 @@ def calculate_portfolio_xirr(
 
     supported_types = {
         "PURCHASE", "SIP", "REDEMPTION", "SWITCH_IN", "SWITCH_OUT",
-        "STP_IN", "STP_OUT", "DIVIDEND", "SWP", "DIVIDEND_REINVEST",
+        "STP_IN", "STP_OUT", "DIVIDEND", "SWP", "DIVIDEND_REINVEST", "CHARGES",
     }
     cashflows = []
     txn_dates = []
@@ -314,7 +316,11 @@ def calculate_portfolio_xirr(
         if amount == 0.0:
             continue
 
-        if amount < 0:
+        if txn_type == "CHARGES":
+            # Separately reported fees reduce investor return; they never
+            # acquire or dispose of fund units.
+            cf = -abs(amount)
+        elif amount < 0:
             cf = -amount
         elif txn_type in ("REDEMPTION", "SWITCH_OUT", "STP_OUT", "DIVIDEND", "SWP") and not is_reversal:
             cf = abs(amount)
@@ -778,6 +784,7 @@ def calculate_cashflow_matched_benchmark_xirr(
             allowed_types = {
                 "PURCHASE", "SIP", "REDEMPTION", "SWP", "DIVIDEND",
                 "DIVIDEND_REINVEST", "SWITCH_IN", "SWITCH_OUT", "STP_IN", "STP_OUT",
+                "CHARGES",
             }
             if txn_type not in allowed_types:
                 raise ValueError(f"unsupported transaction type {txn_type!r}")
@@ -800,7 +807,9 @@ def calculate_cashflow_matched_benchmark_xirr(
             if txn_type in ("SWITCH_IN", "SWITCH_OUT", "STP_IN", "STP_OUT", "DIVIDEND_REINVEST") or transfer_description:
                 continue
             
-            if amount < 0:
+            if txn_type == "CHARGES":
+                cf = -abs(amount)
+            elif amount < 0:
                 cf = -amount
             else:
                 # DIVIDEND: classify as cash vs reinvested
@@ -1548,7 +1557,7 @@ def build_fifo_tax_lots(
 
     allowed_types = {
         "PURCHASE", "SIP", "SWITCH_IN", "STP_IN", "DIVIDEND_REINVEST",
-        "REDEMPTION", "SWITCH_OUT", "STP_OUT", "DIVIDEND",
+        "REDEMPTION", "SWITCH_OUT", "STP_OUT", "DIVIDEND", "CHARGES",
     }
     purchase_types = {"PURCHASE", "SIP", "SWITCH_IN", "STP_IN", "DIVIDEND_REINVEST"}
     redemption_types = {"REDEMPTION", "SWITCH_OUT", "STP_OUT"}
@@ -1567,6 +1576,10 @@ def build_fifo_tax_lots(
         if txn_type not in allowed_types:
             raise ValueError(f"Unsupported CAS transaction type at row {index}: {txn_type!r}")
         if amount == 0 and units == 0:
+            continue
+        if txn_type == "CHARGES":
+            if units != 0:
+                raise ValueError(f"Charge row {index} must not change units")
             continue
         if txn_type == "DIVIDEND":
             description = str(txn.get("description", txn.get("desc", "")) or "").casefold()
