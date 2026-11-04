@@ -375,3 +375,64 @@ def test_unreviewed_statutory_tax_citations_are_withheld():
 
     with pytest.raises(math_engine.TaxClassificationDisabledError):
         math_engine.get_statutory_tax_citation(date(2026, 11, 4))
+
+
+def test_reporting_ignores_unverified_tax_lot_and_switch_cost_payloads(monkeypatch):
+    from types import SimpleNamespace
+    from core import prompt_advisor
+
+    captured = {}
+    monkeypatch.setattr(
+        prompt_advisor,
+        "_call_llm_with_retry",
+        lambda prompt: captured.setdefault("prompt", prompt),
+    )
+    spoofed_tax = {"total_ltcg_tax_inr": 1, "classification": "APPROVED-SPOOF"}
+    spoofed_cost = {
+        "fund_name": "Synthetic Fund",
+        "switch_cost_inr": 1,
+        "switch_cost_pct": 0.01,
+        "available": True,
+        "warning": "none",
+    }
+    facts = SimpleNamespace(
+        holdings=[],
+        fee_bleed=SimpleNamespace(details=[], annual_bleed_inr=0, ten_year_compounded_loss_inr=0),
+        overlap_matrix=[],
+        weighted_overlap=[],
+        switch_costs=[spoofed_cost],
+        tax_lots_summary=spoofed_tax,
+        total_portfolio_value_inr=100000,
+        holdings_count=0,
+        total_unrealized_gain_inr=0,
+        mandate_state="HOLD_PENDING_TRI_VALIDATION",
+        is_execution_authorized=False,
+        is_actionable_order=False,
+        no_action=None,
+    )
+
+    prompt_advisor.generate_switch_and_consolidation_plan(facts)
+    prompt = captured["prompt"]
+
+    assert "APPROVED-SPOOF" not in prompt
+    assert "Synthetic Fund" not in prompt
+    assert "switch_cost_inr" not in prompt
+    assert "UNAVAILABLE — tax-lot conclusions" in prompt
+    assert "switch-cost figures supplied to the report are unverified" in prompt
+
+
+def test_legacy_taxlot_model_maturity_helper_is_disabled():
+    import pytest
+    from core.models import TaxLot
+
+    lot = TaxLot(
+        fund_id="synthetic",
+        purchase_date="2025-11-04",
+        units=1,
+        nav=100,
+        cost_basis=100,
+        holding_days=365,
+        is_long_term=False,
+    )
+    with pytest.raises(RuntimeError, match="Tax-lot maturity classification is disabled"):
+        lot.is_long_term_given(datetime(2026, 11, 4).date())
