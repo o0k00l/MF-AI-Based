@@ -1,0 +1,32 @@
+name: AI provider integration
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ai-provider-integration-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  provider-smoke-test:
+    name: Live AI provider connectivity (synthetic prompt only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: requirements.lock
+      - name: Install hash-locked dependencies
+        run: python -m pip install --require-hashes -r requirements.lock
+      - name: Test all three provider credentials
+        env:
+          REQUESTY_API_KEY: ${{ secrets.REQUESTY_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: python scripts/smoke_test_ai_providers.py
