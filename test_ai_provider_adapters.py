@@ -166,3 +166,26 @@ def test_google_exception_diagnostics_do_not_expose_free_form_message():
     exc = SimpleNamespace(code=400, status="INVALID_ARGUMENT", message="secret prompt and API key")
     assert ai_engine._safe_exception_code(exc) == "INVALID_ARGUMENT"
     assert "secret" not in (ai_engine._safe_exception_code(exc) or "")
+
+
+def test_generation_blocks_model_when_live_zero_price_evidence_changes(monkeypatch):
+    attempted = []
+
+    class Completions:
+        def create(self, **kwargs):
+            attempted.append(kwargs["model"])
+            return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content="READY"))])
+
+    class Client:
+        def __init__(self, **kwargs):
+            self.chat = SimpleNamespace(completions=Completions())
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    def discovery(key, force_refresh=False):
+        return ["vendor/model"] if not force_refresh else []
+    monkeypatch.setattr(ai_engine, "discover_openrouter_free_models", discovery)
+    monkeypatch.setitem(__import__("sys").modules, "openai", SimpleNamespace(OpenAI=Client))
+
+    with pytest.raises(ai_engine.ProviderError, match="no usable discovered models"):
+        ai_engine._call_openrouter("test")
+    assert attempted == []
