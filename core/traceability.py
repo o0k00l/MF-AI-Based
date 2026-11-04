@@ -87,6 +87,7 @@ class Decision:
             "code_version": self.code_version,
             "mandate_state": self.mandate_state,
             "is_actionable": self.is_actionable,
+            "hash_version": "RFC8785-JCS-SHA256-v1",
         }
 
     def compute_hash(self) -> str:
