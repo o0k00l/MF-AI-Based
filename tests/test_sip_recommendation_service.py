@@ -402,7 +402,7 @@ def test_complete_portfolio_workflow_integrates_issues_23_to_34_without_authoriz
         "unallocated_by_sleeve_inr": allocation["unallocated_by_sleeve_inr"],
         "unallocated_budget_inr": allocation["unallocated_budget_inr"],
     }
-    assert context["candidate_level_sip_allocation_simulation"]["unallocated_budget_inr"] == "7000"
+    assert float(context["candidate_level_sip_allocation_simulation"]["unallocated_budget_inr"]) == 7000.0
     assert context["candidate_level_sip_allocation_simulation"]["reconciliation_ok"] is True
     assert context["candidate_overlap_diagnostics"]["CANDIDATE-1"]["shared_issuers"] == ["ISSUER-A"]
     assert context["incremental_sip_routing_simulation"]["allocations_inr"] == {"large_cap": "3000"}
@@ -417,7 +417,7 @@ def test_complete_portfolio_workflow_integrates_issues_23_to_34_without_authoriz
     assert trace_record["source_digests"]["portfolio_context_source_sha256"] == hashlib.sha256(portfolio_source).hexdigest()
     assert trace_record["as_of_dates"]["cas_valuation_date"] == date.today().isoformat()
     assert trace_record["portfolio_effect"]["candidate_level_allocation_simulation"]["reconciliation_ok"] is True
-    assert trace_record["allocation"]["simulated_unallocated_budget_inr"] == "7000"
+    assert float(trace_record["allocation"]["simulated_unallocated_budget_inr"]) == 7000.0
     assert trace_record["allocation"]["authorized_allocated_budget_inr"] == 0
     assert trace_record["allocation"]["simulated_allocated_budget_inr"] == "3000"
     assert len(trace_record["policy_source_sha256"]) == 64
@@ -679,7 +679,7 @@ def test_combined_selected_funds_cannot_collectively_breach_sector_cap(tmp_path,
     assert float(combined["sector_market_cap_theme"]["breaches"]["sector"]["Healthcare"]) > 20.1
     assert allocation["status"] == "HOLD"
     assert allocation["allocated_budget_inr"] == "0"
-    assert allocation["unallocated_budget_inr"] == "10000"
+    assert float(allocation["unallocated_budget_inr"]) == 10000.0
     assert allocation["reconciliation_ok"] is True
     assert result["plan"]["items"] == []
     assert result["plan"]["unallocated_budget_inr"] == 10000
