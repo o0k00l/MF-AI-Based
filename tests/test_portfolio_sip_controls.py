@@ -226,3 +226,36 @@ def test_scheme_operational_feasibility_requires_current_evidence_and_minimum():
         as_of_date="2026-10-31", max_evidence_age_days=30,
     )
     assert "REQUEST_BELOW_SCHEME_MINIMUM" in too_small["reasons"]
+
+
+def test_recommendation_freshness_blocks_expired_or_event_invalidated_plan():
+    from core.portfolio_sip_controls import evaluate_recommendation_freshness
+
+    result = evaluate_recommendation_freshness(
+        recommendation_as_of_date="2026-01-01", current_as_of_date="2026-10-31",
+        max_age_days=90, event_flags={"manager_change": True, "life_event": False},
+    )
+    assert result["status"] == "REVIEW_REQUIRED"
+    assert result["execution_authorized"] is False
+
+
+def test_recommendation_lifecycle_requires_independent_review_and_is_monotonic():
+    from core.portfolio_sip_controls import transition_recommendation_lifecycle
+
+    digest = "a" * 64
+    with pytest.raises(PortfolioInputError):
+        transition_recommendation_lifecycle(
+            current_state="DRAFT", requested_state="REVIEWED",
+            decision_trace_sha256=digest, author_id="author", reviewer_id="author",
+        )
+    result = transition_recommendation_lifecycle(
+        current_state="DRAFT", requested_state="REVIEWED",
+        decision_trace_sha256=digest, author_id="author", reviewer_id="reviewer",
+    )
+    assert result["state"] == "REVIEWED"
+    assert result["execution_authorized"] is False
+    with pytest.raises(PortfolioInputError):
+        transition_recommendation_lifecycle(
+            current_state="REVIEWED", requested_state="DRAFT",
+            decision_trace_sha256=digest, author_id="author",
+        )
