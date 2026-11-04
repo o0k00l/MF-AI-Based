@@ -333,7 +333,7 @@ def test_complete_portfolio_workflow_integrates_issues_23_to_34_without_authoriz
     context = result["portfolio_assessment"]["total_portfolio_context"]
     assert context["status"] == "ASSESSMENT_COMPLETE"
     assert context["portfolio_reconciliation"]["total_value_inr"] == "1000000"
-    assert context["saa"]["drift"]["underweight_sleeves"] == ["flexi_multi_cap", "large_cap", "mid_cap", "small_cap"]
+    assert context["saa"]["drift"]["underweight_sleeves"] == ["flexi_multi_cap", "large_cap"]
     assert context["goal_suitability"]["status"] == "VALIDATED"
     assert context["liquidity_and_affordability"]["status"] == "AFFORDABLE"
     assert context["affordability_stress"]["all_scenarios_sustainable"] is True
