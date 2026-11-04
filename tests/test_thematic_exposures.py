@@ -26,7 +26,7 @@ def test_thematic_exposure_uses_actual_verified_constituent_weights():
     assert pharma.look_through_stocks_inr == 8000.0
     assert pharma.look_through_stocks_pct == 8.0
     assert pharma.coverage_status == "FULL"
-    assert pharma.key_underlying_holdings == ["sunpharma"]
+    assert pharma.key_underlying_holdings == ["Sun Pharma"]
 
 
 def test_thematic_exposure_does_not_use_top_ten_or_equal_weight_proxy():
