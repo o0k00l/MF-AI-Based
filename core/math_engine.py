@@ -1045,17 +1045,6 @@ def load_holdings_from_cas_excel(
     if not xlsx_path.exists():
         raise FileNotFoundError(f"CAS statement not found: {xlsx_path}")
 
-    # The uploaded CAS valuation date is the only valid decision-time anchor
-    # for scheme disclosures. A caller-supplied date may confirm it, never
-    # override it or silently move freshness evaluation to today.
-    cas_valuation_date = _parse_cas_valuation_date(xlsx_path)
-    if disclosure_as_of_date is not None and disclosure_as_of_date != cas_valuation_date:
-        raise ValueError(
-            "Disclosure decision date does not match the uploaded CAS valuation date; "
-            "SIP evidence freshness cannot be evaluated against a different date."
-        )
-    disclosure_as_of_date = cas_valuation_date
-
     wb = openpyxl.load_workbook(xlsx_path, data_only=True)
     if "Portfolio Details" not in wb.sheetnames:
         raise ValueError("Invalid CAS workbook: missing 'Portfolio Details' sheet.")
