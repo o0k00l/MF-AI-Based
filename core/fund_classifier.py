@@ -120,12 +120,15 @@ def is_verified_passive_scheme(
             if not isinstance(records, dict) or not records:
                 raise ValueError("schemes_by_isin must be a non-empty mapping")
             normalized_records = [records[key] for key in sorted(records)]
+            now = datetime.now(timezone.utc)
+            if effective_date > now.date():
+                raise ValueError("scheme master effective_date is in the future")
             approval = verify_sip_reviewer_approval(
                 scheme_master["reviewer_approval_envelope"], registry,
                 expected_scope="SIP_SCHEME_MASTER",
                 expected_source_sha256=scheme_master["source_document_sha256"],
                 structured_records=normalized_records,
-                now=datetime.combine(effective_date, datetime.min.time(), tzinfo=timezone.utc),
+                now=now,
             )
             if not approval.ok:
                 raise ValueError("; ".join(approval.errors))
