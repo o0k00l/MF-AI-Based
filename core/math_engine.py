@@ -1794,6 +1794,21 @@ def parse_cas(xlsx_path: Path, scheme_master: Optional[Dict[str, Any]] = None, s
     return as_of_date, holdings
 
 
+def _aggregate_portfolio_benchmark_unavailable() -> dict:
+    """Do not compare a mixed-asset portfolio to one equity index."""
+    return {
+        "release_status": "UNAVAILABLE",
+        "validation_stage": "portfolio_composite_benchmark_not_implemented",
+        "error": (
+            "Aggregate portfolio alpha requires an IPS-weighted composite benchmark "
+            "with cash-flow-matched component TRI series and an explicit rebalancing policy. "
+            "A single NIFTY 500 TRI is not a valid benchmark for a mixed-asset portfolio."
+        ),
+        "benchmark_matched_xirr_pct": None,
+        "alpha_pct": None,
+    }
+
+
 def _tri_alpha_release_blockers() -> list[str]:
     """Evaluate TRI release evidence independently of the process working directory."""
     from verify_tri_provenance import alpha_release_blockers
@@ -2138,49 +2153,14 @@ def aggregate_fiduciary_facts(
     cas_recon = reconcile_cas_holdings_with_transactions(holdings, transactions_path)
     tax_lots_summary = None
     
-    # Reproducible Cash-Flow Matched Benchmark TRI Engine
-    # Evaluates exact matched cashflows against official NIFTY 500 TRI (and NIFTY 50 TRI)
+    # A single equity index is not a valid comparator for a mixed-asset
+    # portfolio. Until an IPS-weighted composite benchmark (with explicit
+    # rebalancing policy and cash-flow-matched component TRI series) exists,
+    # aggregate portfolio alpha must remain unavailable.
     benchmark_xirr = None
     alpha_pct = None
-    bench_audit_record = None
+    bench_audit_record = _aggregate_portfolio_benchmark_unavailable()
     if portfolio_xirr is not None and transactions_path.exists():
-        try:
-            # The terminal valuation date must come from this CAS statement,
-            # never from today's date or the latest transaction date.
-            # A mathematically computable result is not a releasable alpha
-            # claim. Enforce the same independent evidence gate used by CI
-            # before any benchmark or alpha value can enter the client report.
-            release_blockers = _tri_alpha_release_blockers()
-            if release_blockers:
-                bench_audit_record = {
-                    "release_status": "BLOCKED",
-                    "release_blockers": release_blockers,
-                    "benchmark_matched_xirr_pct": None,
-                    "alpha_pct": None,
-                }
-            else:
-                cas_as_of_date = _parse_cas_valuation_date(cas_path)
-                bench_audit_record = calculate_cashflow_matched_benchmark_xirr(
-                    transactions_path=transactions_path,
-                    as_of_date=cas_as_of_date,
-                    benchmark_key="NIFTY 500 TRI",
-                    cas_current=tot_cur
-                )
-                if bench_audit_record.get("benchmark_matched_xirr_pct") is not None:
-                    benchmark_xirr = bench_audit_record["benchmark_matched_xirr_pct"] / 100.0
-                    alpha_pct = bench_audit_record.get("alpha_pct")
-        except TriProvenanceError as e:
-            bench_audit_record = {"error": str(e), "validation_stage": e.validation_stage}
-            benchmark_xirr = None
-            alpha_pct = None
-        except (TypeError, ValueError) as e:
-            bench_audit_record = {
-                "error": f"Unable to establish CAS valuation date: {e}",
-                "validation_stage": "cas_valuation_date_invalid",
-            }
-            benchmark_xirr = None
-            alpha_pct = None
-
         # Persist audit output only beside explicitly configured external client data.
         # Never write client-derived results into the repository working tree.
         client_data_dir = os.environ.get("MF_CLIENT_DATA_DIR")
