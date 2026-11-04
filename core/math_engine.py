@@ -3871,7 +3871,30 @@ def select_autonomous_blueprint_funds(
             )
             if getattr(gate_result, "passed", False) is not True:
                 continue
-            score = compute_multi_horizon_fiduciary_score(candidate)
+            # Use the candidate's actual investment category. Never let an
+            # unsupported category silently inherit Healthcare scoring anchors.
+            classified_category = classify_fund_category(name, category, candidate)
+            scoring_categories = {
+                "Flexi Cap Equity": "Flexi Cap",
+                "Mid Cap Equity": "Mid Cap",
+                "Large Cap Equity": "Large Cap",
+            }
+            score_category_key = scoring_categories.get(classified_category)
+            if score_category_key is None and detect_fund_theme(name, category) == "Healthcare":
+                score_category_key = "Healthcare"
+            if score_category_key is None:
+                # No approved scoring model exists for this category (notably
+                # debt and unsupported thematic categories). Keep it unselected.
+                continue
+            try:
+                score = compute_multi_horizon_fiduciary_score(
+                    candidate,
+                    category_key=score_category_key,
+                )
+            except ValueError:
+                # An unscorable candidate is not a zero-score candidate and
+                # must not be allowed to enter the ranking.
+                continue
             if isinstance(score, bool) or not isinstance(score, (int, float)) or not math.isfinite(float(score)):
                 raise ValueError(f"Candidate {candidate.get('fund_id')!r} returned an invalid composite score")
             evaluated.append((float(score), candidate))
@@ -3944,7 +3967,7 @@ def select_autonomous_blueprint_funds(
         lambda candidate, name, category: classify_fund_category(name, category, candidate) in (
             "Debt", "Liquid", "Money Market", "Debt: Short Duration"
         ),
-        "no verified Direct debt candidate passed all eligibility gates",
+        "no supported debt-specific ranking model and verified Direct candidate are available",
         "percent_of_total_portfolio",
     )
     return blueprint
