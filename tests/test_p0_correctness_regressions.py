@@ -1882,3 +1882,32 @@ def test_candidate_scoring_rejects_unknown_category_instead_of_using_healthcare_
     }
     with pytest.raises(ValueError, match="Unsupported scoring category"):
         calculate_candidate_6_pillar_score(candidate, category_key="Debt")
+
+
+
+def test_candidate_scoring_rejects_missing_core_evidence_instead_of_filling_defaults():
+    from core.candidate_scoring import calculate_candidate_6_pillar_score
+
+    candidate = {
+        "alpha_3y": 2.0,
+        "return_1y": 12.0,
+        "sharpe_3y": 0.8,
+        # Direct TER deliberately omitted.
+    }
+    with pytest.raises(ValueError, match="Missing required scoring metric: ter_direct_pct"):
+        calculate_candidate_6_pillar_score(candidate, category_key="Flexi Cap")
+
+
+def test_candidate_scoring_marks_absent_optional_pillars_neutral_not_as_observed_zero():
+    from core.candidate_scoring import calculate_candidate_6_pillar_score
+
+    candidate = {
+        "alpha_3y": 2.0,
+        "return_1y": 12.0,
+        "sharpe_3y": 0.8,
+        "ter_direct_pct": 0.7,
+    }
+    _, pillars = calculate_candidate_6_pillar_score(candidate, category_key="Flexi Cap")
+    assert pillars["downside_buffer"] == 50.0
+    assert pillars["geographic_moat"] == 50.0
+    assert pillars["portfolio_overlap"] == 50.0
