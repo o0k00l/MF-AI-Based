@@ -113,6 +113,14 @@ def build_sip_evidence_provider(
     metrics_metadata = _read_json(
         root, manifest["metrics_metadata_file"], label="metrics_metadata_file"
     )
+    declared_normalized_hash = (
+        metrics_metadata.get("normalized_metrics_sha256")
+        if isinstance(metrics_metadata, dict) else None
+    )
+    import hashlib
+    actual_normalized_hash = hashlib.sha256(metrics_path.read_bytes()).hexdigest()
+    if declared_normalized_hash != actual_normalized_hash:
+        raise ValueError("Normalized fund metrics SHA-256 does not match the reviewed metadata.")
     metrics_source = _resolve_bundle_file(
         root, manifest["metrics_source_file"], label="metrics_source_file"
     ).read_bytes()
