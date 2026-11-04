@@ -2581,3 +2581,48 @@ def test_default_passive_verifier_rejects_checked_in_sample_scheme_master():
     with pytest.raises(InsufficientDataError):
         is_verified_passive_scheme({"isin": "TEST004"})
     assert get_fund_passive_alternatives("Large Cap Equity") == []
+
+
+def _saa_holding(asset_class, value):
+    from core.models import HoldingItem, PlanType, AssetClass
+    return HoldingItem(
+        fund_id=f"scheme-{asset_class.value}",
+        scheme=f"Scheme {asset_class.value}", fund_name=f"Scheme {asset_class.value}",
+        folio="REDACTED", is_direct=True, plan=PlanType.DIRECT,
+        asset_class=asset_class, equity_pct=100.0 if asset_class == AssetClass.EQUITY else 0.0,
+        debt_pct=100.0 if asset_class == AssetClass.DEBT else 0.0,
+        hybrid_pct=0.0, international_pct=0.0,
+        current_value_inr=value, invested_value_inr=value,
+        units=1.0, nav=value,
+    )
+
+
+def test_saa_drift_minimizer_uses_post_sip_denominator_for_mixed_gaps():
+    from core.math_engine import calculate_saa_drift_minimizer
+    from core.models import AssetClass
+
+    result = calculate_saa_drift_minimizer(
+        [_saa_holding(AssetClass.EQUITY, 60000.0), _saa_holding(AssetClass.DEBT, 40000.0)],
+        {"equity_pct": 75.0, "debt_pct": 25.0, "cash_pct": 0.0},
+        100000.0,
+    )
+    assert result.recommended_sip_allocation["Equity"] == pytest.approx(90000.0)
+    assert result.recommended_sip_allocation["Debt"] == pytest.approx(10000.0)
+    assert result.recommended_sip_allocation["Cash"] == pytest.approx(0.0)
+    assert sum(result.recommended_sip_allocation.values()) == pytest.approx(100000.0)
+    assert result.total_drift_l2_norm == pytest.approx(0.0)
+
+
+def test_saa_drift_minimizer_preserves_exact_target_and_zero_weight_cash():
+    from core.math_engine import calculate_saa_drift_minimizer
+    from core.models import AssetClass
+
+    result = calculate_saa_drift_minimizer(
+        [_saa_holding(AssetClass.EQUITY, 75000.0), _saa_holding(AssetClass.DEBT, 25000.0)],
+        {"equity_pct": 75.0, "debt_pct": 25.0, "cash_pct": 0.0},
+        10000.0,
+    )
+    assert result.recommended_sip_allocation["Equity"] == pytest.approx(10000.0)
+    assert result.recommended_sip_allocation["Debt"] == pytest.approx(0.0)
+    assert result.recommended_sip_allocation["Cash"] == pytest.approx(0.0)
+    assert result.total_drift_l2_norm == pytest.approx(0.0)
