@@ -34,7 +34,15 @@ def _load_scheme_master() -> Optional[Dict[str, Any]]:
         try:
             with open(policy_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
-            return data.get("scheme_master", {})
+            # The checked-in policy file is explicitly SAMPLE. Never
+            # discard its envelope status and upgrade its fixture map to
+            # authoritative runtime scheme evidence.
+            if data.get("status") != "VERIFIED":
+                return None
+            envelope = data.get("scheme_master")
+            if not isinstance(envelope, dict) or envelope.get("status") != "VERIFIED":
+                return None
+            return envelope.get("schemes_by_isin")
         except (json.JSONDecodeError, KeyError):
             pass
     return None
@@ -258,13 +266,9 @@ def get_fund_passive_alternatives(category: str) -> List[str]:
     if category in universe:
         return universe[category]
 
-    defaults = {
-        "Large Cap Equity": ["Nifty 50 Index Fund - Direct Plan - Growth"],
-        "Mid Cap Equity": ["Nifty Midcap 150 Index Fund - Direct Plan - Growth"],
-        "Flexi Cap Equity": ["Nifty 500 Index Fund - Direct Plan - Growth"],
-        "Debt Funds": ["Nifty 1D Rate Index Liquid Direct Plan"]
-    }
-    return defaults.get(category, [])
+    # Search-term and display-name fallbacks are not exact scheme identities
+    # and cannot be presented as verified passive alternatives.
+    return []
 
 
 def detect_fund_theme(fund_name: str, category: str = "") -> Optional[str]:
