@@ -137,11 +137,19 @@ def build_sip_evidence_provider(
     scheme_master_source = _resolve_bundle_file(
         root, manifest["scheme_master_source_file"], label="scheme_master_source_file"
     ).read_bytes()
-    candidates = _read_json(root, manifest["candidate_universe_file"], label="candidate_universe_file")
+    candidate_universe_path = _resolve_bundle_file(
+        root, manifest["candidate_universe_file"], label="candidate_universe_file"
+    )
+    candidate_universe_bytes = candidate_universe_path.read_bytes()
+    candidates = _json_no_duplicates(candidate_universe_bytes, label="candidate_universe_file")
     candidate_metadata = _read_json(
         root, manifest["candidate_universe_metadata_file"],
         label="candidate_universe_metadata_file",
     )
+    if not isinstance(candidate_metadata, dict) or candidate_metadata.get(
+        "normalized_candidate_universe_sha256"
+    ) != hashlib.sha256(candidate_universe_bytes).hexdigest():
+        raise ValueError("Normalized candidate universe SHA-256 does not match the reviewed metadata.")
     candidate_source = _resolve_bundle_file(
         root, manifest["candidate_universe_source_file"], label="candidate_universe_source_file"
     ).read_bytes()
