@@ -2540,29 +2540,48 @@ def calculate_weighted_lookthrough_overlap(
 def calculate_risk_distribution(
     holdings: List[HoldingItem]
 ) -> RiskDistribution:
+    if not holdings:
+        return RiskDistribution(
+            availability_status="UNAVAILABLE",
+            verified_coverage_pct=0.0,
+            unknown_value_inr=None,
+        )
+    total_value = sum(h.current_value_inr for h in holdings)
+    if not math.isfinite(total_value) or total_value <= 0.0:
+        return RiskDistribution(
+            availability_status="UNAVAILABLE",
+            verified_coverage_pct=0.0,
+            unknown_value_inr=total_value if math.isfinite(total_value) else None,
+        )
+
     tier_counts: Dict[str, int] = {}
     tier_values: Dict[str, float] = {}
-    total_value = sum(h.current_value_inr for h in holdings)
-    
-    for h in holdings:
-        tier = getattr(h, 'risk_tier', None)
-        if tier is None:
-            tier = 'Unknown'
-        if tier not in tier_counts:
-            tier_counts[tier] = 0
-            tier_values[tier] = 0.0
-        tier_counts[tier] += 1
-        tier_values[tier] += h.current_value_inr
-    
-    tier_pct = {t: round((v / total_value) * 100, 2) for t, v in tier_values.items()} if total_value > 0 else {}
-    
+    verified_value = 0.0
+    unknown_value = 0.0
+    for holding in holdings:
+        tier = getattr(holding, "risk_tier", None)
+        if not isinstance(tier, str) or not tier.strip():
+            tier = "Unknown"
+        tier_counts[tier] = tier_counts.get(tier, 0) + 1
+        tier_values[tier] = tier_values.get(tier, 0.0) + holding.current_value_inr
+        if tier == "Unknown":
+            unknown_value += holding.current_value_inr
+        else:
+            verified_value += holding.current_value_inr
+
+    tier_pct = {tier: round(value / total_value * 100.0, 2) for tier, value in tier_values.items()}
+    coverage_pct = verified_value / total_value * 100.0
+    status = "COMPLETE" if coverage_pct >= 99.999 else ("PARTIAL" if coverage_pct > 0.0 else "UNAVAILABLE")
     return RiskDistribution(
         risk_tier_distribution=tier_counts,
         risk_tier_values=tier_pct,
+        availability_status=status,
+        verified_coverage_pct=round(coverage_pct, 2),
+        unknown_value_inr=round(unknown_value, 2),
         portfolio_beta=None,
         max_drawdown_pct=None,
         downside_capture_ratio=None,
-        volatility_annualized_pct=None
+        volatility_annualized_pct=None,
     )
 
 
