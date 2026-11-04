@@ -359,6 +359,7 @@ class FiduciaryFactsPayload(BaseModel):
     fee_bleed: FeeBleedAnalysis
     overlap_matrix: List[OverlapPair]
     weighted_overlap: List[WeightedOverlapResult] = Field(default_factory=list)
+    weighted_overlap_status: str = "UNAVAILABLE"
     risk_distribution: Optional[RiskDistribution] = None
     saa_drift: SAADriftAnalysis
     cash_plan: CashDeploymentPlan
