@@ -144,7 +144,12 @@ def route_incremental_sip(
     eligible_sleeves: Iterable[str],
     rounding_increment_inr: Any = "1",
 ) -> dict[str, Any]:
-    """Route only to eligible underweight sleeves; preserve every unfillable rupee."""
+    """Route only each eligible sleeve's pro-rata share of total SAA gaps.
+
+    An ineligible or unfillable underweight sleeve retains its own share of the
+    requested contribution as unallocated. Its budget is never redistributed
+    to a different sleeve.
+    """
     budget = _decimal(monthly_budget_inr, "monthly_budget_inr")
     increment = _decimal(rounding_increment_inr, "rounding_increment_inr")
     if budget <= 0 or increment <= 0:
@@ -154,42 +159,60 @@ def route_incremental_sip(
         tolerance_band_pct=tolerance_band_pct, portfolio_total_inr=portfolio_total_inr,
     )
     eligible = set(eligible_sleeves)
-    gaps = {
+    all_gaps = {
         sleeve: max(Decimal("0"), -_decimal(drift["drift_pct_points"][sleeve], sleeve))
         for sleeve in target_weights_pct
     }
-    gaps = {k: v for k, v in gaps.items() if v > 0 and k in eligible}
-    if not gaps:
-        return {"status": "HOLD", "reason": "NO_ELIGIBLE_UNDERWEIGHT_SLEEVE",
-                "allocations_inr": {}, "unallocated_budget_inr": str(budget),
-                "requested_budget_inr": str(budget)}
-    gap_total = sum(gaps.values())
+    all_gaps = {key: value for key, value in all_gaps.items() if value > 0}
+    eligible_gaps = {key: value for key, value in all_gaps.items() if key in eligible}
+    if not all_gaps or not eligible_gaps:
+        return {
+            "status": "HOLD",
+            "reason": "NO_ELIGIBLE_UNDERWEIGHT_SLEEVE",
+            "allocations_inr": {},
+            "requested_budget_inr": str(budget),
+            "allocated_budget_inr": "0",
+            "unallocated_budget_inr": str(budget),
+            "unallocated_by_sleeve_inr": {
+                key: str(budget * gap / sum(all_gaps.values()))
+                for key, gap in all_gaps.items()
+            } if all_gaps else {},
+            "reconciliation_ok": True,
+        }
+
+    gap_total = sum(all_gaps.values(), Decimal("0"))
     allocations: dict[str, Decimal] = {}
-    for sleeve, gap in gaps.items():
+    unallocated_by_sleeve: dict[str, Decimal] = {}
+    for sleeve, gap in sorted(all_gaps.items()):
         raw = budget * gap / gap_total
+        if sleeve not in eligible:
+            unallocated_by_sleeve[sleeve] = raw
+            continue
         rounded = (raw / increment).quantize(Decimal("1"), rounding=ROUND_HALF_UP) * increment
-        allocations[sleeve] = min(rounded, budget)
-    # Deterministic correction: rounding remainder remains unallocated, never spills
-    # into a sleeve that has no verified eligibility.
-    allocated = sum(allocations.values())
-    if allocated > budget:
-        overflow = allocated - budget
-        for sleeve in sorted(allocations, reverse=True):
-            reduction = min(allocations[sleeve], overflow)
-            allocations[sleeve] -= reduction
-            overflow -= reduction
-            if overflow == 0:
-                break
-        allocated = sum(allocations.values())
+        allocations[sleeve] = min(rounded, raw)
+        unallocated_by_sleeve[sleeve] = raw - allocations[sleeve]
+
+    # Rounding may create fractional remainder. Never spill it into another
+    # sleeve; all values remain reconciled to the original requested budget.
+    allocated = sum(allocations.values(), Decimal("0"))
     unallocated = budget - allocated
+    detail_total = sum(unallocated_by_sleeve.values(), Decimal("0"))
+    if detail_total != unallocated:
+        difference = unallocated - detail_total
+        if unallocated_by_sleeve:
+            final_sleeve = sorted(unallocated_by_sleeve)[-1]
+            unallocated_by_sleeve[final_sleeve] += difference
+        else:
+            unallocated_by_sleeve["rounding_unallocated"] = difference
     return {
         "status": "ROUTED" if allocated > 0 else "HOLD",
         "allocations_inr": {k: str(v) for k, v in sorted(allocations.items()) if v > 0},
         "requested_budget_inr": str(budget),
         "allocated_budget_inr": str(allocated),
         "unallocated_budget_inr": str(unallocated),
+        "unallocated_by_sleeve_inr": {k: str(v) for k, v in sorted(unallocated_by_sleeve.items())},
         "reconciliation_ok": allocated + unallocated == budget,
-        "basis": "PRO_RATA_TO_APPROVED_SAA_UNDERWEIGHT_GAPS",
+        "basis": "PRO_RATA_TO_ALL_APPROVED_SAA_UNDERWEIGHT_GAPS_NO_REDISTRIBUTION",
     }
 
 
