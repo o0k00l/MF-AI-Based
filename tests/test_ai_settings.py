@@ -48,7 +48,7 @@ def test_rejects_unknown_keys_and_multiline_values(tmp_path):
 
 
 def test_status_never_exposes_key_values(monkeypatch):
-    monkeypatch.setenv("GEMINI_API_KEY", "private-secret")
+    monkeypatch.setenv("REQUESTY_API_KEY", "private-secret")
     result = settings.ai_key_status_from_environment()
     assert result["Requesty.ai"] is True
     assert "private-secret" not in repr(result)
