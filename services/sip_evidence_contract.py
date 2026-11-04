@@ -192,7 +192,7 @@ def validate_evidence_provider_payload(
     payload: Any,
     *,
     trust_registry: Optional[dict[str, Any]] = None,
-    require_reviewer_signature: bool = False,
+    require_reviewer_signature: bool = True,
 ) -> dict[str, Any]:
     """Validate provider shape and critical source provenance before engine use."""
     if not isinstance(payload, dict):
