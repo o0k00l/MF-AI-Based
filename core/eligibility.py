@@ -574,6 +574,105 @@ def check_eligibility_gates(
     )
 
 
+def _portfolio_weighted_constituent_overlap_pct(
+    candidate: Dict[str, Any],
+    portfolio_holdings: List[Any],
+    minimum_coverage_pct: float = 90.0,
+) -> Optional[float]:
+    """
+    Return weighted constituent overlap (0-100) between a candidate and the
+    existing equity portfolio. None means overlap is not safely measurable.
+
+    Existing funds are aggregated by current equity value, not counted equally.
+    Both sides require source-verified constituent weights and adequate
+    disclosure coverage. Missing look-through is never treated as zero overlap.
+    """
+    def field(item: Any, name: str, default=None):
+        return item.get(name, default) if isinstance(item, dict) else getattr(item, name, default)
+
+    def weights_for(item: Any) -> Optional[Dict[str, float]]:
+        if field(item, "lookthrough_status", "") != "VERIFIED":
+            return None
+        coverage = field(item, "constituent_weights_coverage_pct")
+        try:
+            if isinstance(coverage, bool) or coverage is None:
+                return None
+            coverage = float(coverage)
+        except (TypeError, ValueError):
+            return None
+        if not math.isfinite(coverage) or coverage < minimum_coverage_pct or coverage > 100.0:
+            return None
+        raw = field(item, "constituent_weights")
+        if not isinstance(raw, dict) or not raw:
+            return None
+        parsed = {}
+        for name, value in raw.items():
+            if not isinstance(name, str) or not name.strip() or isinstance(value, bool):
+                return None
+            try:
+                number = float(value)
+            except (TypeError, ValueError):
+                return None
+            if not math.isfinite(number) or number < 0.0 or number > 100.0:
+                return None
+            if number > 0:
+                parsed[name.strip().casefold()] = parsed.get(name.strip().casefold(), 0.0) + number
+        total = sum(parsed.values())
+        if not parsed or total <= 0.0 or total > 100.5:
+            return None
+        return {name: value * 100.0 / total for name, value in parsed.items()}
+
+    candidate_weights = weights_for(candidate)
+    if candidate_weights is None:
+        return None
+
+    portfolio_exposure: Dict[str, float] = {}
+    equity_value_total = 0.0
+    for holding in portfolio_holdings or []:
+        raw_value = field(holding, "current_value_inr", field(holding, "value"))
+        raw_equity_pct = field(holding, "equity_pct")
+        asset_class = str(field(holding, "asset_class", "") or "").casefold()
+        if raw_value is None or isinstance(raw_value, bool) or raw_equity_pct is None:
+            return None
+        try:
+            value = float(raw_value)
+            equity_pct = float(raw_equity_pct)
+        except (TypeError, ValueError):
+            return None
+        if (not math.isfinite(value) or value < 0.0
+                or not math.isfinite(equity_pct) or not 0.0 <= equity_pct <= 100.0):
+            return None
+        equity_value = value * equity_pct / 100.0
+        if equity_value <= 0.0:
+            continue
+        # Equity exposure must be explicitly classified; unknown asset classes
+        # cannot be silently treated as a fully understood equity holding.
+        if not any(token in asset_class for token in (
+            "large", "mid", "small", "flexi", "multi", "equity", "international"
+        )):
+            return None
+        holding_weights = weights_for(holding)
+        if holding_weights is None:
+            return None
+        equity_value_total += equity_value
+        for stock, weight_pct in holding_weights.items():
+            portfolio_exposure[stock] = portfolio_exposure.get(stock, 0.0) + equity_value * weight_pct / 100.0
+
+    if equity_value_total <= 0.0:
+        return None
+    portfolio_total = sum(portfolio_exposure.values())
+    if portfolio_total <= 0.0:
+        return None
+    portfolio_weights = {
+        stock: exposure * 100.0 / portfolio_total
+        for stock, exposure in portfolio_exposure.items()
+    }
+    return sum(
+        min(weight, portfolio_weights.get(stock, 0.0))
+        for stock, weight in candidate_weights.items()
+    )
+
+
 def filter_candidates(
     candidate_universe: List[Dict[str, Any]],
     current_portfolio: List[Dict[str, Any]],
@@ -583,16 +682,26 @@ def filter_candidates(
     is_starter: bool = False,
 ) -> List[str]:
     """
-    Runs strict boolean checks across candidate universe using all 10 binary gates.
-    Returns: List of eligible fund names.
-    If len(eligible) == 0, the caller triggers NO ACTION branch.
+    Apply the binary eligibility gates and a portfolio-weighted look-through
+    overlap ceiling. The overlap limit is enforced only when it can be measured
+    from verified, sufficiently complete constituent disclosures; otherwise
+    the candidate is withheld rather than assuming zero overlap.
     """
+    if isinstance(max_overlap_limit_pct, bool):
+        raise ValueError("max_overlap_limit_pct must be numeric")
+    try:
+        overlap_limit = float(max_overlap_limit_pct)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("max_overlap_limit_pct must be numeric") from exc
+    if not math.isfinite(overlap_limit) or not 0.0 <= overlap_limit <= 100.0:
+        raise ValueError("max_overlap_limit_pct must be finite and between 0 and 100")
+
     eligible = []
     for cand in candidate_universe:
         cand_name = cand.get("name", cand.get("fund_name", cand.get("id", "")))
         fund_data = dict(cand)
         fund_data["fund_name"] = cand_name
-        
+
         gate_result = check_eligibility_gates(
             fund_data=fund_data,
             portfolio_holdings=current_portfolio,
@@ -600,11 +709,17 @@ def filter_candidates(
             is_starter=is_starter,
             amc_max_limit_pct=amc_max_limit_pct,
         )
-        if gate_result.passed:
-            eligible.append(cand_name)
+        if not gate_result.passed:
+            continue
+
+        overlap_pct = _portfolio_weighted_constituent_overlap_pct(
+            fund_data, current_portfolio
+        )
+        if overlap_pct is None or overlap_pct > overlap_limit:
+            continue
+        eligible.append(cand_name)
 
     return eligible
-
 
 def evaluate_no_action(
     current_portfolio: List[Any],
