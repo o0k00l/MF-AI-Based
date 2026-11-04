@@ -2384,8 +2384,11 @@ def aggregate_fiduciary_facts(
         if gate_result.passed:
             eligible_candidates.append(cand)
     
-    # Mandatory NO ACTION Fiduciary Branch
-    no_action_decision = evaluate_no_action(holdings, eligible_candidates)
+    # Mandatory NO ACTION Fiduciary Branch receives the same validated
+    # investor suitability profile used by the candidate eligibility gates.
+    no_action_decision = evaluate_no_action(
+        holdings, eligible_candidates, client_risk_tier_num=tier_num
+    )
     
     # Identify weak or redundant funds
     weak_funds = []
