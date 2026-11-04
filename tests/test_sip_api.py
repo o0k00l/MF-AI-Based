@@ -315,3 +315,103 @@ def test_api_real_service_ingests_cas_and_holds_on_missing_portfolio_disclosure(
     assert body["plan"]["total_monthly_budget_inr"] == 25000.0
     assert body["plan"]["unallocated_budget_inr"] == 25000.0
     assert any("constituent disclosure is MISSING" in reason for reason in body["reasons"])
+
+
+def test_api_runs_portfolio_saa_diagnostic_end_to_end_and_keeps_budget_on_hold(monkeypatch):
+    import hashlib
+    from types import SimpleNamespace
+    from services import sip_recommendation as service
+
+    as_of = date.today()
+    source_bytes = b"synthetic source"
+    candidate_source_bytes = b"synthetic candidate universe"
+
+    def metadata(raw, url, source_type):
+        return {
+            "source_url": url,
+            "source_document_sha256": hashlib.sha256(raw).hexdigest(),
+            "reviewer_attested": True,
+            "effective_date": as_of.isoformat(),
+            "source_type": source_type,
+        }
+
+    candidate_bytes = Path(__file__).read_bytes()
+    candidate = {
+        "fund_id": "fund-api-saa",
+        "fund_name": "Example Direct Growth",
+        "scheme_id": "scheme-api-saa",
+        "isin": "INF000000003",
+        "amc_name": "Example AMC",
+        "category": "Large Cap",
+        "is_direct": True,
+        "_evidence_root": str(Path(__file__).parent),
+        "direct_plan_evidence": {
+            "source_file": Path(__file__).name,
+            "source_document_sha256": hashlib.sha256(candidate_bytes).hexdigest(),
+            "source_url": "https://amfiindia.com/example-direct-factsheet.pdf",
+            "source_type": "AMC_FACTSHEET",
+            "reviewer_attested": True,
+            "plan": "Direct",
+            "scheme_name": "Example Direct Growth",
+            "scheme_id": "scheme-api-saa",
+            "isin": "INF000000003",
+            "amc_name": "Example AMC",
+            "reviewed_at": as_of.isoformat(),
+        },
+    }
+    provider = lambda **kwargs: {
+        "metrics_path": Path(__file__),
+        "aliases_path": None,
+        "scheme_master": {
+            "status": "VERIFIED",
+            "schemes": [{
+                "scheme_id": "scheme-api-saa",
+                "isin": "INF000000003",
+                "scheme_name": "Example Direct Growth",
+                "amc_name": "Example AMC",
+            }],
+            **metadata(source_bytes, "https://amfiindia.com/scheme-master", "OFFICIAL_SCHEME_MASTER"),
+        },
+        "scheme_master_source_bytes": source_bytes,
+        "portfolio_disclosures_by_scheme_id": {},
+        "portfolio_disclosure_source_bytes_by_scheme_id": {},
+        "disclosure_as_of_date": as_of,
+        "candidate_universe": [candidate],
+        "candidate_universe_source": {
+            **metadata(candidate_source_bytes, "https://amfiindia.com/candidates", "REVIEWED_CANDIDATE_UNIVERSE"),
+            "universe_complete": True,
+            "coverage_scope": "Synthetic API integration fixture",
+        },
+        "candidate_universe_source_bytes": candidate_source_bytes,
+    }
+
+    holding = SimpleNamespace(
+        scheme="Example Direct Growth",
+        fund_id="FUND-API-SAA",
+        scheme_id="scheme-api-saa",
+        lookthrough_status="VERIFIED",
+        metrics_status="VERIFIED",
+        constituent_weights_coverage_pct=100.0,
+        current_value_inr=125000.0,
+        asset_class="Large_Cap",
+    )
+    monkeypatch.setattr(service, "load_holdings_from_cas_excel", lambda *a, **k: [holding])
+    monkeypatch.setattr(
+        service,
+        "compute_deterministic_sip_blueprint",
+        lambda **kwargs: SimpleNamespace(items=[SimpleNamespace(monthly_inr=10000)]),
+    )
+
+    client = TestClient(sip.create_sip_app(evidence_provider=provider))
+    response = _upload(client, monthly_budget_inr="10000", risk_profile="Aggressive")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "HOLD"
+    assert body["decision"] == "NO_ACTION"
+    assert body["portfolio_assessment"]["status"] == "DIAGNOSTIC_ONLY"
+    assert body["portfolio_assessment"]["scope"] == "CAS_MUTUAL_FUND_HOLDINGS_ONLY"
+    assert body["portfolio_assessment"]["saa_drift"]["current_weights_pct"]["large_cap"] == "100"
+    assert body["portfolio_assessment"]["sip_routing"]["status"] == "HOLD"
+    assert body["plan"]["items"] == []
+    assert body["plan"]["unallocated_budget_inr"] == 10000
