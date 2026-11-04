@@ -270,8 +270,8 @@ def allocate_candidate_sip(
     increment = _decimal(rounding_increment_inr, "rounding_increment_inr")
     if minimum <= 0 or increment <= 0:
         raise PortfolioInputError("minimum SIP and rounding increment must be positive")
-    if isinstance(max_funds, bool) or not isinstance(max_funds, int) or max_funds < 1:
-        raise PortfolioInputError("max_funds must be a positive integer")
+    if isinstance(max_funds, bool) or not isinstance(max_funds, int) or max_funds < 0:
+        raise PortfolioInputError("max_funds must be a non-negative integer")
 
     budgets = {str(k): _decimal(v, f"sleeve_budget[{k}]") for k, v in sleeve_budgets_inr.items()}
     if any(value < 0 for value in budgets.values()):
@@ -326,10 +326,21 @@ def allocate_candidate_sip(
         ranked_candidates.extend((sleeve, score, candidate_id) for score, candidate_id in values)
     ranked_candidates.sort(key=lambda item: (-item[1], item[0], item[2]))
     selected = ranked_candidates[:max_funds]
+    selected_by_sleeve: dict[str, list[tuple[str, Decimal, str]]] = {}
+    for sleeve, score, candidate_id in selected:
+        selected_by_sleeve.setdefault(sleeve, []).append((sleeve, score, candidate_id))
+    affordable_selected = []
+    for sleeve, values in selected_by_sleeve.items():
+        affordable_count = int(budgets[sleeve] // minimum)
+        ordered = sorted(values, key=lambda item: (-item[1], item[2]))
+        affordable_selected.extend(ordered[:affordable_count])
+        for _, _, candidate_id in ordered[affordable_count:]:
+            rejected[candidate_id] = ["SLEEVE_BUDGET_BELOW_MINIMUM_SIP"]
+    selected = affordable_selected
     selected_ids = {candidate_id for _, _, candidate_id in selected}
     for sleeve, values in ranked.items():
         for _, candidate_id in values:
-            if candidate_id not in selected_ids:
+            if candidate_id not in selected_ids and candidate_id not in rejected:
                 rejected[candidate_id] = ["MAX_CORE_FUND_COUNT_REACHED"]
 
     allocations = []
