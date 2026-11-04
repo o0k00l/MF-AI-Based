@@ -375,13 +375,37 @@ def validate_evidence_provider_payload(
         raw = disclosure_bytes[scheme_id]
         if not isinstance(raw, bytes) or not raw:
             raise EvidenceProviderContractError(f"Original source bytes for {scheme_id!r} are missing.")
-        _validate_source_document(
-            record, raw, label=f"Portfolio disclosure {scheme_id!r}", as_of=as_of,
-            trust_registry=trust_registry,
-            require_reviewer_signature=require_reviewer_signature,
-            structured_records=record,
-            scope="SIP_PORTFOLIO_DISCLOSURE",
-        )
+        if require_reviewer_signature:
+            raw_weights = record.get("constituent_weights")
+            coverage_raw = record.get("constituent_weights_coverage_pct")
+            try:
+                signed_weights = {
+                    str(key).strip().upper(): float(value)
+                    for key, value in raw_weights.items()
+                } if isinstance(raw_weights, dict) else None
+                signed_coverage = float(coverage_raw)
+            except (TypeError, ValueError, AttributeError, OverflowError) as exc:
+                raise EvidenceProviderContractError(
+                    f"Portfolio disclosure {scheme_id!r} has malformed signed constituent weights."
+                ) from exc
+            if signed_weights is None:
+                raise EvidenceProviderContractError(
+                    f"Portfolio disclosure {scheme_id!r} has no signed constituent weights."
+                )
+            _validate_source_document(
+                record, raw, label=f"Portfolio disclosure {scheme_id!r}", as_of=as_of,
+                trust_registry=trust_registry,
+                require_reviewer_signature=True,
+                structured_records={
+                    "constituent_weights": signed_weights,
+                    "coverage_pct": signed_coverage,
+                },
+                scope="SIP_PORTFOLIO_DISCLOSURE",
+            )
+        else:
+            _validate_source_document(
+                record, raw, label=f"Portfolio disclosure {scheme_id!r}", as_of=as_of,
+            )
 
     candidates = payload["candidate_universe"]
     if not isinstance(candidates, list) or not candidates:
