@@ -300,7 +300,14 @@ def _assess_complete_portfolio_context(
             max_evidence_age_days=int(candidate_policy["max_evidence_age_days"]),
             mandatory_gates=candidate_policy["mandatory_gates"],
         )
-        eligible_ids = set(screening["eligible_candidate_ids"])
+        minimum_universe_size = int(policy["fund_universe_requirements"]["min_candidate_universe_size"])
+        if len(candidate_universe) < minimum_universe_size:
+            screening["status"] = "UNIVERSE_INSUFFICIENT"
+            screening["scoring_permitted"] = False
+            screening["universe_minimum"] = minimum_universe_size
+            screening["universe_observed"] = len(candidate_universe)
+            screening["universe_reason"] = "COMPLETE_POLICY_MINIMUM_CANDIDATE_UNIVERSE_NOT_MET"
+        eligible_ids = set(screening["eligible_candidate_ids"]) if screening["scoring_permitted"] else set()
         eligible_ids = {
             candidate_id for candidate_id in eligible_ids
             if operational_results.get(candidate_id, {}).get("status") == "FEASIBLE_FOR_REVIEW"
