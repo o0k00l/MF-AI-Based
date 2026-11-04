@@ -1151,7 +1151,7 @@ def load_holdings_from_cas_excel(
         matched_metric = _find_matching_metric(scheme_str, metrics_map, aliases_map)
         if matched_metric is None:
             category = None
-            er = 0.0
+            er = None
             top_h = []
             eq_pct = debt_pct = lc_pct = mc_pct = sc_pct = 0.0
             asset_class = AssetClass.OTHER
@@ -1159,11 +1159,19 @@ def load_holdings_from_cas_excel(
             fund_id = identity.get("scheme_id") or scheme_str[:30]
         else:
             category = matched_metric.get("cat")
-            er = float(matched_metric.get("er", 0.0))
-            if plan == PlanType.REGULAR:
-                # Preserve the existing regular-plan fee adjustment only when
-                # a verified matching metrics record exists.
-                er += 1.05
+            raw_ter = matched_metric.get("er")
+            ter_plan = str(
+                matched_metric.get("ter_plan", matched_metric.get("plan", ""))
+            ).strip().casefold()
+            expected_plan = "direct" if plan == PlanType.DIRECT else "regular"
+            # TER is plan-specific. Do not infer Regular TER from a Direct TER
+            # using a generic commission delta (or vice versa).
+            if raw_ter is None or ter_plan != expected_plan:
+                er = None
+            else:
+                er = float(raw_ter)
+                if not math.isfinite(er) or er < 0:
+                    raise ValueError(f"Invalid plan-specific TER evidence for {scheme_str!r}.")
             top_h = matched_metric.get("h", [])
             required_exposure_fields = ("eq", "debt", "lc", "mc", "sc")
             missing_exposure_fields = [
@@ -1314,46 +1322,24 @@ def _infer_asset_class(cat: str, eq: float, debt: float, lc: float, mc: float, s
     return AssetClass.EQUITY
 
 
-def calculate_fee_bleed(holdings: List[HoldingItem], default_commission_rate: float = 0.0105) -> FeeBleedAnalysis:
+def calculate_fee_bleed(holdings: List[HoldingItem]) -> FeeBleedAnalysis:
+    """Return unavailable until source-backed, plan-specific commission evidence exists.
+
+    A generic commission percentage and assumed future return are not client
+    facts. The function deliberately does not infer commission from TER.
     """
-    Computes exact annual commission drag for Regular plan holdings.
-    Also calculates 10-year compounded opportunity loss at 12% CAGR.
-    """
-    regular_holdings = [h for h in holdings if h.plan == PlanType.REGULAR]
-    total_regular_val = sum(h.current_value_inr for h in regular_holdings)
-
-    details = []
-    annual_bleed = 0.0
-
-    for h in regular_holdings:
-        # Typical distributor trail commission delta is ~1.05% per year
-        fund_bleed = h.current_value_inr * default_commission_rate
-        annual_bleed += fund_bleed
-        details.append({
-            "fund_name": h.fund_name,
-            "folio_no": h.folio,
-            "current_value_inr": round(h.current_value_inr, 2),
-            "estimated_annual_commission_inr": round(fund_bleed, 2),
-            "expense_ratio_pct": round(h.expense_ratio_pct, 2)
-        })
-
-    # Sort details by commission bleed descending
-    details.sort(key=lambda x: x["estimated_annual_commission_inr"], reverse=True)
-
-    # 10-year compounding lost wealth: annuity factor at 12% CAGR over 10 years
-    # Sum_{t=1}^{10} (1.12)^t = 1.12 * ((1.12^10 - 1) / 0.12) = 19.65
-    # Future value of annuity due = Annual * [((1+r)^n - 1)/r] * (1+r)
-    r = 0.12
-    n = 10
-    annuity_factor = (((1.0 + r) ** n - 1.0) / r) * (1.0 + r)
-    ten_year_compounded_loss = annual_bleed * annuity_factor
-
+    regular_count = sum(1 for holding in holdings if holding.plan == PlanType.REGULAR)
     return FeeBleedAnalysis(
-        annual_commission_leakage_inr=round(annual_bleed, 2),
-        ten_year_compounded_loss_inr=round(ten_year_compounded_loss, 2),
-        regular_funds_count=len(regular_holdings),
-        regular_funds=details,
-        direct_alternatives={}
+        annual_commission_leakage_inr=None,
+        ten_year_compounded_loss_inr=None,
+        regular_funds_count=regular_count,
+        regular_funds=[],
+        direct_alternatives={},
+        availability_status="UNAVAILABLE",
+        unavailable_reason=(
+            "No fund-, plan-, distributor- and effective-date-specific commission evidence "
+            "or approved investor-specific projection assumptions were supplied."
+        ),
     )
 
 
