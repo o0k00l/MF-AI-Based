@@ -218,6 +218,9 @@ def _candidate_universe():
             "benchmark": "Nifty 100 TRI", "is_direct": True,
             "constituent_weights": {"ISSUER-A": 60, "ISSUER-C": 40},
             "constituent_weights_coverage_pct": 100,
+            "rank_score": str(index),
+            "rank_score_source_ref": f"sha256:rank-score-{index}",
+            "rank_score_as_of_date": date.today().isoformat(),
             "direct_plan_evidence": {
                 "scheme_id": scheme_id, "isin": isin, "plan": "Direct",
                 "option": "Growth", "amc_name": "Example AMC",
@@ -240,6 +243,7 @@ def _complete_portfolio_context():
     }
     return {
         "evidence_attested_by_provider": True,
+        "current_core_fund_count": 0,
         "as_of_date": as_of,
         "cas_valuation_date": as_of,
         "perimeter_complete": True,
