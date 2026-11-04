@@ -67,6 +67,12 @@ def _call_llm_with_retry(
     external_processing_consent: bool = False,
 ) -> str:
     """Call a free provider only after explicit per-request investor consent."""
+    if external_processing_consent is not True:
+        from core.ai_engine import ProviderError
+        raise ProviderError(
+            "Privacy",
+            "External AI processing is blocked: explicit investor consent is required for this request.",
+        )
     res = _engine_call_llm(
         prompt,
         system_instruction=SYSTEM_INSTRUCTION,
