@@ -258,6 +258,11 @@ def validate_evidence_provider_payload(
             trust_registry=trust_registry,
             require_reviewer_signature=require_reviewer_signature,
             scope="SIP_EVIDENCE_RELEASE",
+            structured_records={
+                "normalized_metrics_sha256": payload["metrics_source_metadata"].get(
+                    "normalized_metrics_sha256"
+                )
+            },
         )
         metrics_path = payload["metrics_path"]
         if not isinstance(metrics_path, Path) or metrics_path.is_symlink() or not metrics_path.is_file():
@@ -288,6 +293,11 @@ def validate_evidence_provider_payload(
             trust_registry=trust_registry,
             require_reviewer_signature=require_reviewer_signature,
             scope="SIP_EVIDENCE_RELEASE",
+            structured_records={
+                "normalized_portfolio_context_sha256": payload[
+                    "portfolio_context_source_metadata"
+                ].get("normalized_portfolio_context_sha256")
+            },
         )
     if score_source_present:
         score_metadata = payload["candidate_score_source_metadata"]
@@ -299,6 +309,24 @@ def validate_evidence_provider_payload(
             trust_registry=trust_registry,
             require_reviewer_signature=require_reviewer_signature,
             scope="SIP_EVIDENCE_RELEASE",
+            structured_records=[
+                {
+                    field: candidate.get(field)
+                    for field in (
+                        "fund_id", "rank_score", "rank_score_source_ref",
+                        "rank_score_as_of_date", "rank_score_methodology_version",
+                        "rank_score_scope", "rank_score_portfolio_overlap_status",
+                        "rank_score_portfolio_overlap_pct",
+                        "rank_score_portfolio_overlap_coverage_pct",
+                        "rank_score_portfolio_overlap_source_ref",
+                        "rank_score_category_anchor_source_ref",
+                        "rank_score_category_anchor_policy_version",
+                        "rank_score_benchmark_identity",
+                    )
+                }
+                for candidate in payload["candidate_universe"]
+                if isinstance(candidate, dict) and "rank_score" in candidate
+            ],
         )
         if not isinstance(score_metadata.get("methodology_version"), str) or not score_metadata["methodology_version"].strip():
             raise EvidenceProviderContractError("Candidate score source requires methodology_version.")
@@ -317,6 +345,7 @@ def validate_evidence_provider_payload(
             trust_registry=trust_registry,
             require_reviewer_signature=require_reviewer_signature,
             scope="SIP_EVIDENCE_RELEASE",
+            structured_records=anchor_metadata.get("category_anchors"),
         )
         if not isinstance(anchor_metadata.get("policy_version"), str) or not anchor_metadata["policy_version"].strip():
             raise EvidenceProviderContractError("Category benchmark anchor source requires policy_version.")
