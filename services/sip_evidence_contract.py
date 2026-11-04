@@ -311,7 +311,10 @@ def validate_evidence_provider_payload(
             scope="SIP_EVIDENCE_RELEASE",
             structured_records=[
                 {
-                    field: candidate.get(field)
+                    field: (
+                        (candidate.get("fund_id") or candidate.get("id"))
+                        if field == "fund_id" else candidate.get(field)
+                    )
                     for field in (
                         "fund_id", "rank_score", "rank_score_source_ref",
                         "rank_score_as_of_date", "rank_score_methodology_version",
