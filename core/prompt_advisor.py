@@ -113,8 +113,8 @@ INPUT FACT PAYLOAD:
 - Weighted Look-Through Overlap: {len(getattr(facts, 'weighted_overlap', []))} high-overlap pairs identified
 - Weighted Overlap Details: {[{'fund_a': p.fund_a, 'fund_b': p.fund_b, 'weighted_overlap_pct': p.weighted_overlap_pct, 'verdict': p.verdict} for p in getattr(facts, 'weighted_overlap', [])[:5]]}
 - Risk Distribution (Ordinal SEBI Tiers): {getattr(facts, 'risk_distribution', None).model_dump() if getattr(facts, 'risk_distribution', None) else 'Not available'}
-- Switch Cost Evidence: {len(getattr(facts, 'switch_costs', []))} scheme-level cost records supplied; do not infer missing exit-load or tax values
-- Switch Cost Details: {[{'fund': s['fund_name'], 'cost_inr': s['switch_cost_inr'], 'cost_pct': s['switch_cost_pct'], 'warning': s['warning']} for s in getattr(facts, 'switch_costs', [])[:5]]}
+- Switch Cost Evidence: {len(getattr(facts, 'switch_costs', []))} records supplied; treat unavailable records as NO ACTION, never as zero cost
+- Switch Cost Details: {[{'fund': s['fund_name'], 'cost_inr': s['switch_cost_inr'], 'cost_pct': s['switch_cost_pct'], 'warning': s['warning'], 'available': s.get('available', False)} for s in getattr(facts, 'switch_costs', [])[:5]]}
 - Eligibility Gates Results: {len(getattr(facts, 'eligibility_results', []))} candidate funds evaluated with binary gates
 - NO ACTION Decision: {getattr(facts, 'no_action', None).action if getattr(facts, 'no_action', None) else 'N/A'} - {getattr(facts, 'no_action', None).reason if getattr(facts, 'no_action', None) else 'N/A'}
 - Mandate Execution State: {mandate_state}
@@ -207,10 +207,16 @@ def generate_switch_and_consolidation_plan(facts: FiduciaryFactsPayload) -> str:
 
     switch_costs = getattr(facts, "switch_costs", []) or []
     switch_cost_rows = [
-        f"- {item.get('fund_name', 'Unidentified scheme')}: "
-        f"reported cost INR {item.get('switch_cost_inr', 'not supplied')}; "
-        f"reported cost ratio {item.get('switch_cost_pct', 'not supplied')}; "
-        f"warning: {item.get('warning', 'not supplied')}."
+        (
+            f"- {item.get('fund_name', 'Unidentified scheme')}: "
+            f"NO ACTION — switch cost unavailable; {item.get('unavailable_reason') or item.get('warning', 'evidence not supplied')}."
+            if item.get("available") is not True
+            else (
+                f"- {item.get('fund_name', 'Unidentified scheme')}: "
+                f"reported cost INR {item.get('switch_cost_inr')}; "
+                f"reported cost ratio {item.get('switch_cost_pct')}."
+            )
+        )
         for item in switch_costs
     ]
     if not switch_cost_rows:
