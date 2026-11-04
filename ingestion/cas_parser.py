@@ -372,8 +372,11 @@ def parse_cas_xlsx(source, scheme_master=None, scheme_master_source_bytes=None) 
                         else:
                             tx_type = "UNKNOWN"
 
-                        if tx_type in {"DIVIDEND", "CHARGES"} and units != 0.0:
-                            raise ValueError(f"{tx_type} is cash-only and must not change units")
+                        if tx_type in {"DIVIDEND", "CHARGES"}:
+                            if units != 0.0:
+                                raise ValueError(f"{tx_type} is cash-only and must not change units")
+                            if amount == 0.0:
+                                raise ValueError(f"{tx_type} requires a non-zero cash amount")
                         if tx_type in {"PURCHASE", "SIP", "SWITCH_IN", "STP_IN", "DIVIDEND_REINVEST"}:
                             if amount <= 0 or units <= 0:
                                 raise ValueError(f"{tx_type} requires positive amount and units")
@@ -384,7 +387,11 @@ def parse_cas_xlsx(source, scheme_master=None, scheme_master_source_bytes=None) 
                             # ledgers use the explicit transaction type to set
                             # direction and consume unit magnitudes.
                             units = abs(units)
-                        if tx_type in {"PURCHASE", "SIP", "SWITCH_IN", "STP_IN", "DIVIDEND_REINVEST"} and nav is not None and nav <= 0:
+                        unit_changing_types = {
+                            "PURCHASE", "SIP", "SWITCH_IN", "STP_IN", "DIVIDEND_REINVEST",
+                            "REDEMPTION", "SWITCH_OUT", "STP_OUT",
+                        }
+                        if tx_type in unit_changing_types and nav is not None and nav <= 0:
                             raise ValueError(f"{tx_type} requires a positive NAV when NAV is supplied")
                         record = {
                             "scheme": last_scheme,
