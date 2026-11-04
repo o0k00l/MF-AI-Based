@@ -174,6 +174,7 @@ def create_sip_app(
                     "metrics_source_bytes",
                     "candidate_universe_source_bytes",
                     "candidate_score_source_bytes",
+                    "category_anchor_source_bytes",
                     "portfolio_context_source_bytes",
                 ):
                     if provenance_field in evidence:
