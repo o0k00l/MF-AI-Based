@@ -512,3 +512,41 @@ def test_legacy_fifo_lot_preparation_api_is_disabled_until_contract_is_complete(
 
     with pytest.raises(math_engine.TaxClassificationDisabledError, match="output model and provenance/reconciliation contract are incomplete"):
         math_engine.build_fifo_tax_lots(Path("synthetic-transactions.json"), [])
+
+
+def test_jcs_matches_rfc8785_number_string_and_literal_vector():
+    import rfc8785
+
+    value = {
+        "numbers": [333333333.33333329, 1e30, 4.50, 2e-3, 1e-27],
+        "string": "€$\\x0f\\nA'B\"\\\\\\\"/",
+        "literals": [None, True, False],
+    }
+    expected = r"""{"literals":[null,true,false],"numbers":[333333333.3333333,1e+30,4.5,0.002,1e-27],"string":"€$\\u000f\\nA'B\\\"\\\\\\\"/"}""".encode("utf-8")
+    assert rfc8785.dumps(value) == expected
+
+
+def test_jcs_matches_rfc8785_utf16_property_sort_vector():
+    import rfc8785
+
+    value = {
+        "€": "Euro Sign",
+        "\r": "Carriage Return",
+        "דּ": "Hebrew Letter Dalet With Dagesh",
+        "1": "One",
+        "😀": "Emoji: Grinning Face",
+        "\x80": "Control",
+        "ö": "Latin Small Letter O With Diaeresis",
+    }
+    expected = r"""{"\\r":"Carriage Return","1":"One","\\u0080":"Control","ö":"Latin Small Letter O With Diaeresis","€":"Euro Sign","😀":"Emoji: Grinning Face","דּ":"Hebrew Letter Dalet With Dagesh"}""".encode("utf-8")
+    assert rfc8785.dumps(value) == expected
+
+
+def test_decision_hash_rejects_integer_outside_ijson_safe_range():
+    import pytest
+    import rfc8785
+
+    decision = _decision()
+    decision.inputs["unsafe_integer"] = 2**53
+    with pytest.raises(rfc8785.CanonicalizationError):
+        decision.compute_hash()
