@@ -135,9 +135,9 @@ def validate_evidence_provider_payload(payload: Any) -> dict[str, Any]:
         )
     metrics_fields = {"metrics_source_metadata", "metrics_source_bytes"}
     metrics_present = optional_present & metrics_fields
-    if metrics_present and metrics_present != metrics_fields:
+    if metrics_present != metrics_fields:
         raise EvidenceProviderContractError(
-            "Metrics source metadata and original source bytes must be supplied together."
+            "Fund metrics source metadata and original source bytes are mandatory and must be supplied together."
         )
     score_source_fields = {"candidate_score_source_metadata", "candidate_score_source_bytes"}
     score_source_present = optional_present & score_source_fields
