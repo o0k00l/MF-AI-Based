@@ -170,7 +170,11 @@ def create_sip_app(
                     "disclosure_as_of_date": evidence["disclosure_as_of_date"],
                     "candidate_universe": evidence["candidate_universe"],
                 }
-                if portfolio_context is not None:
+                provider_portfolio_context = evidence.get("portfolio_context")
+                if provider_portfolio_context is not None:
+                    provider_portfolio_context["evidence_attested_by_provider"] = True
+                    service_inputs["portfolio_context"] = provider_portfolio_context
+                elif portfolio_context is not None:
                     # Client declarations are useful for scenario diagnostics,
                     # but cannot attest source authenticity or perimeter completeness.
                     portfolio_context["_client_supplied_unverified"] = True
