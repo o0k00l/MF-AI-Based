@@ -1616,8 +1616,11 @@ def build_fifo_tax_lots(
                 )
             )
         elif txn_type in redemption_types:
-            if amount >= 0 or units >= 0:
-                raise ValueError(f"Redemption/switch-out row {index} must have negative amount and units")
+            # Transaction type is the authoritative direction. CAS providers
+            # differ in whether redemption units/amount are signed or reported
+            # as positive magnitudes; both are normalized here.
+            if amount == 0 or units == 0:
+                raise ValueError(f"Redemption/switch-out row {index} requires non-zero amount and units")
             units_to_remove = abs(units)
             lots = fund_lots[fund_id]
             remaining = units_to_remove
