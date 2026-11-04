@@ -57,9 +57,11 @@ are rejected.
 - `metrics_file`: normalized fund metrics data file consumed by the engine.
   Metrics must not be inferred from scheme-master identity.
 - `metrics_metadata_file` and `metrics_source_file`: source metadata and
-  unchanged original publisher bytes for the metrics dataset. The provider
-  verifies HTTPS URL, digest, reviewer attestation and freshness before the
-  evidence contract accepts the bundle.
+  unchanged original publisher bytes for the metrics dataset. Metadata must
+  also include `normalized_metrics_sha256`, the digest of the normalized
+  `metrics_file`. The provider checks both the original-source digest and the
+  normalized-file digest. It also verifies HTTPS URL, reviewer attestation
+  and freshness before the evidence contract accepts the bundle.
 - `aliases_file`: optional reviewed exact-alias mapping; fuzzy matching is
   not supported.
 
