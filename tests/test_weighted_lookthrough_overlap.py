@@ -32,7 +32,7 @@ def test_weighted_overlap_uses_actual_constituent_weights():
     assert result[0].weighted_overlap_pct == 20.0
     assert result[0].shared_stocks[0]["weight_a_pct"] == 30.0
     assert result[0].shared_stocks[0]["weight_b_pct"] == 20.0
-    assert result[0].verdict == "MODERATE"
+    assert result[0].verdict == "HIGH_CONCENTRATION"
 
 
 def test_weighted_overlap_never_infers_equal_weights_from_top_holdings():
