@@ -1574,7 +1574,9 @@ def compute_exit_load_amortization(
 # basis. Keep transaction parsing available for controlled data preparation,
 # but block every public function that can turn those inputs into tax,
 # redemption, transition, or switch recommendations until independent
-# tax/legal approval and lot-/scheme-specific evidence are released.
+# tax/legal approval and lot-/scheme-specific evidence are released. This
+# includes direct calls to per-lot maturity and exit-load helpers; guarding
+# only the top-level planner would leave a callable classification bypass.
 # ---------------------------------------------------------------------------
 
 class TaxAdviceDisabledError(RuntimeError):
@@ -1605,3 +1607,6 @@ bogleheads_circuit_breaker = _tax_advice_disabled
 evaluate_bogleheads_switch_hurdle = _tax_advice_disabled
 compare_switch_vs_stop_sip = _tax_advice_disabled
 compute_exit_load_amortization = _tax_advice_disabled
+calculate_exit_load = _tax_advice_disabled
+Lot.is_long_term = _tax_advice_disabled
+Lot.is_long_term_given = _tax_advice_disabled
