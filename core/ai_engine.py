@@ -230,6 +230,25 @@ def _is_rate_limit(err_str: str) -> bool:
     return any(term in upper for term in ("429", "402", "RATE LIMIT", "QUOTA", "RESOURCE_EXHAUSTED"))
 
 
+def _should_try_next_model(error: ProviderError) -> bool:
+    """Retry another model only when failure is plausibly model-specific/transient.
+
+    Authentication, permission, quota and malformed-request failures are
+    provider/account/request scoped; trying more models would waste quota and
+    obscure the original failure.
+    """
+    status = error.status_code
+    if status in (404, 408, 409):
+        return True
+    if isinstance(status, int) and status >= 500:
+        return True
+    message = str(error).lower()
+    return any(token in message for token in (
+        "apiconnectionerror", "api connection", "timeout", "timed out",
+        "connectionerror", "network",
+    ))
+
+
 def _openai_exception(provider: str, exc: Exception, model: str) -> ProviderError:
     status = getattr(exc, "status_code", None)
     code = getattr(exc, "code", None)
@@ -272,9 +291,9 @@ def _call_openai_compatible(provider: str, base_url: str, prompt: str,
                 last_error = ProviderError(provider, f"{provider} returned an empty response.", model=model)
             except Exception as exc:
                 failure = _openai_exception(provider, exc, model)
-                if failure.status_code in (401, 403):
-                    raise failure from None
                 last_error = failure
+                if not _should_try_next_model(failure):
+                    raise failure from None
                 continue
     raise last_error or ProviderError(provider, f"{provider} had no usable discovered models.")
 
@@ -338,7 +357,7 @@ def _call_gemini(prompt: str, system_prompt: str = "") -> str:
                 code=str(getattr(exc, "status", ""))[:80] or None,
                 model=model,
             )
-            if last_error.status_code in (401, 403):
+            if not _should_try_next_model(last_error):
                 raise last_error from None
             continue
     raise last_error or ProviderError("Gemini", "Gemini had no usable discovered models.")
