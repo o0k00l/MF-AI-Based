@@ -4446,7 +4446,17 @@ def calculate_universal_tier_split(
         tolerance = float(profile["tolerance_band_pct"])
         equity_sip = float(sip["equity_pct"])
         debt_sip = float(sip["debt_pct"])
-        requires_ips_authorization = bool(sip.get("requires_explicit_ips_authorization", False))
+        authorization_flag = sip.get("requires_explicit_ips_authorization")
+        if not isinstance(authorization_flag, bool):
+            raise ValueError(
+                "requires_explicit_ips_authorization must be a required literal boolean in every risk profile"
+            )
+        requires_ips_authorization = authorization_flag
+        if tier_num == 6:
+            if not requires_ips_authorization:
+                raise ValueError("Tier 6 equity-only routing requires explicit IPS authorization policy")
+            if abs(equity_sip - 100.0) > 0.01 or abs(debt_sip) > 0.01:
+                raise ValueError("Tier 6 policy must preserve the approved 100/0 equity-only route")
     except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
         raise ValueError(f"Invalid allocation policy for SEBI risk tier {tier_num}") from exc
 
@@ -4481,7 +4491,7 @@ def compute_deterministic_lumpsum_blueprint(
     bank_cash_total: float = 0.0,
     emergency_reserve: float = 0.0,
     holdings: Optional[List[HoldingItem]] = None,
-    risk_tier: str = "Tier 6 (Very High)",
+    risk_tier: Optional[str] = None,
     stability_buffer_pct: Optional[float] = None,
     thematic_deficit_theme: str = "Pharma",
     thematic_satellite_authorized: bool = False,
@@ -4503,6 +4513,8 @@ def compute_deterministic_lumpsum_blueprint(
     import math
     import re
 
+    if risk_tier is None or (isinstance(risk_tier, str) and not risk_tier.strip()):
+        raise ValueError("An explicit validated investor risk profile is required; Tier 6 is never inferred")
     try:
         amount = float(lumpsum_amount)
         cash_total = float(bank_cash_total)
@@ -4684,10 +4696,10 @@ def _sip_operational_constraint_violations(items, sip_policy):
 
 def compute_deterministic_sip_blueprint(
     monthly_budget: float,
-    risk_tier: str = "Tier 6 (Very High)",
+    risk_tier: Optional[str] = None,
     stability_buffer_pct: Optional[float] = None,
     holdings: Optional[List[HoldingItem]] = None,
-    client_aum: float = 0.0,
+    client_aum: Optional[float] = None,
     thematic_deficit_theme: str = "Pharma",
     thematic_satellite_pct_of_equity: float = 0.0,
     thematic_satellite_authorized: bool = False,
@@ -4707,6 +4719,10 @@ def compute_deterministic_sip_blueprint(
     import math
     import json
     from pathlib import Path
+    if risk_tier is None or (isinstance(risk_tier, str) and not risk_tier.strip()):
+        raise ValueError("An explicit validated investor risk profile is required; Tier 6 is never inferred")
+    if client_aum is None:
+        raise ValueError("Verified reconciled client AUM is required; missing AUM is not zero")
     try:
         b = float(monthly_budget)
         aum_value = float(client_aum)
