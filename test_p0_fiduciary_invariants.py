@@ -165,95 +165,22 @@ def test_p0_1_universal_4_slot_sizing_invariant():
     print("[PASS] P0.1 Universal 4-Slot Sizing Invariant Verified")
 
 
+
 def test_p0_2_tax_shield_siphon_and_day_366():
-    """Verifies that ₹1.25L LTCG annual limit is enforced and immature lots (<365d) are deferred to Day 366."""
-    as_of = date(2026, 10, 9)
-    current_fy_start = 2026  # FY 2026-27
+    """Retired tax advice must fail closed, not generate a tax-shield schedule."""
+    from tax.transition_planner import TaxAdviceDisabledError, load_tax_rules, plan_fy_tranches
 
-    # Create 2 mature lots with ₹1,00,000 gain each (Total = ₹2,00,000 LTCG)
-    lot1 = Lot(
-        fund_id="HDFC Regular Fund",
-        folio_name="12345",
-        purchase_date=date(2024, 1, 15),
-        units=1000.0,
-        nav=100.0,
-        cost=100000.0,
-        source="cas",
-        equity_pct=100.0,
-        equity_pct_method="annual_average_monthly_opening_closing",
-        equity_pct_fy_start=2026,
-        equity_pct_source_url="https://example.test/verified-monthly-disclosure",
-        **_synthetic_tax_evidence_kwargs(),
-        equity_pct_source_reviewed=True,
-    )
-    lot2 = Lot(
-        fund_id="ICICI Regular Fund",
-        folio_name="67890",
-        purchase_date=date(2024, 2, 1),
-        units=1000.0,
-        nav=100.0,
-        cost=100000.0,
-        source="cas",
-        equity_pct=100.0,
-        equity_pct_method="annual_average_monthly_opening_closing",
-        equity_pct_fy_start=2026,
-        equity_pct_source_url="https://example.test/verified-monthly-disclosure",
-        **_synthetic_tax_evidence_kwargs(),
-        equity_pct_source_reviewed=True,
-    )
-    # Create 1 immature lot (< 365 days old: purchased 2026-05-01, as_of is 2026-10-09)
-    # Holding days = ~161 days -> Immature!
-    lot_immature = Lot(
-        fund_id="Nippon Regular Fund",
-        folio_name="55555",
-        purchase_date=date(2026, 5, 1),
-        units=500.0,
-        nav=100.0,
-        cost=50000.0,
-        source="cas",
-        equity_pct=100.0
-    )
-
-    plans = {
-        "HDFC Regular Fund": FundSellPlan(fund_id="HDFC Regular Fund", total_amount=200000.0, lots=[lot1]),
-        "ICICI Regular Fund": FundSellPlan(fund_id="ICICI Regular Fund", total_amount=200000.0, lots=[lot2]),
-    }
-
-    current_navs = {
-        "HDFC Regular Fund": 200.0,    # Value: 2,00,000, Gain: 1,00,000
-        "ICICI Regular Fund": 200.0,   # Value: 2,00,000, Gain: 1,00,000
-    }
-
-    from tax.transition_planner import load_tax_rules
-    tax_rules_path = Path("data/policy/tax_rules.json")
-    tax_rules = load_tax_rules(tax_rules_path) if tax_rules_path.exists() else {
-        "ltcg_exemption": 125000.0,
-        "ltcg_rate": 0.125,
-        "stcg_rate": 0.20,
-        "exit_load_pct": 1.0,
-        "lt_holding_months": 12
-    }
-
-    fy_plans = plan_fy_tranches(
-        plans, tax_rules, as_of, current_navs, prior_ltcg_this_fy=0.0
-    )
-
-    # 1. FY 2026-27 (Year 1) must shelter EXACTLY up to ₹1,25,000 of LTCG
-    y1_items = fy_plans.get(2026, [])
-    y1_sheltered = sum(it["sheltered"] for it in y1_items)
-    assert y1_sheltered <= 125000.0, f"Year 1 sheltered {y1_sheltered} exceeded ₹1.25L exemption!"
-    assert y1_sheltered == 125000.0, f"Year 1 did not maximize ₹1.25L exemption (sheltered {y1_sheltered})"
-
-    # 2. Only lots with current-FY classification evidence may be planned for sale.
-    for it in y1_items:
-        assert it["gain_type"] == "LT"
-        assert it["exit_load"] == 0.0
-
-    # The immature lot is held through its 12-month anniversary. A future-year
-    # sale plan is not generated without fresh FY 2027-28 Section 198 evidence.
-    assert lot_immature.is_long_term_given(date(2027, 5, 1)) is False
-    assert lot_immature.is_long_term_given(date(2027, 5, 2)) is True
-    print("[PASS] P0.2 Tax Shield Siphon & Day 366 Holding Boundary Verified")
+    with pytest.raises(TaxAdviceDisabledError, match="disabled pending independently approved"):
+        load_tax_rules(Path("data/policy/tax_rules.json"))
+    with pytest.raises(TaxAdviceDisabledError, match="No estimate or action plan"):
+        plan_fy_tranches(
+            plans={},
+            tax_rules={},
+            as_of=date.today(),
+            current_navs={},
+            prior_ltcg_this_fy=0.0,
+        )
+    print("[PASS] P0.2 Tax / Day-366 advice remains disabled pending independent approval")
 
 
 def test_p0_3_all_10_binary_eligibility_gates(tmp_path):
@@ -933,158 +860,25 @@ def test_p0_12_all_four_slots_fail_closed_without_verified_candidates():
     print("[PASS] P0.12 No Candidate Universe Fails Closed Without Invented Schemes")
 
 
+
 def test_p0_13_statutory_tax_specified_fund_and_mandate_state():
-    """
-    Verifies the original Section 50AA period, Section 76 commencement,
-    the independent MLD limb, and fail-closed Section 76 daily-data handling.
-    """
-    from core.math_engine import classify_specified_mutual_fund, get_statutory_tax_citation
-    from core.models import (
-        MandateExecutionState, FiduciaryFactsPayload, FeeBleedAnalysis,
-        SAADriftAnalysis, CashDeploymentPlan, InsufficientDataError,
-    )
-    from datetime import date
-    import pytest
-    from core.math_engine import MonthlyPortfolioSnapshot, DailyPortfolioSnapshot, DailySnapshotCoverageEvidence
-    from datetime import timedelta
+    """All investor-facing statutory tax classifiers must remain fail-closed."""
+    from core import math_engine
 
-    def monthly_args(year, equity_pct):
-        fy_start, fy_end = date(year, 4, 1), date(year + 1, 3, 31)
-        rows = []
-        for month in range(4, 13):
-            rows.append(MonthlyPortfolioSnapshot(date(year, month, 1), equity_pct, equity_pct))
-        for month in range(1, 4):
-            rows.append(MonthlyPortfolioSnapshot(date(year + 1, month, 1), equity_pct, equity_pct))
-        from core.math_engine import MonthlySnapshotCoverageEvidence
-        evidence = MonthlySnapshotCoverageEvidence(
-            expected_months=tuple(row.month for row in rows),
-            source_url="https://example.test/verified-monthly-calendar",
-            source_document_sha256="e" * 64,
-            reviewer_attested=True,
-        )
-        return {
-            "monthly_snapshots": rows,
-            "monthly_coverage_evidence": evidence,
-            "fy_start": fy_start,
-            "fy_end": fy_end,
-        }
-
-    def daily_evidence(year, equity_pct, debt_pct, money_market_pct):
-        fy_start, fy_end = date(year, 4, 1), date(year + 1, 3, 31)
-        rows, current = [], fy_start
-        while current <= fy_end:
-            rows.append(DailyPortfolioSnapshot(current, equity_pct, debt_pct, money_market_pct))
-            current += timedelta(days=1)
-        evidence = DailySnapshotCoverageEvidence(
-            expected_dates=tuple(row.date for row in rows),
-            source_url="https://example.test/verified-calendar-fixture",
-            source_document_sha256="d" * 64,
-            reviewer_attested=True,
-        )
-        return rows, evidence
-
-    # 1. Inclusive equity-oriented threshold (separate from specified-fund tests).
-    daily_eq65, evidence_eq65 = daily_evidence(2024, 65.0, 35.0, 0.0)
-    res_eq_exact_65 = classify_specified_mutual_fund(
-        "Equity", equity_pct=65.0, debt_and_money_market_pct=35.0,
-        acquisition_date=date(2024, 4, 1), transfer_date=date(2025, 1, 15),
-        snapshots=daily_eq65, snapshot_coverage_evidence=evidence_eq65,
-        **monthly_args(2024, 65.0)
-    )
-    assert res_eq_exact_65["is_equity_oriented"] is True
-
-    daily_eq6501, evidence_eq6501 = daily_evidence(2024, 65.01, 34.99, 0.0)
-    res_eq_above_65 = classify_specified_mutual_fund(
-        "Equity", equity_pct=65.01, debt_and_money_market_pct=34.99,
-        acquisition_date=date(2024, 4, 1), transfer_date=date(2025, 1, 15),
-        snapshots=daily_eq6501, snapshot_coverage_evidence=evidence_eq6501,
-        **monthly_args(2024, 65.01)
-    )
-    assert res_eq_above_65["is_equity_oriented"] is True
-
-    # 2. Arbitrage fund classification uses the equity-oriented threshold only.
-    daily_arb68, evidence_arb68 = daily_evidence(2024, 68.0, 32.0, 0.0)
-    res_arb_qualifying = classify_specified_mutual_fund(
-        "Arbitrage", equity_pct=68.0, debt_and_money_market_pct=32.0,
-        acquisition_date=date(2024, 4, 1), transfer_date=date(2025, 1, 15),
-        snapshots=daily_arb68, snapshot_coverage_evidence=evidence_arb68,
-        **monthly_args(2024, 68.0)
-    )
-    assert res_arb_qualifying["is_equity_oriented"] is True
-    assert res_arb_qualifying["tax_treatment"] == "EQUITY_ORIENTED_CONCESSIONAL"
-
-    daily_arb64, evidence_arb64 = daily_evidence(2024, 64.0, 36.0, 0.0)
-    res_arb_under = classify_specified_mutual_fund(
-        "Arbitrage", equity_pct=64.0, debt_and_money_market_pct=36.0,
-        acquisition_date=date(2024, 4, 1), transfer_date=date(2025, 1, 15),
-        snapshots=daily_arb64, snapshot_coverage_evidence=evidence_arb64,
-        **monthly_args(2024, 64.0)
-    )
-    assert res_arb_under["is_equity_oriented"] is False
-
-    # 3. Units acquired before 1 April 2023 remain outside the specified-MF unit limb.
-    res_debt_old = classify_specified_mutual_fund(
-        "Debt", equity_pct=10.0, debt_and_money_market_pct=90.0,
-        is_fund_of_funds=False, fof_debt_investing_pct=None,
-        acquisition_date=date(2022, 11, 20), transfer_date=date(2026, 1, 15),
-        **monthly_args(2025, 10.0)
-    )
-    assert res_debt_old["is_specified_mutual_fund"] is False
-    assert res_debt_old["specified_50AA"]["provision"] == "Section 48 (Grandfathered)"
-    assert "Section 48" in res_debt_old["governing_statute"]
-
-    # 4. FY 2025-26 remains under the original <=35% domestic-equity test.
-    # The debt/MM replacement test does NOT apply until 1 April 2026.
-    daily_50aa, evidence_50aa = daily_evidence(2025, 35.0, 60.0, 5.0)
-    res_debt_50aa = classify_specified_mutual_fund(
-        "Debt", equity_pct=35.0, debt_and_money_market_pct=65.0,
-        is_fund_of_funds=False, fof_debt_investing_pct=None,
-        acquisition_date=date(2023, 6, 15), transfer_date=date(2026, 3, 31),
-        snapshots=daily_50aa, snapshot_coverage_evidence=evidence_50aa,
-        **monthly_args(2025, 35.0)
-    )
-    assert res_debt_50aa["is_specified_mutual_fund"] is True
-    assert res_debt_50aa["specified_50AA"]["qualifies"] is True
-    assert res_debt_50aa["tax_treatment"] == "SECTION_50AA_DEEMED_STCG"
-    assert "Section 50AA" in res_debt_50aa["governing_statute"]
-
-    # 5. Section 76 starts 1 April 2026 and cannot silently fall back to point-in-time data.
-    with pytest.raises(InsufficientDataError, match="annual-average daily closing"):
-        classify_specified_mutual_fund(
-            "Debt", equity_pct=10.0, debt_and_money_market_pct=90.0,
-            is_fund_of_funds=False, fof_debt_investing_pct=None,
-            acquisition_date=date(2023, 6, 15), transfer_date=date(2026, 5, 1),
-            **monthly_args(2026, 10.0)
-        )
-
-    # 6. MLD inclusion is independent of the mutual-fund unit acquisition-date gate.
-    res_mld_50aa = classify_specified_mutual_fund(
-        "MLD", equity_pct=0.0, debt_and_money_market_pct=0.0,
-        acquisition_date=date(2022, 11, 20), transfer_date=date(2026, 3, 31),
-        is_mld=True
-    )
-    assert res_mld_50aa["is_specified_mutual_fund"] is True
-    assert res_mld_50aa["tax_treatment"] == "SECTION_50AA_DEEMED_STCG"
-
-    res_mld_76 = classify_specified_mutual_fund(
-        "MLD", equity_pct=0.0, debt_and_money_market_pct=0.0,
-        acquisition_date=date(2022, 11, 20), transfer_date=date(2026, 5, 1),
-        is_mld=True
-    )
-    assert res_mld_76["is_specified_mutual_fund"] is True
-    assert res_mld_76["tax_treatment"] == "SECTION_76_DEEMED_STCG"
-
-    # 7. Section 198 and successor-act section references remain distinct.
-    tax_cit_2026 = get_statutory_tax_citation(as_of=date(2026, 5, 1))
-    assert "Section 198" in tax_cit_2026.ltcg_statute
-    assert "Section 197" in tax_cit_2026.ltcg_statute
-    assert "Section 196" in tax_cit_2026.stcg_statute
-    assert "Section 76" in tax_cit_2026.debt_fund_statute
-    assert ">65%" in tax_cit_2026.debt_fund_statute
-    assert "Section 108" in tax_cit_2026.loss_netting_statute
-    assert "Section 111" in tax_cit_2026.loss_carryforward_statute
-
-    print("[PASS] P0.13 Date-Aware Specified-Fund / MLD Tax Classification Verified")
+    disabled_apis = [
+        math_engine.get_statutory_tax_citation,
+        math_engine.classify_specified_mutual_fund,
+        math_engine.qualifies_as_equity_oriented_under_section_198,
+        math_engine.qualifies_as_specified_mutual_fund_under_section_50AA,
+        math_engine.qualifies_as_specified_mutual_fund_under_section_76,
+        math_engine.compute_fifo_tax_lots,
+        math_engine.build_fifo_tax_lots,
+        math_engine._classify_fund_for_tax,
+    ]
+    for api in disabled_apis:
+        with pytest.raises(math_engine.TaxClassificationDisabledError):
+            api()
+    print("[PASS] P0.13 Unreviewed statutory tax classification APIs fail closed")
 
 
 def test_p0_14_cashflow_matched_benchmark_requires_independent_nse_calendar(tmp_path):
