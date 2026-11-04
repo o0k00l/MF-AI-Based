@@ -212,6 +212,33 @@ class DeterministicSIPPlan(BaseModel):
         _validate_mandate_flags(self.mandate_state, self.is_execution_authorized, self.is_actionable_order)
         return self
 
+    @model_validator(mode="after")
+    def validate_budget_and_allocation_reconciliation(self):
+        import math
+
+        amounts = (
+            self.total_monthly_budget_inr,
+            self.unallocated_budget_inr,
+            self.equity_sip_pct,
+            self.debt_sip_pct,
+        )
+        item_amounts = [item.monthly_inr for item in self.items]
+        item_pcts = [item.allocation_pct for item in self.items]
+        if any(not math.isfinite(value) for value in (*amounts, *item_amounts, *item_pcts)):
+            raise ValueError("SIP plan amounts and percentages must be finite")
+        if self.total_monthly_budget_inr < 0 or self.unallocated_budget_inr < 0:
+            raise ValueError("SIP budget and unallocated amount cannot be negative")
+        if any(value < 0 for value in (*item_amounts, *item_pcts)):
+            raise ValueError("SIP item amounts and percentages cannot be negative")
+        if any(not 0.0 <= value <= 100.0 for value in (self.equity_sip_pct, self.debt_sip_pct, *item_pcts)):
+            raise ValueError("SIP allocation percentages must be between 0 and 100")
+        allocated = sum(item_amounts)
+        if abs((allocated + self.unallocated_budget_inr) - self.total_monthly_budget_inr) > 0.01:
+            raise ValueError("Allocated SIP amounts plus unallocated budget must equal the monthly budget")
+        if abs(sum(item_pcts) - (self.equity_sip_pct + self.debt_sip_pct)) > 0.11:
+            raise ValueError("SIP item percentages must reconcile to the equity and debt SIP percentages")
+        return self
+
     total_monthly_budget_inr: float
     unallocated_budget_inr: float = 0.0
     equity_sip_pct: float = 100.0
