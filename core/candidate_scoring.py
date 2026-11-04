@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import json
 import math
+import hashlib
+from datetime import date
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Tuple
@@ -121,11 +123,122 @@ def normalize_metric(val: Optional[float], val_min: float, val_max: float, inver
     return round(min(100.0, max(0.0, res)), 1)
 
 
+
+_REQUIRED_ANCHOR_KEYS = frozenset({
+    "alpha", "ret1y", "sharpe", "ter", "buffer", "intl", "overlap"
+})
+
+
+def _iso_date(raw: Any, field_name: str) -> date:
+    if not isinstance(raw, str):
+        raise ValueError(f"{field_name} must be an ISO date string")
+    try:
+        parsed = date.fromisoformat(raw)
+    except ValueError as exc:
+        raise ValueError(f"{field_name} must be an ISO date string") from exc
+    if parsed.isoformat() != raw:
+        raise ValueError(f"{field_name} must use canonical YYYY-MM-DD format")
+    return parsed
+
+
+def _validate_portfolio_score_evidence(
+    candidate: Dict[str, Any],
+    *,
+    category_key: str,
+    overlap_evidence: Optional[Dict[str, Any]],
+    anchor_evidence: Optional[Dict[str, Any]],
+    as_of_date: Optional[str],
+    max_evidence_age_days: int,
+) -> Tuple[float, Dict[str, Tuple[float, float]]]:
+    """Require source-backed overlap and a complete approved category anchor set."""
+    if isinstance(max_evidence_age_days, bool) or not isinstance(max_evidence_age_days, int) or max_evidence_age_days < 0:
+        raise ValueError("max_evidence_age_days must be a non-negative integer")
+    if as_of_date is None:
+        raise ValueError("Portfolio-aware scoring requires an explicit decision as-of date")
+    decision_date = _iso_date(as_of_date, "as_of_date")
+
+    candidate_id = candidate.get("fund_id") or candidate.get("scheme_id") or candidate.get("id")
+    if not isinstance(candidate_id, str) or not candidate_id.strip():
+        raise ValueError("Portfolio-aware scoring requires a stable candidate identity")
+
+    if not isinstance(overlap_evidence, dict) or overlap_evidence.get("status") != "VERIFIED":
+        raise ValueError("Verified portfolio overlap evidence is required; missing overlap cannot receive a neutral score")
+    if overlap_evidence.get("candidate_id") != candidate_id:
+        raise ValueError("Portfolio overlap evidence candidate identity mismatch")
+    try:
+        overlap_pct = float(overlap_evidence.get("overlap_pct"))
+        coverage_pct = float(overlap_evidence.get("coverage_pct"))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Portfolio overlap and look-through coverage must be numeric") from exc
+    if not math.isfinite(overlap_pct) or not 0.0 <= overlap_pct <= 100.0:
+        raise ValueError("Portfolio overlap must be finite and between 0 and 100")
+    if not math.isfinite(coverage_pct) or not 99.5 <= coverage_pct <= 100.0:
+        raise ValueError("Portfolio overlap look-through coverage must be at least 99.5 percent")
+    overlap_bytes = overlap_evidence.get("source_bytes")
+    overlap_digest = overlap_evidence.get("source_document_sha256")
+    overlap_ref = overlap_evidence.get("source_ref")
+    if not isinstance(overlap_bytes, bytes) or not overlap_bytes:
+        raise ValueError("Original portfolio overlap source bytes are required")
+    actual_overlap_digest = hashlib.sha256(overlap_bytes).hexdigest()
+    if overlap_digest != actual_overlap_digest or overlap_ref != "sha256:" + actual_overlap_digest:
+        raise ValueError("Portfolio overlap source digest does not match original bytes")
+    overlap_date = _iso_date(overlap_evidence.get("as_of_date"), "overlap_evidence.as_of_date")
+    overlap_age = (decision_date - overlap_date).days
+    if overlap_age < 0 or overlap_age > max_evidence_age_days:
+        raise ValueError("Portfolio overlap evidence is stale or future-dated")
+
+    if not isinstance(anchor_evidence, dict) or anchor_evidence.get("status") != "APPROVED":
+        raise ValueError("Independently approved category benchmark anchors are required")
+    if anchor_evidence.get("category") != category_key:
+        raise ValueError("Approved category anchor identity does not match candidate category")
+    if not isinstance(anchor_evidence.get("benchmark_identity"), str) or not anchor_evidence["benchmark_identity"].strip():
+        raise ValueError("Category anchor benchmark identity is required")
+    for field_name in ("reviewer_id", "policy_version", "source_ref"):
+        if not isinstance(anchor_evidence.get(field_name), str) or not anchor_evidence[field_name].strip():
+            raise ValueError(f"Category anchor {field_name} is required")
+    anchor_bytes = anchor_evidence.get("source_bytes")
+    anchor_digest = anchor_evidence.get("source_document_sha256")
+    if not isinstance(anchor_bytes, bytes) or not anchor_bytes:
+        raise ValueError("Original category anchor source bytes are required")
+    actual_anchor_digest = hashlib.sha256(anchor_bytes).hexdigest()
+    if anchor_digest != actual_anchor_digest or anchor_evidence["source_ref"] != "sha256:" + actual_anchor_digest:
+        raise ValueError("Category anchor source digest does not match original bytes")
+    anchor_date = _iso_date(anchor_evidence.get("effective_date"), "category_anchor.effective_date")
+    anchor_age = (decision_date - anchor_date).days
+    if anchor_age < 0 or anchor_age > max_evidence_age_days:
+        raise ValueError("Category anchor evidence is stale or future-dated")
+
+    bounds = anchor_evidence.get("anchor_set")
+    if not isinstance(bounds, dict) or set(bounds) != _REQUIRED_ANCHOR_KEYS:
+        raise ValueError("Approved category anchor set must define every required metric bound")
+    normalized_bounds: Dict[str, Tuple[float, float]] = {}
+    for key in sorted(_REQUIRED_ANCHOR_KEYS):
+        pair = bounds.get(key)
+        if not isinstance(pair, (list, tuple)) or len(pair) != 2:
+            raise ValueError(f"Category anchor {key} must have exactly two bounds")
+        if any(isinstance(item, bool) for item in pair):
+            raise ValueError(f"Category anchor {key} bounds must be numeric")
+        try:
+            lower, upper = float(pair[0]), float(pair[1])
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"Category anchor {key} bounds must be numeric") from exc
+        if not math.isfinite(lower) or not math.isfinite(upper) or lower >= upper:
+            raise ValueError(f"Category anchor {key} bounds must be finite and increasing")
+        normalized_bounds[key] = (lower, upper)
+    return overlap_pct, normalized_bounds
+
+
 def calculate_candidate_6_pillar_score(
     cand: Dict[str, Any],
     category_key: str = "Healthcare",
     portfolio_overlap_pct: Optional[float] = None,
-    weights: Optional[ScoringWeights] = None
+    weights: Optional[ScoringWeights] = None,
+    *,
+    portfolio_aware: bool = False,
+    portfolio_overlap_evidence: Optional[Dict[str, Any]] = None,
+    approved_category_anchor_evidence: Optional[Dict[str, Any]] = None,
+    as_of_date: Optional[str] = None,
+    max_evidence_age_days: int = 45,
 ) -> Tuple[float, Dict[str, float]]:
     """
     Computes deterministic, reproducible 6-pillar score bounded in [0.0, 100.0].
@@ -134,6 +247,18 @@ def calculate_candidate_6_pillar_score(
     """
     if weights is None:
         weights = ScoringWeights()
+
+    approved_bounds: Optional[Dict[str, Tuple[float, float]]] = None
+    verified_overlap_pct: Optional[float] = None
+    if portfolio_aware:
+        verified_overlap_pct, approved_bounds = _validate_portfolio_score_evidence(
+            cand,
+            category_key=category_key,
+            overlap_evidence=portfolio_overlap_evidence,
+            anchor_evidence=approved_category_anchor_evidence,
+            as_of_date=as_of_date,
+            max_evidence_age_days=max_evidence_age_days,
+        )
 
     # Required selection metrics must be supplied explicitly. Zero is a valid
     # observation; missing, blank, boolean and non-finite values are not.
@@ -172,31 +297,41 @@ def calculate_candidate_6_pillar_score(
 
     buffer_pct = optional_metric("cash_debt_buffer_pct", "debt")
     intl_pct = optional_metric("international_equity_pct")
-    overlap_raw = portfolio_overlap_pct
-    if overlap_raw is None:
-        overlap_raw = optional_metric("overlap_pct")
-    elif isinstance(overlap_raw, bool):
-        raise ValueError("Malformed portfolio overlap percentage")
-    else:
-        overlap_raw = float(overlap_raw)
-        if not math.isfinite(overlap_raw):
-            raise ValueError("Non-finite portfolio overlap percentage")
+    overlap_raw = verified_overlap_pct if portfolio_aware else portfolio_overlap_pct
+    if not portfolio_aware:
+        if overlap_raw is None:
+            overlap_raw = optional_metric("overlap_pct")
+        elif isinstance(overlap_raw, bool):
+            raise ValueError("Malformed portfolio overlap percentage")
+        else:
+            overlap_raw = float(overlap_raw)
+            if not math.isfinite(overlap_raw):
+                raise ValueError("Non-finite portfolio overlap percentage")
 
     if not weights.validate():
         raise ValueError("Scoring weights must be finite and sum to 1.0")
 
-    if category_key not in CATEGORY_BENCHMARK_ANCHORS:
-        raise ValueError(
-            f"Unsupported scoring category {category_key!r}; refusing to substitute Healthcare anchors"
-        )
-    anchors = CATEGORY_BENCHMARK_ANCHORS[category_key]
-    alpha_bounds = anchors.get("alpha", (0.0, 10.0))
-    ret_bounds = anchors.get("ret1y", (30.0, 52.0))
-    sharpe_bounds = anchors.get("sharpe", (0.70, 1.10))
-    ter_bounds = anchors.get("ter", (0.50, 1.10))
-    buf_bounds = anchors.get("buffer", (0.0, 10.0))
-    intl_bounds = anchors.get("intl", (0.0, 25.0))
-    ovl_bounds = anchors.get("overlap", (0.0, 25.0))
+    if portfolio_aware:
+        anchors = approved_bounds or {}
+    else:
+        if category_key not in CATEGORY_BENCHMARK_ANCHORS:
+            raise ValueError(
+                f"Unsupported scoring category {category_key!r}; refusing to substitute Healthcare anchors"
+            )
+        anchors = CATEGORY_BENCHMARK_ANCHORS[category_key]
+        missing_anchor_keys = _REQUIRED_ANCHOR_KEYS - set(anchors)
+        if missing_anchor_keys:
+            raise ValueError(
+                f"Category {category_key!r} has no complete approved anchor set; missing: "
+                + ", ".join(sorted(missing_anchor_keys))
+            )
+    alpha_bounds = anchors["alpha"]
+    ret_bounds = anchors["ret1y"]
+    sharpe_bounds = anchors["sharpe"]
+    ter_bounds = anchors["ter"]
+    buf_bounds = anchors["buffer"]
+    intl_bounds = anchors["intl"]
+    ovl_bounds = anchors["overlap"]
 
     # 1. Alpha & Return Pillar (60% Alpha, 40% 1Y Return Momentum)
     p_alpha = normalize_metric(alpha_3y, alpha_bounds[0], alpha_bounds[1])
@@ -217,7 +352,9 @@ def calculate_candidate_6_pillar_score(
     # 5. Geographic Moat Pillar (Neutral 0.0 for pure domestic sectors)
     p_intl = 50.0 if intl_pct is None else normalize_metric(intl_pct, intl_bounds[0], intl_bounds[1])
 
-    # 6. Marginal Portfolio Benefit / Overlap Inverted Pillar (lower overlap is better)
+    # 6. Marginal Portfolio Benefit / Overlap Inverted Pillar (lower overlap is better).
+    # Only standalone diagnostics may use a neutral fallback; portfolio-aware
+    # scores cannot reach this point without verified overlap source evidence.
     p_ovl = 50.0 if overlap_raw is None else normalize_metric(overlap_raw, ovl_bounds[0], ovl_bounds[1], invert=True)
 
     pillars = {
