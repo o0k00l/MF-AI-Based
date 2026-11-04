@@ -2313,3 +2313,43 @@ def test_candidate_universe_does_not_treat_metrics_as_constituent_evidence(tmp_p
     assert candidates[0]["scheme_id"] == "SCHEME-001"
     assert candidates[0]["lookthrough_status"] == "MISSING"
     assert candidates[0]["constituent_weights"] is None
+
+
+def test_cas_scheme_identity_requires_verified_master_and_exact_scheme_amc(tmp_path):
+    import hashlib
+    from openpyxl import Workbook
+    from ingestion.cas_parser import parse_cas_xlsx
+
+    source_bytes = b"reviewed official scheme master"
+    master = {
+        "status": "VERIFIED",
+        "reviewer_attested": True,
+        "source_url": "https://amfiindia.com/scheme-master.xlsx",
+        "source_document_sha256": hashlib.sha256(source_bytes).hexdigest(),
+        "schemes": [{
+            "scheme_id": "SCHEME-ABC",
+            "isin": "INF000A01000",
+            "scheme_name": "Example Equity Fund - Direct Growth",
+            "amc_name": "Example AMC",
+        }],
+    }
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Portfolio Details"
+    sheet.append(["To Date", "31-Oct-2026"])
+    sheet.append(["Scheme Name", "AMC Name", "Category", "Folio No.", "Invested Value", "Current Value"])
+    sheet.append(["Example Equity Fund - Direct Growth", "Example AMC", "Equity", "FOLIO-1", 90000, 100000])
+    path = tmp_path / "cas-identity.xlsx"
+    workbook.save(path)
+
+    parsed = parse_cas_xlsx(path, scheme_master=master, scheme_master_source_bytes=source_bytes)
+    holding = parsed["holdings"][0]
+    assert holding["scheme_identity_status"] == "VERIFIED"
+    assert holding["scheme_id"] == "SCHEME-ABC"
+    assert holding["isin"] == "INF000A01000"
+
+    # A display-name near-match is not enough to resolve an identity.
+    master["schemes"][0]["scheme_name"] = "Example Equity Fund"
+    parsed = parse_cas_xlsx(path, scheme_master=master, scheme_master_source_bytes=source_bytes)
+    assert parsed["holdings"][0]["scheme_identity_status"] == "MISSING"
+    assert parsed["holdings"][0]["scheme_id"] is None
