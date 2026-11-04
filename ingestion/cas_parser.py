@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import datetime
 import io
+import math
 import pathlib
 import re
 import warnings
@@ -82,11 +83,17 @@ def _iso_date(text: str) -> str | None:
 
 
 def _num(v):
+    """Parse a finite numeric cell; booleans, NaN and infinities are invalid."""
     if v is None or v == "":
         return None
-    if isinstance(v, (int, float)):
-        return float(v)
-    return float(str(v).replace(",", "").strip())
+    if isinstance(v, bool):
+        raise ValueError("boolean is not a financial numeric value")
+    number = float(v) if isinstance(v, (int, float, Decimal)) else float(
+        str(v).replace(",", "").strip()
+    )
+    if not math.isfinite(number):
+        raise ValueError("financial numeric value must be finite")
+    return number
 
 
 def parse_cas_xlsx(source, scheme_master=None, scheme_master_source_bytes=None) -> dict:
@@ -164,8 +171,21 @@ def parse_cas_xlsx(source, scheme_master=None, scheme_master_source_bytes=None) 
             continue
         pos = labels.index("current portfolio value")
         for follow in rows[i + 1:i + 4]:
-            if pos < len(follow) and isinstance(follow[pos], (int, float)):
-                out["stated_total"] = float(follow[pos])
+            if pos < len(follow) and follow[pos] is not None:
+                raw_total = follow[pos]
+                try:
+                    stated_total = _num(raw_total)
+                    if stated_total is None or stated_total < 0:
+                        raise ValueError("stated portfolio total must be non-negative")
+                except (TypeError, ValueError, OverflowError) as exc:
+                    out["rejected"].append({
+                        "row": rows.index(follow) + 1,
+                        "scheme": None,
+                        "raw_cells": {"stated_total": repr(raw_total)},
+                        "reason": f"invalid stated portfolio total: {exc}",
+                    })
+                else:
+                    out["stated_total"] = stated_total
                 break
         break
 
@@ -192,15 +212,19 @@ def parse_cas_xlsx(source, scheme_master=None, scheme_master_source_bytes=None) 
         scheme = (cell("scheme_name") or "").strip() if cell("scheme_name") else ""
         if not scheme:
             continue
+        raw_current = cell("current_value")
         try:
-            current = _num(cell("current_value"))
-        except (TypeError, ValueError):
-            out["rejected"].append({"row": i, "scheme": scheme,
-                                    "reason": "current value is not a number"})
-            continue
-        if current is None:
-            out["rejected"].append({"row": i, "scheme": scheme,
-                                    "reason": "current value is blank"})
+            current = _num(raw_current)
+            if current is None:
+                raise ValueError("current value is blank")
+            if current < 0:
+                raise ValueError("current value must be non-negative")
+        except (TypeError, ValueError, OverflowError) as exc:
+            out["rejected"].append({
+                "row": i, "scheme": scheme,
+                "raw_cells": {"current_value": repr(raw_current)},
+                "reason": f"invalid current value: {exc}",
+            })
             continue
         rec = {"scheme": scheme,
                "current_value": current,
@@ -212,20 +236,35 @@ def parse_cas_xlsx(source, scheme_master=None, scheme_master_source_bytes=None) 
                "lookthrough_status": "MISSING",
                "lookthrough_reason": "CAS does not contain stock-level constituent disclosures.",
                "scheme_id": None, "isin": None, "scheme_identity_status": "MISSING"}
+        invalid_field = None
+        for opt, key in (("invested_value", "invested"),
+                         ("returns", "returns"), ("units", "units")):
+            raw_value = cell(opt)
+            if raw_value is None or raw_value == "":
+                continue
+            try:
+                value = _num(raw_value)
+                if value is None:
+                    continue
+                if key in {"invested", "units"} and value < 0:
+                    raise ValueError(f"{opt.replace('_', ' ')} must be non-negative")
+            except (TypeError, ValueError, OverflowError) as exc:
+                invalid_field = {
+                    "row": i, "scheme": scheme,
+                    "raw_cells": {opt: repr(raw_value)},
+                    "reason": f"invalid {opt.replace('_', ' ')}: {exc}",
+                }
+                break
+            rec[key] = value
+        if invalid_field is not None:
+            out["rejected"].append(invalid_field)
+            continue
         if scheme_master is not None and scheme_master_source_bytes is not None:
             from ingestion.portfolio_disclosure import resolve_scheme_identity
             identity = resolve_scheme_identity(rec, scheme_master, source_bytes=scheme_master_source_bytes)
             rec.update({"scheme_id": identity.get("scheme_id"), "isin": identity.get("isin"),
                         "scheme_identity_status": identity["status"],
                         "scheme_identity_reason": identity["reason"]})
-        for opt, key in (("invested_value", "invested"),
-                         ("returns", "returns"), ("units", "units")):
-            try:
-                v = _num(cell(opt))
-            except (TypeError, ValueError):
-                v = None
-            if v is not None:
-                rec[key] = v
         if current > 0:
             out["holdings"].append(rec)
         else:
@@ -272,32 +311,72 @@ def parse_cas_xlsx(source, scheme_master=None, scheme_master_source_bytes=None) 
                     if sn and str(sn).strip():
                         last_scheme = str(sn).strip()
                     dt = str(r[dt_col] or "").strip()
-                    amt = _num(r[amt_col])
-                    if last_scheme and dt and amt is not None:
-                        # try parse date
+                    raw_amount = r[amt_col]
+                    try:
+                        amt = _num(raw_amount)
+                        units = _num(r[unt_col]) if unt_col is not None else None
+                        nav = _num(r[nav_col]) if nav_col is not None else None
+                        if units is not None and units < 0:
+                            raise ValueError("transaction units must be non-negative")
+                        if nav is not None and nav <= 0:
+                            raise ValueError("transaction NAV must be greater than zero")
+                        if amt is None:
+                            raise ValueError("transaction amount is blank")
+                    except (TypeError, ValueError, OverflowError) as exc:
+                        out["rejected"].append({
+                            "row": tx_rows.index(r) + 1,
+                            "scheme": last_scheme or None,
+                            "raw_cells": {
+                                "amount": repr(raw_amount),
+                                "units": repr(r[unt_col]) if unt_col is not None else None,
+                                "nav": repr(r[nav_col]) if nav_col is not None else None,
+                            },
+                            "reason": f"invalid transaction financial value: {exc}",
+                        })
+                        continue
+                    if last_scheme and dt:
                         try:
                             import datetime as dt_mod
                             d = dt_mod.datetime.strptime(dt, "%d-%b-%Y").strftime("%Y-%m-%d")
                         except ValueError:
                             d = dt
-                        
-                        # Determine transaction type from description
-                        desc = str(r[desc_col]).strip().lower() if desc_col is not None else ""
-                        tx_type = "PURCHASE"
-                        if any(kw in desc for kw in ("redemption", "switch out", "switch-out", "payout", "dividend payout")):
-                            tx_type = "REDEMPTION"
-                        elif "switch in" in desc or "switch-in" in desc:
-                            tx_type = "SWITCH_IN"
-                        elif "stamp duty" in desc or "stt" in desc:
+
+                        # Unknown or ambiguous descriptions stay UNKNOWN. They
+                        # are retained for review and will block ledger reconciliation.
+                        desc_raw = str(r[desc_col]).strip() if desc_col is not None else ""
+                        desc = re.sub(r"[^a-z0-9]+", " ", desc_raw.casefold()).strip()
+                        if any(term in desc for term in ("reversal", "dishonour", "dishonor", "rejected", "cancelled", "canceled")):
+                            tx_type = "UNKNOWN"
+                        elif any(term in desc for term in ("stamp duty", "securities transaction tax", " stt ", "exit load", "transaction charge")) or desc == "stt":
                             tx_type = "CHARGES"
-                        
+                        elif "switch out" in desc:
+                            tx_type = "SWITCH_OUT"
+                        elif "switch in" in desc:
+                            tx_type = "SWITCH_IN"
+                        elif "stp out" in desc:
+                            tx_type = "STP_OUT"
+                        elif "stp in" in desc:
+                            tx_type = "STP_IN"
+                        elif "redemption" in desc:
+                            tx_type = "REDEMPTION"
+                        elif "dividend reinvest" in desc or "reinvestment of dividend" in desc:
+                            tx_type = "DIVIDEND_REINVEST"
+                        elif "dividend payout" in desc or desc == "dividend":
+                            tx_type = "DIVIDEND"
+                        elif "systematic investment" in desc or "sip" in desc.split():
+                            tx_type = "SIP"
+                        elif "purchase" in desc or "subscription" in desc:
+                            tx_type = "PURCHASE"
+                        else:
+                            tx_type = "UNKNOWN"
+
                         out["transactions"].append({
                             "scheme": last_scheme,
                             "date": d,
                             "amount": amt,
-                            "units": _num(r[unt_col]) if unt_col is not None else None,
-                            "nav": _num(r[nav_col]) if nav_col is not None else None,
-                            "description": str(r[desc_col]).strip() if desc_col is not None else "",
+                            "units": units,
+                            "nav": nav,
+                            "description": desc_raw,
                             "type": tx_type
                         })
     return out
@@ -312,10 +391,28 @@ def reconcile(parsed: dict, tolerance: float = 1.0) -> dict:
     capital-gains reconciliation uses. Silently trusting our own sum is how a
     partial read becomes a confident wrong portfolio.
     """
-    total = sum(r["current_value"] for r in parsed.get("holdings", []))
-    stated = parsed.get("stated_total")
+    rejected = parsed.get("rejected") or []
+    try:
+        values = [float(row["current_value"]) for row in parsed.get("holdings", [])]
+        if any(not math.isfinite(value) or value < 0 for value in values):
+            raise ValueError("parsed holding values must be finite and non-negative")
+        total = sum(values)
+        stated = parsed.get("stated_total")
+        if stated is not None and (not math.isfinite(float(stated)) or float(stated) < 0):
+            raise ValueError("stated total must be finite and non-negative")
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return {"parsed_total": None, "stated_total": parsed.get("stated_total"),
+                "difference": None, "agrees": False, "complete": False,
+                "note": "reconciliation blocked: invalid financial values are present"}
     out = {"parsed_total": round(total, 2), "stated_total": stated,
-           "difference": None, "agrees": None, "note": ""}
+           "difference": None, "agrees": None, "complete": not rejected, "note": ""}
+    if rejected:
+        out["agrees"] = False
+        out["note"] = (
+            f"reconciliation blocked: {len(rejected)} material row(s) were rejected; "
+            "the statement cannot be marked complete"
+        )
+        return out
     if stated is None:
         out["note"] = ("the statement reports no portfolio total, so the parse "
                        "could not be checked")
