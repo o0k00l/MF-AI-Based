@@ -285,8 +285,8 @@ def calculate_candidate_6_pillar_score(
     sharpe_3y = required_metric("sharpe_3y", "sharpe")
     ter = required_metric("ter_direct_pct", "er")
 
-    # Optional explanatory pillars are neutral when evidence is absent. They
-    # must never be fabricated as zero, 12%, or another assumed observation.
+    # Defensive, international and overlap pillars are required evidence.
+    # A verified zero is a valid observation; missing evidence is not neutral.
     def optional_metric(*keys: str) -> Optional[float]:
         raw = next((cand[key] for key in keys if key in cand), None)
         if raw is None:
@@ -303,12 +303,10 @@ def calculate_candidate_6_pillar_score(
 
     buffer_pct = optional_metric("cash_debt_buffer_pct", "debt")
     intl_pct = optional_metric("international_equity_pct")
-    if portfolio_aware:
-        # Unknown is not a neutral observation. Verified zero remains valid.
-        if buffer_pct is None:
-            raise ValueError("Portfolio-aware scoring requires verified cash/debt buffer evidence")
-        if intl_pct is None:
-            raise ValueError("Portfolio-aware scoring requires verified international exposure evidence")
+    if buffer_pct is None:
+        raise ValueError("Scoring requires verified cash/debt buffer evidence")
+    if intl_pct is None:
+        raise ValueError("Scoring requires verified international exposure evidence")
     overlap_raw = verified_overlap_pct if portfolio_aware else portfolio_overlap_pct
     if not portfolio_aware:
         if overlap_raw is None:
@@ -319,6 +317,8 @@ def calculate_candidate_6_pillar_score(
             overlap_raw = float(overlap_raw)
             if not math.isfinite(overlap_raw):
                 raise ValueError("Non-finite portfolio overlap percentage")
+    if overlap_raw is None:
+        raise ValueError("Scoring requires verified portfolio overlap evidence")
 
     if not weights.validate():
         raise ValueError("Scoring weights must be finite and sum to 1.0")
@@ -359,15 +359,15 @@ def calculate_candidate_6_pillar_score(
     p_ter = normalize_metric(ter, ter_bounds[0], ter_bounds[1], invert=True)
 
     # 4. Capital Preservation & Defensive Buffer Pillar
-    p_buf = 50.0 if buffer_pct is None else normalize_metric(buffer_pct, buf_bounds[0], buf_bounds[1])
+    p_buf = normalize_metric(buffer_pct, buf_bounds[0], buf_bounds[1])
 
     # 5. Geographic Moat Pillar (Neutral 0.0 for pure domestic sectors)
-    p_intl = 50.0 if intl_pct is None else normalize_metric(intl_pct, intl_bounds[0], intl_bounds[1])
+    p_intl = normalize_metric(intl_pct, intl_bounds[0], intl_bounds[1])
 
     # 6. Marginal Portfolio Benefit / Overlap Inverted Pillar (lower overlap is better).
     # Only standalone diagnostics may use a neutral fallback; portfolio-aware
     # scores cannot reach this point without verified overlap source evidence.
-    p_ovl = 50.0 if overlap_raw is None else normalize_metric(overlap_raw, ovl_bounds[0], ovl_bounds[1], invert=True)
+    p_ovl = normalize_metric(overlap_raw, ovl_bounds[0], ovl_bounds[1], invert=True)
 
     pillars = {
         "alpha_return": p_alpha_ret,
