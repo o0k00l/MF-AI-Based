@@ -41,6 +41,8 @@ def test_requesty_discovery_rejects_unknown_pricing(monkeypatch):
 def test_openrouter_discovery_uses_only_catalogue_free_models(monkeypatch):
     payload = {"data": [
         {"id": "vendor/free:free", "pricing": {"prompt": "0", "completion": "0"}},
+        {"id": "vendor/free-label-but-unknown:free", "pricing": {}},
+        {"id": "vendor/free-label-but-paid:free", "pricing": {"prompt": "0.01", "completion": "0"}},
         {"id": "vendor/paid", "pricing": {"prompt": "0.01", "completion": "0.02"}},
     ]}
     monkeypatch.setattr(ai_engine, "_read_model_cache", lambda *args: None)
