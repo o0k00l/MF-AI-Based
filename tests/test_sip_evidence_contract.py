@@ -204,6 +204,15 @@ def test_contract_rejects_direct_plan_evidence_for_different_scheme_id(tmp_path)
 
 
 
+def test_contract_rejects_missing_fund_metrics_provenance(tmp_path):
+    payload = valid_payload(tmp_path)
+    payload.pop("metrics_source_metadata")
+    payload.pop("metrics_source_bytes")
+
+    with pytest.raises(EvidenceProviderContractError, match="mandatory"):
+        validate_evidence_provider_payload(payload)
+
+
 def test_contract_validates_optional_original_fund_metrics_source_bytes(tmp_path):
     payload = valid_payload(tmp_path)
     metrics_bytes = b"original metrics publisher document"
