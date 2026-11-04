@@ -10,6 +10,7 @@ from enum import Enum
 
 
 class PlanType(str, Enum):
+    UNKNOWN = "Unknown"
     REGULAR = "Regular"
     DIRECT = "Direct"
 
@@ -114,8 +115,10 @@ class HoldingItem(BaseModel):
     fund_name: str
     amc_name: Optional[str] = None
     folio: str
-    is_direct: bool
-    plan: PlanType
+    is_direct: Optional[bool] = None
+    plan: PlanType = PlanType.UNKNOWN
+    plan_option_status: str = "MISSING"
+    option_type: Optional[str] = None
     asset_class: AssetClass
     equity_pct: float
     debt_pct: float
@@ -223,7 +226,7 @@ class ThematicExposureItem(BaseModel):
     dedicated_funds_pct: Optional[float] = None
     look_through_stocks_inr: Optional[float] = None
     look_through_stocks_pct: Optional[float] = None
-    coverage_status: str  # e.g., 'FULL', 'ADEQUATE', 'NEGLECTED', 'BY_DESIGN_MINIMAL'
+    coverage_status: str = "MISSING"  # unavailable until source coverage is established
     key_underlying_holdings: List[str] = Field(default_factory=list)
 
 

@@ -11,7 +11,7 @@ It does not download, infer, or manufacture source evidence.
 """
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 import hashlib
 import json
 import math
@@ -22,6 +22,7 @@ from typing import Any
 from core.math_engine import (
     compute_deterministic_sip_blueprint,
     load_holdings_from_cas_excel,
+    _parse_cas_valuation_date,
 )
 from core.models import DeterministicSIPPlan, MandateExecutionState
 from services.sip_lifecycle_store import persist_draft_snapshot
@@ -135,6 +136,17 @@ def _build_cas_portfolio_assessment(holdings: list[Any], risk_profile: str) -> d
             "valuation_date_verified": False,
             "total_value_inr": round(total, 2),
             "holding_count": len(holdings),
+            "holding_plan_option_identity": [
+                {
+                    "scheme_id": getattr(holding, "scheme_id", None),
+                    "isin": getattr(holding, "isin", None),
+                    "plan": getattr(getattr(holding, "plan", None), "value", getattr(holding, "plan", None)),
+                    "is_direct": getattr(holding, "is_direct", None),
+                    "option_type": getattr(holding, "option_type", None),
+                    "status": getattr(holding, "plan_option_status", "MISSING"),
+                }
+                for holding in holdings
+            ],
             "current_sleeve_values_inr": {
                 key: round(value, 2) for key, value in sorted(current.items())
             },
@@ -621,19 +633,32 @@ def _assess_complete_portfolio_context(
         routing_reconciles = bool(routing.get("reconciliation_ok", False))
         fund_requested = Decimal(str(candidate_allocation.get("requested_budget_inr", "0")))
         if candidate_set_concentration.get("status") != "ASSESSED":
+            blocked_by_sleeve = {
+                key: Decimal(str(value))
+                for key, value in routing.get("unallocated_by_sleeve_inr", {}).items()
+            }
+            for sleeve, value in routing.get("allocations_inr", {}).items():
+                blocked_by_sleeve[sleeve] = (
+                    blocked_by_sleeve.get(sleeve, Decimal("0"))
+                    + Decimal(str(value))
+                )
             candidate_allocation = {
                 **candidate_allocation,
                 "status": "HOLD",
                 "pre_concentration_status": candidate_allocation.get("status"),
                 "allocations": [],
                 "allocated_budget_inr": "0",
-                "unallocated_budget_inr": str(monthly_budget_inr),
-                "unallocated_by_sleeve_inr": routing.get("allocations_inr", {}),
+                "unallocated_budget_inr": str(Decimal(str(monthly_budget_inr))),
+                "unallocated_by_sleeve_inr": {
+                    key: str(value) for key, value in sorted(blocked_by_sleeve.items())
+                },
                 "concentration_blocked": True,
             }
+            # Preserve the SAA split: amounts never routed to an eligible sleeve
+            # stay in the unrouted bucket; the exact routed sleeve budget is
+            # unallocated because the selected set failed concentration.
             fund_allocated = Decimal("0")
-            routing_unallocated = Decimal("0")
-            fund_unallocated = Decimal(str(monthly_budget_inr))
+            fund_unallocated = routed_budget
         overall_unallocated = routing_unallocated + fund_unallocated
         candidate_allocation.update({
             "requested_budget_inr": str(Decimal(str(monthly_budget_inr))),
@@ -847,6 +872,19 @@ def _hold_plan(monthly_budget_inr: float, reasons: list[str], portfolio_assessme
     return result
 
 
+
+def _validate_cas_decision_date(cas_path: Path, decision_as_of_date: date) -> date:
+    """Bind SIP evidence freshness to the date embedded in the uploaded CAS."""
+    if not isinstance(decision_as_of_date, date) or isinstance(decision_as_of_date, datetime):
+        raise ValueError("A date-only SIP decision as-of date is required.")
+    cas_date = _parse_cas_valuation_date(cas_path)
+    if cas_date != decision_as_of_date:
+        raise ValueError(
+            "SIP decision date does not match the uploaded CAS valuation date."
+        )
+    return cas_date
+
+
 def recommend_sip(
     *,
     cas_path: Path,
@@ -901,6 +939,13 @@ def recommend_sip(
         return _hold_plan(budget, ["Exact-ID portfolio disclosures and original source bytes are required."])
     if disclosure_as_of_date is None:
         return _hold_plan(budget, ["A decision as-of date is required for disclosure freshness validation."])
+    try:
+        _validate_cas_decision_date(cas_path, disclosure_as_of_date)
+    except (OSError, ValueError, TypeError) as exc:
+        return _hold_plan(
+            budget,
+            [f"CAS valuation-date validation failed closed ({type(exc).__name__})."],
+        )
     if not isinstance(candidate_universe, list) or not candidate_universe:
         return _hold_plan(budget, ["A source-verified candidate universe is required."])
     if isinstance(disclosure_max_age_days, bool) or not isinstance(disclosure_max_age_days, int) or disclosure_max_age_days < 0:
@@ -930,6 +975,10 @@ def recommend_sip(
         scheme_label = holding.scheme or holding.fund_id
         if not holding.scheme_id:
             evidence_gaps.append(f"{scheme_label}: exact scheme identity is missing.")
+        if getattr(holding, "plan_option_status", "MISSING") != "VERIFIED":
+            evidence_gaps.append(
+                f"{scheme_label}: Direct/Regular plan and Growth/IDCW option identity is missing or conflicting."
+            )
         if getattr(holding, "metrics_status", "MISSING") != "VERIFIED":
             evidence_gaps.append(
                 f"{scheme_label}: fund category/risk/exposure metrics are MISSING or unverified."

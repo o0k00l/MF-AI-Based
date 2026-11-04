@@ -38,7 +38,7 @@ CRITICAL OPERATIONAL RULES:
 """
 
 
-from core.ai_engine import call_llm as _engine_call_llm
+from core.ai_engine import ProviderError, call_llm as _engine_call_llm
 
 def _fmt_inr(value: Any) -> str:
     """Format verified INR; an unavailable value is not zero."""

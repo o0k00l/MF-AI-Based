@@ -81,11 +81,14 @@ def create_sip_app(
                 "reasons": ["Monthly SIP budget must be finite and greater than zero."],
                 "unallocated_budget_inr": monthly_budget_inr if math.isfinite(monthly_budget_inr) else None,
             })
-        if risk_profile not in {"Conservative", "Moderate", "Aggressive", "Custom"}:
+        if risk_profile not in {"Conservative", "Moderate", "Aggressive"}:
             return JSONResponse(status_code=422, content={
                 "status": "HOLD",
                 "decision": "NO_ACTION",
-                "reasons": ["Risk profile must be Conservative, Moderate, Aggressive or Custom."],
+                "reasons": [
+                    "This SIP endpoint currently supports Conservative, Moderate and Aggressive profiles only.",
+                    "Custom SAA is not implemented at the API-to-engine boundary; no allocation has been calculated.",
+                ],
                 "unallocated_budget_inr": monthly_budget_inr,
             })
         if not (cas_file.filename or "").lower().endswith(".xlsx"):

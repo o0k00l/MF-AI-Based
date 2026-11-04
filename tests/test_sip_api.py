@@ -1,3 +1,4 @@
+import json
 from datetime import date
 from pathlib import Path
 
@@ -6,12 +7,27 @@ from fastapi.testclient import TestClient
 from api import sip
 
 
-def _upload(client, **data):
+def _upload(client, *, cas_bytes=b"synthetic cas bytes", **data):
     return client.post(
         "/v1/sip/recommendations",
-        files={"cas_file": ("portfolio.xlsx", b"synthetic cas bytes", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+        files={"cas_file": ("portfolio.xlsx", cas_bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
         data=data,
     )
+
+
+def _valid_cas_bytes(as_of_date):
+    from io import BytesIO
+    import openpyxl
+
+    workbook = openpyxl.Workbook()
+    sheet = workbook.active
+    sheet.title = "Portfolio Details"
+    sheet.append(["To Date", as_of_date.strftime("%d-%b-%Y")])
+    sheet.append(["Scheme Name", "Folio No.", "Invested Value", "Current Value", "Units"])
+    sheet.append(["Example Direct Growth", "FOLIO-1", 100000, 125000, 1000])
+    output = BytesIO()
+    workbook.save(output)
+    return output.getvalue()
 
 
 def test_readiness_distinguishes_live_api_from_missing_evidence_provider():
@@ -231,6 +247,7 @@ def test_api_real_service_ingests_cas_and_holds_on_missing_portfolio_disclosure(
     sheet = workbook.active
     sheet.title = "Portfolio Details"
     sheet.append(["Synthetic CAS"])
+    sheet.append(["To Date", as_of.strftime("%d-%b-%Y")])
     sheet.append([
         "Scheme Name", "Folio No.", "Invested Value", "Current Value", "Units", "AMC Name"
     ])
@@ -240,7 +257,11 @@ def test_api_real_service_ingests_cas_and_holds_on_missing_portfolio_disclosure(
     cas_bytes = stream.getvalue()
 
     metrics_path = tmp_path / "metrics.json"
-    metrics_path.write_text('{"funds": []}', encoding="utf-8")
+    metrics_path.write_text(json.dumps({"funds": [{
+        "id": "fund-api-e2e", "scheme": scheme_name, "name": scheme_name,
+        "cat": "Flexi Cap", "er": 0.65, "eq": 100.0, "debt": 0.0,
+        "lc": 50.0, "mc": 30.0, "sc": 20.0, "h": [],
+    }]}), encoding="utf-8")
     direct_source = Path(__file__)
     direct_bytes = direct_source.read_bytes()
     master_bytes = b"synthetic scheme master bytes"
@@ -391,6 +412,8 @@ def test_api_runs_portfolio_saa_diagnostic_end_to_end_and_keeps_budget_on_hold(m
                 "isin": "INF000000003",
                 "scheme_name": "Example Direct Growth",
                 "amc_name": "Example AMC",
+                "plan_type": "Direct",
+                "option_type": "Growth",
             }],
             **metadata(source_bytes, "https://amfiindia.com/scheme-master", "OFFICIAL_SCHEME_MASTER"),
         },
@@ -448,6 +471,9 @@ def test_api_runs_portfolio_saa_diagnostic_end_to_end_and_keeps_budget_on_hold(m
         scheme_id="scheme-api-saa",
         lookthrough_status="VERIFIED",
         metrics_status="VERIFIED",
+        plan_option_status="VERIFIED",
+        option_type="GROWTH",
+        is_direct=True,
         constituent_weights_coverage_pct=100.0,
         current_value_inr=125000.0,
         asset_class="Large_Cap",
@@ -462,7 +488,12 @@ def test_api_runs_portfolio_saa_diagnostic_end_to_end_and_keeps_budget_on_hold(m
     )
 
     client = TestClient(sip.create_sip_app(evidence_provider=provider))
-    response = _upload(client, monthly_budget_inr="10000", risk_profile="Aggressive")
+    response = _upload(
+        client,
+        cas_bytes=_valid_cas_bytes(date.today()),
+        monthly_budget_inr="10000",
+        risk_profile="Aggressive",
+    )
 
     assert response.status_code == 200
     body = response.json()
@@ -496,4 +527,24 @@ def test_api_rejects_malformed_portfolio_context_before_calling_provider():
     )
     assert response.status_code == 422
     assert response.json()["decision"] == "NO_ACTION"
+
+
+def test_api_rejects_custom_until_custom_saa_contract_is_implemented():
+    called = []
+    client = TestClient(
+        sip.create_sip_app(evidence_provider=lambda **kwargs: called.append(kwargs))
+    )
+
+    response = _upload(
+        client,
+        monthly_budget_inr="25000",
+        risk_profile="Custom",
+    )
+
+    assert response.status_code == 422
+    body = response.json()
+    assert body["status"] == "HOLD"
+    assert body["decision"] == "NO_ACTION"
+    assert body["unallocated_budget_inr"] == 25000
+    assert any("Custom SAA is not implemented" in reason for reason in body["reasons"])
     assert called == []

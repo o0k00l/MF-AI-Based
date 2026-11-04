@@ -191,73 +191,62 @@ FUND_CATEGORY_TAXONOMY = {
 }
 
 
-def classify_fund_category(fund_name: str, fund_category: str = "", fund_data: Optional[Dict[str, Any]] = None) -> str:
+def classify_fund_category(
+    fund_name: str,
+    fund_category: str = "",
+    fund_data: Optional[Dict[str, Any]] = None,
+) -> str:
+    """Classify only from an exact canonical category supplied by verified data.
+
+    Scheme marketing names and free-form descriptions are not category evidence.
+    Unknown and distinct SEBI categories remain distinct rather than falling
+    through to a neighboring sleeve.
     """
-    Classify fund into standardized SEBI categories based on scheme name and category attributes.
-    Checks both category string and scheme name with strict priority.
-    """
-    if not fund_name and not fund_category:
+    raw_category = str(fund_category or "").strip()
+    if not raw_category:
         return "Unknown"
 
-    name_lower = (fund_name or "").lower()
-    cat_lower = (fund_category or "").lower()
-    combined = f"{name_lower} {cat_lower}"
-
-    # 1. Dedicated Sector / Thematic Check
-    for kw in FUND_CATEGORY_TAXONOMY["Healthcare Thematic"]:
-        if kw in combined:
-            return "Healthcare Thematic"
-
-    for kw in FUND_CATEGORY_TAXONOMY["Defensive Thematic"]:
-        if kw in combined:
-            return "Defensive Thematic"
-
-    # 2. Hybrid / Balanced Advantage Check
-    for kw in FUND_CATEGORY_TAXONOMY["Hybrid Equity"]:
-        if kw in combined:
-            return "Hybrid Equity"
-
-    # 3. Debt / Arbitrage Check
-    for kw in FUND_CATEGORY_TAXONOMY["Debt Funds"]:
-        if kw in combined:
-            return "Debt Funds"
-
-    # 4. Large Cap Check
-    for kw in FUND_CATEGORY_TAXONOMY["Large Cap Equity"]:
-        if kw in combined:
-            return "Large Cap Equity"
-
-    # 5. Distinguish combined Mid & Small mandates before pure-cap categories.
-    for kw in FUND_CATEGORY_TAXONOMY["Mid & Small Cap Equity"]:
-        if kw in combined:
-            return "Mid & Small Cap Equity"
-
-    # 6. Small Cap Check (before Mid/Flexi/Multi)
-    for kw in FUND_CATEGORY_TAXONOMY["Small Cap Equity"]:
-        if kw in combined:
-            return "Small Cap Equity"
-
-    # 7. Mid Cap Check (before Flexi/Multi)
-    for kw in FUND_CATEGORY_TAXONOMY["Mid Cap Equity"]:
-        if kw in combined:
-            return "Mid Cap Equity"
-
-    # 8. Flexi Cap Check
-    for kw in FUND_CATEGORY_TAXONOMY["Flexi Cap Equity"]:
-        if kw in combined:
-            return "Flexi Cap Equity"
-
-    # 9. Multi Cap Check
-    for kw in FUND_CATEGORY_TAXONOMY["Multi Cap Equity"]:
-        if kw in combined:
-            return "Multi Cap Equity"
-
-    # 10. Index Funds Check
-    for kw in FUND_CATEGORY_TAXONOMY["Index Funds"]:
-        if kw in combined:
-            return "Index Funds"
-
-    return "Other"
+    normalized = " ".join(
+        raw_category.casefold().replace("&", " and ").replace("-", " ").split()
+    )
+    exact_categories = {
+        "large cap": "Large Cap Equity",
+        "large cap equity": "Large Cap Equity",
+        "large and mid cap": "Large & Mid Cap Equity",
+        "large and mid cap equity": "Large & Mid Cap Equity",
+        "mid cap": "Mid Cap Equity",
+        "mid cap equity": "Mid Cap Equity",
+        "mid and small cap": "Mid & Small Cap Equity",
+        "mid and small cap equity": "Mid & Small Cap Equity",
+        "small cap": "Small Cap Equity",
+        "small cap equity": "Small Cap Equity",
+        "flexi cap": "Flexi Cap Equity",
+        "flexi cap equity": "Flexi Cap Equity",
+        "focused": "Focused Equity",
+        "focused fund": "Focused Equity",
+        "focused equity": "Focused Equity",
+        "multi cap": "Multi Cap Equity",
+        "multi cap equity": "Multi Cap Equity",
+        "index fund": "Index Funds",
+        "index funds": "Index Funds",
+        "etf": "Index Funds",
+        "sectoral/thematic": "Thematic Equity",
+        "thematic": "Thematic Equity",
+        "thematic equity": "Thematic Equity",
+        "healthcare": "Healthcare Thematic",
+        "healthcare thematic": "Healthcare Thematic",
+        "debt": "Debt Funds",
+        "debt fund": "Debt Funds",
+        "debt funds": "Debt Funds",
+        "liquid": "Debt Funds",
+        "liquid fund": "Debt Funds",
+        "money market": "Debt Funds",
+        "hybrid": "Hybrid Equity",
+        "hybrid equity": "Hybrid Equity",
+        "balanced advantage": "Hybrid Equity",
+        "dynamic asset allocation": "Hybrid Equity",
+    }
+    return exact_categories.get(normalized, "Unknown")
 
 
 def get_fund_passive_alternatives(category: str) -> List[str]:

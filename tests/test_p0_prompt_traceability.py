@@ -390,7 +390,7 @@ def test_reporting_ignores_unverified_tax_lot_and_switch_cost_payloads(monkeypat
     monkeypatch.setattr(
         prompt_advisor,
         "_call_llm_with_retry",
-        lambda prompt: captured.setdefault("prompt", prompt),
+        lambda prompt, **kwargs: captured.setdefault("prompt", prompt),
     )
     spoofed_tax = {"total_ltcg_tax_inr": 1, "classification": "APPROVED-SPOOF"}
     spoofed_cost = {
