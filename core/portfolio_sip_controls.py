@@ -837,6 +837,7 @@ def validate_scheme_operational_feasibility(
     requested_monthly_sip_inr: Any,
     as_of_date: str,
     max_evidence_age_days: int,
+    check_requested_minimum: bool = True,
 ) -> dict[str, Any]:
     """Validate dated scheme status and SIP constraints without implying execution."""
     today = _date(as_of_date, "as_of_date")
@@ -862,13 +863,14 @@ def validate_scheme_operational_feasibility(
     minimum = _decimal(scheme.get("minimum_monthly_sip_inr"), "minimum_monthly_sip_inr")
     if requested <= 0 or minimum <= 0:
         reasons.append("INVALID_SIP_MINIMUM_OR_REQUEST")
-    elif requested < minimum:
+    elif check_requested_minimum and requested < minimum:
         reasons.append("REQUEST_BELOW_SCHEME_MINIMUM")
     for key in ("exit_load_evidence_ref", "lockin_evidence_ref", "subscription_status_evidence_ref"):
         if not isinstance(scheme.get(key), str) or not scheme.get(key, "").strip():
             reasons.append(f"MISSING_{key.upper()}")
     return {"status": "FEASIBLE_FOR_REVIEW" if not reasons else "HOLD",
-            "reasons": reasons, "execution_authorized": False}
+            "reasons": reasons, "minimum_monthly_sip_inr": str(minimum),
+            "execution_authorized": False}
 
 
 def evaluate_recommendation_freshness(
