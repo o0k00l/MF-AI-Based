@@ -131,6 +131,8 @@ def _risk_tier_to_int(tier: Any) -> int:
         return 5
     if "low to moderate" in tier_str:
         return 2
+    if tier_str in {"moderate", "risk_tier.moderate"}:
+        return 4
     if "moderate" in tier_str:
         return 3
     if tier_str in {"low", "preservation"}:
@@ -162,7 +164,7 @@ CATEGORY_AUM_CAPS = {
 def check_eligibility_gates(
     fund_data: Dict[str, Any],
     portfolio_holdings: Optional[List[Dict[str, Any]]] = None,
-    client_risk_tier_num: int = 6,
+    client_risk_tier_num: Optional[int] = None,
     is_starter: bool = False,
     amc_max_limit_pct: float = 30.0,
     min_aum_crore: float = 1000.0,
@@ -423,8 +425,16 @@ def check_eligibility_gates(
         mandate_ok = False
     elif not mandate_suitable_raw:
         mandate_ok = False
-    # Convert client_risk_tier_num to int (handles RiskTier enum, string, or int)
-    client_tier_int = _risk_tier_to_int(client_risk_tier_num)
+    # Investor suitability is mandatory and distinct from scheme Riskometer.
+    if client_risk_tier_num is None:
+        client_tier_int = 0
+        failed.append("Gate 6 [Investor Suitability]: explicit validated investor risk profile missing — fail-closed")
+    else:
+        try:
+            client_tier_int = _risk_tier_to_int(client_risk_tier_num)
+        except ValueError as exc:
+            client_tier_int = 0
+            failed.append(f"Gate 6 [Investor Suitability]: {exc} — fail-closed")
     
     # Passive/index funds are exempt from riskometer breach (broad market tracking = diversified risk)
     if not is_passive_cand and riskometer_score > client_tier_int:
@@ -678,7 +688,7 @@ def filter_candidates(
     current_portfolio: List[Dict[str, Any]],
     amc_max_limit_pct: float = 30.0,
     max_overlap_limit_pct: float = 30.0,
-    client_risk_tier_num: int = 6,
+    client_risk_tier_num: Optional[int] = None,
     is_starter: bool = False,
 ) -> List[str]:
     """
@@ -724,13 +734,34 @@ def filter_candidates(
 def evaluate_no_action(
     current_portfolio: List[Any],
     candidate_funds: List[Dict[str, Any]],
-    min_improvement_threshold: float = 5.0
+    min_improvement_threshold: float = 5.0,
+    client_risk_tier_num: Optional[int] = None,
 ) -> NOActionResult:
     """
     Mandatory Fiduciary NO ACTION decision branch:
     If no candidate scheme demonstrates statistically validated improvement (composite score >= 5.0),
     emits an explicit verdict: NO ACTION / HOLD. Retain existing holdings.
     """
+    if client_risk_tier_num is None:
+        return NOActionResult(
+            action="NO_ACTION",
+            reason="Explicit investor suitability profile is missing; no candidate was evaluated.",
+            current_portfolio_adequate=False,
+            no_improvement_found=True,
+            hold_recommendation="HOLD — obtain and validate the investor risk profile before eligibility review.",
+            sip_deployment_pause=True,
+        )
+    try:
+        _risk_tier_to_int(client_risk_tier_num)
+    except ValueError as exc:
+        return NOActionResult(
+            action="NO_ACTION",
+            reason=f"Investor suitability profile is invalid: {exc}",
+            current_portfolio_adequate=False,
+            no_improvement_found=True,
+            hold_recommendation="HOLD — obtain a valid investor risk profile before eligibility review.",
+            sip_deployment_pause=True,
+        )
     best_improvement = 0.0
     best_fund = None
 
@@ -738,7 +769,7 @@ def evaluate_no_action(
         is_passed = fund.get("eligibility", {}).get("passed", False)
         if not is_passed and "eligibility" not in fund:
             # Evaluate on the fly if not pre-evaluated
-            gate_res = check_eligibility_gates(fund)
+            gate_res = check_eligibility_gates(fund, client_risk_tier_num=client_risk_tier_num)
             is_passed = gate_res.passed
 
         if not is_passed:
