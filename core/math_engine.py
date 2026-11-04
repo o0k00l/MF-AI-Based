@@ -2791,6 +2791,9 @@ def compute_candidate_portfolio_overlap(
             return None
         if not math.isfinite(value) or value <= 0.0 or not math.isfinite(equity_pct) or not 0.0 <= equity_pct <= 100.0:
             return None
+        total_portfolio_value += value
+        if equity_pct == 0.0:
+            continue
         holding_weights = validated_weights(
             getattr(holding, "constituent_weights", None),
             getattr(holding, "constituent_weights_coverage_pct", None),
@@ -2798,7 +2801,6 @@ def compute_candidate_portfolio_overlap(
         )
         if holding_weights is None:
             return None
-        total_portfolio_value += value
         equity_value_weight = value * equity_pct / 100.0
         for security_id, stock_weight_pct in holding_weights.items():
             portfolio_stock_weights[security_id] = (
