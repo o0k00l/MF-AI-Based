@@ -383,9 +383,9 @@ def test_p0_5_fiduciary_personal_redemption_engine_fails_closed():
     assert plan.ticket_category == "NO_ACTION_EVIDENCE"
     assert plan.requested_amount_inr == 100000.0
     assert plan.total_gross_redeemed_inr == 0.0
-    assert plan.total_exit_load_inr == 0.0
-    assert plan.total_stcg_tax_inr == 0.0
-    assert plan.total_ltcg_tax_inr == 0.0
+    assert plan.total_exit_load_inr is None
+    assert plan.total_stcg_tax_inr is None
+    assert plan.total_ltcg_tax_inr is None
     assert plan.total_net_cash_inr == 0.0
     assert plan.funds_liquidated_count == 0
     assert plan.tranches == []
@@ -427,9 +427,9 @@ def test_p0_6_multi_horizon_selection_and_peer_evaluation(tmp_path):
     best = pharma_cands["SYNTH-HEALTH-A"]
     second = pharma_cands["SYNTH-HEALTH-B"]
     worst = pharma_cands["SYNTH-HEALTH-D"]
-    score_best = compute_multi_horizon_fiduciary_score(best)
-    score_second = compute_multi_horizon_fiduciary_score(second)
-    score_worst = compute_multi_horizon_fiduciary_score(worst)
+    score_best = compute_multi_horizon_fiduciary_score(best, category_key="Healthcare")
+    score_second = compute_multi_horizon_fiduciary_score(second, category_key="Healthcare")
+    score_worst = compute_multi_horizon_fiduciary_score(worst, category_key="Healthcare")
     assert score_best > score_worst
     assert score_second > score_worst
     assert best["return_1y"] > worst["return_1y"]
