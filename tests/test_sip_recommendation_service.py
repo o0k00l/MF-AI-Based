@@ -168,3 +168,31 @@ def test_missing_fund_metrics_blocks_even_when_scheme_and_lookthrough_are_verifi
     assert result["plan"]["items"] == []
     assert result["plan"]["unallocated_budget_inr"] == 10000
     assert any("fund category/risk/exposure metrics are MISSING" in reason for reason in result["reasons"])
+
+
+def test_verified_cas_holdings_return_policy_saa_diagnostic_but_never_route_budget(tmp_path, monkeypatch):
+    args = _inputs(tmp_path)
+    holding = _holding()
+    holding.asset_class = "Large_Cap"
+    monkeypatch.setattr(service, "load_holdings_from_cas_excel", lambda *a, **k: [holding])
+    monkeypatch.setattr(
+        service,
+        "compute_deterministic_sip_blueprint",
+        lambda **kwargs: SimpleNamespace(items=[SimpleNamespace(monthly_inr=10000)]),
+    )
+
+    result = service.recommend_sip(**args)
+
+    assessment = result["portfolio_assessment"]
+    assert assessment["status"] == "DIAGNOSTIC_ONLY"
+    assert assessment["scope"] == "CAS_MUTUAL_FUND_HOLDINGS_ONLY"
+    assert assessment["portfolio_perimeter_complete"] is False
+    assert assessment["total_value_inr"] == 125000.0
+    assert assessment["policy_profile"] == "very_high"
+    assert assessment["saa_drift"]["current_weights_pct"]["large_cap"] == "100"
+    assert assessment["sip_routing"]["status"] == "HOLD"
+    assert assessment["sip_routing"]["allocated_budget_inr"] == 0.0
+    assert result["status"] == "HOLD"
+    assert result["decision"] == "NO_ACTION"
+    assert result["plan"]["items"] == []
+    assert result["plan"]["unallocated_budget_inr"] == 10000
