@@ -40,6 +40,7 @@ def _master(scheme_name, *, plan_type=None, option_type=None):
         "source_url": "https://amfiindia.com/scheme-master",
         "source_document_sha256": hashlib.sha256(source_bytes).hexdigest(),
         "reviewer_attested": True,
+        "effective_date": "2026-11-04",
         "schemes": [record],
     }, source_bytes
 
@@ -131,3 +132,7 @@ def test_holding_risk_tier_comes_from_verified_scheme_master(tmp_path):
         option_type="Growth",
     )
     assert holding.risk_tier == "Tier 5"
+    assert holding.riskometer_score == 5
+    assert holding.riskometer_as_of_date == "2026-11-04"
+    assert holding.riskometer_source_url == "https://amfiindia.com/scheme-master"
+    assert len(holding.riskometer_source_document_sha256) == 64
