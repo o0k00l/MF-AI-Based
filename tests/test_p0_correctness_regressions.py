@@ -19,7 +19,7 @@ def _synthetic_tax_evidence_kwargs():
 from core.eligibility import _finite_number, _risk_tier_to_int, check_eligibility_gates
 from types import SimpleNamespace
 from core.math_engine import compute_candidate_portfolio_overlap, select_autonomous_blueprint_funds
-from core.models import RiskTier
+from core.models import AssetAllocationTarget, RiskTier
 from tax.transition_planner import Lot, FundSellPlan, plan_fy_tranches, classify_fund_for_tax
 
 
@@ -2043,3 +2043,21 @@ def test_standard_investor_risk_profiles_have_explicit_policy_mapping(risk_profi
         client_risk_tier=risk_profile,
     )
     assert "Slot 1: Core Flexi-Cap Compounder" in selected
+
+
+@pytest.mark.parametrize(
+    "allocation",
+    [
+        {"equity_pct": 70.0, "debt_pct": 20.0, "cash_pct": 0.0},
+        {"equity_pct": -1.0, "debt_pct": 101.0, "cash_pct": 0.0},
+        {"equity_pct": float("inf"), "debt_pct": 0.0, "cash_pct": 0.0},
+    ],
+)
+def test_custom_saa_rejects_non_reconciling_or_invalid_percentages(allocation):
+    with pytest.raises((ValueError, Exception)):
+        AssetAllocationTarget(**allocation)
+
+
+def test_custom_saa_accepts_reconciled_allocation():
+    target = AssetAllocationTarget(equity_pct=75.0, debt_pct=20.0, cash_pct=5.0)
+    assert target.equity_pct + target.debt_pct + target.cash_pct == 100.0
