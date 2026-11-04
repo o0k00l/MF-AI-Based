@@ -57,6 +57,40 @@ def test_negative_one_year_return_is_scored_as_a_bad_return_not_replaced_by_alph
 
 
 
+def test_candidate_universe_preserves_scoring_evidence_without_fabricating_missing_values(tmp_path):
+    import json
+    from core.eligibility import load_candidate_universe
+
+    path = tmp_path / "metrics.json"
+    path.write_text(json.dumps({"funds": [{
+        "id": "candidate-1",
+        "name": "Synthetic Direct Growth",
+        "cash_debt_buffer_pct": 12.5,
+        "international_equity_pct": 0.0,
+        "overlap_pct": 8.0,
+    }]}), encoding="utf-8")
+
+    candidate = load_candidate_universe(path)[0]
+
+    assert candidate["cash_debt_buffer_pct"] == 12.5
+    assert candidate["international_equity_pct"] == 0.0
+    assert candidate["overlap_pct"] == 8.0
+
+
+def test_candidate_universe_keeps_missing_scoring_evidence_unknown(tmp_path):
+    import json
+    from core.eligibility import load_candidate_universe
+
+    path = tmp_path / "metrics.json"
+    path.write_text(json.dumps({"funds": [{"id": "candidate-1", "name": "Synthetic Direct Growth"}]}), encoding="utf-8")
+
+    candidate = load_candidate_universe(path)[0]
+
+    assert candidate["cash_debt_buffer_pct"] is None
+    assert candidate["international_equity_pct"] is None
+    assert candidate["overlap_pct"] is None
+
+
 def test_metrics_loader_rejects_missing_evidence_file(tmp_path):
     from core.candidate_scoring import FiduciaryFundSelector
 
