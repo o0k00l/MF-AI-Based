@@ -2228,3 +2228,48 @@ def test_cas_parser_marks_stock_lookthrough_as_missing_not_zero(tmp_path):
     assert holdings[0]["constituent_weights_coverage_pct"] is None
     assert holdings[0]["lookthrough_status"] == "MISSING"
     assert "do not contain stock-level" in holdings[0]["lookthrough_reason"]
+
+
+def test_portfolio_disclosure_requires_hash_freshness_and_exact_scheme_id():
+    import hashlib
+    from datetime import date
+    from ingestion.portfolio_disclosure import (
+        validate_portfolio_disclosure,
+        attach_verified_disclosures,
+    )
+
+    source = b"official monthly portfolio disclosure fixture"
+    base = {
+        "scheme_id": "SCHEME-001",
+        "source_url": "https://amc.example/factsheet.pdf",
+        "source_document_sha256": hashlib.sha256(source).hexdigest(),
+        "reviewer_attested": True,
+        "effective_date": "2026-10-15",
+        "constituent_weights": {"INE000A01001": 60.0, "INE000A01002": 40.0},
+        "constituent_weights_coverage_pct": 100.0,
+    }
+    valid = validate_portfolio_disclosure(
+        base, source, as_of=date(2026, 10, 31), max_age_days=45
+    )
+    assert valid["status"] == "VERIFIED"
+    assert valid["constituent_weights"]["INE000A01001"] == 60.0
+
+    bad_hash = dict(base, source_document_sha256="0" * 64)
+    assert validate_portfolio_disclosure(
+        bad_hash, source, as_of=date(2026, 10, 31), max_age_days=45
+    )["status"] == "CONFLICTING"
+
+    stale = dict(base, effective_date="2026-01-01")
+    assert validate_portfolio_disclosure(
+        stale, source, as_of=date(2026, 10, 31), max_age_days=45
+    )["status"] == "STALE"
+
+    attached = attach_verified_disclosures(
+        [{"scheme": "Name only; no stable identifier", "current_value": 1000.0}],
+        {"SCHEME-001": base},
+        source_bytes_by_scheme_id={"SCHEME-001": source},
+        as_of=date(2026, 10, 31),
+        max_age_days=45,
+    )
+    assert attached[0]["lookthrough_status"] == "MISSING"
+    assert attached[0]["constituent_weights"] is None
