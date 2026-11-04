@@ -122,9 +122,12 @@ def _http_json(url: str, key: str, provider: str) -> dict[str, Any]:
 
 
 def _is_zero_price(value: Any) -> bool:
+    # Boolean false is not a valid price declaration; never coerce it to 0.0.
+    if isinstance(value, bool) or value is None:
+        return False
     try:
         return float(value) == 0.0
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return False
 
 
