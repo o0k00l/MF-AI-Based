@@ -14,6 +14,7 @@ from fastapi import FastAPI, File, Form, UploadFile
 from fastapi.responses import JSONResponse
 
 from services.sip_evidence_contract import validate_evidence_provider_payload
+from services.sip_evidence_bundle import build_sip_evidence_provider
 from services.sip_recommendation import recommend_sip
 
 MAX_CAS_BYTES = 20 * 1024 * 1024
@@ -163,4 +164,4 @@ def create_sip_app(
     return app
 
 
-app = create_sip_app()
+app = create_sip_app(evidence_provider=build_sip_evidence_provider())
