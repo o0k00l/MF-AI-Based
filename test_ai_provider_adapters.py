@@ -75,24 +75,23 @@ def test_openai_request_omits_optional_generation_parameters(monkeypatch):
     assert calls == [{"model": "vendor/model", "messages": [{"role": "user", "content": "test"}]}]
 
 
-def test_gemini_requires_api_key_when_enabled(monkeypatch):
-    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
-    with pytest.raises(ai_engine.ProviderError, match="GEMINI_API_KEY"):
+def test_gemini_fails_closed_without_authoritative_zero_price_evidence():
+    with pytest.raises(ai_engine.ProviderError, match="disabled by FREE_ONLY"):
         ai_engine._call_gemini("test")
 
 
 def test_narrative_provider_chain_excludes_gemini(monkeypatch):
     attempted = []
-    def unavailable(prompt, system_prompt=""):
-        attempted.append("openrouter")
-        raise ai_engine.ProviderError("OpenRouter", "unavailable")
-    def requesty(prompt, system_prompt=""):
-        attempted.append("requesty")
-        return "READY"
-    monkeypatch.setattr(ai_engine, "_call_openrouter", unavailable)
-    monkeypatch.setattr(ai_engine, "_call_requesty", requesty)
+    def unavailable(name):
+        def call(prompt, system_prompt=""):
+            attempted.append(name)
+            raise ai_engine.ProviderError(name, "unavailable")
+        return call
+    monkeypatch.setattr(ai_engine, "_call_openrouter", unavailable("openrouter"))
+    monkeypatch.setattr(ai_engine, "_call_requesty", unavailable("requesty"))
     monkeypatch.setattr(ai_engine, "_get_narrative_cache", lambda: {})
-    assert ai_engine.call_llm("test", use_cache=False) == "READY"
+    with pytest.raises(RuntimeError, match="All configured AI providers failed"):
+        ai_engine.call_llm("test", use_cache=False)
     assert attempted == ["openrouter", "requesty"]
 
 
@@ -165,3 +164,41 @@ def test_google_exception_diagnostics_do_not_expose_free_form_message():
     exc = SimpleNamespace(code=400, status="INVALID_ARGUMENT", message="secret prompt and API key")
     assert ai_engine._safe_exception_code(exc) == "INVALID_ARGUMENT"
     assert "secret" not in (ai_engine._safe_exception_code(exc) or "")
+
+
+
+def test_discovery_ignores_stale_cached_model_ids(monkeypatch, tmp_path):
+    cache = tmp_path / "models.json"
+    monkeypatch.setattr(ai_engine, "MODEL_CACHE_FILE", cache)
+    ai_engine._write_model_cache("Requesty", "key", ["vendor/model"])
+    monkeypatch.setattr(ai_engine, "_http_json", lambda *args: {
+        "data": [{"id": "vendor/model", "input_price": "0.01", "output_price": "0"}]
+    })
+    with pytest.raises(ai_engine.ProviderError, match="no eligible free"):
+        ai_engine.discover_requesty_free_models("key")
+
+
+def test_generation_revalidates_price_before_sending_request(monkeypatch):
+    discoveries = iter([["vendor/model"], []])
+    monkeypatch.setenv("REQUESTY_API_KEY", "test-key")
+    monkeypatch.setattr(
+        ai_engine, "discover_requesty_free_models",
+        lambda key: next(discoveries),
+    )
+    calls = []
+
+    class Completions:
+        def create(self, **kwargs):
+            calls.append(kwargs)
+            return SimpleNamespace(choices=[SimpleNamespace(
+                message=SimpleNamespace(content="SHOULD NOT RUN")
+            )])
+
+    class Client:
+        def __init__(self, **kwargs):
+            self.chat = SimpleNamespace(completions=Completions())
+
+    monkeypatch.setitem(__import__("sys").modules, "openai", SimpleNamespace(OpenAI=Client))
+    with pytest.raises(ai_engine.ProviderError, match="no longer verified as zero-priced"):
+        ai_engine._call_requesty("test")
+    assert calls == []
