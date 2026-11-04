@@ -285,6 +285,7 @@ def calculate_candidate_6_pillar_score(
     sharpe_3y = required_metric("sharpe_3y", "sharpe")
     ter = required_metric("ter_direct_pct", "er")
 
+
     # Defensive, international and overlap pillars are required evidence.
     # A verified zero is a valid observation; missing evidence is not neutral.
     def optional_metric(*keys: str) -> Optional[float]:
