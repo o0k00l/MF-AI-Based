@@ -1,6 +1,8 @@
 # Security, Client-Data Purge and Production Branch Controls
 
-This repository has previously contained client-specific portfolio configuration, transaction ledgers, fund metrics and aliases. Those files have been removed from the current working tree and the private-data paths are ignored. **This does not remove the historical Git objects from prior commits or from existing clones.**
+This repository has previously contained client-specific portfolio configuration, transaction ledgers, fund metrics and aliases. A history review confirmed that the initial commit `b28f008b` also included a `.env` file containing third-party provider API credentials. Client configuration and transaction files were later removed in commits including `e7ebf41e` and `8689873d`. Those removals cleaned later trees; they did not erase the historical Git objects or existing clones.
+
+**Treat every credential ever present in the committed `.env` as compromised and rotate it with its provider.** Do not restore or reproduce the old values. The current GitHub repository is private, but privacy does not revoke exposed credentials or purge historical objects.
 
 The repository must remain private until the history-remediation steps below are completed.
 
