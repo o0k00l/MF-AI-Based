@@ -2798,7 +2798,7 @@ def compute_candidate_portfolio_overlap(
 def compute_multi_horizon_fiduciary_score(
     c: Dict[str, Any],
     category_key: str = "Healthcare",
-    portfolio_overlap_pct: float = 0.0
+    portfolio_overlap_pct: Optional[float] = None
 ) -> float:
     """
     Standardized 6-Pillar Fiduciary Normalized Scoring Engine (0 - 100 Scale):
@@ -3305,7 +3305,7 @@ def qualifies_as_specified_mutual_fund_under_section_50AA(
 def compute_multi_horizon_fiduciary_score(
     c: Dict[str, Any],
     category_key: str = "Healthcare",
-    portfolio_overlap_pct: float = 0.0
+    portfolio_overlap_pct: Optional[float] = None
 ) -> float:
     """
     Standardized 6-Pillar Fiduciary Normalized Scoring Engine (0 - 100 Scale):
