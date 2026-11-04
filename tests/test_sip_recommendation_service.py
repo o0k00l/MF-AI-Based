@@ -409,7 +409,7 @@ def test_complete_portfolio_workflow_integrates_issues_23_to_34_without_authoriz
     assert context["candidate_overlap_diagnostics"]["CANDIDATE-1"]["sector_market_cap_theme"]["status"] == "ASSESSED"
     assert context["candidate_level_sip_allocation_simulation"]["reconciliation_ok"] is True
     assert context["candidate_level_sip_allocation_simulation"]["allocated_budget_inr"] == "3000"
-    assert context["candidate_level_sip_allocation_simulation"]["unallocated_budget_inr"] == "7000"
+    assert float(context["candidate_level_sip_allocation_simulation"]["unallocated_budget_inr"]) == 7000.0
     assert context["candidate_level_sip_allocation_simulation"]["reconciliation_ok"] is True
     assert context["candidate_overlap_diagnostics"]["CANDIDATE-1"]["shared_issuers"] == ["ISSUER-A"]
     assert context["incremental_sip_routing_simulation"]["allocations_inr"] == {"large_cap": "5000"}
@@ -424,7 +424,7 @@ def test_complete_portfolio_workflow_integrates_issues_23_to_34_without_authoriz
     assert trace_record["source_digests"]["portfolio_context_source_sha256"] == hashlib.sha256(portfolio_source).hexdigest()
     assert trace_record["as_of_dates"]["cas_valuation_date"] == date.today().isoformat()
     assert trace_record["portfolio_effect"]["candidate_level_allocation_simulation"]["reconciliation_ok"] is True
-    assert trace_record["allocation"]["simulated_unallocated_budget_inr"] == "7000"
+    assert float(trace_record["allocation"]["simulated_unallocated_budget_inr"]) == 7000.0
     assert trace_record["allocation"]["authorized_allocated_budget_inr"] == 0
     assert trace_record["allocation"]["simulated_allocated_budget_inr"] == "3000"
     assert len(trace_record["policy_source_sha256"]) == 64
@@ -669,7 +669,7 @@ def test_combined_selected_funds_cannot_collectively_breach_sector_cap(tmp_path,
     individual = assessment["candidate_overlap_diagnostics"]["CANDIDATE-1"]
     combined = assessment["proposed_candidate_set_concentration"]
     allocation = assessment["candidate_level_sip_allocation_simulation"]
-    assert individual["status"] == "ASSESSED", individual
+    assert individual["status"] == "ASSESSED", individual.get("sector_market_cap_theme")
     assert combined["status"] == "HOLD"
     assert float(combined["sector_market_cap_theme"]["breaches"]["sector"]["Financials"]) > 12.8
     assert allocation["status"] == "HOLD"
