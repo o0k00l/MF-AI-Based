@@ -354,3 +354,15 @@ def test_legacy_fifo_tax_summary_is_disabled():
 
     with pytest.raises(math_engine.TaxClassificationDisabledError, match="generic 365-day and 1% exit-load assumptions"):
         math_engine.compute_fifo_tax_lots(Path("synthetic-transactions.json"))
+
+
+def test_legacy_tax_classifier_cannot_be_bypassed_with_caller_supplied_rules():
+    import pytest
+    from types import SimpleNamespace
+    from core import math_engine
+
+    with pytest.raises(math_engine.TaxClassificationDisabledError):
+        math_engine._classify_fund_for_tax(
+            SimpleNamespace(equity_pct=99.0),
+            {"classification_test": {"equity_oriented_threshold_pct": 65.0}},
+        )
