@@ -395,6 +395,7 @@ def test_complete_portfolio_workflow_integrates_issues_23_to_34_without_authoriz
     assert context["candidate_overlap_diagnostics"]["CANDIDATE-1"]["sector_market_cap_theme"]["status"] == "ASSESSED"
     assert context["candidate_level_sip_allocation_simulation"]["reconciliation_ok"] is True
     allocation = context["candidate_level_sip_allocation_simulation"]
+    print("SIP_ALLOCATION_DIAGNOSTIC=" + json.dumps(allocation, sort_keys=True))
     assert allocation["allocated_budget_inr"] == "5000", {
         "allocations": allocation["allocations"],
         "rejected_candidates": allocation["rejected_candidates"],
@@ -659,6 +660,7 @@ def test_combined_selected_funds_cannot_collectively_breach_sector_cap(tmp_path,
 
     assessment = result["portfolio_assessment"]["total_portfolio_context"]
     individual = assessment["candidate_overlap_diagnostics"]["CANDIDATE-1"]
+    print("SIP_INDIVIDUAL_CONCENTRATION_DIAGNOSTIC=" + json.dumps(individual, sort_keys=True))
     combined = assessment["proposed_candidate_set_concentration"]
     allocation = assessment["candidate_level_sip_allocation_simulation"]
     assert individual["status"] == "ASSESSED", individual
