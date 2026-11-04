@@ -227,3 +227,45 @@ def test_contract_rejects_partial_fund_metrics_provenance_pair(tmp_path):
 
     with pytest.raises(EvidenceProviderContractError, match="must be supplied together"):
         validate_evidence_provider_payload(payload)
+
+
+def test_contract_accepts_provider_attested_total_portfolio_bundle(tmp_path):
+    payload = valid_payload(tmp_path)
+    context_bytes = b"reviewed total portfolio, IPS, goals and affordability evidence bundle"
+    payload["portfolio_context"] = {
+        "evidence_attested_by_provider": True,
+        "as_of_date": "2026-11-04",
+        "perimeter_complete": True,
+    }
+    payload["portfolio_context_source_metadata"] = {
+        **_source_metadata(context_bytes),
+        "source_type": "REVIEWED_TOTAL_PORTFOLIO_CONTEXT",
+    }
+    payload["portfolio_context_source_bytes"] = context_bytes
+
+    result = validate_evidence_provider_payload(payload)
+
+    assert result["portfolio_context"]["evidence_attested_by_provider"] is True
+    assert result["portfolio_context_source_bytes"] == context_bytes
+
+
+def test_contract_rejects_partial_total_portfolio_bundle(tmp_path):
+    payload = valid_payload(tmp_path)
+    payload["portfolio_context"] = {"evidence_attested_by_provider": True}
+
+    with pytest.raises(EvidenceProviderContractError, match="must be supplied together"):
+        validate_evidence_provider_payload(payload)
+
+
+def test_contract_rejects_unverified_total_portfolio_source_bundle(tmp_path):
+    payload = valid_payload(tmp_path)
+    context_bytes = b"reviewed portfolio evidence"
+    payload["portfolio_context"] = {"evidence_attested_by_provider": True}
+    payload["portfolio_context_source_metadata"] = {
+        **_source_metadata(context_bytes), "reviewer_attested": False,
+        "source_type": "REVIEWED_TOTAL_PORTFOLIO_CONTEXT",
+    }
+    payload["portfolio_context_source_bytes"] = context_bytes
+
+    with pytest.raises(EvidenceProviderContractError, match="reviewer attestation"):
+        validate_evidence_provider_payload(payload)
