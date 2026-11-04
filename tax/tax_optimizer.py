@@ -285,3 +285,23 @@ def specific_lot_designation(
 
 # Canonical alias for statutory 4-stage capital gains set-off (GAP-114 & GAP-166)
 optimize_capital_gains_set_off = tax_drag_per_fund
+
+# P0 RELEASE BOUNDARY: tax calculations and lot-selection advice are disabled.
+# Keep transaction parsing elsewhere, but do not expose this module's legacy
+# statutory assumptions through direct imports or aliases.
+TaxAdviceDisabledError = transition_planner.TaxAdviceDisabledError
+
+
+def _tax_advice_disabled(*args, **kwargs):
+    raise TaxAdviceDisabledError(
+        "Tax payable, capital-gains set-off, statutory classification and lot-selection "
+        "advice are disabled pending independently approved Indian tax rules, "
+        "verified scheme/plan/lot evidence and production release approval. "
+        "No estimate or disposal order has been generated."
+    )
+
+
+_determine_asset_class = _tax_advice_disabled
+tax_drag_per_fund = _tax_advice_disabled
+specific_lot_designation = _tax_advice_disabled
+optimize_capital_gains_set_off = _tax_advice_disabled
