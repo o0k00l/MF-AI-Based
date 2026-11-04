@@ -120,7 +120,11 @@ def calculate_candidate_6_pillar_score(
     intl_pct = float(cand.get("international_equity_pct", 0.0) or 0.0)
     overlap = float(portfolio_overlap_pct or cand.get("overlap_pct", 12.0) or 12.0)
 
-    anchors = CATEGORY_BENCHMARK_ANCHORS.get(category_key, CATEGORY_BENCHMARK_ANCHORS["Healthcare"])
+    if category_key not in CATEGORY_BENCHMARK_ANCHORS:
+        raise ValueError(
+            f"Unsupported scoring category {category_key!r}; refusing to substitute Healthcare anchors"
+        )
+    anchors = CATEGORY_BENCHMARK_ANCHORS[category_key]
     alpha_bounds = anchors.get("alpha", (0.0, 10.0))
     ret_bounds = anchors.get("ret1y", (30.0, 52.0))
     sharpe_bounds = anchors.get("sharpe", (0.70, 1.10))
