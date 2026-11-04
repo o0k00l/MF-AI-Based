@@ -693,6 +693,7 @@ def _build_sip_decision_trace(
     candidate_universe_source_bytes: bytes | None = None,
     portfolio_context_source_bytes: bytes | None = None,
     candidate_score_source_bytes: bytes | None = None,
+    category_anchor_source_bytes: bytes | None = None,
     metrics_normalized_sha256: str | None = None,
     candidate_universe_normalized_sha256: str | None = None,
 ) -> dict[str, str]:
@@ -732,6 +733,7 @@ def _build_sip_decision_trace(
             "candidate_universe_source_sha256": hashlib.sha256(candidate_universe_source_bytes).hexdigest() if candidate_universe_source_bytes else None,
             "candidate_universe_normalized_sha256": candidate_universe_normalized_sha256,
             "candidate_score_source_sha256": hashlib.sha256(candidate_score_source_bytes).hexdigest() if candidate_score_source_bytes else None,
+            "category_anchor_source_sha256": hashlib.sha256(category_anchor_source_bytes).hexdigest() if category_anchor_source_bytes else None,
             "portfolio_context_source_sha256": hashlib.sha256(portfolio_context_source_bytes).hexdigest() if portfolio_context_source_bytes else None,
             "portfolio_context_bundle_sha256": (
                 context_assessment.get("source_bundle_sha256")
@@ -833,6 +835,7 @@ def recommend_sip(
     candidate_universe_source_bytes: bytes | None = None,
     portfolio_context_source_bytes: bytes | None = None,
     candidate_score_source_bytes: bytes | None = None,
+    category_anchor_source_bytes: bytes | None = None,
     metrics_normalized_sha256: str | None = None,
     candidate_universe_normalized_sha256: str | None = None,
 ) -> dict[str, Any]:
@@ -982,6 +985,7 @@ def recommend_sip(
         candidate_universe_source_bytes=candidate_universe_source_bytes,
         portfolio_context_source_bytes=portfolio_context_source_bytes,
         candidate_score_source_bytes=candidate_score_source_bytes,
+        category_anchor_source_bytes=category_anchor_source_bytes,
         metrics_normalized_sha256=metrics_normalized_sha256,
         candidate_universe_normalized_sha256=candidate_universe_normalized_sha256,
     )
