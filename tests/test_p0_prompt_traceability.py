@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timezone\nfrom pathlib import Path
 from decimal import Decimal
 from types import SimpleNamespace
 
@@ -346,3 +346,11 @@ def test_legacy_tax_advice_alias_is_also_disabled():
 
     with pytest.raises(planner.TaxAdviceDisabledError):
         planner.evaluate_bogleheads_switch_hurdle(1000, 10000, 0.5, 5)
+
+
+def test_legacy_fifo_tax_summary_is_disabled():
+    import pytest
+    from core import math_engine
+
+    with pytest.raises(math_engine.TaxClassificationDisabledError, match="generic 365-day and 1% exit-load assumptions"):
+        math_engine.compute_fifo_tax_lots(Path("synthetic-transactions.json"))
