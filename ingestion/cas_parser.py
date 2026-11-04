@@ -434,35 +434,75 @@ def parse_cas_xlsx(source, scheme_master=None, scheme_master_source_bytes=None) 
 
 def reconcile(parsed: dict, tolerance: float = 1.0) -> dict:
     """
-    Check the parse against the total the statement itself reports.
+    Check parsed holdings against the total reported by the statement.
 
-    A CAS carries its own portfolio total. If the rows we read do not add up to
-    it, the parse is wrong and the caller must be told - the same discipline the
-    capital-gains reconciliation uses. Silently trusting our own sum is how a
-    partial read becomes a confident wrong portfolio.
+    Any rejected source row, invalid tolerance/value, or non-finite aggregate
+    prevents a completeness verdict. A finite row set can still overflow when
+    summed, so aggregate validity is checked independently.
     """
     rejected = list(parsed.get("rejected", []))
-    total = sum(r["current_value"] for r in parsed.get("holdings", []))
+    holdings = parsed.get("holdings", [])
     stated = parsed.get("stated_total")
-    out = {"parsed_total": round(total, 2), "stated_total": stated,
-           "difference": None, "agrees": False if rejected else None,
-           "complete": not rejected, "rejected_rows": rejected, "note": ""}
+    try:
+        tolerance_value = float(tolerance)
+        if not math.isfinite(tolerance_value) or tolerance_value < 0:
+            raise ValueError("tolerance must be finite and non-negative")
+        if not isinstance(holdings, list):
+            raise ValueError("holdings must be a list")
+        values = []
+        for index, holding in enumerate(holdings):
+            if not isinstance(holding, dict):
+                raise ValueError(f"holding row {index} is not a mapping")
+            value = _num(holding.get("current_value"))
+            if value is None or value < 0:
+                raise ValueError(f"holding row {index} has an invalid current value")
+            values.append(value)
+        total = math.fsum(values)
+        if not math.isfinite(total):
+            raise ValueError("parsed portfolio total is non-finite")
+    except (TypeError, ValueError, OverflowError) as exc:
+        rejected.append({"row": None, "scheme": None, "reason": str(exc)})
+        total = None
+
+    out = {
+        "parsed_total": round(total, 2) if total is not None else None,
+        "stated_total": stated,
+        "difference": None,
+        "agrees": False if rejected else None,
+        "complete": not rejected,
+        "rejected_rows": rejected,
+        "note": "",
+    }
     if rejected:
         out["note"] = (
             f"{len(rejected)} material row(s) were rejected; statement completeness "
             "and portfolio reconciliation cannot be certified."
         )
         return out
-    if stated is None:
-        out["note"] = ("the statement reports no portfolio total, so the parse "
-                       "could not be checked")
+    try:
+        stated_value = _num(stated)
+        if stated_value is None or stated_value < 0:
+            raise ValueError("statement total must be finite and non-negative")
+    except (TypeError, ValueError, OverflowError) as exc:
+        out["complete"] = False
+        out["agrees"] = False
+        out["rejected_rows"] = [{"row": None, "scheme": None, "reason": str(exc)}]
+        out["note"] = "the statement total is invalid; reconciliation cannot be certified"
         return out
-    diff = total - float(stated)
+
+    diff = total - stated_value
+    if not math.isfinite(diff):
+        out["complete"] = False
+        out["agrees"] = False
+        out["rejected_rows"] = [{"row": None, "scheme": None, "reason": "reconciliation difference is non-finite"}]
+        out["note"] = "the reconciliation difference is non-finite; reconciliation cannot be certified"
+        return out
     out["difference"] = round(diff, 2)
-    out["agrees"] = abs(diff) <= tolerance
-    out["note"] = ("parsed rows match the statement total" if out["agrees"]
-                   else f"PARSED TOTAL DISAGREES by Rs {diff:,.2f}; the parse "
-                        f"is incomplete and must not be relied on")
+    out["agrees"] = abs(diff) <= tolerance_value
+    out["note"] = (
+        "parsed rows match the statement total" if out["agrees"]
+        else f"PARSED TOTAL DISAGREES by Rs {diff:,.2f}; the parse is incomplete and must not be relied on"
+    )
     return out
 
 
