@@ -970,6 +970,8 @@ def load_holdings_from_cas_excel(
     xlsx_path: Path,
     fund_metrics_path: Optional[Path] = None,
     fund_aliases_path: Optional[Path] = None,
+    scheme_master: Optional[Dict[str, Any]] = None,
+    scheme_master_source_bytes: Optional[bytes] = None,
 ) -> List[HoldingItem]:
     """
     Parses active mutual fund holdings directly from CAS detailed report Excel sheet.
@@ -1025,6 +1027,7 @@ def load_holdings_from_cas_excel(
         col_inv = hdr.get("Invested Value", 4)
         col_cur = hdr.get("Current Value", 5)
         col_units = hdr.get("Units", 7)
+        col_amc = hdr.get("AMC Name")
 
         for row in sheet.iter_rows(min_row=start_row, values_only=True):
             if not row or len(row) <= col_scheme or not row[col_scheme]:
@@ -1042,7 +1045,8 @@ def load_holdings_from_cas_excel(
                 continue
             if c_float > 0.0:
                 nav_float = round(c_float / u_float, 4) if u_float > 0 else 0.0
-                raw_items.append((str(s_name).strip(), str(f_no).strip() if f_no else "", i_float, c_float, u_float, nav_float))
+                amc_value = row[col_amc] if col_amc is not None and len(row) > col_amc else ""
+                raw_items.append((str(s_name).strip(), str(f_no).strip() if f_no else "", i_float, c_float, u_float, nav_float, str(amc_value or "").strip()))
     else:
         for r in range(13, sheet.max_row + 1):
             s_name = sheet.cell(row=r, column=1).value
@@ -1060,9 +1064,9 @@ def load_holdings_from_cas_excel(
                 continue
             if c_float > 0.0:
                 nav_float = round(c_float / u_float, 4) if u_float > 0 else 0.0
-                raw_items.append((str(s_name).strip(), str(f_no).strip() if f_no else "", i_float, c_float, u_float, nav_float))
+                raw_items.append((str(s_name).strip(), str(f_no).strip() if f_no else "", i_float, c_float, u_float, nav_float, ""))
 
-    for scheme_str, folio_str, invested, current, units_val, nav_val in raw_items:
+    for scheme_str, folio_str, invested, current, units_val, nav_val, amc_name in raw_items:
         # Plan detection
         scheme_lower = scheme_str.lower()
         plan = PlanType.DIRECT if "direct" in scheme_lower else PlanType.REGULAR
@@ -1092,6 +1096,15 @@ def load_holdings_from_cas_excel(
         asset_class = _infer_asset_class(category, eq_pct, debt_pct, lc_pct, mc_pct, sc_pct)
 
         fund_id = matched_metric.get("id", scheme_str[:30]) if matched_metric else scheme_str[:30]
+        identity = {"scheme_id": None, "isin": None, "status": "MISSING",
+                    "reason": "No verified scheme master was supplied."}
+        if scheme_master is not None and scheme_master_source_bytes is not None and amc_name:
+            from ingestion.portfolio_disclosure import resolve_scheme_identity
+            identity = resolve_scheme_identity(
+                {"scheme": scheme_str, "amc_name": amc_name},
+                scheme_master,
+                source_bytes=scheme_master_source_bytes,
+            )
 
         holdings.append(
             HoldingItem(
@@ -1112,11 +1125,12 @@ def load_holdings_from_cas_excel(
                 nav=nav_val,
                 top_holdings=top_h,
                 expense_ratio_pct=er,
-                scheme_id=None,
+                scheme_id=identity.get("scheme_id"),
                 constituent_weights=None,
                 constituent_weights_coverage_pct=None,
                 lookthrough_status="MISSING",
                 lookthrough_reason="CAS and metrics do not establish verified constituent weights.",
+                amc_name=amc_name or None,
                 risk_tier=_asset_class_to_risk_tier(asset_class),
             )
         )
