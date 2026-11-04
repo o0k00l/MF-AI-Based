@@ -454,7 +454,7 @@ def _assess_complete_portfolio_context(
                 combined_values,
                 concentration_policy.get("issuer_classifications", {}),
                 total_portfolio_inr=total,
-                as_of_date=as_of.isoformat(),
+                as_of_date=as_of,
                 classification_as_of_date=concentration_policy.get("classification_as_of_date", ""),
                 classification_source_ref=concentration_policy.get("classification_source_ref", ""),
                 max_evidence_age_days=max_policy_age,
@@ -497,7 +497,7 @@ def _assess_complete_portfolio_context(
         candidate_allocation = allocate_candidate_sip(
             routing.get("allocations_inr", {}),
             candidate_allocation_inputs,
-            as_of_date=as_of.isoformat(),
+            as_of_date=as_of,
             min_sip_per_fund_inr=allocation_policy["min_sip_per_fund_inr"],
             rounding_increment_inr=allocation_policy["sip_increment_inr"],
             max_funds=max(0, remaining_fund_slots),
