@@ -147,3 +147,24 @@ def test_cas_parser_errors_fail_closed_without_leaking_exception_text(tmp_path, 
     assert result["plan"]["unallocated_budget_inr"] == 10000
     assert "ValueError" in result["reasons"][0]
     assert "private parser detail" not in result["reasons"][0]
+
+
+
+def test_missing_fund_metrics_blocks_even_when_scheme_and_lookthrough_are_verified(tmp_path, monkeypatch):
+    args = _inputs(tmp_path)
+    holding = _holding()
+    holding.metrics_status = "MISSING"
+    monkeypatch.setattr(service, "load_holdings_from_cas_excel", lambda *a, **k: [holding])
+    monkeypatch.setattr(
+        service,
+        "compute_deterministic_sip_blueprint",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("Engine must not run")),
+    )
+
+    result = service.recommend_sip(**args)
+
+    assert result["status"] == "HOLD"
+    assert result["decision"] == "NO_ACTION"
+    assert result["plan"]["items"] == []
+    assert result["plan"]["unallocated_budget_inr"] == 10000
+    assert any("fund category/risk/exposure metrics are MISSING" in reason for reason in result["reasons"])
