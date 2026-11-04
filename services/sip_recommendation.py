@@ -532,6 +532,7 @@ def _assess_complete_portfolio_context(
             "trust_level": "UNVERIFIED_CLIENT_DECLARATIONS" if client_supplied_unverified else ("PROVIDER_ATTESTED" if provider_attested else "UNVERIFIED_CONTEXT"),
             "portfolio_reconciliation": reconciliation,
             "cas_valuation_date_verified": True,
+            "cas_valuation_date": as_of,
             "saa": {"current_sleeve_values_inr": current, "target_weights_pct": targets,
                     "drift": drift, "policy_as_of": policy.get("as_of")},
             "goal_suitability": goals,
@@ -569,6 +570,9 @@ def _build_sip_decision_trace(
     monthly_budget_inr: float,
     portfolio_assessment: dict[str, Any],
     context_assessment: dict[str, Any] | None = None,
+    metrics_source_bytes: bytes | None = None,
+    candidate_universe_source_bytes: bytes | None = None,
+    portfolio_context_source_bytes: bytes | None = None,
 ) -> dict[str, str]:
     """Hash the source and diagnostic inputs that led to a fail-closed SIP result."""
     candidate_source_hashes = {}
@@ -588,6 +592,9 @@ def _build_sip_decision_trace(
                 for key, value in sorted(portfolio_disclosure_source_bytes_by_scheme_id.items())
             },
             "candidate_direct_plan_sources": candidate_source_hashes,
+            "metrics_source_sha256": hashlib.sha256(metrics_source_bytes).hexdigest() if metrics_source_bytes else None,
+            "candidate_universe_source_sha256": hashlib.sha256(candidate_universe_source_bytes).hexdigest() if candidate_universe_source_bytes else None,
+            "portfolio_context_source_sha256": hashlib.sha256(portfolio_context_source_bytes).hexdigest() if portfolio_context_source_bytes else None,
             "portfolio_context_bundle_sha256": (
                 context_assessment.get("source_bundle_sha256")
                 if isinstance(context_assessment, dict) else None
@@ -596,24 +603,39 @@ def _build_sip_decision_trace(
         "as_of_dates": {
             "disclosure_as_of_date": disclosure_as_of_date.isoformat(),
             "policy_as_of_date": portfolio_assessment.get("policy_as_of"),
-            "cas_valuation_date": "UNVERIFIED_NOT_EXTRACTED",
+            "cas_valuation_date": (
+                context_assessment.get("cas_valuation_date")
+                if isinstance(context_assessment, dict) else "UNVERIFIED_NOT_RECONCILED"
+            ),
         },
         "policy_version": f"asset_allocation.json@{portfolio_assessment.get('policy_as_of')}",
         "engine_version": "core.math_engine.compute_deterministic_sip_blueprint",
         "eligibility": {
             "current_holding_evidence": "PASS",
             "candidate_universe_count": len(candidate_universe),
-            "candidate_scoring": "SUPPRESSED_PENDING_RELEASE_APPROVAL",
+            "candidate_scoring": "SOURCE_RANK_SCORES_CONSUMED_FOR_DIAGNOSTIC_SIMULATION; RELEASE_APPROVAL_PENDING",
         },
         "portfolio_effect": {
             "scope": portfolio_assessment.get("scope"),
             "saa_drift": portfolio_assessment.get("saa_drift"),
             "lookthrough": portfolio_assessment.get("lookthrough"),
             "total_portfolio_context": context_assessment,
+            "candidate_level_allocation_simulation": (
+                context_assessment.get("candidate_level_sip_allocation_simulation")
+                if isinstance(context_assessment, dict) else None
+            ),
         },
         "allocation": {
             "requested_budget_inr": monthly_budget_inr,
-            "allocated_budget_inr": 0,
+            "simulated_allocated_budget_inr": (
+                context_assessment.get("candidate_level_sip_allocation_simulation", {}).get("allocated_budget_inr")
+                if isinstance(context_assessment, dict) else None
+            ),
+            "simulated_unallocated_budget_inr": (
+                context_assessment.get("candidate_level_sip_allocation_simulation", {}).get("unallocated_budget_inr")
+                if isinstance(context_assessment, dict) else None
+            ),
+            "authorized_allocated_budget_inr": 0,
             "unallocated_budget_inr": monthly_budget_inr,
         },
         "decision": {
@@ -667,6 +689,9 @@ def recommend_sip(
     thematic_satellite_authorized: bool = False,
     thematic_satellite_pct_of_equity: float = 0.0,
     portfolio_context: dict[str, Any] | None = None,
+    metrics_source_bytes: bytes | None = None,
+    candidate_universe_source_bytes: bytes | None = None,
+    portfolio_context_source_bytes: bytes | None = None,
 ) -> dict[str, Any]:
     """Build a fail-closed portfolio-aware SIP decision from explicit evidence.
 
@@ -810,6 +835,9 @@ def recommend_sip(
         monthly_budget_inr=budget,
         portfolio_assessment=portfolio_assessment,
         context_assessment=context_assessment,
+        metrics_source_bytes=metrics_source_bytes,
+        candidate_universe_source_bytes=candidate_universe_source_bytes,
+        portfolio_context_source_bytes=portfolio_context_source_bytes,
     )
     portfolio_assessment["recommendation_lifecycle"]["decision_trace_sha256"] = (
         portfolio_assessment["decision_trace"]["sha256"]
