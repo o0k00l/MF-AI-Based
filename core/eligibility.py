@@ -51,7 +51,7 @@ def _reviewed_direct_plan_evidence_status(fund_data: dict) -> str:
         or not re.fullmatch(r"[0-9a-fA-F]{64}", declared_sha)
         or actual_sha.lower() != declared_sha.lower()
         or not isinstance(source_url, str)
-        or not source_url.startswith("https://")
+        or not re.fullmatch(r"https://\S+", source_url)
         or source_type not in {"AMC_FACTSHEET", "AMFI_SCHEME_MASTER", "REGISTRAR_SCHEME_MASTER"}
         or evidence.get("reviewer_attested") is not True
         or evidence.get("plan") != "Direct"
