@@ -167,6 +167,15 @@ def alpha_release_blockers(fixture_path: Path) -> list[str]:
         if len(declared) != 64 or declared != actual:
             blockers.append("historical TRI source document SHA-256 is absent or does not match the stored source file")
 
+    benchmarks = data.get("benchmarks", {})
+    if not isinstance(benchmarks, dict) or not benchmarks:
+        blockers.append("benchmarks must be a non-empty object")
+        benchmarks = {}
+    available_benchmarks = {str(name).strip().upper() for name in benchmarks}
+    missing_benchmarks = sorted(REQUIRED_BENCHMARKS - available_benchmarks)
+    if missing_benchmarks:
+        blockers.append("required benchmark series missing: " + ", ".join(missing_benchmarks))
+
     calendar_path = ROOT / "data/policy/nse_trading_calendar.json"
     if not calendar_path.is_file():
         blockers.append("independently sourced data/policy/nse_trading_calendar.json is absent")
@@ -217,14 +226,6 @@ def alpha_release_blockers(fixture_path: Path) -> list[str]:
         blockers.append("NSE calendar lacks an explicit independent reviewer attestation")
 
     sessions_set = set(sessions)
-    benchmarks = data.get("benchmarks", {})
-    if not isinstance(benchmarks, dict) or not benchmarks:
-        blockers.append("benchmarks must be a non-empty object")
-        benchmarks = {}
-    available_benchmarks = {str(name).strip().upper() for name in benchmarks}
-    missing_benchmarks = sorted(REQUIRED_BENCHMARKS - available_benchmarks)
-    if missing_benchmarks:
-        blockers.append("required benchmark series missing: " + ", ".join(missing_benchmarks))
     for index_name, benchmark in benchmarks.items():
         if not isinstance(benchmark, dict):
             blockers.append(f"{index_name}: benchmark entry must be an object")
