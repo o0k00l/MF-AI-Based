@@ -693,16 +693,36 @@ def _parse_cas_pdf_pypdf(source, password: str = "") -> dict:
                         t_iso = t_date_raw
 
                     desc_lower = t_desc_clean.lower()
-                    if any(kw in desc_lower for kw in ("redemption", "switch out", "switch-out", "payout", "dividend payout")) or t_amt < 0:
-                        tx_type = "REDEMPTION"
-                    elif "switch in" in desc_lower or "switch-in" in desc_lower:
-                        tx_type = "SWITCH_IN"
-                    elif "stamp duty" in desc_lower or "stt" in desc_lower:
+                    reversal_markers = (
+                        "reversal", "reversed", "dishonour", "dishonor",
+                        "rejected", "cancelled", "canceled", "chargeback",
+                    )
+                    if any(marker in desc_lower for marker in reversal_markers):
+                        tx_type = "UNKNOWN"
+                    elif any(kw in desc_lower for kw in ("stamp duty", "stt", "exit load", "charges", "transaction fee")):
                         tx_type = "CHARGES"
-                    else:
+                    elif any(kw in desc_lower for kw in ("dividend reinvest", "reinvestment", "reinvested dividend", "drp")):
+                        tx_type = "DIVIDEND_REINVEST"
+                    elif "dividend" in desc_lower:
+                        tx_type = "DIVIDEND"
+                    elif any(kw in desc_lower for kw in ("switch out", "switch-out")):
+                        tx_type = "SWITCH_OUT"
+                    elif any(kw in desc_lower for kw in ("switch in", "switch-in")):
+                        tx_type = "SWITCH_IN"
+                    elif any(kw in desc_lower for kw in ("stp out", "stp-out")):
+                        tx_type = "STP_OUT"
+                    elif any(kw in desc_lower for kw in ("stp in", "stp-in")):
+                        tx_type = "STP_IN"
+                    elif any(kw in desc_lower for kw in ("redemption", "swp", "systematic withdrawal")) or t_amt < 0:
+                        tx_type = "REDEMPTION"
+                    elif "sip" in desc_lower:
+                        tx_type = "SIP"
+                    elif any(kw in desc_lower for kw in ("purchase", "subscription", "allotment")):
                         tx_type = "PURCHASE"
+                    else:
+                        tx_type = "UNKNOWN"
 
-                    if tx_type == "PURCHASE" and t_amt > 0:
+                    if tx_type in ("PURCHASE", "SIP") and t_amt > 0:
                         sec_invested += t_amt
 
                     out["transactions"].append({
