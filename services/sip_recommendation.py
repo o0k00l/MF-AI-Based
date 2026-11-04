@@ -27,6 +27,7 @@ from core.portfolio_sip_controls import (
     PortfolioInputError,
     build_decision_trace,
     calculate_lookthrough_exposure,
+    evaluate_classified_concentration,
     calculate_saa_drift,
     reconcile_total_portfolio,
     route_incremental_sip,
@@ -447,15 +448,29 @@ def _assess_complete_portfolio_context(
                 issuer for issuer, pct in concentrations.items()
                 if pct > max_issuer_pct
             )
+            classified_concentration = evaluate_classified_concentration(
+                combined_values,
+                concentration_policy.get("issuer_classifications", {}),
+                total_portfolio_inr=total,
+                as_of_date=as_of.isoformat(),
+                classification_as_of_date=concentration_policy.get("classification_as_of_date", ""),
+                classification_source_ref=concentration_policy.get("classification_source_ref", ""),
+                max_evidence_age_days=max_policy_age,
+                max_sector_pct=concentration_policy.get("max_sector_pct_of_portfolio", 0),
+                max_market_cap_pct=concentration_policy.get("max_market_cap_pct_of_portfolio", 0),
+                max_theme_pct=concentration_policy.get("max_theme_pct_of_portfolio", 0),
+            )
+            concentration_blocked = bool(breaches) or classified_concentration.get("status") != "ASSESSED"
             overlap_results[candidate_id] = {
-                "status": "HOLD" if breaches else "ASSESSED",
+                "status": "HOLD" if concentration_blocked else "ASSESSED",
                 "ticket_basis_inr": monthly_budget_inr,
                 "shared_issuers": sorted(set(issuers) & set(existing_issuer_values)),
                 "candidate_issuer_exposure_inr": issuers,
                 "combined_issuer_concentration_pct": concentrations,
                 "max_issuer_pct_of_portfolio": max_issuer_pct,
                 "breaching_issuers": breaches,
-                "reason": "Candidate one-instalment issuer impact against existing holdings.",
+                "sector_market_cap_theme": classified_concentration,
+                "reason": "Candidate one-instalment issuer, sector, market-cap and theme impact against existing holdings.",
             }
         screening_by_id = {
             row.get("candidate_id"): row
