@@ -102,6 +102,7 @@ class HoldingItem(BaseModel):
     constituent_weights_coverage_pct: Optional[float] = None
     # Stable identity and disclosure state are separate from display names.
     scheme_id: Optional[str] = None
+    isin: Optional[str] = None
     lookthrough_status: str = "MISSING"
     lookthrough_reason: Optional[str] = "No verified stock-level disclosure attached."
     risk_tier: Optional[str] = None
