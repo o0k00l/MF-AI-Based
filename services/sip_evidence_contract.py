@@ -1,12 +1,13 @@
-"""Structural contract for injected SIP evidence providers.
+"""Structural and provenance contract for injected SIP evidence providers.
 
-This module validates payload shape only. It does NOT authenticate publishers,
-verify source hashes, attest reviewers, establish universe completeness, or
-approve a recommendation release. Those checks remain downstream gates.
+Validation here is a gate, not an investment recommendation. Local hashes and
+reviewer attestations do not independently authenticate a publisher.
 """
 from __future__ import annotations
 
-from datetime import date
+import hashlib
+import re
+from datetime import date, datetime
 from typing import Any
 
 
@@ -19,6 +20,8 @@ REQUIRED_EVIDENCE_FIELDS = frozenset({
     "portfolio_disclosure_source_bytes_by_scheme_id",
     "disclosure_as_of_date",
     "candidate_universe",
+    "candidate_universe_source",
+    "candidate_universe_source_bytes",
 })
 REQUEST_BOUND_FIELDS = frozenset({"cas_path", "monthly_budget_inr", "risk_profile"})
 
@@ -27,8 +30,68 @@ class EvidenceProviderContractError(ValueError):
     """Raised when a provider response violates the structural contract."""
 
 
+def _validate_source_document(metadata: Any, source_bytes: Any, *, label: str, as_of: date) -> None:
+    if not isinstance(metadata, dict):
+        raise EvidenceProviderContractError(f"{label} source metadata must be a mapping.")
+    if not isinstance(source_bytes, bytes) or not source_bytes:
+        raise EvidenceProviderContractError(f"{label} original source bytes must be non-empty bytes.")
+
+    source_url = metadata.get("source_url")
+    declared_hash = metadata.get("source_document_sha256")
+    if not isinstance(source_url, str) or not re.fullmatch(r"https://[^\\s]+", source_url):
+        raise EvidenceProviderContractError(f"{label} source URL must be HTTPS.")
+    if not isinstance(declared_hash, str) or not re.fullmatch(r"[0-9a-fA-F]{64}", declared_hash):
+        raise EvidenceProviderContractError(f"{label} source SHA-256 must be 64 hexadecimal characters.")
+    actual_hash = hashlib.sha256(source_bytes).hexdigest()
+    if actual_hash != declared_hash.lower():
+        raise EvidenceProviderContractError(f"{label} source SHA-256 does not match original bytes.")
+    if metadata.get("reviewer_attested") is not True:
+        raise EvidenceProviderContractError(f"{label} requires explicit reviewer attestation.")
+
+    effective_raw = metadata.get("effective_date")
+    try:
+        effective = date.fromisoformat(effective_raw) if isinstance(effective_raw, str) else None
+    except ValueError:
+        effective = None
+    if effective is None:
+        raise EvidenceProviderContractError(f"{label} effective_date must be an ISO date.")
+    if effective > as_of:
+        raise EvidenceProviderContractError(f"{label} effective_date is after the decision as-of date.")
+
+    source_type = metadata.get("source_type")
+    if not isinstance(source_type, str) or not source_type.strip():
+        raise EvidenceProviderContractError(f"{label} source_type is required.")
+
+
+def _validate_scheme_master(master: Any) -> dict[str, dict[str, Any]]:
+    if not isinstance(master, dict) or master.get("status") != "VERIFIED":
+        raise EvidenceProviderContractError("Scheme master must explicitly carry VERIFIED status.")
+    schemes = master.get("schemes")
+    if not isinstance(schemes, list) or not schemes:
+        raise EvidenceProviderContractError("Verified scheme master must contain a non-empty schemes list.")
+
+    by_scheme_id: dict[str, dict[str, Any]] = {}
+    by_isin: dict[str, dict[str, Any]] = {}
+    for index, record in enumerate(schemes):
+        if not isinstance(record, dict):
+            raise EvidenceProviderContractError(f"Scheme master row {index} must be a mapping.")
+        scheme_id, isin = record.get("scheme_id"), record.get("isin")
+        if not isinstance(scheme_id, str) or not scheme_id.strip():
+            raise EvidenceProviderContractError(f"Scheme master row {index} has no stable scheme_id.")
+        if not isinstance(isin, str) or not isin.strip():
+            raise EvidenceProviderContractError(f"Scheme master row {index} has no ISIN.")
+        if scheme_id in by_scheme_id or isin in by_isin:
+            raise EvidenceProviderContractError("Scheme master contains duplicate scheme_id or ISIN records.")
+        if not all(isinstance(record.get(key), str) and record[key].strip()
+                   for key in ("scheme_name", "amc_name")):
+            raise EvidenceProviderContractError(f"Scheme master row {index} lacks exact scheme_name or amc_name.")
+        by_scheme_id[scheme_id] = record
+        by_isin[isin] = record
+    return by_scheme_id
+
+
 def validate_evidence_provider_payload(payload: Any) -> dict[str, Any]:
-    """Validate required fields and types without upgrading evidence status."""
+    """Validate provider shape and critical source provenance before engine use."""
     if not isinstance(payload, dict):
         raise EvidenceProviderContractError("Provider response must be a mapping.")
 
@@ -44,12 +107,15 @@ def validate_evidence_provider_payload(payload: Any) -> dict[str, Any]:
             "Provider response contains unsupported fields: " + ", ".join(sorted(unexpected))
         )
 
-    master = payload["scheme_master"]
-    master_bytes = payload["scheme_master_source_bytes"]
-    if not isinstance(master, dict) or not master:
-        raise EvidenceProviderContractError("scheme_master must be a non-empty mapping.")
-    if not isinstance(master_bytes, bytes) or not master_bytes:
-        raise EvidenceProviderContractError("scheme_master_source_bytes must be non-empty bytes.")
+    as_of = payload["disclosure_as_of_date"]
+    if not isinstance(as_of, date) or isinstance(as_of, datetime):
+        raise EvidenceProviderContractError("disclosure_as_of_date must be a date, not a timestamp or string.")
+
+    _validate_source_document(
+        payload["scheme_master"], payload["scheme_master_source_bytes"],
+        label="Scheme master", as_of=as_of,
+    )
+    scheme_index = _validate_scheme_master(payload["scheme_master"])
 
     disclosures = payload["portfolio_disclosures_by_scheme_id"]
     disclosure_bytes = payload["portfolio_disclosure_source_bytes_by_scheme_id"]
@@ -62,27 +128,51 @@ def validate_evidence_provider_payload(payload: Any) -> dict[str, Any]:
     for scheme_id, record in disclosures.items():
         if not isinstance(scheme_id, str) or not scheme_id.strip():
             raise EvidenceProviderContractError("Disclosure keys must be non-empty stable scheme IDs.")
-        if not isinstance(record, dict) or not record:
-            raise EvidenceProviderContractError(f"Disclosure for {scheme_id!r} must be a non-empty mapping.")
+        if scheme_id not in scheme_index:
+            raise EvidenceProviderContractError(f"Disclosure scheme ID {scheme_id!r} is absent from verified scheme master.")
+        if not isinstance(record, dict) or record.get("scheme_id") != scheme_id:
+            raise EvidenceProviderContractError(f"Disclosure record for {scheme_id!r} has conflicting scheme identity.")
         raw = disclosure_bytes[scheme_id]
         if not isinstance(raw, bytes) or not raw:
             raise EvidenceProviderContractError(f"Original source bytes for {scheme_id!r} are missing.")
 
-    as_of = payload["disclosure_as_of_date"]
-    if not isinstance(as_of, date):
-        raise EvidenceProviderContractError("disclosure_as_of_date must be a date, not a string or timestamp.")
-
     candidates = payload["candidate_universe"]
     if not isinstance(candidates, list) or not candidates:
         raise EvidenceProviderContractError("candidate_universe must be a non-empty list.")
-    if any(not isinstance(candidate, dict) or not candidate for candidate in candidates):
-        raise EvidenceProviderContractError("Every candidate must be a non-empty mapping.")
+    _validate_source_document(
+        payload["candidate_universe_source"], payload["candidate_universe_source_bytes"],
+        label="Candidate universe", as_of=as_of,
+    )
+    seen_fund_ids: set[str] = set()
+    for index, candidate in enumerate(candidates):
+        if not isinstance(candidate, dict) or not candidate:
+            raise EvidenceProviderContractError(f"Candidate row {index} must be a non-empty mapping.")
+        fund_id = candidate.get("fund_id") or candidate.get("id")
+        if not isinstance(fund_id, str) or not fund_id.strip():
+            raise EvidenceProviderContractError(f"Candidate row {index} requires a stable fund_id.")
+        if fund_id in seen_fund_ids:
+            raise EvidenceProviderContractError(f"Duplicate candidate fund_id: {fund_id!r}.")
+        seen_fund_ids.add(fund_id)
+
+        required_text = ("fund_name", "scheme_id", "isin", "amc_name", "category")
+        for field in required_text:
+            if not isinstance(candidate.get(field), str) or not candidate[field].strip():
+                raise EvidenceProviderContractError(f"Candidate {fund_id!r} requires {field}.")
+        master_record = scheme_index.get(candidate["scheme_id"])
+        if master_record is None:
+            raise EvidenceProviderContractError(f"Candidate {fund_id!r} scheme_id is absent from verified scheme master.")
+        if (candidate["isin"] != master_record["isin"]
+                or candidate["fund_name"].strip().casefold() != master_record["scheme_name"].strip().casefold()
+                or candidate["amc_name"].strip().casefold() != master_record["amc_name"].strip().casefold()):
+            raise EvidenceProviderContractError(f"Candidate {fund_id!r} identity conflicts with verified scheme master.")
 
     for optional_path in ("metrics_path", "aliases_path"):
         value = payload[optional_path]
+        if optional_path == "metrics_path" and (value is None or not hasattr(value, "is_file")):
+            raise EvidenceProviderContractError("metrics_path must be a Path-like source for candidate evidence files.")
         if value is not None and not hasattr(value, "is_file"):
             raise EvidenceProviderContractError(f"{optional_path} must be a Path-like object or None.")
 
-    # Return a shallow copy. Validation deliberately does not mutate or enrich
-    # provider evidence and does not assign VERIFIED status to any source.
+    # Structural/provenance checks do not establish universe completeness,
+    # publisher authenticity, or independent approval of reviewer attestations.
     return dict(payload)
