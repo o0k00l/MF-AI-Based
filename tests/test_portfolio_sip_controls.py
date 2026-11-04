@@ -121,9 +121,9 @@ def test_lookthrough_missing_coverage_holds_instead_of_assuming_zero_overlap():
 def test_lookthrough_aggregates_verified_issuer_weights_by_portfolio_value():
     result = calculate_lookthrough_exposure([
         {"holding_value_inr": "100000", "coverage_pct": "100",
-         "constituents": {"issuer-a": "20", "issuer-b": "10"}},
+         "constituents": {"issuer-a": "20", "issuer-b": "80"}},
         {"holding_value_inr": "50000", "coverage_pct": "100",
-         "constituents": {"issuer-a": "40"}},
+         "constituents": {"issuer-a": "40", "issuer-b": "60"}},
     ], required_coverage_pct="99.5")
     assert result["status"] == "CALCULATED"
     assert Decimal(result["issuer_exposure_inr"]["issuer-a"]) == Decimal("40000")
