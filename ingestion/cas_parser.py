@@ -349,9 +349,19 @@ def parse_cas_xlsx(source, scheme_master=None, scheme_master_source_bytes=None) 
                         units = 0.0 if units is None else units
                         description = raw_description
                         desc = description.casefold()
+                        # Reversals/dishonours/cancellations need source-specific
+                        # correction semantics. Never misclassify them as an
+                        # ordinary purchase/redemption merely because the text
+                        # contains one of those words.
+                        reversal_markers = (
+                            "reversal", "reversed", "dishonour", "dishonor",
+                            "rejected", "cancelled", "canceled", "chargeback",
+                        )
+                        if any(marker in desc for marker in reversal_markers):
+                            tx_type = "UNKNOWN"
                         # Only explicit, understood transaction descriptions map
                         # to unit/cash events. Unknown text never becomes PURCHASE.
-                        if any(marker in desc for marker in ("stamp duty", "stt", "exit load", "charges", "transaction fee")):
+                        elif any(marker in desc for marker in ("stamp duty", "stt", "exit load", "charges", "transaction fee")):
                             tx_type = "CHARGES"
                         elif any(marker in desc for marker in ("dividend reinvest", "reinvestment", "reinvested dividend", "drp")):
                             tx_type = "DIVIDEND_REINVEST"
