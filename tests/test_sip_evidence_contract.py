@@ -35,6 +35,8 @@ def valid_payload(tmp_path):
             "schemes": [{
                 "scheme_id": "scheme-1", "isin": "INF000000001",
                 "scheme_name": "Example Direct Growth", "amc_name": "Example AMC",
+                "category": "Flexi Cap", "benchmark_identity": "Nifty 500 TRI",
+                "scheme_structure": "OPEN_ENDED_EQUITY", "riskometer_score": 5,
             }],
         },
         "scheme_master_source_bytes": master_bytes,
@@ -45,6 +47,8 @@ def valid_payload(tmp_path):
             "fund_id": "fund-1", "fund_name": "Example Direct Growth",
             "scheme_id": "scheme-1", "isin": "INF000000001",
             "amc_name": "Example AMC", "category": "Flexi Cap",
+            "benchmark_identity": "Nifty 500 TRI",
+            "scheme_structure": "OPEN_ENDED_EQUITY", "riskometer_score": 5,
             "is_direct": True,
             "_evidence_root": str(tmp_path),
             "direct_plan_evidence": {
@@ -191,4 +195,185 @@ def test_contract_rejects_direct_plan_evidence_for_different_scheme_id(tmp_path)
     payload["candidate_universe"][0]["direct_plan_evidence"]["scheme_id"] = "another-scheme"
 
     with pytest.raises(EvidenceProviderContractError, match="Direct-plan source evidence"):
+        validate_evidence_provider_payload(payload)
+
+
+
+def test_contract_validates_optional_original_fund_metrics_source_bytes(tmp_path):
+    payload = valid_payload(tmp_path)
+    metrics_bytes = b"original metrics publisher document"
+    payload["metrics_source_metadata"] = {
+        **_source_metadata(metrics_bytes),
+        "source_type": "OFFICIAL_FUND_METRICS",
+    }
+    payload["metrics_source_bytes"] = metrics_bytes
+
+    result = validate_evidence_provider_payload(payload)
+
+    assert result["metrics_source_bytes"] == metrics_bytes
+
+
+def test_contract_rejects_fund_metrics_source_hash_mismatch(tmp_path):
+    payload = valid_payload(tmp_path)
+    payload["metrics_source_metadata"] = {
+        **_source_metadata(b"declared metrics source"),
+        "source_type": "OFFICIAL_FUND_METRICS",
+    }
+    payload["metrics_source_bytes"] = b"tampered metrics source"
+
+    with pytest.raises(EvidenceProviderContractError, match="Fund metrics source SHA-256 does not match"):
+        validate_evidence_provider_payload(payload)
+
+
+def test_contract_rejects_partial_fund_metrics_provenance_pair(tmp_path):
+    payload = valid_payload(tmp_path)
+    payload["metrics_source_bytes"] = b"metrics source without metadata"
+
+    with pytest.raises(EvidenceProviderContractError, match="must be supplied together"):
+        validate_evidence_provider_payload(payload)
+
+
+def test_contract_accepts_provider_attested_total_portfolio_bundle(tmp_path):
+    payload = valid_payload(tmp_path)
+    context_bytes = b"reviewed total portfolio, IPS, goals and affordability evidence bundle"
+    payload["portfolio_context"] = {
+        "evidence_attested_by_provider": True,
+        "as_of_date": "2026-11-04",
+        "perimeter_complete": True,
+    }
+    payload["portfolio_context_source_metadata"] = {
+        **_source_metadata(context_bytes),
+        "source_type": "REVIEWED_TOTAL_PORTFOLIO_CONTEXT",
+    }
+    payload["portfolio_context_source_bytes"] = context_bytes
+
+    result = validate_evidence_provider_payload(payload)
+
+    assert result["portfolio_context"]["evidence_attested_by_provider"] is True
+    assert result["portfolio_context_source_bytes"] == context_bytes
+
+
+def test_contract_rejects_partial_total_portfolio_bundle(tmp_path):
+    payload = valid_payload(tmp_path)
+    payload["portfolio_context"] = {"evidence_attested_by_provider": True}
+
+    with pytest.raises(EvidenceProviderContractError, match="must be supplied together"):
+        validate_evidence_provider_payload(payload)
+
+
+def test_contract_rejects_unverified_total_portfolio_source_bundle(tmp_path):
+    payload = valid_payload(tmp_path)
+    context_bytes = b"reviewed portfolio evidence"
+    payload["portfolio_context"] = {"evidence_attested_by_provider": True}
+    payload["portfolio_context_source_metadata"] = {
+        **_source_metadata(context_bytes), "reviewer_attested": False,
+        "source_type": "REVIEWED_TOTAL_PORTFOLIO_CONTEXT",
+    }
+    payload["portfolio_context_source_bytes"] = context_bytes
+
+    with pytest.raises(EvidenceProviderContractError, match="reviewer attestation"):
+        validate_evidence_provider_payload(payload)
+
+
+def test_contract_accepts_rank_score_only_with_reviewed_source_bytes(tmp_path):
+    payload = valid_payload(tmp_path)
+    score_bytes = b"independently reviewed ranking scores"
+    _attach_reviewed_rank_score_evidence(payload, score_bytes)
+
+    result = validate_evidence_provider_payload(payload)
+    assert result["candidate_universe"][0]["rank_score"] == "2.75"
+
+
+def test_contract_rejects_rank_score_without_reviewed_source_bundle(tmp_path):
+    payload = valid_payload(tmp_path)
+    _attach_reviewed_rank_score_evidence(
+        payload, b"ranking scores", include_score_bundle=False
+    )
+    with pytest.raises(EvidenceProviderContractError, match="without a reviewed score source bundle"):
+        validate_evidence_provider_payload(payload)
+
+
+def test_contract_rejects_rank_score_source_hash_or_methodology_mismatch(tmp_path):
+    payload = valid_payload(tmp_path)
+    score_bytes = b"reviewed scores"
+    _attach_reviewed_rank_score_evidence(payload, score_bytes)
+    payload["candidate_universe"][0]["rank_score_source_ref"] = "sha256:" + "f" * 64
+    payload["candidate_universe"][0]["rank_score_methodology_version"] = "wrong-version"
+    with pytest.raises(EvidenceProviderContractError, match="source reference does not match"):
+        validate_evidence_provider_payload(payload)
+
+
+def _attach_reviewed_rank_score_evidence(payload, score_bytes, *, include_score_bundle=True):
+    candidate = payload["candidate_universe"][0]
+    score_metadata = _source_metadata(score_bytes)
+    score_metadata.update({
+        "source_type": "REVIEWED_CANDIDATE_RANKING",
+        "methodology_version": "risk-quality-v1",
+        "score_scope": "PORTFOLIO_AWARE",
+        "missing_overlap_policy": "BLOCK_SCORE",
+    })
+    candidate.update({
+        "rank_score": "2.75",
+        "rank_score_source_ref": "sha256:" + hashlib.sha256(score_bytes).hexdigest(),
+        "rank_score_as_of_date": score_metadata["effective_date"],
+        "rank_score_methodology_version": "risk-quality-v1",
+        "rank_score_scope": "PORTFOLIO_AWARE",
+        "rank_score_portfolio_overlap_status": "VERIFIED",
+        "rank_score_portfolio_overlap_pct": "15.5",
+        "rank_score_portfolio_overlap_coverage_pct": "99.8",
+        "rank_score_portfolio_overlap_source_ref": "sha256:" + hashlib.sha256(b"portfolio overlap source").hexdigest(),
+    })
+    anchor_bytes = b"reviewed category benchmark anchor source"
+    anchor_digest = hashlib.sha256(anchor_bytes).hexdigest()
+    anchor_metadata = _source_metadata(anchor_bytes)
+    anchor_metadata.update({
+        "source_type": "APPROVED_CATEGORY_BENCHMARK_ANCHORS",
+        "reviewer_id": "independent-reviewer",
+        "policy_version": "category-anchor-v1",
+        "category_anchors": {
+            candidate["category"]: {
+                "status": "APPROVED",
+                "benchmark_identity": "Example Category TRI",
+                "reviewer_id": "independent-reviewer",
+                "policy_version": "category-anchor-v1",
+                "effective_date": anchor_metadata["effective_date"],
+                "anchor_set": {
+                    "alpha": [0, 10], "ret1y": [0, 30], "sharpe": [0.2, 1.2],
+                    "ter": [0.2, 1.2], "buffer": [0, 25], "intl": [0, 50],
+                    "overlap": [0, 100],
+                },
+            }
+        },
+    })
+    candidate.update({
+        "rank_score_category_anchor_source_ref": "sha256:" + anchor_digest,
+        "rank_score_category_anchor_policy_version": "category-anchor-v1",
+        "rank_score_benchmark_identity": "Example Category TRI",
+    })
+    payload["category_anchor_source_metadata"] = anchor_metadata
+    payload["category_anchor_source_bytes"] = anchor_bytes
+    if include_score_bundle:
+        payload["candidate_score_source_metadata"] = score_metadata
+        payload["candidate_score_source_bytes"] = score_bytes
+
+
+
+def test_contract_rejects_candidate_category_conflicting_with_verified_scheme_master(tmp_path):
+    payload = valid_payload(tmp_path)
+    payload["candidate_universe"][0]["category"] = "Small Cap"
+    with pytest.raises(EvidenceProviderContractError, match="category conflicts"):
+        validate_evidence_provider_payload(payload)
+
+
+def test_contract_rejects_candidate_suitability_override(tmp_path):
+    payload = valid_payload(tmp_path)
+    payload["candidate_universe"][0]["riskometer_score"] = 2
+    with pytest.raises(EvidenceProviderContractError, match="riskometer_score conflicts"):
+        validate_evidence_provider_payload(payload)
+
+
+def test_contract_requires_scheme_master_category_benchmark_and_structure(tmp_path):
+    payload = valid_payload(tmp_path)
+    payload["scheme_master"]["schemes"][0].pop("category")
+    with pytest.raises(EvidenceProviderContractError, match="category, benchmark or structure"):
         validate_evidence_provider_payload(payload)

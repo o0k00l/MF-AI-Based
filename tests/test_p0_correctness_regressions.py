@@ -1,5 +1,6 @@
 """Regression tests for fiduciary P0 correctness defects."""
 from datetime import date
+from core.candidate_scoring import ScoringWeights
 from pathlib import Path
 
 import pytest
@@ -1935,7 +1936,7 @@ def test_candidate_scoring_rejects_unknown_category_instead_of_using_healthcare_
         "ter_direct_pct": 0.7,
     }
     with pytest.raises(ValueError, match="Unsupported scoring category"):
-        calculate_candidate_6_pillar_score(candidate, category_key="Debt")
+        calculate_candidate_6_pillar_score(candidate, category_key="Debt", weights=ScoringWeights(0.25, 0.20, 0.15, 0.15, 0.15, 0.10))
 
 
 
@@ -1949,7 +1950,7 @@ def test_candidate_scoring_rejects_missing_core_evidence_instead_of_filling_defa
         # Direct TER deliberately omitted.
     }
     with pytest.raises(ValueError, match="Missing required scoring metric: ter_direct_pct"):
-        calculate_candidate_6_pillar_score(candidate, category_key="Flexi Cap")
+        calculate_candidate_6_pillar_score(candidate, category_key="Flexi Cap", weights=ScoringWeights(0.25, 0.20, 0.15, 0.15, 0.15, 0.10))
 
 
 def test_candidate_scoring_marks_absent_optional_pillars_neutral_not_as_observed_zero():
@@ -1961,7 +1962,10 @@ def test_candidate_scoring_marks_absent_optional_pillars_neutral_not_as_observed
         "sharpe_3y": 0.8,
         "ter_direct_pct": 0.7,
     }
-    _, pillars = calculate_candidate_6_pillar_score(candidate, category_key="Flexi Cap")
+    # Healthcare has a complete approved anchor set; this test isolates the
+    # neutral treatment of absent optional pillars rather than inventing
+    # Flexi Cap 1Y return anchors that have not been independently approved.
+    _, pillars = calculate_candidate_6_pillar_score(candidate, category_key="Healthcare", weights=ScoringWeights(0.25, 0.20, 0.15, 0.15, 0.15, 0.10))
     assert pillars["downside_buffer"] == 50.0
     assert pillars["geographic_moat"] == 50.0
     assert pillars["portfolio_overlap"] == 50.0
@@ -2502,3 +2506,163 @@ def test_mixed_asset_portfolio_never_uses_single_equity_index_for_alpha():
     assert audit["benchmark_matched_xirr_pct"] is None
     assert audit["alpha_pct"] is None
     assert "mixed-asset portfolio" in audit["error"]
+
+
+def test_candidate_scoring_fails_closed_when_category_return_anchor_is_missing():
+    from core.candidate_scoring import calculate_candidate_6_pillar_score
+
+    candidate = {
+        "alpha_3y": 2.0,
+        "return_1y": 12.0,
+        "sharpe_3y": 0.8,
+        "ter_direct_pct": 0.7,
+    }
+    with pytest.raises(ValueError, match="no complete approved anchor set; missing: ret1y"):
+        calculate_candidate_6_pillar_score(candidate, category_key="Flexi Cap", weights=ScoringWeights(0.25, 0.20, 0.15, 0.15, 0.15, 0.10))
+
+
+def test_eligibility_requires_explicit_investor_risk_profile():
+    result = check_eligibility_gates(
+        fund_data={"fund_id": "fund-x", "fund_name": "Example", "category": "Large Cap"},
+        portfolio_holdings=None,
+    )
+    assert result.passed is False
+    assert any("explicit validated investor risk profile missing" in item for item in result.failed_gates)
+
+
+def test_no_action_never_evaluates_candidates_without_investor_risk_profile():
+    from core.eligibility import evaluate_no_action
+    result = evaluate_no_action([], [{"fund_id": "fund-x", "score": 99.0}])
+    assert result.action == "NO_ACTION"
+    assert result.sip_deployment_pause is True
+    assert "investor suitability profile is missing" in result.reason
+
+
+def test_sip_builder_requires_explicit_risk_profile_and_verified_aum():
+    from core.math_engine import compute_deterministic_sip_blueprint
+    with pytest.raises(ValueError, match="explicit validated investor risk profile"):
+        compute_deterministic_sip_blueprint(10000)
+    with pytest.raises(ValueError, match="Verified reconciled client AUM"):
+        compute_deterministic_sip_blueprint(10000, risk_tier="Moderate", client_aum=None)
+
+
+def test_tier6_equity_only_policy_requires_literal_true_authorization(monkeypatch):
+    import json
+    from pathlib import Path
+    from core.math_engine import calculate_universal_tier_split
+
+    original = Path.read_text
+
+    def read_text(path, *args, **kwargs):
+        if path.name == "asset_allocation.json":
+            policy = json.loads(original(path, *args, **kwargs))
+            policy["behavioral_risk_profiles"]["very_high"]["new_sip_allocation"].pop(
+                "requires_explicit_ips_authorization", None
+            )
+            return json.dumps(policy)
+        return original(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", read_text)
+    with pytest.raises(ValueError, match="Invalid allocation policy"):
+        calculate_universal_tier_split(6)
+
+
+def test_tier6_equity_only_requires_policy_and_investor_authorization():
+    from core.math_engine import calculate_universal_tier_split
+    assert calculate_universal_tier_split(6, equity_sip_routing_override=False) == (95.0, 5.0)
+    assert calculate_universal_tier_split(6, equity_sip_routing_override=True) == (100.0, 0.0)
+
+
+def test_default_passive_verifier_rejects_checked_in_sample_scheme_master():
+    from core.fund_classifier import _load_scheme_master, is_verified_passive_scheme, get_fund_passive_alternatives
+    from core.models import InsufficientDataError
+
+    assert _load_scheme_master() is None
+    with pytest.raises(InsufficientDataError):
+        is_verified_passive_scheme({"isin": "TEST004"})
+    assert get_fund_passive_alternatives("Large Cap Equity") == []
+
+
+def _saa_holding(asset_class, value):
+    from core.models import HoldingItem, PlanType, AssetClass
+    return HoldingItem(
+        fund_id=f"scheme-{asset_class.value}",
+        scheme=f"Scheme {asset_class.value}", fund_name=f"Scheme {asset_class.value}",
+        folio="REDACTED", is_direct=True, plan=PlanType.DIRECT,
+        asset_class=asset_class, equity_pct=100.0 if asset_class == AssetClass.EQUITY else 0.0,
+        debt_pct=100.0 if asset_class == AssetClass.DEBT else 0.0,
+        hybrid_pct=0.0, international_pct=0.0,
+        current_value_inr=value, invested_value_inr=value,
+        units=1.0, nav=value,
+    )
+
+
+def test_saa_drift_minimizer_uses_post_sip_denominator_for_mixed_gaps():
+    from core.math_engine import calculate_saa_drift_minimizer
+    from core.models import AssetClass
+
+    result = calculate_saa_drift_minimizer(
+        [_saa_holding(AssetClass.EQUITY, 60000.0), _saa_holding(AssetClass.DEBT, 40000.0)],
+        {"equity_pct": 75.0, "debt_pct": 25.0, "cash_pct": 0.0},
+        100000.0,
+    )
+    assert result.recommended_sip_allocation["Equity"] == pytest.approx(90000.0)
+    assert result.recommended_sip_allocation["Debt"] == pytest.approx(10000.0)
+    assert result.recommended_sip_allocation["Cash"] == pytest.approx(0.0)
+    assert sum(result.recommended_sip_allocation.values()) == pytest.approx(100000.0)
+    assert result.total_drift_l2_norm == pytest.approx(0.0)
+
+
+def test_saa_drift_minimizer_preserves_exact_target_and_zero_weight_cash():
+    from core.math_engine import calculate_saa_drift_minimizer
+    from core.models import AssetClass
+
+    result = calculate_saa_drift_minimizer(
+        [_saa_holding(AssetClass.EQUITY, 75000.0), _saa_holding(AssetClass.DEBT, 25000.0)],
+        {"equity_pct": 75.0, "debt_pct": 25.0, "cash_pct": 0.0},
+        10000.0,
+    )
+    assert result.recommended_sip_allocation["Equity"] == pytest.approx(7500.0)
+    assert result.recommended_sip_allocation["Debt"] == pytest.approx(2500.0)
+    assert result.recommended_sip_allocation["Cash"] == pytest.approx(0.0)
+    assert result.total_drift_l2_norm == pytest.approx(0.0)
+
+
+def test_scheme_riskometer_is_not_inferred_from_asset_class():
+    from core.math_engine import _asset_class_to_risk_tier, calculate_risk_distribution
+    from core.models import AssetClass
+
+    assert _asset_class_to_risk_tier(AssetClass.DEBT) is None
+    holding = _saa_holding(AssetClass.EQUITY, 100000.0)
+    holding.risk_tier = None
+    distribution = calculate_risk_distribution([holding])
+    assert distribution.availability_status == "UNAVAILABLE"
+    assert distribution.verified_coverage_pct == 0.0
+    assert distribution.unknown_value_inr == 100000.0
+    assert distribution.risk_tier_values == {"Unknown": 100.0}
+
+
+def test_empty_and_zero_value_portfolios_cannot_report_zero_saa_drift():
+    from core.math_engine import calculate_saa_drift_minimizer
+    from core.models import AssetClass
+
+    with pytest.raises(ValueError, match="no verified active holdings"):
+        calculate_saa_drift_minimizer(
+            [], {"equity_pct": 75.0, "debt_pct": 25.0, "cash_pct": 0.0}, 10000.0
+        )
+    zero = _saa_holding(AssetClass.EQUITY, 0.0)
+    with pytest.raises(ValueError, match="denominator must be positive"):
+        calculate_saa_drift_minimizer(
+            [zero], {"equity_pct": 75.0, "debt_pct": 25.0, "cash_pct": 0.0}, 10000.0
+        )
+
+
+def test_aggregate_portfolio_diagnostics_hold_when_cas_has_no_active_holdings(monkeypatch, tmp_path):
+    import core.math_engine as engine
+    monkeypatch.setattr(engine, "load_holdings_from_cas_excel", lambda *args, **kwargs: [])
+    with pytest.raises(ValueError, match="no verified active holdings"):
+        engine.aggregate_fiduciary_facts(
+            cas_path=tmp_path / "empty.xlsx",
+            metrics_path=tmp_path / "metrics.json",
+            config_path=tmp_path / "client.json",
+        )

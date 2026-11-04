@@ -156,81 +156,106 @@ def calculate_xirr(cashflows: List[Tuple[date, float]]) -> Optional[float]:
     return (rate_low + rate_high) / 2
 
 
-def reconcile_cas_holdings_with_transactions(
-    holdings: List[HoldingItem],
-    transactions_path: Path
-) -> Dict[str, Any]:
+def reconcile_cas_holdings_with_transactions(holdings: List[HoldingItem], transactions_path: Path) -> Dict[str, Any]:
+    """Reconcile aggregated CAS units to transaction history by exact normalized scheme name.
+
+    Rows across multiple folios are aggregated before comparison. Substring/fuzzy
+    matching is deliberately prohibited: unresolved identities are discrepancies.
     """
-    Cross-reconciles CAS statement holdings against cumulative transaction history units.
-    Flags any unrecorded corporate actions, external transfers, or unit discrepancies.
-    """
+    import re
+
     if not transactions_path.exists():
-        return {
-            "status": "NO_TRANSACTION_FILE",
-            "reconciled_schemes": 0,
-            "total_schemes": len(holdings),
-            "discrepancies": []
-        }
-
+        return {"status": "NO_TRANSACTION_FILE", "reconciled_schemes": 0,
+                "total_schemes": len(holdings), "discrepancies": [],
+                "unmatched_transaction_schemes": []}
     try:
-        with open(transactions_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        txs = data.get("transactions", [])
-    except Exception as e:
-        return {
-            "status": f"READ_ERROR: {e}",
-            "reconciled_schemes": 0,
-            "total_schemes": len(holdings),
-            "discrepancies": []
-        }
+        with open(transactions_path, "r", encoding="utf-8") as handle:
+            data = json.load(handle)
+        if not isinstance(data, dict) or not isinstance(data.get("transactions"), list):
+            raise ValueError("transactions.json must contain a transactions array")
+    except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as exc:
+        return {"status": "READ_ERROR", "error": str(exc), "reconciled_schemes": 0,
+                "total_schemes": len(holdings), "discrepancies": [],
+                "unmatched_transaction_schemes": []}
 
-    net_units_by_scheme: Dict[str, float] = {}
-    for tx in txs:
-        s_norm = tx.get("scheme", "").strip().lower()
-        u = float(tx.get("units", 0.0) or 0.0)
-        t_type = tx.get("type", "PURCHASE").upper()
-        if t_type in ("PURCHASE", "SIP", "SWITCH_IN", "STP_IN", "DIVIDEND_REINVEST"):
-            net_units_by_scheme[s_norm] = net_units_by_scheme.get(s_norm, 0.0) + u
-        elif t_type in ("REDEMPTION", "SWITCH_OUT", "STP_OUT"):
-            net_units_by_scheme[s_norm] = net_units_by_scheme.get(s_norm, 0.0) - u
+    def key(value: Any) -> str:
+        return re.sub(r"[^a-z0-9]", "", str(value or "").casefold())
+
+    cas_units: Dict[str, float] = {}
+    cas_names: Dict[str, str] = {}
+    for holding in holdings:
+        scheme_name = getattr(holding, "scheme", None)
+        scheme_key = key(scheme_name)
+        try:
+            units = float(getattr(holding, "units"))
+        except (TypeError, ValueError, AttributeError):
+            return {"status": "INVALID_CAS_UNITS", "reconciled_schemes": 0,
+                    "total_schemes": len(holdings), "discrepancies": [],
+                    "unmatched_transaction_schemes": []}
+        if not scheme_key or not math.isfinite(units) or units < 0:
+            return {"status": "INVALID_CAS_UNITS", "reconciled_schemes": 0,
+                    "total_schemes": len(holdings), "discrepancies": [],
+                    "unmatched_transaction_schemes": []}
+        cas_units[scheme_key] = cas_units.get(scheme_key, 0.0) + units
+        cas_names.setdefault(scheme_key, str(scheme_name))
+
+    transaction_units: Dict[str, float] = {}
+    transaction_names: Dict[str, str] = {}
+    supported_types = {"PURCHASE", "SIP", "SWITCH_IN", "STP_IN", "DIVIDEND_REINVEST",
+                       "DIVIDEND", "REDEMPTION", "SWITCH_OUT", "STP_OUT", "CHARGES"}
+    for index, transaction in enumerate(data["transactions"]):
+        if not isinstance(transaction, dict):
+            return {"status": "INVALID_TRANSACTION", "error": f"Transaction row {index} is not an object",
+                    "reconciled_schemes": 0, "total_schemes": len(holdings),
+                    "discrepancies": [], "unmatched_transaction_schemes": []}
+        scheme_name = transaction.get("scheme")
+        scheme_key = key(scheme_name)
+        txn_type = str(transaction.get("type", "UNKNOWN")).upper().strip()
+        try:
+            units = float(transaction.get("units", 0.0) or 0.0)
+            amount = float(transaction.get("amount", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            units = float("nan")
+        if (not scheme_key or txn_type not in supported_types or not math.isfinite(units)
+                or units < 0.0 or not math.isfinite(amount)
+                or (txn_type in {"DIVIDEND", "CHARGES"} and units != 0.0)):
+            return {"status": "INVALID_TRANSACTION", "error": f"Invalid scheme, type or units at transaction row {index}",
+                    "reconciled_schemes": 0, "total_schemes": len(holdings),
+                    "discrepancies": [], "unmatched_transaction_schemes": []}
+        if txn_type in {"DIVIDEND", "CHARGES"}:
+            sign = 0.0  # Cash-only events do not change mutual-fund units.
+        else:
+            sign = -1.0 if txn_type in {"REDEMPTION", "SWITCH_OUT", "STP_OUT"} else 1.0
+        transaction_units[scheme_key] = transaction_units.get(scheme_key, 0.0) + sign * units
+        transaction_names.setdefault(scheme_key, str(scheme_name))
 
     discrepancies = []
     reconciled_count = 0
-    for h in holdings:
-        h_norm = h.scheme.strip().lower()
-        cas_u = round(float(h.units), 3)
-        matched_tx_u = None
-        for s_key, t_u in net_units_by_scheme.items():
-            if s_key == h_norm or (len(s_key) > 10 and (s_key in h_norm or h_norm in s_key)):
-                matched_tx_u = round(t_u, 3)
-                break
-
-        if matched_tx_u is not None:
-            diff = abs(cas_u - matched_tx_u)
-            if diff <= 0.05:
-                reconciled_count += 1
-            else:
-                discrepancies.append({
-                    "scheme": h.scheme,
-                    "cas_units": cas_u,
-                    "transaction_units": matched_tx_u,
-                    "difference": round(cas_u - matched_tx_u, 3)
-                })
+    for scheme_key, cas_total in cas_units.items():
+        if scheme_key not in transaction_units:
+            discrepancies.append({"scheme": cas_names[scheme_key], "cas_units": round(cas_total, 3),
+                                  "transaction_units": None, "difference": None,
+                                  "reason": "NO_EXACT_TRANSACTION_SCHEME_MATCH"})
+            continue
+        tx_total = transaction_units[scheme_key]
+        difference = cas_total - tx_total
+        if abs(difference) <= 0.05:
+            reconciled_count += 1
         else:
-            discrepancies.append({
-                "scheme": h.scheme,
-                "cas_units": cas_u,
-                "transaction_units": 0.0,
-                "difference": cas_u
-            })
+            discrepancies.append({"scheme": cas_names[scheme_key], "cas_units": round(cas_total, 3),
+                                  "transaction_units": round(tx_total, 3),
+                                  "difference": round(difference, 3), "reason": "UNIT_MISMATCH"})
 
-    status = "VERIFIED_RECONCILED" if not discrepancies else "PARTIALLY_RECONCILED"
-    return {
-        "status": status,
-        "reconciled_schemes": reconciled_count,
-        "total_schemes": len(holdings),
-        "discrepancies": discrepancies
-    }
+    unmatched_active = []
+    for scheme_key, tx_total in transaction_units.items():
+        if scheme_key not in cas_units and abs(tx_total) > 0.05:
+            unmatched_active.append({"scheme": transaction_names[scheme_key],
+                                     "transaction_units": round(tx_total, 3),
+                                     "reason": "ACTIVE_TRANSACTION_SCHEME_NOT_IN_CAS"})
+    status = "VERIFIED_RECONCILED" if not discrepancies and not unmatched_active else "PARTIALLY_RECONCILED"
+    return {"status": status, "reconciled_schemes": reconciled_count,
+            "total_schemes": len(cas_units), "discrepancies": discrepancies,
+            "unmatched_transaction_schemes": unmatched_active}
 
 
 def calculate_portfolio_xirr(
@@ -241,94 +266,106 @@ def calculate_portfolio_xirr(
     as_of_date: Optional[date] = None
 ) -> Optional[float]:
     """
-    Calculate portfolio-level XIRR from transaction history.
-    
-    Supports both Pydantic HoldingItem models and raw dictionary holdings.
-    Handles all CAS transaction types: PURCHASE, SIP, REDEMPTION, SWITCH_IN, SWITCH_OUT, STP_IN, STP_OUT, DIVIDEND.
-    
-    Args:
-        transactions_path: Path to transactions.json
-        holdings: Current holdings (List of HoldingItem or List of dict)
-        cas_invested: Optional pre-aggregated invested amount from CAS
-        cas_current: Optional pre-aggregated current valuation from CAS
-        as_of_date: Valuation date (defaults to max transaction date or today)
-        
-    Returns:
-        Portfolio XIRR as decimal (e.g. 0.1582 for 15.82%), or None if insufficient data
+    Calculate portfolio XIRR only from a structurally complete, supported
+    transaction ledger. Any malformed row makes the result unavailable;
+    silently dropping a cash flow can materially distort investor returns.
     """
     if not transactions_path.exists():
         return None
-    
+
     try:
-        with open(transactions_path, 'r', encoding='utf-8') as f:
+        with open(transactions_path, "r", encoding="utf-8") as f:
             data = json.load(f)
-    except Exception:
+    except (OSError, UnicodeError, json.JSONDecodeError):
         return None
-    
-    transactions = data.get('transactions', [])
-    if not transactions:
+
+    if not isinstance(data, dict):
         return None
-    
+    transactions = data.get("transactions")
+    if not isinstance(transactions, list) or not transactions:
+        return None
+
+    supported_types = {
+        "PURCHASE", "SIP", "REDEMPTION", "SWITCH_IN", "SWITCH_OUT",
+        "STP_IN", "STP_OUT", "DIVIDEND", "SWP", "DIVIDEND_REINVEST", "CHARGES",
+    }
     cashflows = []
     txn_dates = []
-    for txn in transactions:
+    for index, txn in enumerate(transactions, start=1):
+        if not isinstance(txn, dict):
+            return None
+        date_value = txn.get("date")
+        txn_type = str(txn.get("type", "")).strip().upper()
+        if not isinstance(date_value, str) or not date_value.strip() or txn_type not in supported_types:
+            return None
         try:
-            d_str = txn.get('date', '')
-            if not d_str:
-                continue
-            txn_date = datetime.strptime(d_str[:10], '%Y-%m-%d').date()
-            amount = float(txn.get('amount', 0))
-            txn_type = txn.get('type', '').upper()
-            desc = txn.get('description', '').lower()
-            
-            # Skip zero-amount non-financial transactions (address/nominee updates)
-            if amount == 0:
-                continue
-                
-            txn_dates.append(txn_date)
-            is_reversal = any(kw in desc for kw in ('reversal', 'dishonour', 'reject'))
-            
-            # In CAS statements, amounts follow accounting conventions:
-            # - Negative amount: money leaving scheme (redemption, switch out, purchase reversal) -> positive cashflow: -amount
-            # - Positive amount: money entering scheme (purchase, SIP, switch in, redemption reversal) -> negative cashflow: -amount
-            if amount < 0:
-                cf = -amount
-            else:
-                if txn_type in ('REDEMPTION', 'SWITCH_OUT', 'STP_OUT', 'DIVIDEND', 'SWP') and not is_reversal:
-                    cf = abs(amount)
-                else:
-                    cf = -amount
-            cashflows.append((txn_date, cf))
-        except Exception:
+            txn_date = datetime.strptime(date_value[:10], "%Y-%m-%d").date()
+            amount = float(txn.get("amount"))
+        except (TypeError, ValueError, OverflowError):
+            return None
+        if not math.isfinite(amount):
+            return None
+
+        desc = str(txn.get("description", "")).lower()
+        subtype = str(txn.get("subtype", "")).upper()
+        is_reversal = any(kw in desc for kw in ("reversal", "dishonour", "reject"))
+        txn_dates.append(txn_date)
+
+        # A zero amount is only safely ignorable when explicitly identified
+        # as a non-cash administrative event; unsupported rows fail closed.
+        if amount == 0.0:
             continue
-            
-    if not cashflows:
+
+        if txn_type == "CHARGES":
+            # Charges are reconciled as cash-only ledger events, but their
+            # investor cash-flow treatment is not sufficiently specified to
+            # include in XIRR without risk of double-counting purchase costs.
+            return None
+        elif amount < 0:
+            cf = -amount
+        elif txn_type in ("REDEMPTION", "SWITCH_OUT", "STP_OUT", "DIVIDEND", "SWP") and not is_reversal:
+            cf = abs(amount)
+        else:
+            cf = -amount
+        cashflows.append((txn_date, cf))
+
+    # A current wall-clock date is not a substitute for the uploaded CAS
+    # valuation date; without it the terminal portfolio value is undated.
+    if not isinstance(as_of_date, date) or isinstance(as_of_date, datetime):
         return None
-        
-    if as_of_date is None:
-        as_of_date = max(txn_dates) if txn_dates else date.today()
-    
-    # Terminal valuation cashflow (positive = investor's net worth)
-    if cas_current is not None and cas_current > 0:
-        total_value = float(cas_current)
-    else:
-        total_value = 0.0
-        for h in (holdings or []):
-            if isinstance(h, dict):
-                v = float(h.get("value", h.get("current_value", 0.0)) or 0.0)
-            else:
-                v = float(getattr(h, "current_value_inr", 0.0) or 0.0)
-            if v > 0:
-                total_value += v
+    valuation_date = as_of_date
+    if valuation_date < max(txn_dates):
+        return None
+
+    try:
+        if cas_current is not None:
+            total_value = float(cas_current)
+            if not math.isfinite(total_value) or total_value < 0:
+                return None
+        else:
+            total_value = 0.0
+            for holding in (holdings or []):
+                if isinstance(holding, dict):
+                    raw_value = holding.get("value", holding.get("current_value"))
+                else:
+                    raw_value = getattr(holding, "current_value_inr", None)
+                if raw_value is None:
+                    return None
+                value = float(raw_value)
+                if not math.isfinite(value) or value < 0:
+                    return None
+                total_value += value
+    except (TypeError, ValueError, OverflowError):
+        return None
 
     if total_value > 0:
-        cashflows.append((as_of_date, total_value))
-    
+        cashflows.append((valuation_date, total_value))
     if len(cashflows) < 2:
         return None
-    
-    return calculate_xirr(cashflows)
-
+    try:
+        return calculate_xirr(cashflows)
+    except (ValueError, OverflowError, ZeroDivisionError):
+        return None
 
 
 
@@ -956,22 +993,9 @@ from core.models import (
 )
 
 
-def _asset_class_to_risk_tier(asset_class: AssetClass) -> str:
-    """Map AssetClass to SEBI risk-o-meter tier."""
-    mapping = {
-        AssetClass.DEBT: "Tier 1 (Low)",
-        AssetClass.CASH: "Tier 1 (Low)",
-        AssetClass.HYBRID_BALANCED: "Tier 3 (Moderate)",
-        AssetClass.HYBRID: "Tier 3 (Moderate)",
-        AssetClass.LARGE_CAP: "Tier 5 (High)",
-        AssetClass.FLEXI_CAP: "Tier 5 (High)",
-        AssetClass.MULTI_CAP: "Tier 5 (High)",
-        AssetClass.INTERNATIONAL: "Tier 5 (High)",
-        AssetClass.MID_CAP: "Tier 6 (Very High)",
-        AssetClass.SMALL_CAP: "Tier 6 (Very High)",
-        AssetClass.OTHER: "Tier 3 (Moderate)",
-    }
-    return mapping.get(asset_class, "Tier 3 (Moderate)")
+def _asset_class_to_risk_tier(asset_class: AssetClass) -> Optional[str]:
+    """Asset class is not a scheme Riskometer observation; never infer a tier."""
+    return None
 
 # Import the new simplified SAA utilities
 from core.models import RiskTier, AssetAllocationTarget, SAA_POLICY_MAP
@@ -1105,37 +1129,22 @@ def load_holdings_from_cas_excel(
             raw_items.append((str(s_name).strip(), str(f_no).strip() if f_no else "", i_float, c_float, u_float, nav_float, str(amc_value or "").strip()))
 
     for scheme_str, folio_str, invested, current, units_val, nav_val, amc_name in raw_items:
-        # Plan detection
-        scheme_lower = scheme_str.lower()
-        plan = PlanType.DIRECT if "direct" in scheme_lower else PlanType.REGULAR
-        is_direct = plan == PlanType.DIRECT
+        # Plan and option are separate instrument attributes. Display-name
+        # fragments are never evidence for either one.
+        plan = PlanType.UNKNOWN
+        is_direct = None
+        plan_option_status = "MISSING"
+        option_type = None
 
-        # Fuzzy match to fund metrics
-        matched_metric = _find_matching_metric(scheme_str, metrics_map, aliases_map)
-
-        # Default classification
-        category = matched_metric.get("cat", "Equity") if matched_metric else "Equity"
-        er = float(matched_metric.get("er", 0.75)) if matched_metric else (0.85 if plan == PlanType.DIRECT else 1.90)
-        
-        # If Regular plan and only Direct ER is in dataset, estimate regular fee = direct ER + 1.05%
-        if plan == PlanType.REGULAR and matched_metric:
-            er = er + 1.05
-
-        top_h = matched_metric.get("h", []) if matched_metric else []
-        sharpe = matched_metric.get("sharpe") if matched_metric else None
-
-        # Market-cap split
-        eq_pct = float(matched_metric.get("eq", 100.0)) if matched_metric else 100.0
-        debt_pct = float(matched_metric.get("debt", 0.0)) if matched_metric else 0.0
-        lc_pct = float(matched_metric.get("lc", 0.0)) if matched_metric else 0.0
-        mc_pct = float(matched_metric.get("mc", 0.0)) if matched_metric else 0.0
-        sc_pct = float(matched_metric.get("sc", 0.0)) if matched_metric else 0.0
-
-        asset_class = _infer_asset_class(category, eq_pct, debt_pct, lc_pct, mc_pct, sc_pct)
-
-        fund_id = matched_metric.get("id", scheme_str[:30]) if matched_metric else scheme_str[:30]
-        identity = {"scheme_id": None, "isin": None, "status": "MISSING",
-                    "reason": "No verified scheme master was supplied."}
+        # Resolve stable scheme identity and plan/option independently from
+        # fund performance metrics. Only exact scheme-master fields can
+        # establish Direct/Regular or Growth/IDCW.
+        identity = {
+            "scheme_id": None, "isin": None, "status": "MISSING",
+            "plan_type": None, "option_type": None,
+            "plan_option_status": "MISSING",
+            "reason": "No verified scheme master was supplied.",
+        }
         if scheme_master is not None and scheme_master_source_bytes is not None and amc_name:
             from ingestion.portfolio_disclosure import resolve_scheme_identity
             identity = resolve_scheme_identity(
@@ -1143,6 +1152,66 @@ def load_holdings_from_cas_excel(
                 scheme_master,
                 source_bytes=scheme_master_source_bytes,
             )
+        plan_option_status = identity.get("plan_option_status", "MISSING")
+        option_type = identity.get("option_type")
+        if plan_option_status == "VERIFIED":
+            if identity.get("plan_type") == "DIRECT":
+                plan, is_direct = PlanType.DIRECT, True
+            elif identity.get("plan_type") == "REGULAR":
+                plan, is_direct = PlanType.REGULAR, False
+            else:
+                plan_option_status = "CONFLICTING"
+
+        # Exact identity / reviewed-alias metrics match only. Never infer
+        # classification or substitute default exposures when metrics are absent.
+        matched_metric = _find_matching_metric(scheme_str, metrics_map, aliases_map)
+        if matched_metric is None:
+            category = None
+            er = None
+            top_h = []
+            eq_pct = debt_pct = lc_pct = mc_pct = sc_pct = 0.0
+            asset_class = AssetClass.OTHER
+            metrics_status = "MISSING"
+            fund_id = identity.get("scheme_id") or scheme_str[:30]
+        else:
+            category = matched_metric.get("cat")
+            raw_ter = matched_metric.get("er")
+            ter_plan = str(
+                matched_metric.get("ter_plan", matched_metric.get("plan", ""))
+            ).strip().casefold()
+            expected_plan = (
+                "direct" if plan == PlanType.DIRECT
+                else "regular" if plan == PlanType.REGULAR
+                else None
+            )
+            # TER is plan-specific. Unknown plan identity cannot be assigned
+            # either Direct or Regular TER, and no commission delta is inferred.
+            if raw_ter is None or expected_plan is None or ter_plan != expected_plan:
+                er = None
+            else:
+                er = float(raw_ter)
+                if not math.isfinite(er) or er < 0:
+                    raise ValueError(f"Invalid plan-specific TER evidence for {scheme_str!r}.")
+            top_h = matched_metric.get("h", [])
+            required_exposure_fields = ("eq", "debt", "lc", "mc", "sc")
+            missing_exposure_fields = [
+                field for field in required_exposure_fields
+                if matched_metric.get(field) is None
+            ]
+            if missing_exposure_fields:
+                raise ValueError(
+                    f"Fund metrics for CAS scheme {scheme_str!r} are missing exposure fields: "
+                    + ", ".join(missing_exposure_fields)
+                    + "; portfolio-aware SIP analysis is withheld."
+                )
+            eq_pct = float(matched_metric["eq"])
+            debt_pct = float(matched_metric["debt"])
+            lc_pct = float(matched_metric["lc"])
+            mc_pct = float(matched_metric["mc"])
+            sc_pct = float(matched_metric["sc"])
+            asset_class = _infer_asset_class(category, eq_pct, debt_pct, lc_pct, mc_pct, sc_pct)
+            metrics_status = "VERIFIED"
+            fund_id = matched_metric.get("id", identity.get("scheme_id") or scheme_str[:30])
 
         disclosure = {"constituent_weights": None,
                       "constituent_weights_coverage_pct": None,
@@ -1175,6 +1244,8 @@ def load_holdings_from_cas_excel(
                 folio=folio_str,
                 is_direct=is_direct,
                 plan=plan,
+                plan_option_status=plan_option_status,
+                option_type=option_type,
                 invested_value_inr=invested,
                 current_value_inr=current,
                 asset_class=asset_class,
@@ -1193,7 +1264,8 @@ def load_holdings_from_cas_excel(
                 lookthrough_status=disclosure["status"],
                 lookthrough_reason=disclosure["reason"],
                 amc_name=amc_name or None,
-                risk_tier=_asset_class_to_risk_tier(asset_class),
+                risk_tier=None,
+                metrics_status=metrics_status,
             )
         )
 
@@ -1201,97 +1273,95 @@ def load_holdings_from_cas_excel(
 
 
 def _find_matching_metric(scheme: str, metrics: Dict[str, Any], aliases: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """Matches a scheme name string to a metrics entry using aliases and dynamic token overlap similarity."""
-    s_clean = scheme.lower()
-    stop_words = {"fund", "the", "of", "and", "a", "an", "option", "growth", "plan", "regular", "direct", "idcw", "dividend", "reinvestment", "formerly", "erstwhile", "known", "as", "in", "on", "for", "to"}
+    """Resolve metrics only by exact normalized identity or an explicit reviewed alias."""
+    def normalize(value: Any) -> str:
+        return re.sub(r"[^a-z0-9]", "", str(value or "").casefold())
 
-    # 1. Direct alias match
-    if scheme in aliases and aliases[scheme] in metrics:
-        return metrics[aliases[scheme]]
-    if s_clean in aliases and aliases[s_clean] in metrics:
-        return metrics[aliases[s_clean]]
-
-    # 2. Dynamic token overlap similarity across all metrics
-    s_tokens = set(re.findall(r"[a-z0-9]+", re.sub(r"\(.*?\)", " ", s_clean))) - stop_words
-    if not s_tokens:
+    requested = normalize(scheme)
+    if not requested:
         return None
 
-    best_m, best_score = None, 0.0
-    for mid, m in metrics.items():
-        m_str = (mid + " " + m.get("name", "") + " " + m.get("scheme", "")).lower()
-        m_tokens = set(re.findall(r"[a-z0-9]+", re.sub(r"\(.*?\)", " ", m_str))) - stop_words
-        if not m_tokens:
+    # Aliases are reviewed identity mappings, never fuzzy suggestions.
+    alias_target = None
+    for alias, canonical in aliases.items():
+        if normalize(alias) == requested:
+            alias_target = normalize(canonical)
+            break
+    if alias_target:
+        direct = metrics.get(alias_target)
+        if direct is not None:
+            return direct
+        matches = [
+            metric for metric_id, metric in metrics.items()
+            if isinstance(metric, dict) and normalize(metric_id) == alias_target
+        ]
+        return matches[0] if len(matches) == 1 else None
+
+    # A name match is accepted only when exactly one metric record declares it.
+    matches = []
+    for metric_id, metric in metrics.items():
+        if not isinstance(metric, dict):
             continue
-        score = len(s_tokens & m_tokens) / max(1, min(len(s_tokens), len(m_tokens)))
-        if score > best_score:
-            best_score = score
-            best_m = m
-
-    if best_score >= 0.5:
-        return best_m
-
-    return None
-
+        identities = (metric_id, metric.get("id"), metric.get("scheme"), metric.get("name"))
+        if any(normalize(value) == requested for value in identities if value):
+            if metric not in matches:
+                matches.append(metric)
+    return matches[0] if len(matches) == 1 else None
 
 def _infer_asset_class(cat: str, eq: float, debt: float, lc: float, mc: float, sc: float) -> AssetClass:
-    cat_lower = cat.lower()
-    if "debt" in cat_lower or "liquid" in cat_lower or debt >= 75.0:
+    """Classify from explicit scheme category before using allocation heuristics.
+
+    Equity percentage alone cannot distinguish flexi-cap, multi-cap and
+    large-cap funds: all can hold more than 80% equity.
+    """
+    cat_lower = str(cat or "").casefold().replace("_", " ").replace("-", " ")
+    if any(token in cat_lower for token in ("debt", "liquid", "money market", "gilt", "bond")) or debt >= 75.0:
         return AssetClass.DEBT_LIQUID
-    if "balanced" in cat_lower or "hybrid" in cat_lower or "daa" in cat_lower or debt >= 20.0:
+    if any(token in cat_lower for token in ("balanced", "hybrid", "dynamic asset", "multi asset")) or debt >= 20.0:
         return AssetClass.HYBRID_BALANCED
-    if "mid cap" in cat_lower or mc >= 50.0:
-        return AssetClass.MID_CAP
-    if "small cap" in cat_lower or sc >= 50.0:
+    if "international" in cat_lower or "overseas" in cat_lower or "global equity" in cat_lower:
+        return AssetClass.INTERNATIONAL
+    if "small cap" in cat_lower:
         return AssetClass.SMALL_CAP
-    # Check for Flexi Cap specifically (since Flexi Cap falls under "flexi" which could match "large cap" incorrectly)
-    if "flexi" in cat_lower or eq >= 80.0:  # Flexi Cap typically has high equity allocation
-        return AssetClass.FLEXI_CAP
-    # Check for Multi Cap (less specific than Flexi Cap)
-    if "multi cap" in cat_lower or (eq >= 60.0 and eq < 80.0):  # Multi Cap typically has high but not maximum equity
+    if "mid cap" in cat_lower:
+        return AssetClass.MID_CAP
+    if "multi cap" in cat_lower or "multicap" in cat_lower:
         return AssetClass.MULTI_CAP
-    return AssetClass.LARGE_CAP
+    if "flexi cap" in cat_lower or "flexicap" in cat_lower:
+        return AssetClass.FLEXI_CAP
+    if "large cap" in cat_lower or "largecap" in cat_lower or "bluechip" in cat_lower:
+        return AssetClass.LARGE_CAP
+    # Only use disclosed market-cap weights when the scheme category is absent
+    # or genuinely generic. Never infer Flexi Cap from a high equity percentage.
+    if sc >= 50.0:
+        return AssetClass.SMALL_CAP
+    if mc >= 50.0:
+        return AssetClass.MID_CAP
+    if lc >= 50.0:
+        return AssetClass.LARGE_CAP
+    if eq <= 0.0 and debt > 0.0:
+        return AssetClass.DEBT_LIQUID
+    return AssetClass.EQUITY
 
 
-def calculate_fee_bleed(holdings: List[HoldingItem], default_commission_rate: float = 0.0105) -> FeeBleedAnalysis:
+def calculate_fee_bleed(holdings: List[HoldingItem]) -> FeeBleedAnalysis:
+    """Return unavailable until source-backed, plan-specific commission evidence exists.
+
+    A generic commission percentage and assumed future return are not client
+    facts. The function deliberately does not infer commission from TER.
     """
-    Computes exact annual commission drag for Regular plan holdings.
-    Also calculates 10-year compounded opportunity loss at 12% CAGR.
-    """
-    regular_holdings = [h for h in holdings if h.plan == PlanType.REGULAR]
-    total_regular_val = sum(h.current_value_inr for h in regular_holdings)
-
-    details = []
-    annual_bleed = 0.0
-
-    for h in regular_holdings:
-        # Typical distributor trail commission delta is ~1.05% per year
-        fund_bleed = h.current_value_inr * default_commission_rate
-        annual_bleed += fund_bleed
-        details.append({
-            "fund_name": h.fund_name,
-            "folio_no": h.folio,
-            "current_value_inr": round(h.current_value_inr, 2),
-            "estimated_annual_commission_inr": round(fund_bleed, 2),
-            "expense_ratio_pct": round(h.expense_ratio_pct, 2)
-        })
-
-    # Sort details by commission bleed descending
-    details.sort(key=lambda x: x["estimated_annual_commission_inr"], reverse=True)
-
-    # 10-year compounding lost wealth: annuity factor at 12% CAGR over 10 years
-    # Sum_{t=1}^{10} (1.12)^t = 1.12 * ((1.12^10 - 1) / 0.12) = 19.65
-    # Future value of annuity due = Annual * [((1+r)^n - 1)/r] * (1+r)
-    r = 0.12
-    n = 10
-    annuity_factor = (((1.0 + r) ** n - 1.0) / r) * (1.0 + r)
-    ten_year_compounded_loss = annual_bleed * annuity_factor
-
+    regular_count = sum(1 for holding in holdings if holding.plan == PlanType.REGULAR)
     return FeeBleedAnalysis(
-        annual_commission_leakage_inr=round(annual_bleed, 2),
-        ten_year_compounded_loss_inr=round(ten_year_compounded_loss, 2),
-        regular_funds_count=len(regular_holdings),
-        regular_funds=details,
-        direct_alternatives={}
+        annual_commission_leakage_inr=None,
+        ten_year_compounded_loss_inr=None,
+        regular_funds_count=regular_count,
+        regular_funds=[],
+        direct_alternatives={},
+        availability_status="UNAVAILABLE",
+        unavailable_reason=(
+            "No fund-, plan-, distributor- and effective-date-specific commission evidence "
+            "or approved investor-specific projection assumptions were supplied."
+        ),
     )
 
 
@@ -1486,7 +1556,7 @@ def build_fifo_tax_lots(
 
     allowed_types = {
         "PURCHASE", "SIP", "SWITCH_IN", "STP_IN", "DIVIDEND_REINVEST",
-        "REDEMPTION", "SWITCH_OUT", "STP_OUT", "DIVIDEND",
+        "REDEMPTION", "SWITCH_OUT", "STP_OUT", "DIVIDEND", "CHARGES",
     }
     purchase_types = {"PURCHASE", "SIP", "SWITCH_IN", "STP_IN", "DIVIDEND_REINVEST"}
     redemption_types = {"REDEMPTION", "SWITCH_OUT", "STP_OUT"}
@@ -1505,6 +1575,10 @@ def build_fifo_tax_lots(
         if txn_type not in allowed_types:
             raise ValueError(f"Unsupported CAS transaction type at row {index}: {txn_type!r}")
         if amount == 0 and units == 0:
+            continue
+        if txn_type == "CHARGES":
+            if units != 0:
+                raise ValueError(f"Charge row {index} must not change units")
             continue
         if txn_type == "DIVIDEND":
             description = str(txn.get("description", txn.get("desc", "")) or "").casefold()
@@ -1541,8 +1615,11 @@ def build_fifo_tax_lots(
                 )
             )
         elif txn_type in redemption_types:
-            if amount >= 0 or units >= 0:
-                raise ValueError(f"Redemption/switch-out row {index} must have negative amount and units")
+            # Transaction type is the authoritative direction. CAS providers
+            # differ in whether redemption units/amount are signed or reported
+            # as positive magnitudes; both are normalized here.
+            if amount == 0 or units == 0:
+                raise ValueError(f"Redemption/switch-out row {index} requires non-zero amount and units")
             units_to_remove = abs(units)
             lots = fund_lots[fund_id]
             remaining = units_to_remove
@@ -1652,9 +1729,9 @@ def calculate_saa_drift(
             rebalance_required=False,
             equity_gap_inr=0.0,
             debt_gap_inr=0.0,
-            look_through_debt_inr=0.0,
-            look_through_cash_inr=0.0,
-            look_through_stability_buffer_pct=0.0,
+            look_through_debt_inr=None,
+            look_through_cash_inr=None,
+            look_through_stability_buffer_pct=None,
         )
 
     # Compute look-through equity, debt, and cash amounts
@@ -1763,7 +1840,10 @@ def parse_cas(xlsx_path: Path, scheme_master: Optional[Dict[str, Any]] = None, s
                     "folio": vals[hdr.get("Folio No.", 0)],
                     "value": cur_val,
                     "invested": inv_val,
-                    "is_direct": "direct" in scheme_name.lower(),
+                    "is_direct": None,
+                    "plan": None,
+                    "option_type": None,
+                    "plan_option_status": "MISSING",
                     "constituent_weights": None,
                     "constituent_weights_coverage_pct": None,
                     "lookthrough_status": "MISSING",
@@ -1785,6 +1865,14 @@ def parse_cas(xlsx_path: Path, scheme_master: Optional[Dict[str, Any]] = None, s
                         "isin": identity.get("isin"),
                         "scheme_identity_status": identity["status"],
                         "scheme_identity_reason": identity["reason"],
+                        "plan": identity.get("plan_type"),
+                        "option_type": identity.get("option_type"),
+                        "plan_option_status": identity.get("plan_option_status", "MISSING"),
+                        "is_direct": (
+                            identity.get("plan_type") == "DIRECT"
+                            if identity.get("plan_option_status") == "VERIFIED"
+                            else None
+                        ),
                     })
                 holdings.append(holding)
 
@@ -1985,6 +2073,52 @@ def compute_fifo_tax_lots(
     }
 
 
+def _validated_ips_numeric_inputs(ips: Dict[str, Any]) -> Tuple[float, float, float]:
+    """Validate investor-entered SIP/lumpsum/reserve inputs without bool coercion."""
+    if not isinstance(ips, dict):
+        raise ValueError("IPS inputs must be an object")
+    if "monthly_sip_budget" not in ips:
+        raise ValueError("Explicit ips.monthly_sip_budget is required; no default SIP budget is permitted")
+    keys = ("monthly_sip_budget", "lumpsum_budget", "emergency_months")
+    if any(isinstance(ips.get(key), bool) for key in keys if key in ips):
+        raise ValueError("IPS monetary and emergency-month inputs must not be booleans")
+    try:
+        monthly_sip = float(ips["monthly_sip_budget"])
+        lumpsum_budget = float(ips.get("lumpsum_budget", 0.0))
+        emergency_months = float(ips.get("emergency_months", 6.0))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("IPS SIP, lumpsum and emergency-month inputs must be numeric") from exc
+    if not math.isfinite(monthly_sip) or monthly_sip <= 0.0:
+        raise ValueError("IPS monthly_sip_budget must be finite and greater than zero")
+    if not math.isfinite(lumpsum_budget) or lumpsum_budget < 0.0:
+        raise ValueError("IPS lumpsum_budget must be finite and non-negative")
+    if not math.isfinite(emergency_months) or emergency_months < 0.0:
+        raise ValueError("IPS emergency_months must be finite and non-negative")
+    return monthly_sip, lumpsum_budget, emergency_months
+
+
+def _validated_equity_only_sip_authorization(ips: Dict[str, Any], risk_tier: str) -> bool:
+    """Read the explicit IPS authorization for Tier 6 equity-only SIP routing."""
+    value = ips.get("equity_only_sip_authorized", False)
+    if not isinstance(value, bool):
+        raise ValueError("IPS equity_only_sip_authorized must be an explicit boolean")
+    if value and _parse_sebi_risk_tier(risk_tier) != 6:
+        raise ValueError("Equity-only SIP authorization is valid only for SEBI Tier 6")
+    return value
+
+
+def _build_portfolio_gate_summary(holdings: List[HoldingItem]) -> List[Dict[str, Any]]:
+    """Preserve the AMC identity/value fields required by candidate AMC gates."""
+    return [
+        {
+            "scheme": holding.scheme,
+            "value": holding.current_value_inr,
+            "amc_name": holding.amc_name,
+        }
+        for holding in holdings
+    ]
+
+
 def aggregate_fiduciary_facts(
     cas_path: Path,
     metrics_path: Path,
@@ -2010,25 +2144,47 @@ def aggregate_fiduciary_facts(
         disclosure_as_of_date=disclosure_as_of_date,
         disclosure_max_age_days=disclosure_max_age_days,
     )
+    # Empty or zero-value holdings are not evidence of a zero-risk, zero-drift
+    # portfolio. Cash-only portfolios require a separately verified cash source.
+    if not holdings:
+        raise ValueError(
+            "Portfolio diagnostics unavailable: CAS contains no verified active holdings; "
+            "zero drift and zero risk cannot be inferred from an empty portfolio."
+        )
+    portfolio_value = math.fsum(float(holding.current_value_inr) for holding in holdings)
+    if not math.isfinite(portfolio_value) or portfolio_value <= 0.0:
+        raise ValueError(
+            "Portfolio diagnostics unavailable: verified active holdings have no positive "
+            "finite portfolio value; HOLD until a supported cash-only or invested portfolio "
+            "snapshot is independently verified."
+        )
 
-    # Load client config
-    client_name = "Client"
-    monthly_sip = 100000.0
-    target_saa = {}
-    emergency_months = 6.0
-    if config_path.exists():
-        with open(config_path, "r", encoding="utf-8") as f:
-            cfg = json.load(f)
-            client_name = cfg.get("client_name") or cfg.get("ips", {}).get("client_name") or "Valued Client"
-            client_age_val = int(cfg.get("ips", {}).get("client_age", 35))
-            horizon_yrs_val = int(cfg.get("ips", {}).get("horizon_years", 10))
-            client_risk_tier = cfg.get("risk_tier") or cfg.get("ips", {}).get("risk_tolerance", "Tier 6 (Very High)")
-            monthly_sip = float(cfg.get("ips", {}).get("monthly_sip_budget", 100000.0))
-            lumpsum_budget = float(cfg.get("ips", {}).get("lumpsum_budget", 200000.0))
-            target_saa = cfg.get("target_allocation", {})
-            emergency_months = float(cfg.get("ips", {}).get("emergency_months", 6.0))
+    # SIP generation requires an explicit investor mandate. Never manufacture
+    # a ₹1 lakh budget or Tier 6 risk profile when client inputs are absent.
+    if not config_path.is_file():
+        raise ValueError("Client IPS config is required for SIP analysis; no default budget or risk tier is permitted")
+    try:
+        with open(config_path, "r", encoding="utf-8") as config_handle:
+            cfg = json.load(config_handle)
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise ValueError("Client IPS config is unreadable or invalid JSON") from exc
+    if not isinstance(cfg, dict) or not isinstance(cfg.get("ips"), dict):
+        raise ValueError("Client IPS config must contain an ips object")
+    ips = cfg["ips"]
+    client_name = cfg.get("client_name") or ips.get("client_name") or "Valued Client"
+    client_age_val = ips.get("client_age")
+    horizon_yrs_val = ips.get("horizon_years")
+    client_risk_tier = cfg.get("risk_tier") or ips.get("risk_tolerance")
+    if not isinstance(client_risk_tier, str) or not client_risk_tier.strip():
+        raise ValueError("An explicit investor risk_tolerance or risk_tier is required for SIP analysis")
+    monthly_sip, lumpsum_budget, emergency_months = _validated_ips_numeric_inputs(ips)
+    target_saa = cfg.get("target_allocation", {})
 
+    if not holdings:
+        raise ValueError("Portfolio diagnostics unavailable: CAS contains no verified active holdings; no zero-drift report can be produced")
     tot_cur = sum(h.current_value_inr for h in holdings)
+    if not math.isfinite(tot_cur) or tot_cur <= 0.0:
+        raise ValueError("Portfolio diagnostics unavailable: total verified holding value must be positive")
     tot_inv = sum(h.invested_value_inr for h in holdings)
     tot_gain = tot_cur - tot_inv
 
@@ -2047,12 +2203,11 @@ def aggregate_fiduciary_facts(
     
     # Convert SAA Drift Minimizer to SAADriftAnalysis for backward compatibility
     total_equity_val = sum(h.current_value_inr for h in holdings if h.asset_class in (
-        AssetClass.LARGE_CAP, AssetClass.MID_CAP, AssetClass.SMALL_CAP,
-        AssetClass.FLEXI_CAP, AssetClass.MULTI_CAP, AssetClass.LARGE_CAP,
-        AssetClass.INTERNATIONAL
+        AssetClass.EQUITY, AssetClass.LARGE_CAP, AssetClass.MID_CAP, AssetClass.SMALL_CAP,
+        AssetClass.FLEXI_CAP, AssetClass.MULTI_CAP, AssetClass.INTERNATIONAL
     ))
     total_debt_val = sum(h.current_value_inr for h in holdings if h.asset_class in (
-        AssetClass.DEBT,
+        AssetClass.DEBT, AssetClass.DEBT_LIQUID,
     ))
     total_cash_val = sum(h.current_value_inr for h in holdings if h.asset_class in (
         AssetClass.CASH,
@@ -2107,10 +2262,7 @@ def aggregate_fiduciary_facts(
         target_debt_pct=saa.target_debt_pct
     )
     thematic_exps = calculate_thematic_exposures(holdings, metrics_path, aliases_path)
-    client_risk_tier = "Tier 6 (Very High)"
-    if config_path.exists():
-        with open(config_path, "r", encoding="utf-8") as cf:
-            client_risk_tier = json.load(cf).get("risk_tier", "Tier 6 (Very High)")
+    # Keep the already validated risk profile from the IPS; do not overwrite it.
 
     neglected_themes = [th for th in thematic_exps if th.coverage_status == "NEGLECTED"]
     if neglected_themes:
@@ -2119,6 +2271,9 @@ def aggregate_fiduciary_facts(
     else:
         deficit_theme = "Pharma"
 
+    equity_only_sip_authorized = _validated_equity_only_sip_authorization(
+        ips, client_risk_tier
+    )
     det_sip_plan = compute_deterministic_sip_blueprint(
         monthly_budget=monthly_sip,
         risk_tier=client_risk_tier,
@@ -2126,6 +2281,7 @@ def aggregate_fiduciary_facts(
         holdings=holdings,
         client_aum=tot_cur,
         thematic_deficit_theme=deficit_theme,
+        equity_sip_routing_override=equity_only_sip_authorized,
         portfolio_disclosures_by_scheme_id=portfolio_disclosures_by_scheme_id,
         portfolio_disclosure_source_bytes_by_scheme_id=portfolio_disclosure_source_bytes_by_scheme_id,
         disclosure_as_of_date=disclosure_as_of_date,
@@ -2149,9 +2305,40 @@ def aggregate_fiduciary_facts(
     transactions_path = cas_path.parent / "transactions.json"
     if not transactions_path.exists():
         transactions_path = cas_path.parent.parent / "transactions.json"
-    portfolio_xirr = calculate_portfolio_xirr(transactions_path, holdings)
+    try:
+        cas_valuation_date = _parse_cas_valuation_date(cas_path)
+    except (OSError, ValueError, TypeError):
+        cas_valuation_date = None
+    portfolio_xirr = calculate_portfolio_xirr(
+        transactions_path,
+        holdings,
+        cas_current=tot_cur,
+        as_of_date=cas_valuation_date,
+    )
     cas_recon = reconcile_cas_holdings_with_transactions(holdings, transactions_path)
     tax_lots_summary = None
+
+    # Transaction history is optional for a CAS-only portfolio snapshot. If a
+    # supplied history is malformed or does not reconcile, however, it cannot
+    # be ignored while issuing a portfolio-aware SIP proposal.
+    if transactions_path.exists() and cas_recon.get("status") != "VERIFIED_RECONCILED":
+        det_sip_plan.unallocated_budget_inr = det_sip_plan.total_monthly_budget_inr
+        for sip_item in det_sip_plan.items:
+            sip_item.monthly_inr = 0.0
+            sip_item.fiduciary_rationale = (
+                "NO ACTION — complete SIP budget withheld because supplied transaction "
+                "history did not reconcile to CAS holdings. "
+                + str(cas_recon.get("status"))
+                + ". No redistribution is permitted. "
+                + sip_item.fiduciary_rationale
+            )
+        det_sip_plan.execution_status = "HOLD_CAS_TRANSACTION_RECONCILIATION"
+        det_sip_plan.is_execution_authorized = False
+        det_sip_plan.is_actionable_order = False
+        det_sip_plan.enforcement_notice = (
+            "RUNTIME INVARIANT ENFORCED: supplied transaction history failed CAS reconciliation; "
+            "the full monthly SIP budget remains unallocated."
+        )
     
     # A single equity index is not a valid comparator for a mixed-asset
     # portfolio. Until an IPS-weighted composite benchmark (with explicit
@@ -2245,7 +2432,7 @@ def aggregate_fiduciary_facts(
                 disclosure_as_of_date=disclosure_as_of_date,
                 disclosure_max_age_days=disclosure_max_age_days,
             )
-    current_portfolio_summary = [{"scheme": h.scheme, "value": h.current_value_inr} for h in holdings]
+    current_portfolio_summary = _build_portfolio_gate_summary(holdings)
     tier_num = _parse_sebi_risk_tier(client_risk_tier)
 
     eligible_candidates = []
@@ -2264,8 +2451,11 @@ def aggregate_fiduciary_facts(
         if gate_result.passed:
             eligible_candidates.append(cand)
     
-    # Mandatory NO ACTION Fiduciary Branch
-    no_action_decision = evaluate_no_action(holdings, eligible_candidates)
+    # Mandatory NO ACTION Fiduciary Branch receives the same validated
+    # investor suitability profile used by the candidate eligibility gates.
+    no_action_decision = evaluate_no_action(
+        holdings, eligible_candidates, client_risk_tier_num=tier_num
+    )
     
     # Identify weak or redundant funds
     weak_funds = []
@@ -2426,29 +2616,48 @@ def calculate_weighted_lookthrough_overlap(
 def calculate_risk_distribution(
     holdings: List[HoldingItem]
 ) -> RiskDistribution:
+    if not holdings:
+        return RiskDistribution(
+            availability_status="UNAVAILABLE",
+            verified_coverage_pct=0.0,
+            unknown_value_inr=None,
+        )
+    total_value = sum(h.current_value_inr for h in holdings)
+    if not math.isfinite(total_value) or total_value <= 0.0:
+        return RiskDistribution(
+            availability_status="UNAVAILABLE",
+            verified_coverage_pct=0.0,
+            unknown_value_inr=total_value if math.isfinite(total_value) else None,
+        )
+
     tier_counts: Dict[str, int] = {}
     tier_values: Dict[str, float] = {}
-    total_value = sum(h.current_value_inr for h in holdings)
-    
-    for h in holdings:
-        tier = getattr(h, 'risk_tier', None)
-        if tier is None:
-            tier = 'Unknown'
-        if tier not in tier_counts:
-            tier_counts[tier] = 0
-            tier_values[tier] = 0.0
-        tier_counts[tier] += 1
-        tier_values[tier] += h.current_value_inr
-    
-    tier_pct = {t: round((v / total_value) * 100, 2) for t, v in tier_values.items()} if total_value > 0 else {}
-    
+    verified_value = 0.0
+    unknown_value = 0.0
+    for holding in holdings:
+        tier = getattr(holding, "risk_tier", None)
+        if not isinstance(tier, str) or not tier.strip():
+            tier = "Unknown"
+        tier_counts[tier] = tier_counts.get(tier, 0) + 1
+        tier_values[tier] = tier_values.get(tier, 0.0) + holding.current_value_inr
+        if tier == "Unknown":
+            unknown_value += holding.current_value_inr
+        else:
+            verified_value += holding.current_value_inr
+
+    tier_pct = {tier: round(value / total_value * 100.0, 2) for tier, value in tier_values.items()}
+    coverage_pct = verified_value / total_value * 100.0
+    status = "COMPLETE" if coverage_pct >= 99.999 else ("PARTIAL" if coverage_pct > 0.0 else "UNAVAILABLE")
     return RiskDistribution(
         risk_tier_distribution=tier_counts,
         risk_tier_values=tier_pct,
+        availability_status=status,
+        verified_coverage_pct=round(coverage_pct, 2),
+        unknown_value_inr=round(unknown_value, 2),
         portfolio_beta=None,
         max_drawdown_pct=None,
         downside_capture_ratio=None,
-        volatility_annualized_pct=None
+        volatility_annualized_pct=None,
     )
 
 
@@ -2556,25 +2765,24 @@ def calculate_saa_drift_minimizer(
     target_allocation: Dict[str, float],
     sip_budget_inr: float
 ) -> SAA_DriftMinimizer:
+    if not holdings:
+        raise ValueError("SAA diagnostics are unavailable: no verified active holdings were supplied")
     total_val = sum(h.current_value_inr for h in holdings)
-    if total_val <= 0:
-        return SAA_DriftMinimizer(
-            current_allocation={},
-            target_allocation=target_allocation,
-            sip_budget_inr=sip_budget_inr,
-            recommended_sip_allocation={},
-            drift_after_sip={},
-            total_drift_l2_norm=0.0
-        )
+    if not math.isfinite(total_val) or total_val <= 0:
+        raise ValueError("SAA diagnostics are unavailable: portfolio value denominator must be positive")
     
     current_alloc = {}
     for h in holdings:
         asset = h.asset_class.value if hasattr(h.asset_class, 'value') else str(h.asset_class)
         # Map AssetClass to allocation categories
-        if h.asset_class in (AssetClass.LARGE_CAP, AssetClass.MID_CAP, AssetClass.SMALL_CAP, 
-                             AssetClass.FLEXI_CAP, AssetClass.MULTI_CAP, AssetClass.LARGE_CAP):
+        if h.asset_class in (
+            AssetClass.EQUITY, AssetClass.LARGE_CAP, AssetClass.MID_CAP,
+            AssetClass.SMALL_CAP, AssetClass.FLEXI_CAP, AssetClass.MULTI_CAP,
+            AssetClass.INTERNATIONAL,
+        ):
+            # International equity is still equity for total-portfolio SAA.
             alloc_category = "Equity"
-        elif h.asset_class in (AssetClass.DEBT,):
+        elif h.asset_class in (AssetClass.DEBT, AssetClass.DEBT_LIQUID):
             alloc_category = "Debt"
         elif h.asset_class in (AssetClass.CASH,):
             alloc_category = "Cash"
@@ -2589,8 +2797,6 @@ def calculate_saa_drift_minimizer(
             current_alloc["Equity"] += equity_val
             current_alloc["Debt"] += debt_val
             continue
-        elif h.asset_class in (AssetClass.INTERNATIONAL,):
-            alloc_category = "International"
         else:
             alloc_category = "Other"
         
@@ -2600,21 +2806,38 @@ def calculate_saa_drift_minimizer(
     
     current_pct = {k: (v / total_val) * 100 for k, v in current_alloc.items()}
     
-    # Dynamic target mapping supporting Tier 6 granular keys
-    tgt_eq = (
-        target_allocation.get("equity_pct", 0.0)
-        or (
-            target_allocation.get("large_cap_pct", 0.0)
-            + target_allocation.get("mid_small_cap_pct", 0.0)
-            + target_allocation.get("mid_cap_pct", 0.0)
-            + target_allocation.get("small_cap_pct", 0.0)
-            + target_allocation.get("flexi_multi_cap_pct", 0.0)
-        )
+    # Do not invent a 95/5 aggressive target when the client's SAA is absent.
+    # An explicit zero-equity target is valid and must not be replaced by a fallback.
+    if not isinstance(target_allocation, dict):
+        raise ValueError("Explicit client SAA target allocation is required")
+    equity_keys = (
+        "large_cap_pct", "mid_small_cap_pct", "mid_cap_pct",
+        "small_cap_pct", "flexi_multi_cap_pct",
     )
-    if tgt_eq <= 0:
-        tgt_eq = 95.0
-    tgt_db = target_allocation.get("debt_liquid_pct", target_allocation.get("debt_global_pct", 100.0 - tgt_eq))
-    tgt_cash = target_allocation.get("cash_pct", 0.0)
+    has_equity_target = "equity_pct" in target_allocation or any(
+        key in target_allocation for key in equity_keys
+    )
+    if not has_equity_target:
+        raise ValueError("Client SAA is missing an explicit equity allocation; no default target is permitted")
+    try:
+        if "equity_pct" in target_allocation:
+            tgt_eq = float(target_allocation["equity_pct"])
+        else:
+            tgt_eq = sum(float(target_allocation.get(key, 0.0)) for key in equity_keys)
+        debt_key = "debt_liquid_pct" if "debt_liquid_pct" in target_allocation else (
+            "debt_global_pct" if "debt_global_pct" in target_allocation else "debt_pct"
+        )
+        if debt_key not in target_allocation:
+            raise ValueError("Client SAA is missing an explicit debt allocation")
+        tgt_db = float(target_allocation[debt_key])
+        tgt_cash = float(target_allocation.get("cash_pct", 0.0))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Client SAA equity/debt/cash targets must be numeric") from exc
+    target_values = (tgt_eq, tgt_db, tgt_cash)
+    if any(not math.isfinite(value) or not 0.0 <= value <= 100.0 for value in target_values):
+        raise ValueError("Client SAA equity/debt/cash targets must be finite and between 0 and 100")
+    if abs(sum(target_values) - 100.0) > 0.01:
+        raise ValueError("Client SAA equity, debt and cash targets must sum to 100%")
 
     target_pct = {
         "Equity": tgt_eq,
@@ -2624,18 +2847,54 @@ def calculate_saa_drift_minimizer(
     
     gaps = {k: target_pct.get(k, 0) - current_pct.get(k, 0) for k in set(current_pct) | set(target_pct)}
     
-    positive_gaps = {k: v for k, v in gaps.items() if v > 0}
-    total_positive_gap = sum(positive_gaps.values())
-    
-    sip_alloc = {}
-    if total_positive_gap > 0:
-        for asset, gap in positive_gaps.items():
-            sip_alloc[asset] = sip_budget_inr * (gap / total_positive_gap)
+    if isinstance(sip_budget_inr, bool):
+        raise ValueError("SIP budget must be numeric")
+    try:
+        budget = float(sip_budget_inr)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("SIP budget must be numeric") from exc
+    if not math.isfinite(budget) or budget < 0.0:
+        raise ValueError("SIP budget must be finite and non-negative")
+
+    # Minimize squared post-contribution weight error using the post-SIP
+    # denominator. The unconstrained ideal contribution for sleeve i is
+    # target_i * (portfolio_value + SIP) - current_value_i. Project that
+    # vector onto the non-negative simplex whose sum is exactly the SIP budget.
+    # This correctly allows contributions to currently overweight sleeves
+    # when they are still below their desired post-SIP value, and naturally
+    # preserves zero-target sleeves at zero.
+    assets = list(target_pct)
+    new_total = total_val + budget
+    desired = [
+        (target_pct[asset] / 100.0) * new_total - current_alloc.get(asset, 0.0)
+        for asset in assets
+    ]
+    if budget == 0.0:
+        projected_contributions = [0.0 for _ in assets]
     else:
-        for asset in target_pct:
-            sip_alloc[asset] = sip_budget_inr / len(target_pct)
-    
-    new_total = total_val + sip_budget_inr
+        ordered = sorted(desired, reverse=True)
+        cumulative = 0.0
+        theta = None
+        for index, value in enumerate(ordered, start=1):
+            cumulative += value
+            candidate_theta = (cumulative - budget) / index
+            next_value = ordered[index] if index < len(ordered) else float("-inf")
+            if value > candidate_theta and next_value <= candidate_theta:
+                theta = candidate_theta
+                break
+        if theta is None:
+            raise ValueError("Unable to solve constrained post-SIP SAA allocation")
+        projected_contributions = [max(value - theta, 0.0) for value in desired]
+        # Correct floating-point residue deterministically without changing
+        # the active set or allowing a negative sleeve allocation.
+        residue = budget - sum(projected_contributions)
+        if abs(residue) > 1e-9:
+            active = [i for i, value in enumerate(projected_contributions) if value > 0.0]
+            if not active:
+                raise ValueError("SAA projection produced no eligible contribution sleeve")
+            projected_contributions[active[0]] += residue
+    sip_alloc = {asset: projected_contributions[i] for i, asset in enumerate(assets)}
+
     projected_alloc = {}
     for asset in set(current_pct) | set(target_pct):
         current_val = current_alloc.get(asset, 0)
@@ -2941,7 +3200,7 @@ def compute_candidate_portfolio_overlap(
     if candidate_weights is None:
         return None
 
-    total_portfolio_value = 0.0
+    total_equity_value = 0.0
     portfolio_stock_weights: Dict[str, float] = {}
     for holding in holdings:
         try:
@@ -2951,7 +3210,6 @@ def compute_candidate_portfolio_overlap(
             return None
         if not math.isfinite(value) or value <= 0.0 or not math.isfinite(equity_pct) or not 0.0 <= equity_pct <= 100.0:
             return None
-        total_portfolio_value += value
         if equity_pct == 0.0:
             continue
         holding_weights = validated_weights(
@@ -2961,17 +3219,21 @@ def compute_candidate_portfolio_overlap(
         )
         if holding_weights is None:
             return None
-        equity_value_weight = value * equity_pct / 100.0
+        equity_value = value * equity_pct / 100.0
+        total_equity_value += equity_value
         for security_id, stock_weight_pct in holding_weights.items():
             portfolio_stock_weights[security_id] = (
                 portfolio_stock_weights.get(security_id, 0.0)
-                + equity_value_weight * stock_weight_pct / 100.0
+                + equity_value * stock_weight_pct / 100.0
             )
 
-    if not math.isfinite(total_portfolio_value) or total_portfolio_value <= 0.0:
-        return None
+    # Compare equity sleeves with equity sleeves. Including debt/cash in this
+    # denominator artificially dilutes overlap and can make a duplicate fund
+    # look diversified merely because the investor also holds debt.
+    if not math.isfinite(total_equity_value) or total_equity_value <= 0.0:
+        return 0.0
     portfolio_stock_weights = {
-        security_id: value / total_portfolio_value * 100.0
+        security_id: value / total_equity_value * 100.0
         for security_id, value in portfolio_stock_weights.items()
     }
     overlap = sum(
@@ -2984,8 +3246,10 @@ def compute_candidate_portfolio_overlap(
 
 def compute_multi_horizon_fiduciary_score(
     c: Dict[str, Any],
-    category_key: str = "Healthcare",
-    portfolio_overlap_pct: Optional[float] = None
+    category_key: str,
+    portfolio_overlap_pct: Optional[float] = None,
+    *,
+    scoring_weights: Any,
 ) -> float:
     """
     Standardized 6-Pillar Fiduciary Normalized Scoring Engine (0 - 100 Scale):
@@ -2994,7 +3258,9 @@ def compute_multi_horizon_fiduciary_score(
     Incorporates actual candidate-to-portfolio weighted stock look-through overlap.
     """
     from core.candidate_scoring import calculate_candidate_6_pillar_score
-    score, _ = calculate_candidate_6_pillar_score(c, category_key, portfolio_overlap_pct)
+    score, _ = calculate_candidate_6_pillar_score(
+        c, category_key, portfolio_overlap_pct, weights=scoring_weights
+    )
     return score
 
 
@@ -3491,8 +3757,10 @@ def qualifies_as_specified_mutual_fund_under_section_50AA(
 
 def compute_multi_horizon_fiduciary_score(
     c: Dict[str, Any],
-    category_key: str = "Healthcare",
-    portfolio_overlap_pct: Optional[float] = None
+    category_key: str,
+    portfolio_overlap_pct: Optional[float] = None,
+    *,
+    scoring_weights: Any,
 ) -> float:
     """
     Standardized 6-Pillar Fiduciary Normalized Scoring Engine (0 - 100 Scale):
@@ -3501,7 +3769,9 @@ def compute_multi_horizon_fiduciary_score(
     Incorporates actual candidate-to-portfolio weighted stock look-through overlap.
     """
     from core.candidate_scoring import calculate_candidate_6_pillar_score
-    score, _ = calculate_candidate_6_pillar_score(c, category_key, portfolio_overlap_pct)
+    score, _ = calculate_candidate_6_pillar_score(
+        c, category_key, portfolio_overlap_pct, weights=scoring_weights
+    )
     return score
 
 
@@ -4145,7 +4415,11 @@ def select_autonomous_blueprint_funds(
             if holdings:
                 if candidate.get("lookthrough_status") != "VERIFIED":
                     continue
-                if any(getattr(holding, "lookthrough_status", "MISSING") != "VERIFIED" for holding in holdings):
+                if any(
+                    float(getattr(holding, "equity_pct", 0.0) or 0.0) > 0.0
+                    and getattr(holding, "lookthrough_status", "MISSING") != "VERIFIED"
+                    for holding in holdings
+                ):
                     continue
             portfolio_overlap = compute_candidate_portfolio_overlap(
                 candidate,
@@ -4292,7 +4566,17 @@ def calculate_universal_tier_split(
         tolerance = float(profile["tolerance_band_pct"])
         equity_sip = float(sip["equity_pct"])
         debt_sip = float(sip["debt_pct"])
-        requires_ips_authorization = bool(sip.get("requires_explicit_ips_authorization", False))
+        authorization_flag = sip.get("requires_explicit_ips_authorization")
+        if not isinstance(authorization_flag, bool):
+            raise ValueError(
+                "requires_explicit_ips_authorization must be a required literal boolean in every risk profile"
+            )
+        requires_ips_authorization = authorization_flag
+        if tier_num == 6:
+            if not requires_ips_authorization:
+                raise ValueError("Tier 6 equity-only routing requires explicit IPS authorization policy")
+            if abs(equity_sip - 100.0) > 0.01 or abs(debt_sip) > 0.01:
+                raise ValueError("Tier 6 policy must preserve the approved 100/0 equity-only route")
     except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
         raise ValueError(f"Invalid allocation policy for SEBI risk tier {tier_num}") from exc
 
@@ -4327,7 +4611,7 @@ def compute_deterministic_lumpsum_blueprint(
     bank_cash_total: float = 0.0,
     emergency_reserve: float = 0.0,
     holdings: Optional[List[HoldingItem]] = None,
-    risk_tier: str = "Tier 6 (Very High)",
+    risk_tier: Optional[str] = None,
     stability_buffer_pct: Optional[float] = None,
     thematic_deficit_theme: str = "Pharma",
     thematic_satellite_authorized: bool = False,
@@ -4349,6 +4633,8 @@ def compute_deterministic_lumpsum_blueprint(
     import math
     import re
 
+    if risk_tier is None or (isinstance(risk_tier, str) and not risk_tier.strip()):
+        raise ValueError("An explicit validated investor risk profile is required; Tier 6 is never inferred")
     try:
         amount = float(lumpsum_amount)
         cash_total = float(bank_cash_total)
@@ -4471,7 +4757,7 @@ def compute_deterministic_lumpsum_blueprint(
         stp_total_amount_inr=0.0,
         monthly_stp_total_inr=0.0,
         parking_vehicle="NO_ACTION",
-        tax_savings_vs_debt_fund_inr=0.0,
+        tax_savings_vs_debt_fund_inr=None,
         cash_validation_passed=bank_cash_verified and deployable >= amount,
         cash_validation_message="NO ACTION: " + "; ".join(reasons),
         tranches=[],
@@ -4530,10 +4816,10 @@ def _sip_operational_constraint_violations(items, sip_policy):
 
 def compute_deterministic_sip_blueprint(
     monthly_budget: float,
-    risk_tier: str = "Tier 6 (Very High)",
+    risk_tier: Optional[str] = None,
     stability_buffer_pct: Optional[float] = None,
     holdings: Optional[List[HoldingItem]] = None,
-    client_aum: float = 0.0,
+    client_aum: Optional[float] = None,
     thematic_deficit_theme: str = "Pharma",
     thematic_satellite_pct_of_equity: float = 0.0,
     thematic_satellite_authorized: bool = False,
@@ -4553,6 +4839,10 @@ def compute_deterministic_sip_blueprint(
     import math
     import json
     from pathlib import Path
+    if risk_tier is None or (isinstance(risk_tier, str) and not risk_tier.strip()):
+        raise ValueError("An explicit validated investor risk profile is required; Tier 6 is never inferred")
+    if client_aum is None:
+        raise ValueError("Verified reconciled client AUM is required; missing AUM is not zero")
     try:
         b = float(monthly_budget)
         aum_value = float(client_aum)
@@ -5031,3 +5321,17 @@ classify_specified_mutual_fund = _tax_classification_disabled
 qualifies_as_equity_oriented_under_section_198 = _tax_classification_disabled
 qualifies_as_specified_mutual_fund_under_section_50AA = _tax_classification_disabled
 qualifies_as_specified_mutual_fund_under_section_76 = _tax_classification_disabled
+
+
+
+def _tax_lot_maturity_classification_disabled(*args, **kwargs):
+    raise TaxClassificationDisabledError(
+        "Direct tax-lot maturity classification is disabled pending independent "
+        "Indian tax/legal approval and exact scheme/plan/lot evidence. No "
+        "holding-period, LTCG or STCG classification has been generated."
+    )
+
+
+# Prevent direct class imports from bypassing the module-level FIFO release gate.
+TaxLot.is_long_term = _tax_lot_maturity_classification_disabled
+TaxLot.is_short_term = _tax_lot_maturity_classification_disabled

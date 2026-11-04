@@ -5,6 +5,7 @@ implicit repository-data fallback and no network source scraping in this API.
 """
 from __future__ import annotations
 
+import json
 import math
 import tempfile
 from pathlib import Path
@@ -14,6 +15,7 @@ from fastapi import FastAPI, File, Form, UploadFile
 from fastapi.responses import JSONResponse
 
 from services.sip_evidence_contract import validate_evidence_provider_payload
+from services.sip_evidence_bundle import build_sip_evidence_provider
 from services.sip_recommendation import recommend_sip
 
 MAX_CAS_BYTES = 20 * 1024 * 1024
@@ -70,6 +72,7 @@ def create_sip_app(
         cas_file: UploadFile = File(...),
         monthly_budget_inr: float = Form(...),
         risk_profile: str = Form(...),
+        portfolio_context_json: str | None = Form(None),
     ):
         if not math.isfinite(monthly_budget_inr) or monthly_budget_inr <= 0:
             return JSONResponse(status_code=422, content={
@@ -78,11 +81,14 @@ def create_sip_app(
                 "reasons": ["Monthly SIP budget must be finite and greater than zero."],
                 "unallocated_budget_inr": monthly_budget_inr if math.isfinite(monthly_budget_inr) else None,
             })
-        if risk_profile not in {"Conservative", "Moderate", "Aggressive", "Custom"}:
+        if risk_profile not in {"Conservative", "Moderate", "Aggressive"}:
             return JSONResponse(status_code=422, content={
                 "status": "HOLD",
                 "decision": "NO_ACTION",
-                "reasons": ["Risk profile must be Conservative, Moderate, Aggressive or Custom."],
+                "reasons": [
+                    "This SIP endpoint currently supports Conservative, Moderate and Aggressive profiles only.",
+                    "Custom SAA is not implemented at the API-to-engine boundary; no allocation has been calculated.",
+                ],
                 "unallocated_budget_inr": monthly_budget_inr,
             })
         if not (cas_file.filename or "").lower().endswith(".xlsx"):
@@ -92,6 +98,25 @@ def create_sip_app(
                 "reasons": ["Only an XLSX CAS statement is supported."],
                 "unallocated_budget_inr": monthly_budget_inr,
             })
+
+        portfolio_context = None
+        if portfolio_context_json is not None:
+            if len(portfolio_context_json.encode("utf-8")) > 256 * 1024:
+                return JSONResponse(status_code=413, content={
+                    "status": "HOLD", "decision": "NO_ACTION",
+                    "reasons": ["Portfolio context exceeds the 256 KiB limit."],
+                    "unallocated_budget_inr": monthly_budget_inr,
+                })
+            try:
+                portfolio_context = json.loads(portfolio_context_json)
+                if not isinstance(portfolio_context, dict):
+                    raise ValueError("portfolio context must be an object")
+            except (json.JSONDecodeError, ValueError):
+                return JSONResponse(status_code=422, content={
+                    "status": "HOLD", "decision": "NO_ACTION",
+                    "reasons": ["Portfolio context must be a valid JSON object."],
+                    "unallocated_budget_inr": monthly_budget_inr,
+                })
 
         payload = await cas_file.read(MAX_CAS_BYTES + 1)
         if len(payload) > MAX_CAS_BYTES:
@@ -135,19 +160,51 @@ def create_sip_app(
                 # The validated provider envelope also carries provenance-only
                 # fields used at this boundary. Pass only the service's explicit
                 # input contract; never forward the envelope wholesale.
-                result = recommend_sip(
-                    cas_path=cas_path,
-                    metrics_path=evidence["metrics_path"],
-                    aliases_path=evidence["aliases_path"],
-                    monthly_budget_inr=monthly_budget_inr,
-                    risk_profile=risk_profile,
-                    scheme_master=evidence["scheme_master"],
-                    scheme_master_source_bytes=evidence["scheme_master_source_bytes"],
-                    portfolio_disclosures_by_scheme_id=evidence["portfolio_disclosures_by_scheme_id"],
-                    portfolio_disclosure_source_bytes_by_scheme_id=evidence["portfolio_disclosure_source_bytes_by_scheme_id"],
-                    disclosure_as_of_date=evidence["disclosure_as_of_date"],
-                    candidate_universe=evidence["candidate_universe"],
-                )
+                service_inputs = {
+                    "cas_path": cas_path,
+                    "metrics_path": evidence["metrics_path"],
+                    "aliases_path": evidence["aliases_path"],
+                    "monthly_budget_inr": monthly_budget_inr,
+                    "risk_profile": risk_profile,
+                    "scheme_master": evidence["scheme_master"],
+                    "scheme_master_source_bytes": evidence["scheme_master_source_bytes"],
+                    "portfolio_disclosures_by_scheme_id": evidence["portfolio_disclosures_by_scheme_id"],
+                    "portfolio_disclosure_source_bytes_by_scheme_id": evidence["portfolio_disclosure_source_bytes_by_scheme_id"],
+                    "disclosure_as_of_date": evidence["disclosure_as_of_date"],
+                    "candidate_universe": evidence["candidate_universe"],
+                }
+                for provenance_field in (
+                    "metrics_source_bytes",
+                    "candidate_universe_source_bytes",
+                    "candidate_score_source_bytes",
+                    "category_anchor_source_bytes",
+                    "portfolio_context_source_bytes",
+                ):
+                    if provenance_field in evidence:
+                        service_inputs[provenance_field] = evidence[provenance_field]
+                metrics_metadata = evidence.get("metrics_source_metadata")
+                if isinstance(metrics_metadata, dict):
+                    service_inputs["metrics_normalized_sha256"] = metrics_metadata.get(
+                        "normalized_metrics_sha256"
+                    )
+                candidate_metadata = evidence.get("candidate_universe_source")
+                if isinstance(candidate_metadata, dict):
+                    service_inputs["candidate_universe_normalized_sha256"] = candidate_metadata.get(
+                        "normalized_candidate_universe_sha256"
+                    )
+                provider_portfolio_context = evidence.get("portfolio_context")
+                if provider_portfolio_context is not None:
+                    provider_portfolio_context["evidence_attested_by_provider"] = True
+                    provider_portfolio_context["_source_bundle_sha256"] = evidence[
+                        "portfolio_context_source_metadata"
+                    ]["source_document_sha256"]
+                    service_inputs["portfolio_context"] = provider_portfolio_context
+                elif portfolio_context is not None:
+                    # Client declarations are useful for scenario diagnostics,
+                    # but cannot attest source authenticity or perimeter completeness.
+                    portfolio_context["_client_supplied_unverified"] = True
+                    service_inputs["portfolio_context"] = portfolio_context
+                result = recommend_sip(**service_inputs)
             except Exception as exc:
                 # Do not expose exception text, local paths, source records or
                 # uploaded content to the client.
@@ -163,4 +220,4 @@ def create_sip_app(
     return app
 
 
-app = create_sip_app()
+app = create_sip_app(evidence_provider=build_sip_evidence_provider())

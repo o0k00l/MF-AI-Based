@@ -41,6 +41,8 @@ def test_requesty_discovery_rejects_unknown_pricing(monkeypatch):
 def test_openrouter_discovery_uses_only_catalogue_free_models(monkeypatch):
     payload = {"data": [
         {"id": "vendor/free:free", "pricing": {"prompt": "0", "completion": "0"}},
+        {"id": "vendor/free-label-but-unknown:free", "pricing": {}},
+        {"id": "vendor/free-label-but-paid:free", "pricing": {"prompt": "0.01", "completion": "0"}},
         {"id": "vendor/paid", "pricing": {"prompt": "0.01", "completion": "0.02"}},
     ]}
     monkeypatch.setattr(ai_engine, "_read_model_cache", lambda *args: None)
@@ -69,7 +71,7 @@ def test_openai_request_omits_optional_generation_parameters(monkeypatch):
         def __init__(self, **kwargs):
             self.chat = SimpleNamespace(completions=Completions())
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
-    monkeypatch.setattr(ai_engine, "discover_openrouter_free_models", lambda key: ["vendor/model"])
+    monkeypatch.setattr(ai_engine, "discover_openrouter_free_models", lambda key, force_refresh=False: ["vendor/model"])
     monkeypatch.setitem(__import__("sys").modules, "openai", SimpleNamespace(OpenAI=Client))
     assert ai_engine._call_openrouter("test") == "READY"
     assert calls == [{"model": "vendor/model", "messages": [{"role": "user", "content": "test"}]}]
@@ -91,7 +93,7 @@ def test_narrative_provider_chain_excludes_gemini(monkeypatch):
     monkeypatch.setattr(ai_engine, "_call_openrouter", unavailable)
     monkeypatch.setattr(ai_engine, "_call_requesty", requesty)
     monkeypatch.setattr(ai_engine, "_get_narrative_cache", lambda: {})
-    assert ai_engine.call_llm("test", use_cache=False) == "READY"
+    assert ai_engine.call_llm("test", use_cache=False, external_processing_consent=True) == "READY"
     assert attempted == ["openrouter", "requesty"]
 
 
@@ -139,7 +141,7 @@ def test_openai_does_not_try_other_models_after_quota_failure(monkeypatch):
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
     monkeypatch.setattr(
         ai_engine, "discover_openrouter_free_models",
-        lambda key: ["vendor/model-a", "vendor/model-b", "vendor/model-c"],
+        lambda key, force_refresh=False: ["vendor/model-a", "vendor/model-b", "vendor/model-c"],
     )
     monkeypatch.setitem(__import__("sys").modules, "openai", SimpleNamespace(OpenAI=Client))
     with pytest.raises(ai_engine.ProviderError) as caught:
@@ -164,3 +166,48 @@ def test_google_exception_diagnostics_do_not_expose_free_form_message():
     exc = SimpleNamespace(code=400, status="INVALID_ARGUMENT", message="secret prompt and API key")
     assert ai_engine._safe_exception_code(exc) == "INVALID_ARGUMENT"
     assert "secret" not in (ai_engine._safe_exception_code(exc) or "")
+
+
+def test_generation_blocks_model_when_live_zero_price_evidence_changes(monkeypatch):
+    attempted = []
+
+    class Completions:
+        def create(self, **kwargs):
+            attempted.append(kwargs["model"])
+            return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content="READY"))])
+
+    class Client:
+        def __init__(self, **kwargs):
+            self.chat = SimpleNamespace(completions=Completions())
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    def discovery(key, force_refresh=False):
+        return ["vendor/model"] if not force_refresh else []
+    monkeypatch.setattr(ai_engine, "discover_openrouter_free_models", discovery)
+    monkeypatch.setitem(__import__("sys").modules, "openai", SimpleNamespace(OpenAI=Client))
+
+    with pytest.raises(ai_engine.ProviderError, match="no longer verified as zero-priced"):
+        ai_engine._call_openrouter("test")
+    assert attempted == []
+
+
+def test_force_refresh_bypasses_stale_cache_even_when_cache_is_readable(monkeypatch):
+    fetched = []
+    monkeypatch.setattr(
+        ai_engine, "_read_model_cache",
+        lambda *args: ["vendor/stale-paid-model"],
+    )
+    monkeypatch.setattr(
+        ai_engine, "_http_json",
+        lambda *args: fetched.append(args) or {
+            "data": [{"id": "vendor/current-free", "input_price": "0", "output_price": "0"}]
+        },
+    )
+    monkeypatch.setattr(ai_engine, "_write_model_cache", lambda *args: None)
+
+    result = ai_engine._discover_openai_models(
+        "Requesty", "https://example.test/models", "key", force_refresh=True
+    )
+
+    assert result == ["vendor/current-free"]
+    assert len(fetched) == 1

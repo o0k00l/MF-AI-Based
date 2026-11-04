@@ -131,6 +131,8 @@ def _risk_tier_to_int(tier: Any) -> int:
         return 5
     if "low to moderate" in tier_str:
         return 2
+    if tier_str in {"moderate", "risk_tier.moderate"}:
+        return 4
     if "moderate" in tier_str:
         return 3
     if tier_str in {"low", "preservation"}:
@@ -162,7 +164,7 @@ CATEGORY_AUM_CAPS = {
 def check_eligibility_gates(
     fund_data: Dict[str, Any],
     portfolio_holdings: Optional[List[Dict[str, Any]]] = None,
-    client_risk_tier_num: int = 6,
+    client_risk_tier_num: Optional[int] = None,
     is_starter: bool = False,
     amc_max_limit_pct: float = 30.0,
     min_aum_crore: float = 1000.0,
@@ -423,8 +425,16 @@ def check_eligibility_gates(
         mandate_ok = False
     elif not mandate_suitable_raw:
         mandate_ok = False
-    # Convert client_risk_tier_num to int (handles RiskTier enum, string, or int)
-    client_tier_int = _risk_tier_to_int(client_risk_tier_num)
+    # Investor suitability is mandatory and distinct from scheme Riskometer.
+    if client_risk_tier_num is None:
+        client_tier_int = 0
+        failed.append("Gate 6 [Investor Suitability]: explicit validated investor risk profile missing — fail-closed")
+    else:
+        try:
+            client_tier_int = _risk_tier_to_int(client_risk_tier_num)
+        except ValueError as exc:
+            client_tier_int = 0
+            failed.append(f"Gate 6 [Investor Suitability]: {exc} — fail-closed")
     
     # Passive/index funds are exempt from riskometer breach (broad market tracking = diversified risk)
     if not is_passive_cand and riskometer_score > client_tier_int:
@@ -574,25 +584,134 @@ def check_eligibility_gates(
     )
 
 
+def _portfolio_weighted_constituent_overlap_pct(
+    candidate: Dict[str, Any],
+    portfolio_holdings: List[Any],
+    minimum_coverage_pct: float = 99.5,
+) -> Optional[float]:
+    """
+    Return weighted constituent overlap (0-100) between a candidate and the
+    existing equity portfolio. None means overlap is not safely measurable.
+
+    Existing funds are aggregated by current equity value, not counted equally.
+    Both sides require source-verified constituent weights and adequate
+    disclosure coverage. Missing look-through is never treated as zero overlap.
+    """
+    def field(item: Any, name: str, default=None):
+        return item.get(name, default) if isinstance(item, dict) else getattr(item, name, default)
+
+    def weights_for(item: Any) -> Optional[Dict[str, float]]:
+        if field(item, "lookthrough_status", "") != "VERIFIED":
+            return None
+        coverage = field(item, "constituent_weights_coverage_pct")
+        try:
+            if isinstance(coverage, bool) or coverage is None:
+                return None
+            coverage = float(coverage)
+        except (TypeError, ValueError):
+            return None
+        if not math.isfinite(coverage) or coverage < minimum_coverage_pct or coverage > 100.0:
+            return None
+        raw = field(item, "constituent_weights")
+        if not isinstance(raw, dict) or not raw:
+            return None
+        parsed = {}
+        for name, value in raw.items():
+            if not isinstance(name, str) or not name.strip() or isinstance(value, bool):
+                return None
+            try:
+                number = float(value)
+            except (TypeError, ValueError):
+                return None
+            if not math.isfinite(number) or number < 0.0 or number > 100.0:
+                return None
+            if number > 0:
+                parsed[name.strip().casefold()] = parsed.get(name.strip().casefold(), 0.0) + number
+        total = sum(parsed.values())
+        if not parsed or total <= 0.0 or total > 100.5:
+            return None
+        return {name: value * 100.0 / total for name, value in parsed.items()}
+
+    candidate_weights = weights_for(candidate)
+    if candidate_weights is None:
+        return None
+
+    portfolio_exposure: Dict[str, float] = {}
+    equity_value_total = 0.0
+    for holding in portfolio_holdings or []:
+        raw_value = field(holding, "current_value_inr", field(holding, "value"))
+        raw_equity_pct = field(holding, "equity_pct")
+        asset_class = str(field(holding, "asset_class", "") or "").casefold()
+        if raw_value is None or isinstance(raw_value, bool) or raw_equity_pct is None:
+            return None
+        try:
+            value = float(raw_value)
+            equity_pct = float(raw_equity_pct)
+        except (TypeError, ValueError):
+            return None
+        if (not math.isfinite(value) or value < 0.0
+                or not math.isfinite(equity_pct) or not 0.0 <= equity_pct <= 100.0):
+            return None
+        equity_value = value * equity_pct / 100.0
+        if equity_value <= 0.0:
+            continue
+        # Equity exposure must be explicitly classified; unknown asset classes
+        # cannot be silently treated as a fully understood equity holding.
+        if not any(token in asset_class for token in (
+            "large", "mid", "small", "flexi", "multi", "equity", "international"
+        )):
+            return None
+        holding_weights = weights_for(holding)
+        if holding_weights is None:
+            return None
+        equity_value_total += equity_value
+        for stock, weight_pct in holding_weights.items():
+            portfolio_exposure[stock] = portfolio_exposure.get(stock, 0.0) + equity_value * weight_pct / 100.0
+
+    if equity_value_total <= 0.0:
+        return None
+    portfolio_total = sum(portfolio_exposure.values())
+    if portfolio_total <= 0.0:
+        return None
+    portfolio_weights = {
+        stock: exposure * 100.0 / portfolio_total
+        for stock, exposure in portfolio_exposure.items()
+    }
+    return sum(
+        min(weight, portfolio_weights.get(stock, 0.0))
+        for stock, weight in candidate_weights.items()
+    )
+
+
 def filter_candidates(
     candidate_universe: List[Dict[str, Any]],
     current_portfolio: List[Dict[str, Any]],
     amc_max_limit_pct: float = 30.0,
     max_overlap_limit_pct: float = 30.0,
-    client_risk_tier_num: int = 6,
+    client_risk_tier_num: Optional[int] = None,
     is_starter: bool = False,
 ) -> List[str]:
     """
-    Runs strict boolean checks across candidate universe using all 10 binary gates.
-    Returns: List of eligible fund names.
-    If len(eligible) == 0, the caller triggers NO ACTION branch.
+    Apply the binary eligibility gates and a portfolio-weighted look-through
+    overlap ceiling. The overlap limit is enforced only when it can be measured
+    from verified, sufficiently complete constituent disclosures; otherwise
+    the candidate is withheld rather than assuming zero overlap.
     """
+    if isinstance(max_overlap_limit_pct, bool):
+        raise ValueError("max_overlap_limit_pct must be numeric")
+    try:
+        overlap_limit = float(max_overlap_limit_pct)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("max_overlap_limit_pct must be numeric") from exc
+    if not math.isfinite(overlap_limit) or not 0.0 <= overlap_limit <= 100.0:
+        raise ValueError("max_overlap_limit_pct must be finite and between 0 and 100")
+
     eligible = []
     for cand in candidate_universe:
         cand_name = cand.get("name", cand.get("fund_name", cand.get("id", "")))
         fund_data = dict(cand)
         fund_data["fund_name"] = cand_name
-        
+
         gate_result = check_eligibility_gates(
             fund_data=fund_data,
             portfolio_holdings=current_portfolio,
@@ -600,22 +719,49 @@ def filter_candidates(
             is_starter=is_starter,
             amc_max_limit_pct=amc_max_limit_pct,
         )
-        if gate_result.passed:
-            eligible.append(cand_name)
+        if not gate_result.passed:
+            continue
+
+        overlap_pct = _portfolio_weighted_constituent_overlap_pct(
+            fund_data, current_portfolio
+        )
+        if overlap_pct is None or overlap_pct > overlap_limit:
+            continue
+        eligible.append(cand_name)
 
     return eligible
-
 
 def evaluate_no_action(
     current_portfolio: List[Any],
     candidate_funds: List[Dict[str, Any]],
-    min_improvement_threshold: float = 5.0
+    min_improvement_threshold: float = 5.0,
+    client_risk_tier_num: Optional[int] = None,
 ) -> NOActionResult:
     """
     Mandatory Fiduciary NO ACTION decision branch:
     If no candidate scheme demonstrates statistically validated improvement (composite score >= 5.0),
     emits an explicit verdict: NO ACTION / HOLD. Retain existing holdings.
     """
+    if client_risk_tier_num is None:
+        return NOActionResult(
+            action="NO_ACTION",
+            reason="Explicit investor suitability profile is missing; no candidate was evaluated.",
+            current_portfolio_adequate=False,
+            no_improvement_found=True,
+            hold_recommendation="HOLD — obtain and validate the investor risk profile before eligibility review.",
+            sip_deployment_pause=True,
+        )
+    try:
+        _risk_tier_to_int(client_risk_tier_num)
+    except ValueError as exc:
+        return NOActionResult(
+            action="NO_ACTION",
+            reason=f"Investor suitability profile is invalid: {exc}",
+            current_portfolio_adequate=False,
+            no_improvement_found=True,
+            hold_recommendation="HOLD — obtain a valid investor risk profile before eligibility review.",
+            sip_deployment_pause=True,
+        )
     best_improvement = 0.0
     best_fund = None
 
@@ -623,7 +769,7 @@ def evaluate_no_action(
         is_passed = fund.get("eligibility", {}).get("passed", False)
         if not is_passed and "eligibility" not in fund:
             # Evaluate on the fly if not pre-evaluated
-            gate_res = check_eligibility_gates(fund)
+            gate_res = check_eligibility_gates(fund, client_risk_tier_num=client_risk_tier_num)
             is_passed = gate_res.passed
 
         if not is_passed:

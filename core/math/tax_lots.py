@@ -94,3 +94,18 @@ def _fifo_redeem(lots: List[TaxLot], units_to_remove: float) -> List[TaxLot]:
             new_lots.append(remaining_lot)
             remaining = 0
     return new_lots
+
+def _tax_lot_maturity_classification_disabled(*args, **kwargs):
+    from core.math_engine import TaxClassificationDisabledError
+
+    raise TaxClassificationDisabledError(
+        "Direct tax-lot maturity classification is disabled pending independent "
+        "Indian tax/legal approval and exact scheme/plan/lot evidence. No "
+        "holding-period, LTCG or STCG classification has been generated."
+    )
+
+
+# Guard both public methods; the legacy holding_months parameter is not accepted
+# as a way to substitute a generic statutory holding period.
+TaxLot.is_long_term = _tax_lot_maturity_classification_disabled
+TaxLot.is_short_term = _tax_lot_maturity_classification_disabled

@@ -228,7 +228,7 @@ def test_p0_3_all_10_binary_eligibility_gates(tmp_path):
         {"amc_name": "TEST AMC", "current_value_inr": 200000.0},
         {"amc_name": "OTHER AMC", "current_value_inr": 800000.0},
     ]
-    res_clean = check_eligibility_gates(base_good_fund, portfolio_holdings=base_holdings)
+    res_clean = check_eligibility_gates(base_good_fund, portfolio_holdings=base_holdings, client_risk_tier_num=6)
     assert res_clean.passed is True
     assert len(res_clean.failed_gates) == 0
 
@@ -326,7 +326,8 @@ def test_p0_4_candidate_universe_and_no_action_branch(tmp_path):
         candidate_funds=[
             {"fund_id": "C1", "fund_name": "Low Alpha Fund", "eligibility": {"passed": True}, "composite_score": 2.5}
         ],
-        min_improvement_threshold=5.0
+        min_improvement_threshold=5.0,
+        client_risk_tier_num=6,
     )
     assert no_act.action == "NO_ACTION"
     assert no_act.current_portfolio_adequate is True
@@ -340,7 +341,8 @@ def test_p0_4_candidate_universe_and_no_action_branch(tmp_path):
         candidate_funds=[
             {"fund_id": "C2", "fund_name": "Alpha Fund Direct", "eligibility": {"passed": True}, "composite_score": 75.0}
         ],
-        min_improvement_threshold=5.0
+        min_improvement_threshold=5.0,
+        client_risk_tier_num=6,
     )
     assert proceed.action == "PROCEED"
     assert proceed.current_portfolio_adequate is False
@@ -383,9 +385,9 @@ def test_p0_5_fiduciary_personal_redemption_engine_fails_closed():
     assert plan.ticket_category == "NO_ACTION_EVIDENCE"
     assert plan.requested_amount_inr == 100000.0
     assert plan.total_gross_redeemed_inr == 0.0
-    assert plan.total_exit_load_inr == 0.0
-    assert plan.total_stcg_tax_inr == 0.0
-    assert plan.total_ltcg_tax_inr == 0.0
+    assert plan.total_exit_load_inr is None
+    assert plan.total_stcg_tax_inr is None
+    assert plan.total_ltcg_tax_inr is None
     assert plan.total_net_cash_inr == 0.0
     assert plan.funds_liquidated_count == 0
     assert plan.tranches == []
@@ -400,6 +402,12 @@ def test_p0_6_multi_horizon_selection_and_peer_evaluation(tmp_path):
     No real-client fund metrics are required by this unit test.
     """
     from core.math_engine import compute_multi_horizon_fiduciary_score, select_autonomous_blueprint_funds
+    from core.candidate_scoring import ScoringWeights
+    weights = ScoringWeights(
+        w_alpha=1.0 / 6.0, w_sharpe=1.0 / 6.0, w_ter=1.0 / 6.0,
+        w_downside_buffer=1.0 / 6.0, w_international=1.0 / 6.0,
+        w_mpb_overlap=1.0 / 6.0,
+    )
 
     metrics_path = tmp_path / "fund_metrics.json"
     def peer(fid, name, ret_1y, ret_6m, ret_3y, alpha, sharpe, ter, downside, upside):
@@ -427,9 +435,9 @@ def test_p0_6_multi_horizon_selection_and_peer_evaluation(tmp_path):
     best = pharma_cands["SYNTH-HEALTH-A"]
     second = pharma_cands["SYNTH-HEALTH-B"]
     worst = pharma_cands["SYNTH-HEALTH-D"]
-    score_best = compute_multi_horizon_fiduciary_score(best)
-    score_second = compute_multi_horizon_fiduciary_score(second)
-    score_worst = compute_multi_horizon_fiduciary_score(worst)
+    score_best = compute_multi_horizon_fiduciary_score(best, category_key="Healthcare", scoring_weights=weights)
+    score_second = compute_multi_horizon_fiduciary_score(second, category_key="Healthcare", scoring_weights=weights)
+    score_worst = compute_multi_horizon_fiduciary_score(worst, category_key="Healthcare", scoring_weights=weights)
     assert score_best > score_worst
     assert score_second > score_worst
     assert best["return_1y"] > worst["return_1y"]
@@ -692,7 +700,7 @@ def test_p0_10_gate4_fail_closed_and_missing_metrics(tmp_path):
         {"amc_name": "TEST AMC", "current_value_inr": 200000.0},
         {"amc_name": "OTHER AMC", "current_value_inr": 800000.0},
     ]
-    res_clean = check_eligibility_gates(base_active, portfolio_holdings=base_holdings)
+    res_clean = check_eligibility_gates(base_active, portfolio_holdings=base_holdings, client_risk_tier_num=6)
     assert res_clean.sharpe_alpha_gate is True
     assert res_clean.passed is True
 
@@ -784,7 +792,7 @@ def test_p0_10_gate4_fail_closed_and_missing_metrics(tmp_path):
     assert res_disguise.sharpe_alpha_gate is False, "Active funds masquerading with index substring must NOT bypass Gate 4"
     assert res_disguise.passed is False
 
-    # 13. Genuine verified passive index fund exemption
+    # 13. Sample passive scheme metadata must not be treated as verified evidence
     passive_cand = dict(
         base_active,
         fund_name="Nifty 50 Index Fund - Direct Plan - Growth",
@@ -795,7 +803,7 @@ def test_p0_10_gate4_fail_closed_and_missing_metrics(tmp_path):
         alpha_3y=None
     )
     res_passive = check_eligibility_gates(passive_cand)
-    assert res_passive.sharpe_alpha_gate is True, "Genuine passive index funds are exempted from active alpha hurdles"
+    assert res_passive.sharpe_alpha_gate is False, "Sample scheme master cannot exempt an unverified passive candidate"
 
     print("[PASS] P0.10 Gate 4 Fail-Closed & Missing Metrics Verified")
 

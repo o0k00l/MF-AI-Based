@@ -62,6 +62,7 @@ test_lumpsums = [100000.0, 500000.0, 1000000.0, 2500000.0, 5000000.0]
 for L in test_lumpsums:
     lp = compute_deterministic_lumpsum_blueprint(
         lumpsum_amount=L,
+        risk_tier="Tier 6 (Very High)",
         bank_cash_total=435000.0,
         emergency_reserve=115000.0,
         bank_cash_verified=False,
@@ -80,8 +81,10 @@ for L in test_lumpsums:
     )
     check(
         f"Lumpsum INR {L:,.0f} does not fabricate a parking vehicle or tax saving",
-        lp.parking_vehicle == "NO_ACTION" and lp.tax_savings_vs_debt_fund_inr == 0.0,
-        f"Vehicle: {lp.parking_vehicle}; estimated saving: {lp.tax_savings_vs_debt_fund_inr:.2f}",
+        lp.parking_vehicle == "NO_ACTION" and lp.tax_savings_vs_debt_fund_inr is None,
+        f"Vehicle: {lp.parking_vehicle}; estimated saving: "
+        + ("UNAVAILABLE" if lp.tax_savings_vs_debt_fund_inr is None
+           else f"{lp.tax_savings_vs_debt_fund_inr:.2f}"),
     )
 
 # =====================================================================
@@ -216,6 +219,9 @@ check("Gate 10 Passes 100% Direct Plans", validate_direct_sip_mandate(establishe
 
 regular_plan_test = DeterministicSIPPlan(
     total_monthly_budget_inr=10000.0,
+    unallocated_budget_inr=0.0,
+    equity_sip_pct=100.0,
+    debt_sip_pct=0.0,
     items=[
         DeterministicSIPRecommendation(
             category_role="Core",
@@ -295,6 +301,7 @@ for t_name, exp_eq, exp_debt in tier_targets:
             monthly_budget=50000.0,
             risk_tier=t_name,
             stability_buffer_pct=None,
+            client_aum=5000000.0,
             equity_sip_routing_override=True,
         )
         check(
@@ -347,6 +354,7 @@ tier6_override = compute_deterministic_sip_blueprint(
     monthly_budget=50000.0,
     risk_tier="Tier 6 (Very High)",
     stability_buffer_pct=0.0,
+    client_aum=5000000.0,
     equity_sip_routing_override=True,
 )
 check(
