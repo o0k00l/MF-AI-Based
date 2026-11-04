@@ -143,6 +143,67 @@ def _build_cas_portfolio_assessment(holdings: list[Any], risk_profile: str) -> d
         }
 
 
+
+def _build_sip_decision_trace(
+    *,
+    cas_path: Path,
+    scheme_master_source_bytes: bytes,
+    portfolio_disclosure_source_bytes_by_scheme_id: dict[str, bytes],
+    disclosure_as_of_date: date,
+    candidate_universe: list[dict[str, Any]],
+    monthly_budget_inr: float,
+    portfolio_assessment: dict[str, Any],
+) -> dict[str, str]:
+    """Hash the source and diagnostic inputs that led to a fail-closed SIP result."""
+    candidate_source_hashes = {}
+    for candidate in candidate_universe:
+        evidence = candidate.get("direct_plan_evidence", {})
+        candidate_source_hashes[candidate.get("fund_id", candidate.get("id", "UNKNOWN"))] = (
+            evidence.get("source_document_sha256")
+            if isinstance(evidence, dict) else None
+        )
+    record = {
+        "schema_version": 1,
+        "source_digests": {
+            "cas_upload_sha256": hashlib.sha256(cas_path.read_bytes()).hexdigest(),
+            "scheme_master_sha256": hashlib.sha256(scheme_master_source_bytes).hexdigest(),
+            "portfolio_disclosures_sha256": {
+                key: hashlib.sha256(value).hexdigest()
+                for key, value in sorted(portfolio_disclosure_source_bytes_by_scheme_id.items())
+            },
+            "candidate_direct_plan_sources": candidate_source_hashes,
+        },
+        "as_of_dates": {
+            "disclosure_as_of_date": disclosure_as_of_date.isoformat(),
+            "policy_as_of_date": portfolio_assessment.get("policy_as_of"),
+            "cas_valuation_date": "UNVERIFIED_NOT_EXTRACTED",
+        },
+        "policy_version": f"asset_allocation.json@{portfolio_assessment.get('policy_as_of')}",
+        "engine_version": "core.math_engine.compute_deterministic_sip_blueprint",
+        "eligibility": {
+            "current_holding_evidence": "PASS",
+            "candidate_universe_count": len(candidate_universe),
+            "candidate_scoring": "SUPPRESSED_PENDING_RELEASE_APPROVAL",
+        },
+        "portfolio_effect": {
+            "scope": portfolio_assessment.get("scope"),
+            "saa_drift": portfolio_assessment.get("saa_drift"),
+            "lookthrough": portfolio_assessment.get("lookthrough"),
+        },
+        "allocation": {
+            "requested_budget_inr": monthly_budget_inr,
+            "allocated_budget_inr": 0,
+            "unallocated_budget_inr": monthly_budget_inr,
+        },
+        "decision": {
+            "status": "HOLD",
+            "decision": "NO_ACTION",
+            "reason": "RESEARCH_AND_TOTAL_PORTFOLIO_RELEASE_GATES_NOT_APPROVED",
+        },
+    }
+    return build_decision_trace(record)
+
+
 def _hold_plan(monthly_budget_inr: float, reasons: list[str], portfolio_assessment: dict[str, Any] | None = None) -> dict[str, Any]:
     """Create a valid, zero-allocation response; never leak a provisional split."""
     plan = DeterministicSIPPlan(
@@ -294,6 +355,15 @@ def recommend_sip(
             portfolio_assessment,
         )
 
+    portfolio_assessment["decision_trace"] = _build_sip_decision_trace(
+        cas_path=cas_path,
+        scheme_master_source_bytes=scheme_master_source_bytes,
+        portfolio_disclosure_source_bytes_by_scheme_id=portfolio_disclosure_source_bytes_by_scheme_id,
+        disclosure_as_of_date=disclosure_as_of_date,
+        candidate_universe=candidate_universe,
+        monthly_budget_inr=budget,
+        portfolio_assessment=portfolio_assessment,
+    )
     return _hold_plan(budget, [
         "Evidence reached the deterministic SIP engine, but the independent benchmark/research release gate is not approved.",
         "Provisional engine allocations are suppressed; the full monthly budget remains unallocated.",
