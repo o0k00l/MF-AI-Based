@@ -1,4 +1,6 @@
 from datetime import date
+import hashlib
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -360,7 +362,16 @@ def test_complete_portfolio_workflow_integrates_issues_23_to_34_without_authoriz
         lambda **kwargs: SimpleNamespace(items=[SimpleNamespace(monthly_inr=10000)]),
     )
 
-    result = service.recommend_sip(**args, portfolio_context=_complete_portfolio_context())
+    metrics_source = b"reviewed original fund metrics"
+    universe_source = b"reviewed original candidate universe"
+    portfolio_source = b"reviewed original total portfolio context"
+    result = service.recommend_sip(
+        **args,
+        portfolio_context=_complete_portfolio_context(),
+        metrics_source_bytes=metrics_source,
+        candidate_universe_source_bytes=universe_source,
+        portfolio_context_source_bytes=portfolio_source,
+    )
 
     context = result["portfolio_assessment"]["total_portfolio_context"]
     assert context["status"] == "ASSESSMENT_COMPLETE"
@@ -379,6 +390,15 @@ def test_complete_portfolio_workflow_integrates_issues_23_to_34_without_authoriz
     assert context["candidate_overlap_diagnostics"]["CANDIDATE-1"]["shared_issuers"] == ["ISSUER-A"]
     assert context["incremental_sip_routing_simulation"]["allocations_inr"] == {"large_cap": "10000"}
     assert context["freshness"]["status"] == "CURRENT"
+    trace = result["portfolio_assessment"]["decision_trace"]
+    trace_record = json.loads(trace["canonical_record"])
+    assert trace_record["source_digests"]["metrics_source_sha256"] == hashlib.sha256(metrics_source).hexdigest()
+    assert trace_record["source_digests"]["candidate_universe_source_sha256"] == hashlib.sha256(universe_source).hexdigest()
+    assert trace_record["source_digests"]["portfolio_context_source_sha256"] == hashlib.sha256(portfolio_source).hexdigest()
+    assert trace_record["as_of_dates"]["cas_valuation_date"] == date.today().isoformat()
+    assert trace_record["portfolio_effect"]["candidate_level_allocation_simulation"]["reconciliation_ok"] is True
+    assert trace_record["allocation"]["authorized_allocated_budget_inr"] == 0
+    assert trace_record["allocation"]["simulated_allocated_budget_inr"] == "10000"
     assert context["recommendation_authorized"] is False
     assert context["execution_authorized"] is False
     assert result["status"] == "HOLD"
@@ -532,4 +552,37 @@ def test_goal_risk_profile_mismatch_blocks_sip_suitability(tmp_path, monkeypatch
     assert assessment["goal_suitability"]["status"] == "HOLD"
     assert assessment["goal_suitability"]["reason"] == "GOAL_RISK_PROFILE_CONFLICT"
     assert assessment["all_input_gates_pass"] is False
+    assert result["plan"]["unallocated_budget_inr"] == 10000
+
+
+def test_sector_concentration_breach_blocks_candidate_even_when_issuer_cap_allows(tmp_path, monkeypatch):
+    args = _inputs(tmp_path)
+    args["candidate_universe"] = _candidate_universe()
+    monkeypatch.setattr(service, "load_holdings_from_cas_excel", lambda *a, **k: [_holding()])
+    monkeypatch.setattr(service, "compute_deterministic_sip_blueprint", lambda **kwargs: SimpleNamespace(items=[]))
+    context = _complete_portfolio_context()
+    context["concentration_policy"]["max_issuer_pct_of_portfolio"] = "100"
+    context["concentration_policy"]["max_sector_pct_of_portfolio"] = "10"
+
+    result = service.recommend_sip(**args, portfolio_context=context)
+
+    candidate = result["portfolio_assessment"]["total_portfolio_context"]["candidate_overlap_diagnostics"]["CANDIDATE-1"]
+    assert candidate["status"] == "HOLD"
+    assert "Financials" in candidate["sector_market_cap_theme"]["breaches"]["sector"]
+    assert result["plan"]["unallocated_budget_inr"] == 10000
+
+
+def test_missing_issuer_classification_fails_closed_for_candidate_routing(tmp_path, monkeypatch):
+    args = _inputs(tmp_path)
+    args["candidate_universe"] = _candidate_universe()
+    monkeypatch.setattr(service, "load_holdings_from_cas_excel", lambda *a, **k: [_holding()])
+    monkeypatch.setattr(service, "compute_deterministic_sip_blueprint", lambda **kwargs: SimpleNamespace(items=[]))
+    context = _complete_portfolio_context()
+    context["concentration_policy"]["issuer_classifications"].pop("ISSUER-B")
+
+    result = service.recommend_sip(**args, portfolio_context=context)
+
+    candidate = result["portfolio_assessment"]["total_portfolio_context"]["candidate_overlap_diagnostics"]["CANDIDATE-1"]
+    assert candidate["status"] == "HOLD"
+    assert candidate["sector_market_cap_theme"]["reason"] == "ISSUER_CLASSIFICATION_MISSING_OR_INVALID"
     assert result["plan"]["unallocated_budget_inr"] == 10000
