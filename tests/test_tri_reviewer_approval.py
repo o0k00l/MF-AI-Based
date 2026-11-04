@@ -238,4 +238,4 @@ def test_fixture_symlink_cannot_escape_repository(tmp_path):
     fixture.symlink_to(outside)
     result = _verify(tuple(case))
     assert not result.ok
-    assert "repository-contained" in result.errors[0]
+    assert "repository boundary" in result.errors[0]
