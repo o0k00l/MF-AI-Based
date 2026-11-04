@@ -95,7 +95,6 @@ def test_portfolio_aware_score_uses_verified_overlap_not_neutral_fallback():
     [
         (_overlap_evidence(coverage=99.4), "at least 99.5"),
         (_overlap_evidence(as_of="2026-01-01"), "stale or future-dated"),
-        (_overlap_evidence(source_bytes=b"tampered"), "source digest"),
     ],
 )
 def test_portfolio_aware_score_rejects_insufficient_stale_or_tampered_overlap(evidence, reason):
@@ -170,3 +169,22 @@ def test_portfolio_aware_score_can_use_complete_external_approved_anchors_for_ne
     )
     assert 0.0 <= score <= 100.0
     assert pillars["portfolio_overlap"] == 80.0
+
+
+def test_portfolio_aware_score_rejects_overlap_source_digest_mismatch():
+    evidence = _overlap_evidence()
+    evidence["source_document_sha256"] = "f" * 64
+    with pytest.raises(ValueError, match="source digest"):
+        calculate_candidate_6_pillar_score(
+            _candidate(), "Healthcare",
+            **_portfolio_score(portfolio_overlap_evidence=evidence),
+        )
+
+
+def test_verified_zero_overlap_is_not_treated_as_missing():
+    evidence = _overlap_evidence(overlap=0.0)
+    _, pillars = calculate_candidate_6_pillar_score(
+        _candidate(), "Healthcare",
+        **_portfolio_score(portfolio_overlap_evidence=evidence),
+    )
+    assert pillars["portfolio_overlap"] == 100.0
