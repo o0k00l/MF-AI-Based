@@ -119,3 +119,41 @@
 ### 17. Candidate-universe size is global, not category-complete — P1
 - The minimum 30-fund universe check is global. It does not establish that each required sleeve (large, flexi/multi, mid and small) has a sufficient, current, eligible candidate set.
 - Required fix: category-level coverage gates, scheme identity deduplication, freshness checks and explicit per-sleeve NO_ACTION diagnostics before scoring.
+
+
+## Further SIP portfolio-accounting defects found and corrected (separate from the previously listed blockers)
+
+### 18. High equity percentage incorrectly classified Large Cap and Multi Cap as Flexi Cap — FIXED
+- File: `core/math_engine.py`, `_infer_asset_class`.
+- Previous behavior: the generic `equity_pct >= 80` branch ran before the Multi Cap branch and also classified large-cap funds as Flexi Cap. A high equity allocation does not establish a scheme's SEBI category.
+- Correction: use explicit category identity first (debt/hybrid/international/small/mid/multi/flexi/large); use disclosed market-cap weights only as a fallback for generic categories.
+- Regression coverage: Multi Cap 95% equity remains Multi Cap; Large Cap 95% equity remains Large Cap; International Equity is preserved.
+
+### 19. Debt Liquid holdings were omitted from the Debt SAA bucket — FIXED
+- File: `core/math_engine.py`, `calculate_saa_drift_minimizer` and aggregator SAA totals.
+- Previous behavior: `AssetClass.DEBT_LIQUID` fell through to Other, while the debt totals only counted `AssetClass.DEBT`.
+- Correction: include both debt classes in the Debt bucket and aggregate debt value.
+- Regression coverage: mixed debt-liquid/international portfolio reconciles to 50% Debt / 50% Equity without an Other bucket.
+
+### 20. International equity was inconsistently treated as a separate non-target bucket — FIXED
+- File: `core/math_engine.py`, `calculate_saa_drift_minimizer`.
+- Previous behavior: International was first mapped to Equity and then had an unreachable legacy branch for International; the aggregate SAA value calculation also lacked generic `AssetClass.EQUITY`.
+- Correction: classify international equity as Equity for total-portfolio Equity/Debt/Cash SAA accounting and include generic Equity holdings in the aggregate.
+- Note: geographic diversification remains a separate exposure dimension; this does not erase the international sleeve from look-through reporting.
+
+### 21. Aggregator omitted AMC identity from portfolio context passed to candidate gates — FIXED
+- File: `core/math_engine.py`, `aggregate_fiduciary_facts`.
+- Previous behavior: candidate AMC concentration gates require each existing holding's AMC identity, but the aggregator passed only scheme and value. This caused the diagnostic eligibility path to fail closed for every candidate due to missing AMC metadata.
+- Correction: centralize the portfolio gate summary and include `amc_name` with each holding's value.
+- Regression coverage: `_build_portfolio_gate_summary` retains AMC identity.
+
+### 22. Boolean IPS budget/reserve values were accepted as numeric — FIXED
+- File: `core/math_engine.py`, `_validated_ips_numeric_inputs`.
+- Previous behavior: Python converts `True` to 1.0 and `False` to 0.0, so a malformed boolean SIP budget could pass numeric conversion.
+- Correction: reject boolean SIP, lumpsum and emergency-month inputs before numeric conversion; preserve finite/range validation.
+- Regression coverage: boolean values for each field, missing budget and non-finite budget are rejected.
+
+## Remaining validation for these changes
+- The latest GitHub commit has no reported status checks or associated workflow runs in the connector response. The new tests have been committed but are not reported as executed.
+- The current test file contains 13 test functions; this is source-level coverage, not a passing test result.
+- Run the focused SIP tests and full repository CI on a clean checkout before treating these corrections as validated.
