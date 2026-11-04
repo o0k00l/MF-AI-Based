@@ -1662,8 +1662,14 @@ def test_selector_slot_targets_are_policy_weighted_and_not_hardcoded(monkeypatch
         lambda *args, **kwargs: SimpleNamespace(passed=True),
     )
     monkeypatch.setattr(classifier, "classify_fund_category", lambda name, category, candidate=None: category)
-    monkeypatch.setattr(classifier, "detect_fund_theme", lambda name, category: "Healthcare")
-    monkeypatch.setattr(math_engine, "compute_multi_horizon_fiduciary_score", lambda candidate: candidate["score"])
+    monkeypatch.setattr(classifier, "detect_fund_theme", lambda name, category: None)
+    scored_categories = []
+    monkeypatch.setattr(
+        math_engine,
+        "compute_multi_horizon_fiduciary_score",
+        lambda candidate, category_key="Healthcare", portfolio_overlap_pct=0.0:
+            scored_categories.append(category_key) or candidate["score"],
+    )
 
     candidates = [
         {"fund_id": "flexi", "fund_name": "Synthetic Flexi", "category": "Flexi Cap Equity", "is_direct": True, "score": 3.0},
@@ -1682,6 +1688,9 @@ def test_selector_slot_targets_are_policy_weighted_and_not_hardcoded(monkeypatch
         assert result[slot_name]["allocation_basis"] == "percent_of_equity_budget"
     assert result["High-Grade Debt Anchor"]["allocation_pct"] == pytest.approx(float(saa["debt_liquid_pct"]))
     assert result["High-Grade Debt Anchor"]["allocation_basis"] == "percent_of_total_portfolio"
+    assert scored_categories == ["Flexi Cap", "Mid Cap", "Large Cap"]
+    assert result["High-Grade Debt Anchor"]["gate_passed"] is False
+    assert str(result["High-Grade Debt Anchor"]["scheme"]).startswith("NO_ACTION")
 
 
 def test_selector_does_not_select_candidate_using_direct_name_suffix_only():
@@ -1859,3 +1868,17 @@ def test_all_statutory_tax_classification_apis_fail_closed_pending_independent_r
     for api in disabled_apis:
         with pytest.raises(math_engine.TaxClassificationDisabledError):
             api()
+
+
+
+def test_candidate_scoring_rejects_unknown_category_instead_of_using_healthcare_anchors():
+    from core.candidate_scoring import calculate_candidate_6_pillar_score
+
+    candidate = {
+        "alpha_3y": 2.0,
+        "return_1y": 12.0,
+        "sharpe_3y": 0.8,
+        "ter_direct_pct": 0.7,
+    }
+    with pytest.raises(ValueError, match="Unsupported scoring category"):
+        calculate_candidate_6_pillar_score(candidate, category_key="Debt")
