@@ -25,7 +25,7 @@ REQUIRED_EVIDENCE_FIELDS = frozenset({
     "candidate_universe_source_bytes",
 })
 REQUEST_BOUND_FIELDS = frozenset({"cas_path", "monthly_budget_inr", "risk_profile"})
-OPTIONAL_EVIDENCE_FIELDS = frozenset({"metrics_source_metadata", "metrics_source_bytes", "portfolio_context", "portfolio_context_source_metadata", "portfolio_context_source_bytes", "candidate_score_source_metadata", "candidate_score_source_bytes"})
+OPTIONAL_EVIDENCE_FIELDS = frozenset({"metrics_source_metadata", "metrics_source_bytes", "portfolio_context", "portfolio_context_source_metadata", "portfolio_context_source_bytes", "candidate_score_source_metadata", "candidate_score_source_bytes", "category_anchor_source_metadata", "category_anchor_source_bytes"})
 
 
 class EvidenceProviderContractError(ValueError):
@@ -133,6 +133,12 @@ def validate_evidence_provider_payload(payload: Any) -> dict[str, Any]:
         raise EvidenceProviderContractError(
             "Candidate score source metadata and original source bytes must be supplied together."
         )
+    anchor_source_fields = {"category_anchor_source_metadata", "category_anchor_source_bytes"}
+    anchor_source_present = optional_present & anchor_source_fields
+    if anchor_source_present and anchor_source_present != anchor_source_fields:
+        raise EvidenceProviderContractError(
+            "Category anchor source metadata and original source bytes must be supplied together."
+        )
 
     as_of = payload["disclosure_as_of_date"]
     if not isinstance(as_of, date) or isinstance(as_of, datetime):
@@ -165,6 +171,52 @@ def validate_evidence_provider_payload(payload: Any) -> dict[str, Any]:
         )
         if not isinstance(score_metadata.get("methodology_version"), str) or not score_metadata["methodology_version"].strip():
             raise EvidenceProviderContractError("Candidate score source requires methodology_version.")
+        if score_metadata.get("score_scope") != "PORTFOLIO_AWARE":
+            raise EvidenceProviderContractError("Candidate score source must explicitly declare PORTFOLIO_AWARE scope.")
+        if score_metadata.get("missing_overlap_policy") != "BLOCK_SCORE":
+            raise EvidenceProviderContractError("Portfolio-aware score source must block missing overlap evidence.")
+
+    if anchor_source_present:
+        anchor_metadata = payload["category_anchor_source_metadata"]
+        _validate_source_document(
+            anchor_metadata,
+            payload["category_anchor_source_bytes"],
+            label="Category benchmark anchors",
+            as_of=as_of,
+        )
+        if not isinstance(anchor_metadata.get("policy_version"), str) or not anchor_metadata["policy_version"].strip():
+            raise EvidenceProviderContractError("Category benchmark anchor source requires policy_version.")
+        if not isinstance(anchor_metadata.get("reviewer_id"), str) or not anchor_metadata["reviewer_id"].strip():
+            raise EvidenceProviderContractError("Category benchmark anchor source requires reviewer_id.")
+        category_anchors = anchor_metadata.get("category_anchors")
+        if not isinstance(category_anchors, dict) or not category_anchors:
+            raise EvidenceProviderContractError("Approved category benchmark anchors must be supplied by category.")
+        required_anchor_keys = {"alpha", "ret1y", "sharpe", "ter", "buffer", "intl", "overlap"}
+        for category, anchor_record in category_anchors.items():
+            if not isinstance(category, str) or not category.strip() or not isinstance(anchor_record, dict):
+                raise EvidenceProviderContractError("Category anchor records must be keyed by exact category name.")
+            if anchor_record.get("status") != "APPROVED":
+                raise EvidenceProviderContractError(f"Category {category!r} anchor set is not approved.")
+            if not isinstance(anchor_record.get("benchmark_identity"), str) or not anchor_record["benchmark_identity"].strip():
+                raise EvidenceProviderContractError(f"Category {category!r} anchor set requires benchmark identity.")
+            if anchor_record.get("reviewer_id") != anchor_metadata["reviewer_id"]:
+                raise EvidenceProviderContractError(f"Category {category!r} anchor reviewer does not match source reviewer.")
+            if anchor_record.get("policy_version") != anchor_metadata["policy_version"]:
+                raise EvidenceProviderContractError(f"Category {category!r} anchor policy version does not match source policy version.")
+            if anchor_record.get("effective_date") != anchor_metadata["effective_date"]:
+                raise EvidenceProviderContractError(f"Category {category!r} anchor effective date does not match source evidence.")
+            anchor_set = anchor_record.get("anchor_set")
+            if not isinstance(anchor_set, dict) or set(anchor_set) != required_anchor_keys:
+                raise EvidenceProviderContractError(f"Category {category!r} anchor set must define all seven scoring metric bounds.")
+            for metric, bounds in anchor_set.items():
+                if not isinstance(bounds, (list, tuple)) or len(bounds) != 2:
+                    raise EvidenceProviderContractError(f"Category {category!r} anchor {metric!r} must have two bounds.")
+                try:
+                    lower, upper = Decimal(str(bounds[0])), Decimal(str(bounds[1]))
+                except (InvalidOperation, TypeError, ValueError) as exc:
+                    raise EvidenceProviderContractError(f"Category {category!r} anchor {metric!r} bounds are invalid.") from exc
+                if not lower.is_finite() or not upper.is_finite() or lower >= upper:
+                    raise EvidenceProviderContractError(f"Category {category!r} anchor {metric!r} bounds must be finite and increasing.")
     scheme_index = _validate_scheme_master(payload["scheme_master"])
 
     disclosures = payload["portfolio_disclosures_by_scheme_id"]
@@ -235,6 +287,12 @@ def validate_evidence_provider_payload(payload: Any) -> dict[str, Any]:
         score_fields = {
             "rank_score", "rank_score_source_ref",
             "rank_score_as_of_date", "rank_score_methodology_version",
+            "rank_score_scope", "rank_score_portfolio_overlap_status",
+            "rank_score_portfolio_overlap_pct", "rank_score_portfolio_overlap_coverage_pct",
+            "rank_score_portfolio_overlap_source_ref",
+            "rank_score_category_anchor_source_ref",
+            "rank_score_category_anchor_policy_version",
+            "rank_score_benchmark_identity",
         }
         score_supplied = score_fields & set(candidate)
         if score_supplied and score_supplied != score_fields:
@@ -269,6 +327,61 @@ def validate_evidence_provider_payload(payload: Any) -> dict[str, Any]:
             if candidate["rank_score_methodology_version"] != payload["candidate_score_source_metadata"]["methodology_version"]:
                 raise EvidenceProviderContractError(
                     f"Candidate {fund_id!r} rank score methodology version is not the reviewed version."
+                )
+            if not anchor_source_present:
+                raise EvidenceProviderContractError(
+                    f"Candidate {fund_id!r} rank score has no independently reviewed category anchor source."
+                )
+            if candidate["rank_score_scope"] != "PORTFOLIO_AWARE":
+                raise EvidenceProviderContractError(
+                    f"Candidate {fund_id!r} rank score is not marked portfolio-aware."
+                )
+            if candidate["rank_score_portfolio_overlap_status"] != "VERIFIED":
+                raise EvidenceProviderContractError(
+                    f"Candidate {fund_id!r} lacks verified portfolio overlap; neutral fallback is prohibited."
+                )
+            try:
+                overlap_pct = Decimal(str(candidate["rank_score_portfolio_overlap_pct"]))
+                overlap_coverage = Decimal(str(candidate["rank_score_portfolio_overlap_coverage_pct"]))
+            except (InvalidOperation, TypeError, ValueError) as exc:
+                raise EvidenceProviderContractError(
+                    f"Candidate {fund_id!r} portfolio overlap evidence is invalid."
+                ) from exc
+            if not overlap_pct.is_finite() or overlap_pct < 0 or overlap_pct > 100:
+                raise EvidenceProviderContractError(
+                    f"Candidate {fund_id!r} portfolio overlap percentage is invalid."
+                )
+            if not overlap_coverage.is_finite() or overlap_coverage < Decimal("99.5") or overlap_coverage > 100:
+                raise EvidenceProviderContractError(
+                    f"Candidate {fund_id!r} portfolio overlap coverage is below 99.5 percent."
+                )
+            for ref_field in ("rank_score_portfolio_overlap_source_ref", "rank_score_category_anchor_source_ref"):
+                value = candidate[ref_field]
+                if not isinstance(value, str) or not re.fullmatch(r"sha256:[0-9a-f]{64}", value):
+                    raise EvidenceProviderContractError(
+                        f"Candidate {fund_id!r} {ref_field} must be a SHA-256 source reference."
+                    )
+            anchor_metadata = payload["category_anchor_source_metadata"]
+            anchor_digest_ref = "sha256:" + anchor_metadata["source_document_sha256"].lower()
+            if candidate["rank_score_category_anchor_source_ref"] != anchor_digest_ref:
+                raise EvidenceProviderContractError(
+                    f"Candidate {fund_id!r} category anchor source reference does not match original reviewed bytes."
+                )
+            if candidate["rank_score_category_anchor_policy_version"] != anchor_metadata["policy_version"]:
+                raise EvidenceProviderContractError(
+                    f"Candidate {fund_id!r} category anchor policy version is not approved."
+                )
+            approved_category = anchor_metadata["category_anchors"].get(candidate["category"])
+            if not isinstance(approved_category, dict):
+                raise EvidenceProviderContractError(
+                    f"Candidate {fund_id!r} category has no approved benchmark anchor set."
+                )
+            if (
+                candidate["rank_score_benchmark_identity"] != approved_category["benchmark_identity"]
+                or approved_category["status"] != "APPROVED"
+            ):
+                raise EvidenceProviderContractError(
+                    f"Candidate {fund_id!r} benchmark identity or category anchor approval conflicts."
                 )
 
     for optional_path in ("metrics_path", "aliases_path"):
