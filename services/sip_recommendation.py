@@ -126,6 +126,10 @@ def recommend_sip(
         scheme_label = holding.scheme or holding.fund_id
         if not holding.scheme_id:
             evidence_gaps.append(f"{scheme_label}: exact scheme identity is missing.")
+        if getattr(holding, "metrics_status", "MISSING") != "VERIFIED":
+            evidence_gaps.append(
+                f"{scheme_label}: fund category/risk/exposure metrics are MISSING or unverified."
+            )
         if holding.lookthrough_status != "VERIFIED":
             evidence_gaps.append(
                 f"{scheme_label}: constituent disclosure is {holding.lookthrough_status}."
