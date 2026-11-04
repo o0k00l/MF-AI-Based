@@ -200,6 +200,14 @@ def _assess_complete_portfolio_context(
         if reconciliation["status"] != "RECONCILED":
             return {"status": "HOLD", "portfolio_reconciliation": reconciliation,
                     "reason": reconciliation.get("reason", "TOTAL_PORTFOLIO_RECONCILIATION_FAILED")}
+        reconciliation["excluded_assets"] = [
+            {
+                "asset_class": row.get("asset_class"),
+                "reason": row.get("reason"),
+            }
+            for row in context.get("excluded_assets", [])
+            if isinstance(row, dict)
+        ]
         total = float(reconciliation["total_value_inr"])
         current = {sleeve: 0.0 for sleeve in _TOTAL_PORTFOLIO_SLEEVES}
         for row in assets:
@@ -391,7 +399,7 @@ def _assess_complete_portfolio_context(
         if external_equity_missing:
             external_lookthrough = {
                 "status": "HOLD", "reason": "EXTERNAL_EQUITY_LOOKTHROUGH_MISSING",
-                "unverified_asset_ids": sorted(external_equity_missing),
+                "unverified_asset_count": len(external_equity_missing),
             }
         elif external_equity_rows:
             external_lookthrough = calculate_lookthrough_exposure(
