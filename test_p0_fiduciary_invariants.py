@@ -1,7 +1,7 @@
 """
 test_p0_fiduciary_invariants.py - Regression suite for policy-driven fiduciary invariants:
 - P0.1: Risk-tier policy SAA and SIP routing across starter vs established portfolios.
-- P0.2: ₹1.25L Annual LTCG Tax Shield Siphon & Day 366 Immature Lot Holding Rule.
+- P0.2: Investor-facing tax and Day-366 advice APIs remain disabled pending independent approval.
 - P0.3: All 10 Binary Fiduciary Eligibility Gates (Gate 1 through Gate 10).
 - P0.4: Candidate Universe Loading & NO ACTION Fiduciary Branch.
 """
