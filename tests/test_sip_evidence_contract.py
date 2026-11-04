@@ -261,6 +261,14 @@ def test_contract_validates_optional_original_fund_metrics_source_bytes(tmp_path
     assert result["metrics_source_bytes"] == metrics_bytes
 
 
+def test_contract_rejects_tampered_normalized_metrics_file(tmp_path):
+    payload = valid_payload(tmp_path)
+    payload["metrics_path"].write_bytes(b'{"funds":[{"eq":100}]}')
+
+    with pytest.raises(EvidenceProviderContractError, match="normalized file SHA-256"):
+        validate_evidence_provider_payload(payload)
+
+
 def test_contract_rejects_fund_metrics_source_hash_mismatch(tmp_path):
     payload = valid_payload(tmp_path)
     payload["metrics_source_metadata"] = {
