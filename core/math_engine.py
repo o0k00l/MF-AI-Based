@@ -4588,10 +4588,11 @@ def calculate_universal_tier_split(
     """
     Return the policy-defined new-SIP equity/debt split for a risk tier.
 
-    The SAA debt target and tolerance determine the stability-buffer threshold.
-    If the verified portfolio stability buffer meets that threshold, new SIPs
-    may be routed 100% to equity; otherwise use the policy's explicit
-    new_sip_allocation. Missing or malformed policy is a hard failure.
+    The policy's explicit new_sip_allocation is authoritative for tiers 1–5.
+    A current stability-buffer percentage cannot override the post-contribution
+    SAA or the investor's approved SIP split. Tier 6 equity-only routing remains
+    separately gated by explicit IPS authorization. Missing or malformed policy
+    is a hard failure.
     """
     import json
     import math
@@ -4659,9 +4660,10 @@ def calculate_universal_tier_split(
     if requires_ips_authorization and equity_sip_routing_override:
         return equity_sip, debt_sip
 
-    stability_threshold = max(0.0, debt_target - tolerance)
-    if stability_threshold > 0.0 and stability is not None and stability >= stability_threshold:
-        return 100.0, 0.0
+    # Do not infer permission to route new contributions 100% to equity
+    # from the current portfolio's stability buffer. A contribution changes
+    # the portfolio denominator and can create SAA drift; only the explicit
+    # policy split (or separately authorized Tier 6 override) may route it.
     return equity_sip, debt_sip
 
 
