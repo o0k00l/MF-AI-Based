@@ -193,3 +193,25 @@ def test_ips_numeric_contract_rejects_missing_budget_and_nonfinite_values():
         _validated_ips_numeric_inputs({})
     with pytest.raises(ValueError, match="finite"):
         _validated_ips_numeric_inputs({"monthly_sip_budget": float("nan")})
+
+
+def test_saa_drift_refuses_to_invent_default_aggressive_target():
+    from types import SimpleNamespace
+    from core.math_engine import calculate_saa_drift_minimizer
+    from core.models import AssetClass
+
+    holdings = [SimpleNamespace(current_value_inr=1000.0, asset_class=AssetClass.EQUITY, equity_pct=100.0, debt_pct=0.0)]
+    with pytest.raises(ValueError, match="explicit equity allocation"):
+        calculate_saa_drift_minimizer(holdings, {}, 1000.0)
+
+
+def test_saa_drift_accepts_explicit_zero_equity_target_without_fallback():
+    from types import SimpleNamespace
+    from core.math_engine import calculate_saa_drift_minimizer
+    from core.models import AssetClass
+
+    holdings = [SimpleNamespace(current_value_inr=1000.0, asset_class=AssetClass.DEBT, equity_pct=0.0, debt_pct=100.0)]
+    result = calculate_saa_drift_minimizer(
+        holdings, {"equity_pct": 0.0, "debt_liquid_pct": 100.0, "cash_pct": 0.0}, 1000.0
+    )
+    assert result.target_allocation == {"Equity": 0.0, "Debt": 100.0, "Cash": 0.0}
