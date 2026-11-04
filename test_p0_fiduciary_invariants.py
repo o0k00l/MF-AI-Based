@@ -947,7 +947,7 @@ def test_p0_15_runtime_mandate_hold_enforcement_is_a_unit_invariant():
     with pytest.raises(MandateHoldViolationError):
         assert_mandate_execution_authorized(held_facts)
 
-    sip_plan = DeterministicSIPPlan(total_monthly_budget_inr=10000.0)
+    sip_plan = DeterministicSIPPlan(total_monthly_budget_inr=10000.0, unallocated_budget_inr=10000.0, equity_sip_pct=0.0, debt_sip_pct=0.0)
     assert sip_plan.mandate_state == MandateExecutionState.HOLD_PENDING_TRI_VALIDATION
     assert sip_plan.is_execution_authorized is False
     assert sip_plan.is_actionable_order is False
