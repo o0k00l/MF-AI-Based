@@ -76,7 +76,7 @@ def main() -> int:
     if failed:
         print("Failed providers: " + ", ".join(failed))
         return 1
-    print("All three AI providers returned a non-empty response.")
+    print("All enabled free AI providers returned a non-empty response.")
     return 0
 
 
