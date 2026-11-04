@@ -150,8 +150,14 @@ FUND_CATEGORY_TAXONOMY = {
         "large cap", "large & mid cap", "large and mid cap", "large cap bluechip",
         "bluechip", "top 100", "nifty 50", "nifty 100", "sensex"
     ],
+    "Mid & Small Cap Equity": [
+        "mid & small cap", "mid and small cap", "mid-small cap"
+    ],
     "Mid Cap Equity": [
-        "mid cap", "mid-cap", "midcap", "mid & small cap", "nifty midcap 150", "emerging equity"
+        "mid cap", "mid-cap", "midcap", "nifty midcap 150", "emerging equity"
+    ],
+    "Small Cap Equity": [
+        "small cap", "small-cap", "smallcap", "nifty smallcap"
     ],
     "Flexi Cap Equity": [
         "flexi cap", "flexi-cap", "flexicap", "focused"
@@ -213,22 +219,32 @@ def classify_fund_category(fund_name: str, fund_category: str = "", fund_data: O
         if kw in combined:
             return "Large Cap Equity"
 
-    # 5. Mid Cap Check (before Flexi/Multi)
+    # 5. Distinguish combined Mid & Small mandates before pure-cap categories.
+    for kw in FUND_CATEGORY_TAXONOMY["Mid & Small Cap Equity"]:
+        if kw in combined:
+            return "Mid & Small Cap Equity"
+
+    # 6. Small Cap Check (before Mid/Flexi/Multi)
+    for kw in FUND_CATEGORY_TAXONOMY["Small Cap Equity"]:
+        if kw in combined:
+            return "Small Cap Equity"
+
+    # 7. Mid Cap Check (before Flexi/Multi)
     for kw in FUND_CATEGORY_TAXONOMY["Mid Cap Equity"]:
         if kw in combined:
             return "Mid Cap Equity"
 
-    # 6. Flexi Cap Check
+    # 8. Flexi Cap Check
     for kw in FUND_CATEGORY_TAXONOMY["Flexi Cap Equity"]:
         if kw in combined:
             return "Flexi Cap Equity"
 
-    # 7. Multi Cap Check
+    # 9. Multi Cap Check
     for kw in FUND_CATEGORY_TAXONOMY["Multi Cap Equity"]:
         if kw in combined:
             return "Multi Cap Equity"
 
-    # 8. Index Funds Check
+    # 10. Index Funds Check
     for kw in FUND_CATEGORY_TAXONOMY["Index Funds"]:
         if kw in combined:
             return "Index Funds"
