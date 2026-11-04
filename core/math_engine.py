@@ -4195,6 +4195,11 @@ def select_autonomous_blueprint_funds(
         raise ValueError("thematic_satellite_pct_of_equity must be numeric") from exc
     if not math.isfinite(satellite_pct) or not 0.0 <= satellite_pct <= 100.0:
         raise ValueError("thematic satellite percentage must be finite and between 0 and 100")
+    if thematic_satellite_authorized:
+        raise ValueError(
+            "Thematic satellite allocation is disabled until an independently reviewed "
+            "issuer taxonomy, effective-date mapping and versioned exposure policy are approved."
+        )
     if satellite_pct > 0.0 and not thematic_satellite_authorized:
         raise ValueError("A positive thematic satellite allocation requires explicit IPS authorization")
     if not thematic_satellite_authorized:
