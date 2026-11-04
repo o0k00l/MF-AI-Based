@@ -365,15 +365,6 @@ def generate_cash_and_sip_plan(facts: FiduciaryFactsPayload) -> str:
     lump_plan = getattr(facts, "deterministic_lumpsum_plan", None)
 
     lump_rows = []
-    if lump_plan is not None:
-        for tranche in lump_plan.tranches:
-            folio = tranche.folio_target or "Not specified"
-            lump_rows.append(
-                f"| {tranche.role} | {tranche.scheme_name} | {folio} | "
-                f"INR {tranche.amount_inr:,.2f} | {tranche.allocation_pct:.2f}% | "
-                f"{tranche.timing} | {tranche.source_vehicle} | {tranche.fiduciary_rationale} |"
-            )
-
     if lump_plan is None:
         lumpsum_status = (
             "NO ACTION: no deterministic lumpsum plan was supplied. "
@@ -381,31 +372,49 @@ def generate_cash_and_sip_plan(facts: FiduciaryFactsPayload) -> str:
             "The full requested lumpsum budget remains unallocated."
         )
     else:
-        unallocated = float(lump_plan.unallocated_amount_inr)
-        lumpsum_status = (
-            f"Plan status: {lump_plan.execution_status}. "
-            f"Requested amount: INR {lump_plan.total_lumpsum_inr:,.2f}. "
-            f"Unallocated amount: INR {unallocated:,.2f}. "
-            f"Cash validation passed: {lump_plan.cash_validation_passed}. "
-            f"Validation: {lump_plan.cash_validation_message or 'No validation message supplied.'} "
-            "No tax-saving or tax-classification conclusion is asserted."
-        )
-        if not lump_rows:
-            lumpsum_status += (
-                " NO ACTION: the plan contains no validated deployment tranches; "
-                "the entire requested amount remains unallocated."
+        plan_valid, validation_reason = _validate_lumpsum_plan_for_reporting(lump_plan, lumpsum_amt)
+        if not plan_valid:
+            lumpsum_status = (
+                "NO ACTION: the deterministic lumpsum plan failed reporting validation. "
+                f"{validation_reason} The full requested budget remains on HOLD and unallocated."
             )
-            lump_rows.append("| NO ACTION | No validated destination | — | "
-                             f"INR {lump_plan.total_lumpsum_inr:,.2f} | — | Not authorized | — | "
-                             "No qualifying tranche supplied |")
-        if unallocated > 0:
             lump_rows.append(
-                f"| UNALLOCATED | No destination | — | INR {unallocated:,.2f} | — | HOLD | — | "
-                "No qualifying allocation; do not redistribute |"
+                f"| NO ACTION | No validated destination | — | INR {lumpsum_amt:,.2f} | — | HOLD | — | "
+                "Plan failed cash or reconciliation validation |"
             )
+        elif not lump_plan.tranches:
+            lumpsum_status = (
+                f"NO ACTION: no qualifying deployment tranche was supplied. "
+                f"INR {lump_plan.total_lumpsum_inr:,.2f} remains unallocated. "
+                f"Validation: {lump_plan.cash_validation_message or 'No qualifying candidate.'}"
+            )
+            lump_rows.append(
+                f"| NO ACTION | No validated destination | — | INR {lump_plan.total_lumpsum_inr:,.2f} | — | HOLD | — | "
+                "No qualifying tranche supplied |"
+            )
+        else:
+            unallocated = Decimal(str(lump_plan.unallocated_amount_inr))
+            lumpsum_status = (
+                f"Validated cash gate passed. Requested amount: INR {lump_plan.total_lumpsum_inr:,.2f}. "
+                f"Unallocated amount: INR {unallocated:,.2f}. "
+                f"Validation: {lump_plan.cash_validation_message or 'No additional message supplied.'} "
+                "No tax-saving or tax-classification conclusion is asserted."
+            )
+            for tranche in lump_plan.tranches:
+                folio = tranche.folio_target or "Not specified"
+                lump_rows.append(
+                    f"| {tranche.role} | {tranche.scheme_name} | {folio} | "
+                    f"INR {tranche.amount_inr:,.2f} | {tranche.allocation_pct:.2f}% | "
+                    f"{tranche.timing} | {tranche.source_vehicle} | {tranche.fiduciary_rationale} |"
+                )
+            if unallocated > 0:
+                lump_rows.append(
+                    f"| UNALLOCATED | No destination | — | INR {unallocated:,.2f} | — | HOLD | — | "
+                    "No qualifying allocation; do not redistribute |"
+                )
 
     lumpsum_table_str = "\n".join(lump_rows) if lump_rows else (
-        "| NO ACTION | No validated destination | — | — | — | HOLD | — | "
+        "| NO ACTION | No validated destination | — | INR 0.00 | — | HOLD | — | "
         "No deterministic plan supplied |"
     )
 
