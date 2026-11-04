@@ -116,3 +116,77 @@ def test_scoring_requires_explicit_composite_weights_and_category_ter_reference(
     }
     with pytest.raises(ValueError, match="Explicit approved scoring weights"):
         calculate_candidate_6_pillar_score(candidate, "Healthcare")
+
+
+def _portfolio_score_evidence(candidate_id="candidate-1"):
+    import hashlib
+    overlap_bytes = b"reviewed overlap source"
+    anchor_bytes = b"reviewed category anchor source"
+    overlap_sha = hashlib.sha256(overlap_bytes).hexdigest()
+    anchor_sha = hashlib.sha256(anchor_bytes).hexdigest()
+    return {
+        "overlap": {
+            "status": "VERIFIED", "reviewer_attested": True,
+            "candidate_id": candidate_id, "overlap_pct": 0.0,
+            "coverage_pct": 100.0, "source_bytes": overlap_bytes,
+            "source_document_sha256": overlap_sha, "source_ref": "sha256:" + overlap_sha,
+            "as_of_date": "2026-11-04",
+        },
+        "anchors": {
+            "status": "APPROVED", "reviewer_attested": True,
+            "category": "Healthcare", "benchmark_identity": "NIFTY HEALTHCARE TRI",
+            "reviewer_id": "independent-reviewer", "policy_version": "test-v1",
+            "source_ref": "sha256:" + anchor_sha, "source_bytes": anchor_bytes,
+            "source_document_sha256": anchor_sha, "effective_date": "2026-11-04",
+            "anchor_set": {
+                "alpha": [0, 10], "ret1y": [-20, 40], "sharpe": [0, 2],
+                "ter": [0, 2], "buffer": [0, 100], "intl": [0, 100],
+                "overlap": [0, 100],
+            },
+        },
+    }
+
+
+@pytest.mark.parametrize(
+    ("missing_field", "message"),
+    [
+        ("cash_debt_buffer_pct", "cash/debt buffer"),
+        ("international_equity_pct", "international exposure"),
+    ],
+)
+def test_portfolio_aware_score_blocks_missing_defensive_and_international_evidence(missing_field, message):
+    candidate = {
+        "fund_id": "candidate-1", "alpha_3y": 2.0, "return_1y": 5.0,
+        "sharpe_3y": 0.8, "ter_direct_pct": 0.8,
+        "cash_debt_buffer_pct": 10.0, "international_equity_pct": 0.0,
+    }
+    candidate.pop(missing_field)
+    evidence = _portfolio_score_evidence()
+    with pytest.raises(ValueError, match=message):
+        calculate_candidate_6_pillar_score(
+            candidate, "Healthcare",
+            weights=ScoringWeights(0.25, 0.20, 0.15, 0.15, 0.15, 0.10),
+            portfolio_aware=True,
+            portfolio_overlap_evidence=evidence["overlap"],
+            approved_category_anchor_evidence=evidence["anchors"],
+            as_of_date="2026-11-04",
+        )
+
+
+def test_portfolio_aware_score_preserves_verified_zero_buffer_and_international_values():
+    candidate = {
+        "fund_id": "candidate-1", "alpha_3y": 2.0, "return_1y": 5.0,
+        "sharpe_3y": 0.8, "ter_direct_pct": 0.8,
+        "cash_debt_buffer_pct": 0.0, "international_equity_pct": 0.0,
+    }
+    evidence = _portfolio_score_evidence()
+    _, pillars = calculate_candidate_6_pillar_score(
+        candidate, "Healthcare",
+        weights=ScoringWeights(0.25, 0.20, 0.15, 0.15, 0.15, 0.10),
+        portfolio_aware=True,
+        portfolio_overlap_evidence=evidence["overlap"],
+        approved_category_anchor_evidence=evidence["anchors"],
+        as_of_date="2026-11-04",
+    )
+    assert pillars["downside_buffer"] == 0.0
+    assert pillars["geographic_moat"] == 0.0
