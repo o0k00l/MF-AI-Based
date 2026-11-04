@@ -35,7 +35,17 @@ class EvidenceProviderContractError(ValueError):
     """Raised when a provider response violates the structural contract."""
 
 
-def _validate_source_document(metadata: Any, source_bytes: Any, *, label: str, as_of: date) -> None:
+def _validate_source_document(
+    metadata: Any,
+    source_bytes: Any,
+    *,
+    label: str,
+    as_of: date,
+    trust_registry: Optional[dict[str, Any]] = None,
+    require_reviewer_signature: bool = False,
+    structured_records: Optional[Any] = None,
+    scope: Optional[str] = None,
+) -> None:
     if not isinstance(metadata, dict):
         raise EvidenceProviderContractError(f"{label} source metadata must be a mapping.")
     if not isinstance(source_bytes, bytes) or not source_bytes:
@@ -52,6 +62,31 @@ def _validate_source_document(metadata: Any, source_bytes: Any, *, label: str, a
         raise EvidenceProviderContractError(f"{label} source SHA-256 does not match original bytes.")
     if metadata.get("reviewer_attested") is not True:
         raise EvidenceProviderContractError(f"{label} requires explicit reviewer attestation.")
+
+    envelope = metadata.get("reviewer_approval_envelope")
+    if require_reviewer_signature or envelope is not None or trust_registry is not None:
+        if envelope is None:
+            raise EvidenceProviderContractError(
+                f"{label} requires verifiable independent reviewer signature envelope; plain boolean attestation is rejected."
+            )
+        if trust_registry is None:
+            raise EvidenceProviderContractError(
+                f"{label} requires independently administered trust registry to verify reviewer signature."
+            )
+        from services.sip_reviewer_approval import verify_sip_reviewer_approval
+        now_dt = datetime.combine(as_of, datetime.min.time(), tzinfo=timezone.utc)
+        res = verify_sip_reviewer_approval(
+            envelope,
+            trust_registry,
+            expected_scope=scope,
+            expected_source_sha256=actual_hash,
+            structured_records=structured_records,
+            now=now_dt,
+        )
+        if not res.ok:
+            raise EvidenceProviderContractError(
+                f"{label} reviewer signature verification failed: {'; '.join(res.errors)}"
+            )
 
     effective_raw = metadata.get("effective_date")
     try:
@@ -71,7 +106,14 @@ def _validate_source_document(metadata: Any, source_bytes: Any, *, label: str, a
         raise EvidenceProviderContractError(f"{label} source_type is required.")
 
 
-def _validate_scheme_master(master: Any) -> dict[str, dict[str, Any]]:
+def _validate_scheme_master(
+    master: Any,
+    *,
+    source_bytes: Optional[bytes] = None,
+    trust_registry: Optional[dict[str, Any]] = None,
+    require_reviewer_signature: bool = False,
+    as_of: Optional[date] = None,
+) -> dict[str, dict[str, Any]]:
     if not isinstance(master, dict) or master.get("status") != "VERIFIED":
         raise EvidenceProviderContractError("Scheme master must explicitly carry VERIFIED status.")
     schemes = master.get("schemes")
@@ -115,10 +157,41 @@ def _validate_scheme_master(master: Any) -> dict[str, dict[str, Any]]:
             )
         by_scheme_id[scheme_id] = record
         by_isin[isin] = record
+
+    envelope = master.get("reviewer_approval_envelope")
+    if require_reviewer_signature or envelope is not None or trust_registry is not None:
+        if envelope is None:
+            raise EvidenceProviderContractError(
+                "Scheme master requires verifiable independent reviewer signature envelope; plain boolean attestation is rejected."
+            )
+        if trust_registry is None:
+            raise EvidenceProviderContractError(
+                "Scheme master requires independently administered trust registry to verify reviewer signature."
+            )
+        from services.sip_reviewer_approval import verify_sip_reviewer_approval
+        expected_hash = hashlib.sha256(source_bytes).hexdigest() if source_bytes else master.get("source_document_sha256")
+        now_dt = datetime.combine(as_of, datetime.min.time(), tzinfo=timezone.utc) if as_of else None
+        res = verify_sip_reviewer_approval(
+            envelope,
+            trust_registry,
+            expected_scope="SIP_SCHEME_MASTER",
+            expected_source_sha256=expected_hash,
+            structured_records=schemes,
+            now=now_dt,
+        )
+        if not res.ok:
+            raise EvidenceProviderContractError(
+                f"Scheme master reviewer signature verification failed: {'; '.join(res.errors)}"
+            )
     return by_scheme_id
 
 
-def validate_evidence_provider_payload(payload: Any) -> dict[str, Any]:
+def validate_evidence_provider_payload(
+    payload: Any,
+    *,
+    trust_registry: Optional[dict[str, Any]] = None,
+    require_reviewer_signature: bool = False,
+) -> dict[str, Any]:
     """Validate provider shape and critical source provenance before engine use."""
     if not isinstance(payload, dict):
         raise EvidenceProviderContractError("Provider response must be a mapping.")
@@ -259,7 +332,13 @@ def validate_evidence_provider_payload(payload: Any) -> dict[str, Any]:
                     raise EvidenceProviderContractError(f"Category {category!r} anchor {metric!r} bounds are invalid.") from exc
                 if not lower.is_finite() or not upper.is_finite() or lower >= upper:
                     raise EvidenceProviderContractError(f"Category {category!r} anchor {metric!r} bounds must be finite and increasing.")
-    scheme_index = _validate_scheme_master(payload["scheme_master"])
+    scheme_index = _validate_scheme_master(
+        payload["scheme_master"],
+        source_bytes=payload.get("scheme_master_source_bytes"),
+        trust_registry=trust_registry,
+        require_reviewer_signature=require_reviewer_signature,
+        as_of=as_of,
+    )
 
     disclosures = payload["portfolio_disclosures_by_scheme_id"]
     disclosure_bytes = payload["portfolio_disclosure_source_bytes_by_scheme_id"]

@@ -11,7 +11,12 @@ from datetime import date
 from core.models import EligibilityGateResult, NOActionResult, RiskTier
 
 
-def _reviewed_direct_plan_evidence_status(fund_data: dict) -> str:
+def _reviewed_direct_plan_evidence_status(
+    fund_data: dict,
+    *,
+    trust_registry: Optional[dict] = None,
+    require_signature: bool = False,
+) -> str:
     """
     Verify the bytes of a local plan-source document and require a current human
     attestation. This verifies file integrity and records reviewer assurance;
@@ -76,6 +81,31 @@ def _reviewed_direct_plan_evidence_status(fund_data: dict) -> str:
     age_days = (date.today() - reviewed_at).days
     if age_days < 0 or age_days > 180:
         return "STALE"
+
+    envelope = evidence.get("reviewer_approval_envelope")
+    if require_signature or envelope is not None or trust_registry is not None:
+        if envelope is None:
+            return "SIGNATURE_MISSING"
+        if trust_registry is None:
+            return "TRUST_REGISTRY_MISSING"
+        from services.sip_reviewer_approval import verify_sip_reviewer_approval
+        plan_records = {
+            "scheme_id": fund_data.get("scheme_id"),
+            "isin": fund_data.get("isin"),
+            "plan": "Direct",
+            "amc_name": fund_data.get("amc_name"),
+        }
+        res = verify_sip_reviewer_approval(
+            envelope,
+            trust_registry,
+            expected_scope="SIP_DIRECT_PLAN_EVIDENCE",
+            expected_source_sha256=actual_sha,
+            structured_records=plan_records,
+            expected_scheme_id=fund_data.get("scheme_id"),
+        )
+        if not res.ok:
+            return "SIGNATURE_INVALID"
+
     return "REVIEWER_ATTESTED_HASH_MATCH"
 
 
