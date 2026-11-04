@@ -1642,7 +1642,7 @@ def calculate_saa_drift(
     )
 
 
-def parse_cas(xlsx_path: Path) -> Tuple[str, List[Dict[str, Any]]]:
+def parse_cas(xlsx_path: Path, scheme_master: Optional[Dict[str, Any]] = None, scheme_master_source_bytes: Optional[bytes] = None) -> Tuple[str, List[Dict[str, Any]]]:
     """
     Parses 'Portfolio Details' sheet from CAS Excel report.
     Hard Guard: Enforces single valuation date across all folios.
@@ -1677,20 +1677,35 @@ def parse_cas(xlsx_path: Path) -> Tuple[str, List[Dict[str, Any]]]:
                 continue
                 
             if cur_val > 0:
-                holdings.append({
+                holding = {
                     "scheme": scheme_name,
                     "folio": vals[hdr.get("Folio No.", 0)],
                     "value": cur_val,
                     "invested": inv_val,
                     "is_direct": "direct" in scheme_name.lower(),
-                    # CAS reports identify scheme-level positions, not underlying
-                    # portfolio constituents. Never imply that look-through data
-                    # was verified merely because a holding was parsed.
                     "constituent_weights": None,
                     "constituent_weights_coverage_pct": None,
                     "lookthrough_status": "MISSING",
                     "lookthrough_reason": "CAS scheme holdings do not contain stock-level constituent disclosures.",
-                })
+                    "scheme_id": None,
+                    "isin": None,
+                    "scheme_identity_status": "MISSING",
+                }
+                if scheme_master is not None and scheme_master_source_bytes is not None:
+                    from ingestion.portfolio_disclosure import resolve_scheme_identity
+                    amc_col = hdr.get("AMC Name")
+                    if amc_col is not None:
+                        holding["amc_name"] = vals[amc_col]
+                    identity = resolve_scheme_identity(
+                        holding, scheme_master, source_bytes=scheme_master_source_bytes
+                    )
+                    holding.update({
+                        "scheme_id": identity.get("scheme_id"),
+                        "isin": identity.get("isin"),
+                        "scheme_identity_status": identity["status"],
+                        "scheme_identity_reason": identity["reason"],
+                    })
+                holdings.append(holding)
 
     if len(dates_found) > 1:
         raise ValueError(f"Integrity Error: Multiple valuation dates detected in CAS: {dates_found}")
