@@ -1,6 +1,6 @@
 # TRI Reviewer Approval — Cryptographic Trust Contract
 
-**Status: DESIGN / NOT IMPLEMENTED. TRI release remains blocked.**
+**Status: IMPLEMENTED VERIFIER / EXTERNAL TRUST AND EVIDENCE SETUP STILL REQUIRED. TRI release remains blocked until every external gate is satisfied.**
 
 This contract defines the minimum cryptographic approval mechanism required before any TRI fixture or NSE trading-calendar evidence can be considered independently reviewed. It does not authenticate source publishers by itself and it does not make provisional market data eligible.
 
@@ -21,7 +21,7 @@ A local SHA-256 checksum is an integrity check only. It is not a signature, iden
 - Use Ed25519 signatures. Do not accept algorithm negotiation, none, HMAC, or an algorithm selected by the approval document.
 - The reviewer's private key is held outside GitHub source control and outside the application runtime; hardware-backed key storage is preferred.
 - The detached approval envelope is supplied through a separately administered release variable, not committed into the tree whose commit SHA it signs. This avoids a circular dependency between the signed approval and the Git commit hash.
-- The verifier receives an allow-listed reviewer public-key registry from a separately administered deployment trust configuration. The registry must not be sourced from the TRI fixture, an ordinary repository file, a pull-request artifact, or a value editable by the same workflow that is being verified.
+- The verifier receives an allow-listed reviewer public-key registry from a separately administered deployment trust configuration. Every key must carry `reviewer_role: "independent"`; the role is an administrative assertion by the trust-root owner, not a self-asserted field in the approval. The registry must not be sourced from the TRI fixture, an ordinary repository file, a pull-request artifact, or a value editable by the same workflow that is being verified.
 - The trust configuration is public material, not a secret. Its integrity and change control are security-critical. Restrict modification to a designated security administrator, require audited changes and dual control for key addition/revocation.
 - The application and release workflow must use the same trust-root policy. Missing trust configuration means BLOCKED; never fall back to trusting an embedded public key.
 - Key rotation must support overlapping validity windows. Revocation must invalidate approvals made after the effective revocation time and support emergency revocation of a compromised key.
@@ -64,7 +64,7 @@ No payload field may be treated as true merely because it is signed: the verifie
 5. Check reviewer identity, allowed scope, repository and exact commit SHA.
 6. Enforce issued/expiry times using an injectable UTC clock in tests.
 7. Recompute fixture, source-document and normalized calendar digests from files inside the repository boundary.
-8. Independently validate benchmark identifiers, daily frequency, no interpolation, observation values and exact equality to the verified NSE session calendar.
+8. Independently validate fixture benchmark identifiers, daily frequency, no interpolation, observation values and exact equality to the verified NSE session calendar. The source-document hashes establish byte integrity, not semantic equivalence between each raw source document and parsed fixture observations; the signed independent-review attestation must explicitly attest that this source-to-fixture reconciliation was performed.
 9. Return a structured verification result with the approval ID, reviewer ID, key ID and evidence digests. Never return eligible if any check fails.
 10. Keep publisher authenticity as a separate gate: a reviewer signature attests to review; it does not magically prove that a publisher's source document is genuine.
 
@@ -87,3 +87,12 @@ No payload field may be treated as true merely because it is signed: the verifie
 - Configure a GitHub Actions Environment named production with required independent deployment reviewers, protected tag/deployment restrictions and audited administrators. Store TRI_REVIEWER_TRUST_REGISTRY_JSON and TRI_REVIEWER_APPROVAL_JSON as environment-scoped Actions secrets so the release workflow cannot silently fall back to ordinary repository variables. Their contents are public cryptographic material, not private signing keys; the secrets mechanism is used to enforce protected release access.
 - Add a key ceremony and reviewer operating procedure before any real approval is issued.
 - Until implementation, deployment configuration, signed evidence and independent source/calendar validation all exist, the alpha release gate must continue to fail and aggregate benchmark XIRR/alpha must remain unavailable.
+
+
+## Implementation notes and remaining operational gates
+
+The verifier is implemented in `tri_reviewer_approval.py` and invoked by `verify_tri_provenance.py --require-alpha-release`. The detached approval and trust registry remain external to the repository. The verifier now rejects non-canonical timestamps and base64url encodings, bounds the two environment payload sizes, and requires an explicitly independent reviewer role in the trust registry.
+
+These controls do **not** prove that the raw source documents were published by NSE/Nifty Indices merely because their URLs use an approved host. A human independent reviewer must retrieve the official documents, preserve the exact bytes, validate the index identity and daily TRI semantics, reconcile every source observation with the normalized fixture, and sign the exact evidence package. Do not treat URL allow-listing or SHA-256 integrity as publisher authentication.
+
+The GitHub Actions `production` environment name in the workflow does not itself prove that protection rules exist. Repository administrators must separately configure required independent reviewers, protected tag/deployment restrictions, and environment-scoped variables/secrets; verify those settings in GitHub before any release attempt. A newly created environment may otherwise have no required reviewers.
