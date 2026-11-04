@@ -217,6 +217,7 @@ def _complete_portfolio_context():
         for key in ("cash", "reserve", "obligations", "income", "expenses", "debt_service")
     }
     return {
+        "evidence_attested_by_provider": True,
         "as_of_date": as_of,
         "perimeter_complete": True,
         "assets": [
@@ -241,7 +242,7 @@ def _complete_portfolio_context():
         "goals": [{
             "goal_id": "education", "mandate_approved": True, "source_ref": "sha256:goal",
             "evidence_as_of_date": as_of, "target_amount_inr": "2500000",
-            "liabilities_inr": "100000", "target_date": f"{date.today().year + 11}-11-04",
+            "liabilities_inr": "100000", "target_date": f"{date.today().year + 11}-{date.today().month:02d}-{date.today().day:02d}",
             "asset_class": "equity", "approved_risk_profile": "Aggressive",
         }],
         "liquidity": {
