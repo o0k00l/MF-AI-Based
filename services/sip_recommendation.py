@@ -384,8 +384,10 @@ def _assess_complete_portfolio_context(
             max_age_days=int(freshness_input["max_age_days"]),
             event_flags=freshness_input.get("event_flags", {}),
         )
+        client_supplied_unverified = context.get("_client_supplied_unverified") is True
         all_gates_pass = (
-            goals["status"] == "VALIDATED"
+            not client_supplied_unverified
+            and goals["status"] == "VALIDATED"
             and liquidity["status"] == "AFFORDABLE"
             and stress["all_scenarios_sustainable"]
             and screening["scoring_permitted"]
@@ -398,6 +400,7 @@ def _assess_complete_portfolio_context(
         return {
             "status": "ASSESSMENT_COMPLETE" if all_gates_pass else "HOLD",
             "scope": "DECLARED_TOTAL_PORTFOLIO",
+            "trust_level": "UNVERIFIED_CLIENT_DECLARATIONS" if client_supplied_unverified else "INTERNAL_REVIEWED_EVIDENCE",
             "portfolio_reconciliation": reconciliation,
             "saa": {"current_sleeve_values_inr": current, "target_weights_pct": targets,
                     "drift": drift, "policy_as_of": policy.get("as_of")},
@@ -412,7 +415,7 @@ def _assess_complete_portfolio_context(
             "all_input_gates_pass": all_gates_pass,
             "recommendation_authorized": False,
             "execution_authorized": False,
-            "important_limit": "Research/TRI release, approved client IPS, and independently approved concentration thresholds remain separate release gates.",
+            "important_limit": "Client-supplied portfolio declarations are diagnostic only until independently sourced and reviewed. Research/TRI release and independent review remain separate release gates.",
         }
     except (KeyError, TypeError, ValueError, OSError) as exc:
         return {
