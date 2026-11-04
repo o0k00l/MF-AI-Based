@@ -195,14 +195,9 @@ def test_trust_registry_and_approval_input_sizes_are_bounded(monkeypatch, tmp_pa
 
 
 
-def test_source_reconciliation_attestation_is_mandatory(tmp_path):
+def test_source_reconciliation_attestation_field_is_mandatory(tmp_path):
     case = list(_signed_case(tmp_path))
     case[0]["payload"]["source_reconciliation_attestation"] = False
-    # Re-sign to isolate the semantic attestation gate from signature-tampering detection.
-    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-    from cryptography.hazmat.primitives import serialization
-    # The test fixture's private key is intentionally not exposed; a modified signed
-    # payload cannot be constructed here, so exact-schema enforcement is covered by
-    # removing the required field and expecting rejection before signature verification.
+    # Exact-schema enforcement rejects approvals that omit this attestation.
     del case[0]["payload"]["source_reconciliation_attestation"]
     assert not _verify(tuple(case)).ok
