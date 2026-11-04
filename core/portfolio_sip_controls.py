@@ -441,7 +441,15 @@ def assess_liquidity_and_sip_surplus(
         raise PortfolioInputError("liquidity and affordability amounts cannot be negative")
     deployable = max(Decimal("0"), cash - reserve - obligations)
     monthly_surplus = max(Decimal("0"), income - expenses - debt)
-    sustainable = min(deployable, monthly_surplus)
+    # Cash reserve adequacy and recurring monthly affordability are distinct:
+    # do not cap a monthly SIP by a one-time cash stock.
+    if cash < reserve + obligations:
+        return {"status": "HOLD", "reason": "VERIFIED_CASH_BELOW_RESERVE_AND_OBLIGATIONS",
+                "deployable_cash_inr": str(deployable),
+                "monthly_surplus_inr": str(monthly_surplus),
+                "sustainable_monthly_sip_inr": "0",
+                "proposed_monthly_sip_inr": str(proposed)}
+    sustainable = monthly_surplus
     if proposed > sustainable:
         return {"status": "HOLD", "reason": "PROPOSED_SIP_EXCEEDS_VERIFIED_SURPLUS",
                 "deployable_cash_inr": str(deployable),
