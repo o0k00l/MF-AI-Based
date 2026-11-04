@@ -215,3 +215,50 @@ def test_saa_drift_accepts_explicit_zero_equity_target_without_fallback():
         holdings, {"equity_pct": 0.0, "debt_liquid_pct": 100.0, "cash_pct": 0.0}, 1000.0
     )
     assert result.target_allocation == {"Equity": 0.0, "Debt": 100.0, "Cash": 0.0}
+
+
+
+def test_metrics_matching_rejects_token_similarity_without_exact_identity():
+    from core.math_engine import _find_matching_metric
+
+    metrics = {
+        "abc_flexi": {"id": "abc_flexi", "name": "ABC Flexi Cap Fund", "scheme": "ABC Flexi Cap Fund"},
+    }
+    assert _find_matching_metric("ABC Large Cap Fund Direct Growth", metrics, {}) is None
+
+
+def test_metrics_matching_accepts_exact_normalized_scheme_identity():
+    from core.math_engine import _find_matching_metric
+
+    metrics = {
+        "abc_flexi": {"id": "abc_flexi", "name": "ABC Flexi Cap Fund", "scheme": "ABC Flexi Cap Fund"},
+    }
+    result = _find_matching_metric("ABC Flexi-Cap Fund (Direct) - Growth", metrics, {})
+    assert result is None  # plan/option-bearing CAS name is not the same identity
+
+
+def test_metrics_matching_requires_reviewed_alias_for_plan_option_variants():
+    from core.math_engine import _find_matching_metric
+
+    metrics = {
+        "abc_flexi_direct_growth": {
+            "id": "abc_flexi_direct_growth",
+            "name": "ABC Flexi Cap Fund Direct Growth",
+        },
+    }
+    result = _find_matching_metric(
+        "ABC Flexi Cap Fund (Direct) - Growth",
+        metrics,
+        {"ABC Flexi Cap Fund (Direct) - Growth": "abc_flexi_direct_growth"},
+    )
+    assert result is metrics["abc_flexi_direct_growth"]
+
+
+def test_metrics_matching_rejects_ambiguous_exact_name():
+    from core.math_engine import _find_matching_metric
+
+    metrics = {
+        "scheme_a": {"id": "scheme_a", "name": "ABC Flexi Cap Fund"},
+        "scheme_b": {"id": "scheme_b", "scheme": "ABC Flexi Cap Fund"},
+    }
+    assert _find_matching_metric("ABC Flexi Cap Fund", metrics, {}) is None
