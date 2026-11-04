@@ -4493,13 +4493,17 @@ def select_autonomous_blueprint_funds(
             # this by supplying is_direct=True or copying the status string.
             if (
                 candidate.get("is_direct") is not True
-                or _reviewed_direct_plan_evidence_status(candidate) != "REVIEWER_ATTESTED_HASH_MATCH"
+                or _reviewed_direct_plan_evidence_status(
+                    candidate,
+                    as_of_date=disclosure_as_of_date,
+                ) != "REVIEWER_ATTESTED_HASH_MATCH"
             ):
                 continue
             gate_result = check_eligibility_gates(
                 candidate,
                 holdings or [],
                 client_risk_tier_num=tier_int,
+                as_of_date=disclosure_as_of_date,
             )
             if getattr(gate_result, "passed", False) is not True:
                 continue

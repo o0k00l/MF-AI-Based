@@ -264,8 +264,14 @@ def discover_openrouter_free_models(api_key: str = "", force_refresh: bool = Fal
     )
 
 
-def _cache_key(prompt: str, data_snapshot: str = "") -> str:
-    return hashlib.sha256((prompt + "||" + data_snapshot).encode("utf-8")).hexdigest()
+def _cache_key(
+    prompt: str,
+    data_snapshot: str = "",
+    system_instruction: str = "",
+    policy_version: str = "v1",
+) -> str:
+    payload = f"{policy_version}||{system_instruction}||{prompt}||{data_snapshot}".encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
 
 
 def _get_narrative_cache() -> dict[str, Any]:
@@ -432,7 +438,7 @@ def call_llm(
     if append_guardrail:
         full_prompt = f"{prompt}\n\n{GUARDRAIL}\n\n{OUTPUT_FORMAT_GUARD}"
     # Deliberately never read/write investor-specific narrative cache.
-    _ = _cache_key(full_prompt, data_snapshot)
+    _ = _cache_key(full_prompt, data_snapshot, system_instruction=system_instruction)
 
     # FREE_ONLY: only adapters with explicit zero-cost catalogue evidence are eligible.
     providers = (

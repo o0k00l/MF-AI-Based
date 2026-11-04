@@ -7,13 +7,14 @@ import math
 import json
 from pathlib import Path
 from typing import List, Dict, Any, Optional
-from datetime import date
+from datetime import date, datetime
 from core.models import EligibilityGateResult, NOActionResult, RiskTier
 
 
 def _reviewed_direct_plan_evidence_status(
     fund_data: dict,
     *,
+    as_of_date: Optional[date] = None,
     trust_registry: Optional[dict] = None,
     require_signature: bool = False,
 ) -> str:
@@ -24,7 +25,24 @@ def _reviewed_direct_plan_evidence_status(
     """
     import hashlib
     import re
-    from datetime import date
+    from datetime import date, datetime
+
+    target_as_of = as_of_date
+    if target_as_of is None and isinstance(fund_data, dict):
+        raw_as_of = (
+            fund_data.get("as_of_date")
+            or fund_data.get("decision_as_of_date")
+            or fund_data.get("disclosure_as_of_date")
+        )
+        if isinstance(raw_as_of, date) and not isinstance(raw_as_of, datetime):
+            target_as_of = raw_as_of
+        elif isinstance(raw_as_of, str) and raw_as_of.strip():
+            try:
+                target_as_of = date.fromisoformat(raw_as_of.strip())
+            except ValueError:
+                return "INVALID"
+    if target_as_of is None or not isinstance(target_as_of, date) or isinstance(target_as_of, datetime):
+        return "MISSING_AS_OF_DATE"
 
     evidence = fund_data.get("direct_plan_evidence")
     evidence_root_value = fund_data.get("_evidence_root")
@@ -78,7 +96,7 @@ def _reviewed_direct_plan_evidence_status(
         reviewed_at = date.fromisoformat(reviewed_at_raw)
     except ValueError:
         return "INVALID"
-    age_days = (date.today() - reviewed_at).days
+    age_days = (target_as_of - reviewed_at).days
     if age_days < 0 or age_days > 180:
         return "STALE"
 
@@ -182,13 +200,72 @@ def _finite_number(value: Any, field: str) -> float:
         raise ValueError(f"{field} must be finite")
     return result
 
-CATEGORY_AUM_CAPS = {
-    "Small Cap": 20000.0,
-    "Mid Cap": 40000.0,
-    "Flexi Cap": 90000.0,
-    "Large Cap": 250000.0,
-    "Multi Cap": 40000.0,
-}
+def load_fund_screening_policy(policy_path: Optional[Path] = None) -> Dict[str, Any]:
+    """Load, validate and bind the central versioned fund-screening policy."""
+    if policy_path is None:
+        policy_path = Path(__file__).resolve().parents[1] / "data" / "policy" / "fund_screening.json"
+    if not isinstance(policy_path, Path) or not policy_path.is_file():
+        raise FileNotFoundError(f"Screening policy file not found: {policy_path}")
+
+    try:
+        data = json.loads(policy_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"Screening policy file is invalid JSON: {policy_path}") from exc
+
+    if not isinstance(data, dict):
+        raise ValueError("Screening policy root must be a JSON object")
+
+    seen_rule_ids = set()
+    for rule_set_key in ("quarantine_rules", "reject_rules", "flag_rules"):
+        rules = data.get(rule_set_key, [])
+        if not isinstance(rules, list):
+            raise ValueError(f"Screening policy rule set {rule_set_key!r} must be a list")
+        for rule in rules:
+            if isinstance(rule, dict) and "id" in rule:
+                rid = rule["id"]
+                if rid in seen_rule_ids:
+                    raise ValueError(f"Duplicate screening rule ID detected: {rid!r}")
+                seen_rule_ids.add(rid)
+
+    cat_rules = data.get("category_rules", {})
+    if isinstance(cat_rules, dict):
+        thematic = cat_rules.get("thematic_sectoral_liquidation", {})
+        if isinstance(thematic, dict) and thematic.get("action") not in ("REVIEW_REQUIRED", "FLAG"):
+            raise ValueError(
+                f"Contradictory action {thematic.get('action')!r} in category_rules.thematic_sectoral_liquidation; "
+                "must be REVIEW_REQUIRED per fiduciary non-automatic liquidation policy"
+            )
+
+    return data
+
+
+def _load_category_aum_caps(policy: Optional[Dict[str, Any]] = None) -> Dict[str, float]:
+    """Extract category AUM caps from screening policy limits_crore."""
+    if policy is None:
+        try:
+            policy = load_fund_screening_policy()
+        except Exception:
+            return {
+                "Small Cap": 20000.0,
+                "Mid Cap": 40000.0,
+                "Flexi Cap": 90000.0,
+                "Large Cap": 250000.0,
+                "Multi Cap": 40000.0,
+            }
+    for rule in policy.get("flag_rules", []):
+        if isinstance(rule, dict) and rule.get("id") == "AUM_OUT_OF_BAND":
+            limits = rule.get("limits_crore", {})
+            return {cat: float(limit) for cat, limit in limits.items()}
+    return {
+        "Small Cap": 20000.0,
+        "Mid Cap": 40000.0,
+        "Flexi Cap": 90000.0,
+        "Large Cap": 250000.0,
+        "Multi Cap": 40000.0,
+    }
+
+
+CATEGORY_AUM_CAPS = _load_category_aum_caps()
 
 
 def check_eligibility_gates(
@@ -196,6 +273,7 @@ def check_eligibility_gates(
     portfolio_holdings: Optional[List[Dict[str, Any]]] = None,
     client_risk_tier_num: Optional[int] = None,
     is_starter: bool = False,
+    as_of_date: Optional[date] = None,
     amc_max_limit_pct: float = 30.0,
     min_aum_crore: float = 1000.0,
     max_top10_concentration_pct: float = 55.0,
@@ -575,7 +653,18 @@ def check_eligibility_gates(
     direct_flag = fund_data.get("is_direct")
     # Recompute the local evidence digest at the decision boundary; never trust
     # a copied/caller-supplied status string as proof of Direct-plan identity.
-    direct_evidence_status = _reviewed_direct_plan_evidence_status(fund_data)
+    eval_as_of = (
+        as_of_date
+        or (fund_data.get("as_of_date") if isinstance(fund_data, dict) else None)
+        or (fund_data.get("decision_as_of_date") if isinstance(fund_data, dict) else None)
+        or (fund_data.get("disclosure_as_of_date") if isinstance(fund_data, dict) else None)
+    )
+    if eval_as_of is None:
+        eval_as_of = date.today()
+    direct_evidence_status = _reviewed_direct_plan_evidence_status(
+        fund_data,
+        as_of_date=eval_as_of,
+    )
     if "regular" in plan_value or "distributor" in plan_value or "regular" in fund_name.casefold():
         is_direct = False
     elif (
@@ -883,6 +972,20 @@ def load_candidate_universe(
         provenance_raw = m.get("_provenance")
         fund_name = m.get("name", m.get("scheme_name", m.get("id", "")))
         scheme_id = m.get("scheme_id")
+        if disclosure_as_of_date is None:
+            cand_as_of = m.get("as_of_date") or m.get("disclosure_as_of_date") or data.get("as_of_date")
+            if isinstance(cand_as_of, date) and not isinstance(cand_as_of, datetime):
+                effective_as_of = cand_as_of
+            elif isinstance(cand_as_of, str) and cand_as_of.strip():
+                try:
+                    effective_as_of = date.fromisoformat(cand_as_of.strip())
+                except ValueError:
+                    effective_as_of = date.today()
+            else:
+                effective_as_of = date.today()
+        else:
+            effective_as_of = disclosure_as_of_date
+
         evidence_context = {
             "direct_plan_evidence": m.get("direct_plan_evidence"),
             "_evidence_root": str(Path(metrics_path).resolve().parent),
@@ -890,8 +993,12 @@ def load_candidate_universe(
             "scheme_id": scheme_id,
             "isin": m.get("isin"),
             "amc_name": m.get("amc_name"),
+            "as_of_date": effective_as_of,
         }
-        direct_evidence_status = _reviewed_direct_plan_evidence_status(evidence_context)
+        direct_evidence_status = _reviewed_direct_plan_evidence_status(
+            evidence_context,
+            as_of_date=effective_as_of,
+        )
         source_direct_flag = m.get("is_direct")
         if source_direct_flag is False:
             direct_flag = False

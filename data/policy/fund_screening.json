@@ -403,7 +403,7 @@
       "rule_classification": "RESEARCH_HEURISTIC"
     },
     {
-      "id": "DEBT_CREDIT_RISK",
+      "id": "DEBT_CREDIT_RISK_HISTORICAL",
       "test": "ytm_pct > 8.5",
       "applies_to_categories": [
         "Liquid",
@@ -417,7 +417,7 @@
       "rule_classification": "RESEARCH_HEURISTIC"
     },
     {
-      "id": "LIQUIDITY_STRESS_TEST_FAIL",
+      "id": "LIQUIDITY_STRESS_TEST_FAIL_HISTORICAL",
       "test": "amfi_stress_test_50pct_days > 15",
       "applies_to_categories": [
         "Mid Cap",
@@ -557,8 +557,8 @@
     "category_rules": {
       "thematic_sectoral_liquidation": {
         "condition": "category_is_thematic_or_sectoral",
-        "action": "IMMEDIATE_EXIT",
-        "rationale": "Thematic/Sectoral funds are not core holdings. They must be liquidated without seeking category-specific replacement."
+        "action": "REVIEW_REQUIRED",
+        "rationale": "Thematic/Sectoral funds are not core holdings. Evaluate existing exposure, mandate, benchmark-relative evidence, valuation, overlap, tax lots and exit load. Do not force liquidation or automatically redirect proceeds; new SIP eligibility is assessed separately."
       }
     },
     "reporting_requirements": [
