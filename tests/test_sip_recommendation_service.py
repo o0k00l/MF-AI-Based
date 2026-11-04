@@ -680,6 +680,9 @@ def test_combined_selected_funds_cannot_collectively_breach_sector_cap(tmp_path,
     assert allocation["status"] == "HOLD"
     assert allocation["allocated_budget_inr"] == "0"
     assert float(allocation["unallocated_budget_inr"]) == 10000.0
+    assert float(allocation["unrouted_saa_budget_inr"]) == 4000.0
+    assert float(allocation["routed_but_unallocated_budget_inr"]) == 6000.0
+    assert sum(float(value) for value in allocation["unallocated_by_sleeve_inr"].values()) == 10000.0
     assert allocation["reconciliation_ok"] is True
     assert result["plan"]["items"] == []
     assert result["plan"]["unallocated_budget_inr"] == 10000
