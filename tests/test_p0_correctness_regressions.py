@@ -2535,7 +2535,7 @@ def test_no_action_never_evaluates_candidates_without_investor_risk_profile():
     result = evaluate_no_action([], [{"fund_id": "fund-x", "score": 99.0}])
     assert result.action == "NO_ACTION"
     assert result.sip_deployment_pause is True
-    assert "risk profile is missing" in result.reason
+    assert "investor suitability profile is missing" in result.reason
 
 
 def test_sip_builder_requires_explicit_risk_profile_and_verified_aum():
@@ -2543,7 +2543,7 @@ def test_sip_builder_requires_explicit_risk_profile_and_verified_aum():
     with pytest.raises(ValueError, match="explicit validated investor risk profile"):
         compute_deterministic_sip_blueprint(10000)
     with pytest.raises(ValueError, match="Verified reconciled client AUM"):
-        compute_deterministic_sip_blueprint(10000, risk_tier="Moderate")
+        compute_deterministic_sip_blueprint(10000, risk_tier="Moderate", client_aum=None)
 
 
 def test_tier6_equity_only_policy_requires_literal_true_authorization(monkeypatch):
@@ -2622,8 +2622,8 @@ def test_saa_drift_minimizer_preserves_exact_target_and_zero_weight_cash():
         {"equity_pct": 75.0, "debt_pct": 25.0, "cash_pct": 0.0},
         10000.0,
     )
-    assert result.recommended_sip_allocation["Equity"] == pytest.approx(10000.0)
-    assert result.recommended_sip_allocation["Debt"] == pytest.approx(0.0)
+    assert result.recommended_sip_allocation["Equity"] == pytest.approx(7500.0)
+    assert result.recommended_sip_allocation["Debt"] == pytest.approx(2500.0)
     assert result.recommended_sip_allocation["Cash"] == pytest.approx(0.0)
     assert result.total_drift_l2_norm == pytest.approx(0.0)
 
