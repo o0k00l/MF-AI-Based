@@ -192,3 +192,45 @@
 - Regression tests cover default-off, explicit Tier 6 authorization, non-boolean rejection and non-Tier-6 rejection.
 - Commits: `743e812` (code), `815f31e` (tests).
 - Limitation: tests have not been executed. This is an authorization wiring fix, not an endorsement of 100% equity for any particular investor; the IPS and suitability review must still justify it.
+
+
+### 27. Candidate scoring accepted negative or out-of-range pillar weights — FIXED IN CODE; EXECUTION NOT YET VERIFIED
+- File: `core/candidate_scoring.py`, `ScoringWeights.validate`.
+- Previous behaviour: validation checked only that weights summed to 1.0. Negative weights and weights above 100% could pass, allowing a scoring configuration to reward a penalty pillar or invert the intended objective.
+- Correction: every weight must now be finite and within [0, 1], and the total must still equal 1.0.
+- Regression coverage: negative, over-1 and non-finite weight rejection in `tests/test_sip_candidate_scoring_safety.py`.
+
+### 28. Negative 1Y returns were not penalized in the alpha/return pillar — FIXED IN CODE; EXECUTION NOT YET VERIFIED
+- File: `core/candidate_scoring.py`, `calculate_candidate_6_pillar_score`.
+- Previous behaviour: when 1Y return was zero or negative, the scorer substituted the alpha score for the return score. A fund with a poor/negative 1Y return could therefore receive the same return contribution as a fund with positive alpha.
+- Correction: score the observed 1Y return against the category return anchors, including zero and negative observations.
+- Regression coverage: negative 1Y return is scored at the bottom of the Flexi Cap return range in `tests/test_sip_candidate_scoring_safety.py`.
+
+### 29. Candidate metrics loader silently converted missing/corrupt evidence into an empty universe — FIXED IN CODE; EXECUTION NOT YET VERIFIED
+- File: `core/candidate_scoring.py`, `FiduciaryFundSelector._load_metrics`.
+- Previous behaviour: a missing file, malformed JSON or schema problem returned an empty dictionary. Downstream code then failed later or behaved as if no candidates existed, obscuring the actual evidence failure.
+- Correction: missing evidence raises `FileNotFoundError`; malformed JSON/schema, empty universe, invalid records and duplicate identities raise explicit `ValueError`.
+- Regression coverage: missing file, invalid JSON, empty universe and duplicate identity in `tests/test_sip_candidate_scoring_safety.py`.
+
+### 30. Legacy Flexi selector contains hard-coded scheme facts and fallback performance/AUM values — OPEN, HIGH RISK
+- File: `core/candidate_scoring.py`, `FiduciaryFundSelector.score_flexi_cap_candidates`.
+- Observed behaviour: the legacy selector names two fixed funds and embeds scheme labels, folio references, equity/debt exposures, international exposure narratives, AUM/TER/alpha/Sharpe fallback values and fixed recommendation verdicts.
+- Risk: stale or absent source metrics can be presented as current candidate facts; it is not a scalable category-level candidate selector. Remove this legacy hard-coding or make every field source-bound and identity-verified before using it for SIP recommendations.
+- Not changed in this pass because the replacement needs a confirmed canonical candidate schema and callers.
+
+### 31. Missing portfolio-overlap evidence receives a neutral score — OPEN, HIGH RISK
+- File: `core/candidate_scoring.py`, `calculate_candidate_6_pillar_score`.
+- Observed behaviour: if neither portfolio overlap nor candidate overlap is supplied, the MPB/overlap pillar receives 50/100 rather than withholding a portfolio-aware score.
+- Risk: a candidate may be ranked without evidence of its marginal diversification benefit. A portfolio-aware SIP route should require overlap coverage or explicitly mark the score provisional and ineligible for recommendation.
+- Not changed in this pass to avoid breaking non-portfolio scoring consumers without first separating standalone fund scoring from SIP portfolio scoring.
+
+### 32. Category scoring anchors do not cover the full scheme/category universe — OPEN, MEDIUM-HIGH
+- File: `core/candidate_scoring.py`, `CATEGORY_BENCHMARK_ANCHORS`.
+- Observed behaviour: only Healthcare, Flexi Cap, Mid Cap and Large Cap anchors are defined. Other categories supported elsewhere in the engine (including Small Cap, Multi Cap, Debt, Hybrid and International) cannot be scored by this function and are rejected.
+- Risk: category coverage can be incomplete even if the overall candidate universe is large. A category-specific benchmark and scoring policy must be approved before those categories are eligible.
+- Not changed pending policy-owned benchmark anchors; do not fill missing categories with another category's anchors.
+
+### 33. Scoring normalizer accepted malformed/non-finite metric values — FIXED IN CODE; EXECUTION NOT YET VERIFIED
+- File: `core/candidate_scoring.py`, `normalize_metric`.
+- Correction: reject boolean, non-numeric and non-finite values/bounds, and reversed bounds instead of producing misleading normalized scores.
+- Regression coverage: NaN, infinity, booleans and reversed bounds in `tests/test_sip_candidate_scoring_safety.py`.
