@@ -240,29 +240,44 @@ def load_fund_screening_policy(policy_path: Optional[Path] = None) -> Dict[str, 
 
 
 def _load_category_aum_caps(policy: Optional[Dict[str, Any]] = None) -> Dict[str, float]:
-    """Extract category AUM caps from screening policy limits_crore."""
+    """Load category AUM limits exclusively from the validated central policy.
+
+    Missing, duplicate, malformed or incomplete policy is a release/configuration
+    error. Never substitute hardcoded financial thresholds when policy evidence
+    cannot be read.
+    """
     if policy is None:
+        policy = load_fund_screening_policy()
+    if not isinstance(policy, dict):
+        raise ValueError("Screening policy must be an object")
+
+    rules = policy.get("flag_rules")
+    if not isinstance(rules, list):
+        raise ValueError("Screening policy flag_rules must be a list")
+    matches = [
+        rule for rule in rules
+        if isinstance(rule, dict) and rule.get("id") == "AUM_OUT_OF_BAND"
+    ]
+    if len(matches) != 1:
+        raise ValueError("Screening policy must contain exactly one AUM_OUT_OF_BAND rule")
+
+    limits = matches[0].get("limits_crore")
+    required_categories = {"Small Cap", "Mid Cap", "Flexi Cap", "Large Cap", "Multi Cap"}
+    if not isinstance(limits, dict) or set(limits) != required_categories:
+        raise ValueError("AUM_OUT_OF_BAND limits must define the complete approved category set")
+
+    validated: Dict[str, float] = {}
+    for category, raw_limit in limits.items():
+        if isinstance(raw_limit, bool):
+            raise ValueError(f"AUM limit for {category} must be a positive finite number")
         try:
-            policy = load_fund_screening_policy()
-        except Exception:
-            return {
-                "Small Cap": 20000.0,
-                "Mid Cap": 40000.0,
-                "Flexi Cap": 90000.0,
-                "Large Cap": 250000.0,
-                "Multi Cap": 40000.0,
-            }
-    for rule in policy.get("flag_rules", []):
-        if isinstance(rule, dict) and rule.get("id") == "AUM_OUT_OF_BAND":
-            limits = rule.get("limits_crore", {})
-            return {cat: float(limit) for cat, limit in limits.items()}
-    return {
-        "Small Cap": 20000.0,
-        "Mid Cap": 40000.0,
-        "Flexi Cap": 90000.0,
-        "Large Cap": 250000.0,
-        "Multi Cap": 40000.0,
-    }
+            limit = float(raw_limit)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise ValueError(f"AUM limit for {category} must be a positive finite number") from exc
+        if not math.isfinite(limit) or limit <= 0:
+            raise ValueError(f"AUM limit for {category} must be a positive finite number")
+        validated[category] = limit
+    return validated
 
 
 CATEGORY_AUM_CAPS = _load_category_aum_caps()
