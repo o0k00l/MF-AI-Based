@@ -2142,8 +2142,9 @@ def aggregate_fiduciary_facts(
             # claim. Enforce the same independent evidence gate used by CI
             # before any benchmark or alpha value can enter the client report.
             from verify_tri_provenance import alpha_release_blockers
+            repository_root = Path(__file__).resolve().parents[1]
             release_blockers = alpha_release_blockers(
-                Path("data/policy/benchmark_tri_series.json")
+                repository_root / "data" / "policy" / "benchmark_tri_series.json"
             )
             if release_blockers:
                 bench_audit_record = {
