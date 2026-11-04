@@ -55,12 +55,16 @@ def test_configured_provider_only_enables_evidence_validation_not_recommendation
     response = client.get("/ready")
     assert response.status_code == 200
     assert response.json() == {
-        "status": "ready_for_evidence_validation",
+        "status": "not_ready",
         "service": "sip-decision-support",
-        "checks": {"evidence_provider": "configured"},
-        "evidence_validation_available": True,
+        "checks": {
+            "evidence_provider": "configured",
+            "independent_reviewer_trust_registry": "missing_or_invalid",
+        },
+        "evidence_validation_available": False,
         "recommendations_enabled": False,
         "release_blockers": [
+            "independent_reviewer_trust_registry_unavailable",
             "authenticated_daily_tri_unavailable",
             "independent_nse_calendar_unavailable",
             "research_release_approval_missing",
@@ -192,8 +196,8 @@ def test_api_passes_temporary_cas_to_evidence_provider_and_removes_it(monkeypatc
     assert response.status_code == 200
     assert response.json()["status"] == "HOLD"
     assert response.json()["unallocated_budget_inr"] == 15000
-    assert isinstance(seen["path"], Path)
-    assert not seen["path"].exists()
+    assert seen == {}  # Unauthenticated evidence must not reach the engine.
+    assert "Independent reviewer trust registry" in response.json()["reasons"][0]
 
 
 def test_api_rejects_non_xlsx_without_invoking_provider():
@@ -234,7 +238,7 @@ def test_api_rejects_provider_override_of_user_request(monkeypatch):
 
     assert response.status_code == 200
     assert response.json()["decision"] == "NO_ACTION"
-    assert "Evidence preparation failed closed" in response.json()["reasons"][0]
+    assert "Independent reviewer trust registry" in response.json()["reasons"][0]
 
 
 def test_api_real_service_ingests_cas_and_holds_on_missing_portfolio_disclosure(tmp_path):
@@ -364,10 +368,8 @@ def test_api_real_service_ingests_cas_and_holds_on_missing_portfolio_disclosure(
     body = response.json()
     assert body["status"] == "HOLD"
     assert body["decision"] == "NO_ACTION"
-    assert body["plan"]["items"] == []
-    assert body["plan"]["total_monthly_budget_inr"] == 25000.0
-    assert body["plan"]["unallocated_budget_inr"] == 25000.0
-    assert any("constituent disclosure is MISSING" in reason for reason in body["reasons"])
+    assert body["unallocated_budget_inr"] == 25000.0
+    assert "Independent reviewer trust registry" in body["reasons"][0]
 
 
 def test_api_runs_portfolio_saa_diagnostic_end_to_end_and_keeps_budget_on_hold(monkeypatch):
@@ -533,23 +535,8 @@ def test_api_runs_portfolio_saa_diagnostic_end_to_end_and_keeps_budget_on_hold(m
     body = response.json()
     assert body["status"] == "HOLD"
     assert body["decision"] == "NO_ACTION"
-    assert body["portfolio_assessment"]["status"] == "DIAGNOSTIC_ONLY"
-    assert body["portfolio_assessment"]["scope"] == "CAS_MUTUAL_FUND_HOLDINGS_ONLY"
-    assert body["portfolio_assessment"]["saa_drift"]["current_weights_pct"]["large_cap"] == "100"
-    assert body["portfolio_assessment"]["sip_routing"]["status"] == "HOLD"
-    assert body["portfolio_assessment"]["lookthrough"]["status"] == "CALCULATED"
-    trace = body["portfolio_assessment"]["decision_trace"]
-    assert len(trace["sha256"]) == 64
-    import json
-    trace_record = json.loads(trace["canonical_record"])
-    assert trace_record["source_digests"]["metrics_source_sha256"] == hashlib.sha256(metrics_source_bytes).hexdigest()
-    assert trace_record["source_digests"]["candidate_universe_source_sha256"] == hashlib.sha256(candidate_source_bytes).hexdigest()
-    assert trace_record["source_digests"]["candidate_score_source_sha256"] == hashlib.sha256(rank_score_source_bytes).hexdigest()
-    assert trace_record["source_digests"]["category_anchor_source_sha256"] == hashlib.sha256(category_anchor_source_bytes).hexdigest()
-    assert trace_record["source_digests"]["metrics_normalized_sha256"] == hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
-    assert trace_record["eligibility"]["candidate_rank_evidence"]["fund-api-saa"]["rank_score_methodology_version"] == "risk-quality-v1"
-    assert body["plan"]["items"] == []
-    assert body["plan"]["unallocated_budget_inr"] == 10000
+    assert body["unallocated_budget_inr"] == 10000
+    assert "Independent reviewer trust registry" in body["reasons"][0]
 
 
 def test_api_rejects_malformed_portfolio_context_before_calling_provider():
