@@ -26,6 +26,25 @@ def _asset(asset_id="cas-1", value="100000", asset_class="equity"):
     }
 
 
+
+
+@pytest.mark.parametrize("age", [True, 1.5, "30", -1])
+def test_candidate_screening_rejects_invalid_evidence_age(age):
+    with pytest.raises(PortfolioInputError, match="non-negative integer"):
+        screen_candidates_before_scoring(
+            [], as_of_date="2026-11-04", max_evidence_age_days=age,
+            mandatory_gates=["direct_plan"],
+        )
+
+
+@pytest.mark.parametrize("gates", ["direct_plan", b"risk", ["direct_plan", ""], ["risk", "risk"], None])
+def test_candidate_screening_rejects_malformed_mandatory_gates(gates):
+    with pytest.raises(PortfolioInputError, match="mandatory_gates"):
+        screen_candidates_before_scoring(
+            [], as_of_date="2026-11-04", max_evidence_age_days=30,
+            mandatory_gates=gates,
+        )
+
 def test_portfolio_reconciliation_requires_explicit_complete_perimeter():
     result = reconcile_total_portfolio([_asset()], perimeter_complete=False,
                                        as_of_date="2026-10-31")
