@@ -181,10 +181,16 @@ def alpha_release_blockers(fixture_path: Path, *, approval_verified: bool = Fals
     if not isinstance(benchmarks, dict) or not benchmarks:
         blockers.append("benchmarks must be a non-empty object")
         benchmarks = {}
-    benchmark_names = {
-        str(name).strip().upper(): name for name in benchmarks
-        if isinstance(name, str)
-    }
+    benchmark_names: dict[str, str] = {}
+    for name in benchmarks:
+        if not isinstance(name, str) or not name.strip():
+            blockers.append("benchmark identifiers must be non-empty strings")
+            continue
+        normalized_name = name.strip().upper()
+        if normalized_name in benchmark_names:
+            blockers.append(f"duplicate benchmark identifier after normalization: {normalized_name}")
+            continue
+        benchmark_names[normalized_name] = name
     missing_benchmarks = sorted(REQUIRED_BENCHMARKS - set(benchmark_names))
     if missing_benchmarks:
         blockers.append("required benchmark series missing: " + ", ".join(missing_benchmarks))
