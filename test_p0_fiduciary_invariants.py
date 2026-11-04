@@ -433,9 +433,9 @@ def test_p0_6_multi_horizon_selection_and_peer_evaluation(tmp_path):
     best = pharma_cands["SYNTH-HEALTH-A"]
     second = pharma_cands["SYNTH-HEALTH-B"]
     worst = pharma_cands["SYNTH-HEALTH-D"]
-    score_best = compute_multi_horizon_fiduciary_score(best, category_key="Thematic", scoring_weights=weights)
-    score_second = compute_multi_horizon_fiduciary_score(second, category_key="Thematic", scoring_weights=weights)
-    score_worst = compute_multi_horizon_fiduciary_score(worst, category_key="Thematic", scoring_weights=weights)
+    score_best = compute_multi_horizon_fiduciary_score(best, category_key="Healthcare", scoring_weights=weights)
+    score_second = compute_multi_horizon_fiduciary_score(second, category_key="Healthcare", scoring_weights=weights)
+    score_worst = compute_multi_horizon_fiduciary_score(worst, category_key="Healthcare", scoring_weights=weights)
     assert score_best > score_worst
     assert score_second > score_worst
     assert best["return_1y"] > worst["return_1y"]
