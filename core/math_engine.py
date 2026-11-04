@@ -972,6 +972,10 @@ def load_holdings_from_cas_excel(
     fund_aliases_path: Optional[Path] = None,
     scheme_master: Optional[Dict[str, Any]] = None,
     scheme_master_source_bytes: Optional[bytes] = None,
+    portfolio_disclosures_by_scheme_id: Optional[Dict[str, Dict[str, Any]]] = None,
+    portfolio_disclosure_source_bytes_by_scheme_id: Optional[Dict[str, bytes]] = None,
+    disclosure_as_of_date: Optional[date] = None,
+    disclosure_max_age_days: int = 45,
 ) -> List[HoldingItem]:
     """
     Parses active mutual fund holdings directly from CAS detailed report Excel sheet.
@@ -1106,6 +1110,29 @@ def load_holdings_from_cas_excel(
                 source_bytes=scheme_master_source_bytes,
             )
 
+        disclosure = {"constituent_weights": None,
+                      "constituent_weights_coverage_pct": None,
+                      "status": "MISSING",
+                      "reason": "No verified portfolio disclosure was supplied."}
+        if (identity.get("scheme_id")
+                and portfolio_disclosures_by_scheme_id is not None
+                and portfolio_disclosure_source_bytes_by_scheme_id is not None
+                and disclosure_as_of_date is not None):
+            from ingestion.portfolio_disclosure import validate_portfolio_disclosure
+            disclosure_record = portfolio_disclosures_by_scheme_id.get(identity["scheme_id"])
+            disclosure_bytes = portfolio_disclosure_source_bytes_by_scheme_id.get(identity["scheme_id"])
+            if disclosure_record is not None and disclosure_bytes is not None:
+                disclosure = validate_portfolio_disclosure(
+                    disclosure_record, disclosure_bytes,
+                    as_of=disclosure_as_of_date,
+                    max_age_days=disclosure_max_age_days,
+                )
+                if disclosure.get("scheme_id") != identity["scheme_id"]:
+                    disclosure = {"constituent_weights": None,
+                                  "constituent_weights_coverage_pct": None,
+                                  "status": "CONFLICTING",
+                                  "reason": "Disclosure scheme identifier does not match resolved CAS identity."}
+
         holdings.append(
             HoldingItem(
                 fund_id=fund_id,
@@ -1126,10 +1153,10 @@ def load_holdings_from_cas_excel(
                 top_holdings=top_h,
                 expense_ratio_pct=er,
                 scheme_id=identity.get("scheme_id"),
-                constituent_weights=None,
-                constituent_weights_coverage_pct=None,
-                lookthrough_status="MISSING",
-                lookthrough_reason="CAS and metrics do not establish verified constituent weights.",
+                constituent_weights=disclosure.get("constituent_weights"),
+                constituent_weights_coverage_pct=disclosure.get("constituent_weights_coverage_pct"),
+                lookthrough_status=disclosure["status"],
+                lookthrough_reason=disclosure["reason"],
                 amc_name=amc_name or None,
                 risk_tier=_asset_class_to_risk_tier(asset_class),
             )
