@@ -4141,16 +4141,19 @@ def compute_deterministic_lumpsum_blueprint(
     equity_pct, debt_pct = calculate_universal_tier_split(
         tier_num, stability_buffer_pct, equity_sip_routing_override=equity_sip_routing_override
     )
-    required_slots = []
-    if equity_pct > 0:
-        required_slots.extend([
+    # Require only sleeves with a positive policy target. A zero-weight
+    # sleeve must not turn an otherwise valid low-risk plan into NO_ACTION.
+    required_slots = [
+        name for name in (
             "Slot 1: Core Flexi-Cap Compounder",
             "Slot 2: Mid-Cap Alpha Engine",
             "Slot 3: Small-Cap Growth Engine",
             "Slot 4: Large-Cap Bluechip Anchor",
-        ])
-        if thematic_satellite_authorized and satellite_pct > 0:
-            required_slots.append("Slot 5: Tactical Thematic Satellite")
+        )
+        if float((slots.get(name) or {}).get("allocation_pct", 0.0)) > 0.0
+    ]
+    if thematic_satellite_authorized and satellite_pct > 0:
+        required_slots.append("Slot 5: Tactical Thematic Satellite")
     if debt_pct > 0:
         required_slots.append("High-Grade Debt Anchor")
 
