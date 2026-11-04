@@ -4498,6 +4498,40 @@ def compute_deterministic_sip_blueprint(
         tier_num, stability_buffer_pct, equity_sip_routing_override=equity_sip_routing_override
     )
 
+    # Re-validate holding disclosures at the public SIP boundary when evidence
+    # bundles are supplied. A missing exact-ID match clears stale weights.
+    if holdings is not None and portfolio_disclosures_by_scheme_id is not None:
+        from ingestion.portfolio_disclosure import validate_portfolio_disclosure
+        enriched_holdings = []
+        source_map = portfolio_disclosure_source_bytes_by_scheme_id or {}
+        for holding in holdings:
+            scheme_id = getattr(holding, "scheme_id", None)
+            disclosure = portfolio_disclosures_by_scheme_id.get(scheme_id) if scheme_id else None
+            source_bytes = source_map.get(scheme_id) if scheme_id else None
+            if disclosure is None or source_bytes is None or disclosure_as_of_date is None:
+                result = {"constituent_weights": None,
+                          "constituent_weights_coverage_pct": None,
+                          "status": "MISSING",
+                          "reason": "No exact-ID disclosure and source evidence available at SIP decision time."}
+            else:
+                result = validate_portfolio_disclosure(
+                    disclosure, source_bytes,
+                    as_of=disclosure_as_of_date,
+                    max_age_days=disclosure_max_age_days,
+                )
+                if result.get("scheme_id") != scheme_id:
+                    result = {"constituent_weights": None,
+                              "constituent_weights_coverage_pct": None,
+                              "status": "CONFLICTING",
+                              "reason": "Disclosure scheme identifier does not match existing holding."}
+            enriched_holdings.append(holding.model_copy(update={
+                "constituent_weights": result.get("constituent_weights"),
+                "constituent_weights_coverage_pct": result.get("constituent_weights_coverage_pct"),
+                "lookthrough_status": result["status"],
+                "lookthrough_reason": result["reason"],
+            }))
+        holdings = enriched_holdings
+
     items = []
 
     # Autonomous Fiduciary Slot Selection (Zero Hardcoded Brands)
