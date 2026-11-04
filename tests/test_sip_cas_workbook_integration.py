@@ -62,6 +62,7 @@ def _scheme_master():
             "amc_name": AMC_NAME,
             "plan_type": "Direct",
             "option_type": "Growth",
+            "riskometer_score": 5,
         }],
     }, source_bytes)
 
