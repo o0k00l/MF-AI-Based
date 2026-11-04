@@ -399,6 +399,10 @@ def test_complete_portfolio_workflow_integrates_issues_23_to_34_without_authoriz
     assert trace_record["portfolio_effect"]["candidate_level_allocation_simulation"]["reconciliation_ok"] is True
     assert trace_record["allocation"]["authorized_allocated_budget_inr"] == 0
     assert trace_record["allocation"]["simulated_allocated_budget_inr"] == "10000"
+    assert len(trace_record["policy_source_sha256"]) == 64
+    assert trace_record["eligibility"]["candidate_rank_evidence"]["CANDIDATE-1"]["rank_score"] == "1"
+    assert trace_record["eligibility"]["candidate_rank_evidence"]["CANDIDATE-1"]["rank_score_methodology_version"] is None
+    assert result["portfolio_assessment"]["recommendation_lifecycle"]["state_persisted"] is False
     assert context["recommendation_authorized"] is False
     assert context["execution_authorized"] is False
     assert result["status"] == "HOLD"
@@ -586,3 +590,27 @@ def test_missing_issuer_classification_fails_closed_for_candidate_routing(tmp_pa
     assert candidate["status"] == "HOLD"
     assert candidate["sector_market_cap_theme"]["reason"] == "ISSUER_CLASSIFICATION_MISSING_OR_INVALID"
     assert result["plan"]["unallocated_budget_inr"] == 10000
+
+
+def test_service_persists_draft_lifecycle_snapshot_outside_checkout(tmp_path, monkeypatch):
+    args = _inputs(tmp_path)
+    args["candidate_universe"] = _candidate_universe()
+    lifecycle_dir = tmp_path / "external-lifecycle"
+    monkeypatch.setenv("MF_SIP_LIFECYCLE_DIR", str(lifecycle_dir))
+    monkeypatch.setattr(service, "load_holdings_from_cas_excel", lambda *a, **k: [_holding()])
+    monkeypatch.setattr(service, "compute_deterministic_sip_blueprint", lambda **kwargs: SimpleNamespace(items=[]))
+
+    result = service.recommend_sip(**args, portfolio_context=_complete_portfolio_context())
+
+    lifecycle = result["portfolio_assessment"]["recommendation_lifecycle"]
+    assert lifecycle["state"] == "DRAFT"
+    assert lifecycle["state_persisted"] is True
+    assert lifecycle["persistence_status"] == "RECORDED"
+    record_path = lifecycle_dir / f"{lifecycle['decision_trace_sha256']}.json"
+    assert record_path.is_file()
+    record = json.loads(record_path.read_text(encoding="utf-8"))
+    assert record["execution_authorized"] is False
+    assert set(record) == {
+        "schema_version", "state", "decision_trace_sha256",
+        "created_at", "execution_authorized",
+    }
