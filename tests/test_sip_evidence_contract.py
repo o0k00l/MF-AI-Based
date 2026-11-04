@@ -82,7 +82,7 @@ def test_contract_rejects_missing_required_field(tmp_path):
 
 
 def test_contract_rejects_unexpected_and_request_override_fields(tmp_path):
-    payload = valid_payload()
+    payload = valid_payload(tmp_path)
     payload["monthly_budget_inr"] = 50000
 
     with pytest.raises(EvidenceProviderContractError, match="unsupported fields"):
@@ -90,7 +90,7 @@ def test_contract_rejects_unexpected_and_request_override_fields(tmp_path):
 
 
 def test_contract_rejects_source_hash_mismatch(tmp_path):
-    payload = valid_payload()
+    payload = valid_payload(tmp_path)
     payload["candidate_universe_source_bytes"] = b"tampered"
 
     with pytest.raises(EvidenceProviderContractError, match="SHA-256 does not match"):
@@ -98,7 +98,7 @@ def test_contract_rejects_source_hash_mismatch(tmp_path):
 
 
 def test_contract_requires_reviewer_attestation(tmp_path):
-    payload = valid_payload()
+    payload = valid_payload(tmp_path)
     payload["candidate_universe_source"]["reviewer_attested"] = False
 
     with pytest.raises(EvidenceProviderContractError, match="reviewer attestation"):
@@ -106,7 +106,7 @@ def test_contract_requires_reviewer_attestation(tmp_path):
 
 
 def test_contract_requires_exact_disclosure_source_key_coverage(tmp_path):
-    payload = valid_payload()
+    payload = valid_payload(tmp_path)
     payload["portfolio_disclosure_source_bytes_by_scheme_id"] = {}
 
     with pytest.raises(EvidenceProviderContractError, match="identical scheme-ID keys"):
@@ -114,7 +114,7 @@ def test_contract_requires_exact_disclosure_source_key_coverage(tmp_path):
 
 
 def test_contract_rejects_disclosure_scheme_id_not_in_master(tmp_path):
-    payload = valid_payload()
+    payload = valid_payload(tmp_path)
     payload["portfolio_disclosures_by_scheme_id"] = {"other": {"scheme_id": "other"}}
     payload["portfolio_disclosure_source_bytes_by_scheme_id"] = {"other": b"source"}
 
@@ -123,7 +123,7 @@ def test_contract_rejects_disclosure_scheme_id_not_in_master(tmp_path):
 
 
 def test_contract_rejects_timestamp_as_decision_date(tmp_path):
-    payload = valid_payload()
+    payload = valid_payload(tmp_path)
     payload["disclosure_as_of_date"] = datetime(2026, 11, 4)
 
     with pytest.raises(EvidenceProviderContractError, match="not a timestamp"):
@@ -131,7 +131,7 @@ def test_contract_rejects_timestamp_as_decision_date(tmp_path):
 
 
 def test_contract_rejects_duplicate_candidate_fund_ids(tmp_path):
-    payload = valid_payload()
+    payload = valid_payload(tmp_path)
     payload["candidate_universe"].append(dict(payload["candidate_universe"][0]))
 
     with pytest.raises(EvidenceProviderContractError, match="Duplicate candidate fund_id"):
@@ -139,7 +139,7 @@ def test_contract_rejects_duplicate_candidate_fund_ids(tmp_path):
 
 
 def test_contract_rejects_candidate_identity_conflicting_with_scheme_master(tmp_path):
-    payload = valid_payload()
+    payload = valid_payload(tmp_path)
     payload["candidate_universe"][0]["isin"] = "INF999999999"
 
     with pytest.raises(EvidenceProviderContractError, match="identity conflicts"):
@@ -147,7 +147,7 @@ def test_contract_rejects_candidate_identity_conflicting_with_scheme_master(tmp_
 
 
 def test_contract_rejects_candidate_missing_required_identity_field(tmp_path):
-    payload = valid_payload()
+    payload = valid_payload(tmp_path)
     payload["candidate_universe"][0].pop("amc_name")
 
     with pytest.raises(EvidenceProviderContractError, match="requires amc_name"):
@@ -155,7 +155,7 @@ def test_contract_rejects_candidate_missing_required_identity_field(tmp_path):
 
 
 def test_contract_rejects_unattested_incomplete_candidate_universe(tmp_path):
-    payload = valid_payload()
+    payload = valid_payload(tmp_path)
     payload["candidate_universe_source"]["universe_complete"] = False
 
     with pytest.raises(EvidenceProviderContractError, match="explicitly reviewer-attested as complete"):
@@ -163,7 +163,7 @@ def test_contract_rejects_unattested_incomplete_candidate_universe(tmp_path):
 
 
 def test_contract_rejects_stale_candidate_universe_source(tmp_path):
-    payload = valid_payload()
+    payload = valid_payload(tmp_path)
     payload["candidate_universe_source"]["effective_date"] = "2026-08-01"
 
     with pytest.raises(EvidenceProviderContractError, match="source is stale"):
@@ -171,7 +171,7 @@ def test_contract_rejects_stale_candidate_universe_source(tmp_path):
 
 
 def test_contract_rejects_source_url_with_whitespace(tmp_path):
-    payload = valid_payload()
+    payload = valid_payload(tmp_path)
     payload["candidate_universe_source"]["source_url"] = "https://example.com/file name.pdf"
 
     with pytest.raises(EvidenceProviderContractError, match="source URL must be HTTPS"):
