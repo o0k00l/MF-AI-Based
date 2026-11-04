@@ -527,3 +527,39 @@ def test_scheme_operational_precheck_defers_minimum_comparison_until_fund_alloca
     assert precheck["minimum_monthly_sip_inr"] == "6000"
     assert final_check["status"] == "HOLD"
     assert "REQUEST_BELOW_SCHEME_MINIMUM" in final_check["reasons"]
+
+
+def test_candidate_allocator_rejects_all_duplicate_candidate_ids():
+    candidate = {
+        "candidate_id": "duplicate", "sleeve": "large_cap",
+        "eligibility_status": "ELIGIBLE", "overlap_status": "ASSESSED",
+        "operational_status": "FEASIBLE_FOR_REVIEW",
+        "minimum_monthly_sip_inr": "1000", "rank_score": "2",
+        "score_evidence_ref": "sha256:duplicate", "score_as_of_date": "2026-11-04",
+    }
+    result = allocate_candidate_sip(
+        {"large_cap": "5000"}, [candidate, dict(candidate)],
+        as_of_date="2026-11-04", max_score_age_days=30,
+        min_sip_per_fund_inr="1000", rounding_increment_inr="500",
+        max_funds=2,
+    )
+    assert result["status"] == "HOLD"
+    assert result["allocations"] == []
+    assert result["unallocated_budget_inr"] == "5000"
+    assert result["rejected_candidates"]["duplicate"] == ["DUPLICATE_CANDIDATE_ID"]
+
+
+def test_candidate_allocator_enforces_configured_score_freshness_window():
+    result = allocate_candidate_sip(
+        {"large_cap": "5000"},
+        [{"candidate_id": "stale", "sleeve": "large_cap",
+          "eligibility_status": "ELIGIBLE", "overlap_status": "ASSESSED",
+          "operational_status": "FEASIBLE_FOR_REVIEW", "minimum_monthly_sip_inr": "1000",
+          "rank_score": "2", "score_evidence_ref": "sha256:stale",
+          "score_as_of_date": "2026-10-01"}],
+        as_of_date="2026-11-04", max_score_age_days=30,
+        min_sip_per_fund_inr="1000", rounding_increment_inr="500", max_funds=2,
+    )
+    assert result["status"] == "HOLD"
+    assert result["unallocated_budget_inr"] == "5000"
+    assert result["rejected_candidates"]["stale"] == ["RANK_SCORE_STALE_OR_FUTURE"]
