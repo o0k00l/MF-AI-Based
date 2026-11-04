@@ -14,9 +14,9 @@ No production approval is granted by this report. A green unit-test run alone is
 
 | Gate | Required evidence | Current assessment |
 |---|---|---|
-| P0 invariant tests | Complete test run, no unexplained skips | Passed on verified `main` SHA `b9aab88430aacde0f9abc9fb77f78538eb3d34e4` (CI run `41763442384`) |
-| Correctness regressions | Complete test run and passing property/boundary tests | Regression suite passed on current SHA (CI run `41763442384`); broader property/boundary coverage remains incomplete |
-| Universal policy validation | All checks run against the authoritative policy, no contradictory hardcoded values | Passed on current SHA (CI run `41763442384`) |
+| P0 invariant tests | Complete test run, no unexplained skips | Passed on verified `main` SHA `025ded618d0dbc9787a9ccfe271c10331c13b566` (CI run `41763762140`) |
+| Correctness regressions | Complete test run and passing property/boundary tests | Regression suite passed on current SHA (CI run `41763762140`); broader property/boundary coverage remains incomplete |
+| Universal policy validation | All checks run against the authoritative policy, no contradictory hardcoded values | Passed on current SHA (CI run `41763762140`) |
 | Tax classification | Versioned statutory rules, verified source documents, scheme structure, acquisition/transfer dates and complete observation evidence | Provisional; not tax-advice ready |
 | Benchmark alpha | Authenticated daily TRI observations and independently sourced NSE session calendar | **Blocked** |
 | Portfolio look-through | Dated scheme constituents, identifiers, cash/derivative treatment and independently reconciled weights | Not established |
@@ -26,11 +26,11 @@ No production approval is granted by this report. A green unit-test run alone is
 
 ## 2. Verification evidence for current `main`
 
-Latest fully verified implementation baseline at report preparation: `b9aab88430aacde0f9abc9fb77f78538eb3d34e4`.
+Latest fully verified implementation baseline at report preparation: `025ded618d0dbc9787a9ccfe271c10331c13b566`.
 
-- CI run `41763442384` completed successfully with all six jobs: dependency-lock consistency, P0 fiduciary invariants, correctness regressions, full repository test suite, policy/static validation (including compileall, PDF export and clean-checkout privacy tests), and TRI fixture integrity / expected fail-closed release gate.
-- Security run `41763442412` completed successfully: hash-locked dependency installation, `pip check`, `pip-audit`, CycloneDX SBOM generation and artifact retention. The retained SBOM artifact digest is `sha256:a2c08003d0e127a13e348cb3189e67e865c21389823cc1a4edaea3b9b0d2eb8f`.
-- Full-suite result: **131 passed, 2 skipped**. Both skips are the private-CAS integration checks at `test_p0_fiduciary_invariants.py:427` and `:915`; they require an externally supplied `MF_CLIENT_DATA_DIR` and intentionally do not run in CI without investor data. The Security workflow used pinned `pip-audit==2.9.0`, passed dependency audit and generated the retained CycloneDX SBOM. Artifact digest: `sha256:a2c08003d0e127a13e348cb3189e67e865c21389823cc1a4edaea3b9b0d2eb8f. These runs establish that the listed automated jobs passed on that SHA. They do not establish legal correctness, production data readiness, complete property-test coverage, independent security review, or production approval.
+- CI run `41763762140` completed successfully with all six jobs: dependency-lock consistency, P0 fiduciary invariants, correctness regressions, full repository test suite, policy/static validation (including compileall, PDF export and clean-checkout privacy tests), and TRI fixture integrity / expected fail-closed release gate.
+- Security run `41763762165` completed successfully: hash-locked dependency installation, `pip check`, `pip-audit`, CycloneDX SBOM generation and artifact retention. The retained SBOM artifact digest is `sha256:598b6ce85ad8d02cbc6b11cea447d84f2a768d4925a764aa93514f1af6d5a9ef`.
+- Full-suite result: **131 passed, 2 skipped**. Both skips are the private-CAS integration checks at `test_p0_fiduciary_invariants.py:427` and `:915`; they require an externally supplied `MF_CLIENT_DATA_DIR` and intentionally do not run in CI without investor data. The Security workflow used pinned `pip-audit==2.9.0`, passed dependency audit and generated the retained CycloneDX SBOM. Artifact digest: `sha256:598b6ce85ad8d02cbc6b11cea447d84f2a768d4925a764aa93514f1af6d5a9ef. These runs establish that the listed automated jobs passed on that SHA. They do not establish legal correctness, production data readiness, complete property-test coverage, independent security review, or production approval.
 
 ## 3. Non-negotiable safety controls
 
