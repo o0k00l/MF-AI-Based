@@ -99,13 +99,17 @@ def build_sip_evidence_provider(
     missing = required_manifest_fields - set(manifest)
     portfolio_context_fields = {"portfolio_context_file", "portfolio_context_metadata_file", "portfolio_context_source_file"}
     candidate_score_fields = {"candidate_score_metadata_file", "candidate_score_source_file"}
-    unexpected = set(manifest) - (required_manifest_fields | {"aliases_file"} | portfolio_context_fields | candidate_score_fields)
+    category_anchor_fields = {"category_anchor_metadata_file", "category_anchor_source_file"}
+    unexpected = set(manifest) - (required_manifest_fields | {"aliases_file"} | portfolio_context_fields | candidate_score_fields | category_anchor_fields)
     supplied_portfolio_context_fields = set(manifest) & portfolio_context_fields
     if supplied_portfolio_context_fields and supplied_portfolio_context_fields != portfolio_context_fields:
         raise ValueError("Portfolio context file, metadata and original source file must be configured together.")
     supplied_candidate_score_fields = set(manifest) & candidate_score_fields
     if supplied_candidate_score_fields and supplied_candidate_score_fields != candidate_score_fields:
         raise ValueError("Candidate score metadata and original source file must be configured together.")
+    supplied_category_anchor_fields = set(manifest) & category_anchor_fields
+    if supplied_category_anchor_fields and supplied_category_anchor_fields != category_anchor_fields:
+        raise ValueError("Category anchor metadata and original source file must be configured together.")
     if missing or unexpected:
         raise ValueError(
             "SIP evidence manifest fields invalid; missing="
@@ -218,6 +222,22 @@ def build_sip_evidence_provider(
         payload.update({
             "candidate_score_source_metadata": score_metadata,
             "candidate_score_source_bytes": score_source,
+        })
+
+    if supplied_category_anchor_fields:
+        category_anchor_metadata = _read_json(
+            root, manifest["category_anchor_metadata_file"],
+            label="category_anchor_metadata_file",
+        )
+        category_anchor_source = _resolve_bundle_file(
+            root, manifest["category_anchor_source_file"],
+            label="category_anchor_source_file",
+        ).read_bytes()
+        if not isinstance(category_anchor_metadata, dict):
+            raise ValueError("category_anchor_metadata_file must contain a JSON object.")
+        payload.update({
+            "category_anchor_source_metadata": category_anchor_metadata,
+            "category_anchor_source_bytes": category_anchor_source,
         })
 
     if supplied_portfolio_context_fields:
