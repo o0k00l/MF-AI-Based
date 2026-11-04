@@ -85,3 +85,23 @@ def test_missing_as_of_policy_is_rejected(tmp_path):
         select_latest_statement(
             [current], document_type="CAS", as_of=None, max_age_days=45
         )
+
+
+def test_advisor_never_selects_first_cas_without_as_of_policy(tmp_path):
+    from advisor import get_default_paths
+
+    _cas(tmp_path / "cas_older.xlsx", "01-Jan-2026")
+    with pytest.raises(ValueError, match="explicit decision as_of date"):
+        get_default_paths(tmp_path)
+
+
+def test_advisor_returns_only_embedded_date_selected_cas(tmp_path):
+    from advisor import get_default_paths
+
+    older = _cas(tmp_path / "cas_z_name.xlsx", "01-Jan-2026")
+    newer = _cas(tmp_path / "cas_a_name.xlsx", "01-Oct-2026")
+    selected, *_ = get_default_paths(
+        tmp_path, as_of=date(2026, 10, 10), max_statement_age_days=45
+    )
+    assert selected == newer.resolve()
+    assert selected != older.resolve()
