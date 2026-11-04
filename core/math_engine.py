@@ -4556,3 +4556,7 @@ compute_fifo_tax_lots = _tax_classification_disabled
 # Do not permit callers to bypass the approved-policy loader by supplying an
 # arbitrary dictionary to the legacy, non-provenance-backed classifier.
 _classify_fund_for_tax = _tax_classification_disabled
+
+# Statutory section/rate summaries are also withheld until the checked-in
+# legal mapping receives independent, current-law review.
+get_statutory_tax_citation = _tax_classification_disabled
