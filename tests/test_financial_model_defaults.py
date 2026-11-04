@@ -79,3 +79,16 @@ def test_fee_analysis_does_not_turn_zero_or_direct_plan_into_commission_fact():
     assert result.regular_funds_count == 0
     assert result.annual_commission_leakage_inr is None
     assert result.ten_year_compounded_loss_inr is None
+
+
+def test_duplicate_fee_bleed_module_does_not_emit_generic_commission_or_folio_data():
+    from core.math.fee_bleed import calculate_fee_bleed as legacy_fee_bleed
+
+    result = legacy_fee_bleed([_holding()])
+    assert result.availability_status == "UNAVAILABLE"
+    assert result.annual_bleed_inr is None
+    assert result.ten_year_compounded_loss_inr is None
+    assert result.regular_funds_count == 1
+    assert result.regular_portfolio_value_inr == 100000.0
+    assert result.details == []
+    assert "generic estimate" in result.unavailable_reason
