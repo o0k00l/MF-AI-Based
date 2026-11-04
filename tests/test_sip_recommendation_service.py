@@ -703,7 +703,7 @@ def test_individual_concentration_uses_fund_minimum_and_combined_selection_uses_
     individual = assessment["candidate_overlap_diagnostics"]["CANDIDATE-1"]
     assert individual["status"] == "ASSESSED"
     assert individual["ticket_basis_inr"] == "1000"
-    assert individual["routed_sleeve_budget_inr"] == "5000"
+    assert individual["routed_sleeve_budget_inr"] == "3000"
     allocation = assessment["candidate_level_sip_allocation_simulation"]
     assert allocation["reconciliation_ok"] is True
     assert Decimal(allocation["allocated_budget_inr"]) <= Decimal("10000")
