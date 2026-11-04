@@ -23,4 +23,4 @@ def create_production_sip_app() -> FastAPI:
     return create_sip_app(evidence_provider=provider)
 
 
-app = create_production_sip_app()
+app = create_sip_app(evidence_provider=build_sip_evidence_provider())
