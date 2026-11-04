@@ -256,8 +256,10 @@ def verify_approval(
         if calendar.get("exchange") != "NSE" or str(calendar.get("status", "")).upper() != "VERIFIED":
             raise ValueError("NSE calendar must explicitly identify exchange=NSE and status=VERIFIED")
         sessions = calendar.get("sessions")
-        if not isinstance(sessions, list) or not sessions or sessions != sorted(set(sessions)):
-            raise ValueError("calendar sessions are malformed, unsorted or duplicated")
+        if not isinstance(sessions, list) or not sessions or any(not isinstance(day, str) for day in sessions):
+            raise ValueError("calendar sessions must be a non-empty list of ISO date strings")
+        if sessions != sorted(sessions) or len(sessions) != len(set(sessions)):
+            raise ValueError("calendar sessions are unsorted or duplicated")
         from datetime import date
         for day in sessions:
             parsed = date.fromisoformat(day)
