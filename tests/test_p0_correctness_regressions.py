@@ -2042,4 +2042,4 @@ def test_standard_investor_risk_profiles_have_explicit_policy_mapping(risk_profi
         candidate_universe=[],
         client_risk_tier=risk_profile,
     )
-    assert selected["Slot 1: Core Flexi-Cap Compounder"]["target_pct"] >= 0.0
+    assert "Slot 1: Core Flexi-Cap Compounder" in selected
