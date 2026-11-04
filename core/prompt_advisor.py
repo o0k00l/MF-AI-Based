@@ -335,65 +335,57 @@ STRUCTURE YOUR REPORT AS FOLLOWS:
 
 
 def _build_dynamic_selection_dossier(facts: FiduciaryFactsPayload) -> str:
-    """
-    Dynamically computes the fiduciary fund selection dossier and peer rejection matrix
-    using the client's verified facts, deterministic SIP plan, candidate gate results,
-    and thematic look-through diagnostics. Eliminates all hardcoding.
-    """
-    lines = ["### FUND SELECTION DOSSIER & PEER REJECTION MATRIX:"]
-    
-    sip_items = getattr(facts.deterministic_sip_plan, "items", []) if hasattr(facts, "deterministic_sip_plan") and facts.deterministic_sip_plan else []
-    
-    # If thematic exposures are available, summarize them
-    thematic_summary = []
-    if getattr(facts, "thematic_exposures", None):
-        for th in facts.thematic_exposures:
-            tot_th_pct = th.dedicated_funds_pct + th.look_through_stocks_pct
-            thematic_summary.append(f"      - {th.theme_name}: Total exposure {tot_th_pct:.2f}% (Look-Through Stocks: {th.look_through_stocks_pct:.2f}%, Dedicated: {th.dedicated_funds_pct:.2f}%) | Status: {th.coverage_status}")
+    """Build a dossier only from supplied deterministic plans and eligibility evidence."""
+    lines = ["### FUND SELECTION DOSSIER & PEER ELIGIBILITY EVIDENCE"]
 
-    for idx, item in enumerate(sip_items, start=1):
-        role = item.category_role
-        scheme = item.scheme_name
-        folio = item.folio_target or "New Direct Folio"
-        monthly = item.monthly_inr
-        pct = item.allocation_pct
-        rationale = item.fiduciary_rationale
-        
-        lines.append(f"\n{idx}. {role} ({pct:.1f}% / INR {monthly:,.0f}/mo) -> {scheme}")
-        lines.append(f"   • Selected Scheme: {scheme}")
-        lines.append(f"   • Target Folio Routing: {folio}")
-        lines.append(f"   • Fiduciary Selection Rationale: {rationale}")
-        
-        # Dynamic Peer Evaluation & Rejection Analysis
-        lines.append(f"   • Peer Evaluation & Rejection Analysis:")
-        if "Flexi" in role:
-            lines.append("     - Evaluated Peers: HDFC Flexi Cap, Motilal Oswal Flexi Cap, active multi-cap peers.")
-            lines.append("     - Rejection Rationale: HDFC Flexi Cap breaches Gate 2 AUM ceiling (swollen past INR 1,13,000 Cr, creating severe liquidity friction in mid/small caps); lacks global tech moat. Parag Parikh Flexi Cap is selected for industry-lowest 0.69% direct TER, Rajeev Thakkar's disciplined Graham-Dodd value philosophy, defensive cash cushion, and verified folio consolidation.")
-        elif "Mid-Cap" in role or "Mid Cap" in role:
-            lines.append("     - Evaluated Peers: HDFC Mid-Cap Opportunities, Kotak Emerging Equity, Nippon India Growth.")
-            lines.append("     - Rejection Rationale: HDFC Mid-Cap Opportunities swollen past INR 1,08,000 Cr AUM (severely violates Gate 2 INR 40,000 Cr size cap, preventing nimble mid-cap stock picking with 80+ diffused holdings); Kotak Emerging Equity lacks high-conviction alpha (+4.11% 3Y alpha in Motilal Midcap). Motilal Midcap selected for elite bottom-up alpha generation and verified Direct Folio consolidation.")
-        elif "Large-Cap" in role or "Large Cap" in role:
-            lines.append("     - Evaluated Peers: Active Large Cap peers vs Nifty 50 Index Fund Direct.")
-            lines.append(f"     - Fiduciary Rationale: Selected {scheme} to consolidate verified active Direct holdings without creating administrative friction, while delivering top-quartile active large-cap alpha (+1.99% 3Y alpha, 0.88 beta). If active managers trail, the engine mandates zero-cost Nifty 50 Index Direct (0.18% TER).")
-        elif "Satellite" in role or "Thematic" in role:
-            lines.append("     - Macro Look-Through Deficit Resolution & Peer Evaluation:")
-            lines.append(f"       • Selected Scheme: {scheme} (Solves 1.55% Healthcare Deficit)")
-            lines.append("       • Evaluated Peer Universe: Mirae Asset Healthcare Direct vs ICICI Pru Healthcare Direct vs Tata India Pharma Direct vs Nippon India Pharma Direct.")
-            lines.append("       • Quantitative Multi-Horizon Scoring Matrix:")
-            lines.append("         - ICICI Pru Healthcare Direct: 1Y: 49.4% | 6M: 16.2% | 3Y CAGR: 24.1% | 3Y Sharpe: 1.02 | Direct TER: 0.89% -> Multi-Horizon Score: 360.1 [RANK #1 WINNER]")
-            lines.append("         - Mirae Asset Healthcare Direct: 1Y: 40.2% | 6M: 14.5% | 3Y CAGR: 22.5% | 3Y Sharpe: 0.94 | Direct TER: 0.62% -> Multi-Horizon Score: 308.2 [RUNNER-UP]")
-            lines.append("         - Tata India Pharma Direct: 1Y: 41.5% | 6M: 15.0% | 3Y CAGR: 19.8% | 3Y Sharpe: 0.85 | Direct TER: 0.76% -> Multi-Horizon Score: 287.8 [REJECTED]")
-            lines.append("         - Nippon India Pharma Direct: 1Y: 35.2% | 6M: 12.8% | 3Y CAGR: 18.7% | 3Y Sharpe: 0.78 | Direct TER: 0.99% -> Multi-Horizon Score: 231.6 [REJECTED]")
-            lines.append("       • Rigorous Fiduciary Rejection Rationale for Nippon India Pharma:")
-            lines.append("         1. Near-Term Trailing Return Failure: Delivered 35.2% over 1 year (trailing ICICI Healthcare by >1,400 bps) and 18.7% 3Y CAGR (trailing ICICI by >540 bps).")
-            lines.append("         2. Highest Fee Drag in Category: Charges 0.99% Direct TER, bleeding ~38 bps more every year than Mirae Asset (0.62% TER).")
-            lines.append("         3. 3-Year Compounding Deficit: Annualized return trails category leader by >600 bps (18.7% vs 24.1%).")
-            lines.append("         4. AUM Bloat Drag: At INR 8,250 Cr AUM, lacks the nimbleness of Mirae Asset's INR 2,840 Cr capacity.")
-        elif "Debt" in role:
-            lines.append("     - Fixed Income Fiduciary Rationale: High-grade AAA short-term debt fulfilling SAA capital preservation mandate with zero credit risk.")
+    sip_plan = getattr(facts, "deterministic_sip_plan", None)
+    sip_items = getattr(sip_plan, "items", []) if sip_plan is not None else []
+    if sip_items:
+        lines.append("Selected SIP candidates (selection rationale is copied from the deterministic plan):")
+        for index, item in enumerate(sip_items, start=1):
+            lines.append(
+                f"{index}. {item.category_role}: {item.scheme_name} | "
+                f"{item.allocation_pct:.2f}% | INR {item.monthly_inr:,.2f}/month"
+            )
+            lines.append(f"   Target folio: {item.folio_target or 'Not specified'}")
+            lines.append(f"   Supplied rationale: {item.fiduciary_rationale or 'Not supplied'}")
+    else:
+        lines.append("NO ACTION: no deterministic SIP selections were supplied.")
+
+    eligibility_results = getattr(facts, "eligibility_results", None) or []
+    if eligibility_results:
+        lines.append("")
+        lines.append("Candidate eligibility outcomes (these are gate results, not performance rankings):")
+        for candidate in eligibility_results:
+            name = candidate.get("fund_name") or candidate.get("fund_id") or "Unidentified candidate"
+            passed = candidate.get("passed")
+            failed_gates = candidate.get("failed_gates") or []
+            status = "PASSED" if passed is True else "FAILED" if passed is False else "UNKNOWN"
+            lines.append(f"- {name}: {status}")
+            if failed_gates:
+                lines.append(f"  Failed gates: {', '.join(str(gate) for gate in failed_gates)}")
+    else:
+        lines.append("")
+        lines.append(
+            "Peer eligibility comparison unavailable: no candidate-level eligibility evidence was supplied. "
+            "Do not invent peer names, rejection reasons, performance metrics, TER, AUM or rankings."
+        )
+
+    thematic_exposures = getattr(facts, "thematic_exposures", None) or []
+    if thematic_exposures:
+        lines.append("")
+        lines.append("Supplied thematic look-through observations:")
+        for exposure in thematic_exposures:
+            lines.append(
+                f"- {exposure.theme_name}: dedicated {exposure.dedicated_funds_pct:.2f}%; "
+                f"look-through stocks {exposure.look_through_stocks_pct:.2f}%; "
+                f"coverage status {exposure.coverage_status}."
+            )
+    else:
+        lines.append("")
+        lines.append("Thematic look-through evidence unavailable; no thematic deficit or satellite is inferred.")
 
     return "\n".join(lines)
-
 
 
 def generate_cash_and_sip_plan(facts: FiduciaryFactsPayload) -> str:
