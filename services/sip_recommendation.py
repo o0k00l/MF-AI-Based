@@ -11,7 +11,7 @@ It does not download, infer, or manufacture source evidence.
 """
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 import hashlib
 import json
 import math
@@ -22,6 +22,7 @@ from typing import Any
 from core.math_engine import (
     compute_deterministic_sip_blueprint,
     load_holdings_from_cas_excel,
+    _parse_cas_valuation_date,
 )
 from core.models import DeterministicSIPPlan, MandateExecutionState
 from services.sip_lifecycle_store import persist_draft_snapshot
@@ -858,6 +859,19 @@ def _hold_plan(monthly_budget_inr: float, reasons: list[str], portfolio_assessme
     return result
 
 
+
+def _validate_cas_decision_date(cas_path: Path, decision_as_of_date: date) -> date:
+    """Bind SIP evidence freshness to the date embedded in the uploaded CAS."""
+    if not isinstance(decision_as_of_date, date) or isinstance(decision_as_of_date, datetime):
+        raise ValueError("A date-only SIP decision as-of date is required.")
+    cas_date = _parse_cas_valuation_date(cas_path)
+    if cas_date != decision_as_of_date:
+        raise ValueError(
+            "SIP decision date does not match the uploaded CAS valuation date."
+        )
+    return cas_date
+
+
 def recommend_sip(
     *,
     cas_path: Path,
@@ -912,6 +926,13 @@ def recommend_sip(
         return _hold_plan(budget, ["Exact-ID portfolio disclosures and original source bytes are required."])
     if disclosure_as_of_date is None:
         return _hold_plan(budget, ["A decision as-of date is required for disclosure freshness validation."])
+    try:
+        _validate_cas_decision_date(cas_path, disclosure_as_of_date)
+    except (OSError, ValueError, TypeError) as exc:
+        return _hold_plan(
+            budget,
+            [f"CAS valuation-date validation failed closed ({type(exc).__name__})."],
+        )
     if not isinstance(candidate_universe, list) or not candidate_universe:
         return _hold_plan(budget, ["A source-verified candidate universe is required."])
     if isinstance(disclosure_max_age_days, bool) or not isinstance(disclosure_max_age_days, int) or disclosure_max_age_days < 0:
