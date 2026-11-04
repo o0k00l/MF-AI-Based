@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+from decimal import Decimal, InvalidOperation
 from datetime import date, datetime
 from typing import Any
 
@@ -24,7 +25,7 @@ REQUIRED_EVIDENCE_FIELDS = frozenset({
     "candidate_universe_source_bytes",
 })
 REQUEST_BOUND_FIELDS = frozenset({"cas_path", "monthly_budget_inr", "risk_profile"})
-OPTIONAL_EVIDENCE_FIELDS = frozenset({"metrics_source_metadata", "metrics_source_bytes", "portfolio_context", "portfolio_context_source_metadata", "portfolio_context_source_bytes"})
+OPTIONAL_EVIDENCE_FIELDS = frozenset({"metrics_source_metadata", "metrics_source_bytes", "portfolio_context", "portfolio_context_source_metadata", "portfolio_context_source_bytes", "candidate_score_source_metadata", "candidate_score_source_bytes"})
 
 
 class EvidenceProviderContractError(ValueError):
@@ -126,6 +127,12 @@ def validate_evidence_provider_payload(payload: Any) -> dict[str, Any]:
         raise EvidenceProviderContractError(
             "Metrics source metadata and original source bytes must be supplied together."
         )
+    score_source_fields = {"candidate_score_source_metadata", "candidate_score_source_bytes"}
+    score_source_present = optional_present & score_source_fields
+    if score_source_present and score_source_present != score_source_fields:
+        raise EvidenceProviderContractError(
+            "Candidate score source metadata and original source bytes must be supplied together."
+        )
 
     as_of = payload["disclosure_as_of_date"]
     if not isinstance(as_of, date) or isinstance(as_of, datetime):
@@ -148,6 +155,16 @@ def validate_evidence_provider_payload(payload: Any) -> dict[str, Any]:
             payload["portfolio_context_source_bytes"],
             label="Total portfolio context", as_of=as_of,
         )
+    if score_source_present:
+        score_metadata = payload["candidate_score_source_metadata"]
+        _validate_source_document(
+            score_metadata,
+            payload["candidate_score_source_bytes"],
+            label="Candidate ranking scores",
+            as_of=as_of,
+        )
+        if not isinstance(score_metadata.get("methodology_version"), str) or not score_metadata["methodology_version"].strip():
+            raise EvidenceProviderContractError("Candidate score source requires methodology_version.")
     scheme_index = _validate_scheme_master(payload["scheme_master"])
 
     disclosures = payload["portfolio_disclosures_by_scheme_id"]
@@ -214,6 +231,45 @@ def validate_evidence_provider_payload(payload: Any) -> dict[str, Any]:
             raise EvidenceProviderContractError(
                 f"Candidate {fund_id!r} Direct-plan source evidence is invalid, stale, or identity-conflicting."
             )
+
+        score_fields = {
+            "rank_score", "rank_score_source_ref",
+            "rank_score_as_of_date", "rank_score_methodology_version",
+        }
+        score_supplied = score_fields & set(candidate)
+        if score_supplied and score_supplied != score_fields:
+            raise EvidenceProviderContractError(
+                f"Candidate {fund_id!r} has incomplete rank-score provenance."
+            )
+        if score_supplied:
+            if not score_source_present:
+                raise EvidenceProviderContractError(
+                    f"Candidate {fund_id!r} has a rank score without a reviewed score source bundle."
+                )
+            try:
+                score = Decimal(str(candidate["rank_score"]))
+                score_date = date.fromisoformat(candidate["rank_score_as_of_date"])
+            except (InvalidOperation, TypeError, ValueError) as exc:
+                raise EvidenceProviderContractError(
+                    f"Candidate {fund_id!r} rank score or score date is invalid."
+                ) from exc
+            if not score.is_finite() or score <= 0:
+                raise EvidenceProviderContractError(
+                    f"Candidate {fund_id!r} rank score must be finite and positive."
+                )
+            expected_score_ref = "sha256:" + payload["candidate_score_source_metadata"]["source_document_sha256"].lower()
+            if candidate["rank_score_source_ref"] != expected_score_ref:
+                raise EvidenceProviderContractError(
+                    f"Candidate {fund_id!r} rank score source reference does not match reviewed source bytes."
+                )
+            if score_date.isoformat() != payload["candidate_score_source_metadata"]["effective_date"]:
+                raise EvidenceProviderContractError(
+                    f"Candidate {fund_id!r} rank score date does not match the reviewed source effective date."
+                )
+            if candidate["rank_score_methodology_version"] != payload["candidate_score_source_metadata"]["methodology_version"]:
+                raise EvidenceProviderContractError(
+                    f"Candidate {fund_id!r} rank score methodology version is not the reviewed version."
+                )
 
     for optional_path in ("metrics_path", "aliases_path"):
         value = payload[optional_path]
