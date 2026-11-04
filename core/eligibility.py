@@ -910,6 +910,11 @@ def load_candidate_universe(
             "aum_crore": float(aum_crore) if aum_crore is not None else None,
             "aum_stable": m.get("aum_stable"),  # None if missing — gate will fail closed
             "category": m.get("category", m.get("cat", "")),
+            # Preserve source-supplied scoring pillars. Missing values remain
+            # None so the scoring boundary can withhold a composite score.
+            "cash_debt_buffer_pct": m.get("cash_debt_buffer_pct"),
+            "international_equity_pct": m.get("international_equity_pct"),
+            "overlap_pct": m.get("overlap_pct"),
             "top10_concentration_pct": float(top10_raw) if top10_raw is not None else None,
             "single_sector_weight_pct": float(sector_raw) if sector_raw is not None else None,
             "sharpe_3y": float(sharpe_3y_raw) if sharpe_3y_raw is not None else None,
