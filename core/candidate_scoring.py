@@ -285,6 +285,24 @@ def calculate_candidate_6_pillar_score(
     sharpe_3y = required_metric("sharpe_3y", "sharpe")
     ter = required_metric("ter_direct_pct", "er")
 
+    if not weights.validate():
+        raise ValueError("Scoring weights must be finite and sum to 1.0")
+
+    if portfolio_aware:
+        anchors = approved_bounds or {}
+    else:
+        if category_key not in CATEGORY_BENCHMARK_ANCHORS:
+            raise ValueError(
+                f"Unsupported scoring category {category_key!r}; refusing to substitute Healthcare anchors"
+            )
+        anchors = CATEGORY_BENCHMARK_ANCHORS[category_key]
+        missing_anchor_keys = _REQUIRED_ANCHOR_KEYS - set(anchors)
+        if missing_anchor_keys:
+            raise ValueError(
+                f"Category {category_key!r} has no complete approved anchor set; missing: "
+                + ", ".join(sorted(missing_anchor_keys))
+            )
+
 
     # Defensive, international and overlap pillars are required evidence.
     # A verified zero is a valid observation; missing evidence is not neutral.
@@ -328,23 +346,6 @@ def calculate_candidate_6_pillar_score(
         if isinstance(metric_value, bool) or not 0.0 <= float(metric_value) <= 100.0:
             raise ValueError(f"{metric_name} percentage must be between 0 and 100")
 
-    if not weights.validate():
-        raise ValueError("Scoring weights must be finite and sum to 1.0")
-
-    if portfolio_aware:
-        anchors = approved_bounds or {}
-    else:
-        if category_key not in CATEGORY_BENCHMARK_ANCHORS:
-            raise ValueError(
-                f"Unsupported scoring category {category_key!r}; refusing to substitute Healthcare anchors"
-            )
-        anchors = CATEGORY_BENCHMARK_ANCHORS[category_key]
-        missing_anchor_keys = _REQUIRED_ANCHOR_KEYS - set(anchors)
-        if missing_anchor_keys:
-            raise ValueError(
-                f"Category {category_key!r} has no complete approved anchor set; missing: "
-                + ", ".join(sorted(missing_anchor_keys))
-            )
     alpha_bounds = anchors["alpha"]
     ret_bounds = anchors["ret1y"]
     sharpe_bounds = anchors["sharpe"]
