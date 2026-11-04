@@ -495,6 +495,13 @@ def validate_evidence_provider_payload(
             raise EvidenceProviderContractError(
                 f"Candidate {fund_id!r} category conflicts with verified scheme master."
             )
+        candidate_riskometer = candidate.get("riskometer_score")
+        if (isinstance(candidate_riskometer, bool)
+                or not isinstance(candidate_riskometer, int)
+                or not 1 <= candidate_riskometer <= 6):
+            raise EvidenceProviderContractError(
+                f"Candidate {fund_id!r} riskometer_score must be a verified integer from 1 to 6."
+            )
         for field in ("benchmark_identity", "scheme_structure", "riskometer_score"):
             if candidate.get(field) != master_record[field]:
                 raise EvidenceProviderContractError(
