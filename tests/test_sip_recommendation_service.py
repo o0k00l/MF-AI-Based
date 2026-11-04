@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
+import openpyxl
+
 from services import sip_recommendation as service
 
 
@@ -12,6 +14,9 @@ def _holding():
         scheme="Example Direct Growth",
         fund_id="FUND-1",
         scheme_id="SCHEME-1",
+        plan_option_status="VERIFIED",
+        option_type="GROWTH",
+        is_direct=True,
         lookthrough_status="VERIFIED",
         metrics_status="VERIFIED",
         constituent_weights={"ISSUER-A": 60.0, "ISSUER-B": 40.0},
@@ -23,7 +28,13 @@ def _holding():
 
 def _inputs(tmp_path):
     cas = tmp_path / "cas.xlsx"
-    cas.write_bytes(b"synthetic CAS")
+    workbook = openpyxl.Workbook()
+    sheet = workbook.active
+    sheet.title = "Portfolio Details"
+    sheet.append(["To Date", date.today().strftime("%d-%b-%Y")])
+    sheet.append(["Scheme Name", "Folio No.", "Invested Value", "Current Value", "Units"])
+    sheet.append(["Synthetic Fund", "FOLIO-1", 100000.0, 125000.0, 1000.0])
+    workbook.save(cas)
     return {
         "cas_path": cas,
         "metrics_path": None,
