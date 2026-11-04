@@ -58,7 +58,7 @@ def valid_payload(tmp_path):
                 "scheme_id": "scheme-1",
                 "isin": "INF000000001",
                 "amc_name": "Example AMC",
-                "reviewed_at": date(2026, 11, 4).isoformat(),
+                "reviewed_at": date.today().isoformat(),
             },
         }],
         "candidate_universe_source": {**_source_metadata(universe_bytes), "universe_complete": True, "coverage_scope": "All eligible open-ended equity and debt schemes"},
@@ -175,4 +175,20 @@ def test_contract_rejects_source_url_with_whitespace(tmp_path):
     payload["candidate_universe_source"]["source_url"] = "https://example.com/file name.pdf"
 
     with pytest.raises(EvidenceProviderContractError, match="source URL must be HTTPS"):
+        validate_evidence_provider_payload(payload)
+
+
+def test_contract_rejects_regular_plan_candidate(tmp_path):
+    payload = valid_payload(tmp_path)
+    payload["candidate_universe"][0]["direct_plan_evidence"]["plan"] = "Regular"
+
+    with pytest.raises(EvidenceProviderContractError, match="Direct-plan source evidence"):
+        validate_evidence_provider_payload(payload)
+
+
+def test_contract_rejects_direct_plan_evidence_for_different_scheme_id(tmp_path):
+    payload = valid_payload(tmp_path)
+    payload["candidate_universe"][0]["direct_plan_evidence"]["scheme_id"] = "another-scheme"
+
+    with pytest.raises(EvidenceProviderContractError, match="Direct-plan source evidence"):
         validate_evidence_provider_payload(payload)
