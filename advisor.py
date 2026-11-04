@@ -8,7 +8,7 @@ from pathlib import Path
 import os
 
 
-def get_default_paths(client_target: str | Path | None = None):
+def get_default_paths(client_target: str | Path | None = None, *, as_of=None, max_statement_age_days=None):
     """Resolve an explicitly configured external client-data directory.
 
     The application never scans the repository for client folders and never
@@ -35,17 +35,23 @@ def get_default_paths(client_target: str | Path | None = None):
     if not client_path.is_dir():
         raise FileNotFoundError(f"Client portfolio directory not found: {client_path}")
 
-    stmts = sorted((client_path / "statements").glob("cas_detailed_report_*.xlsx"))
-    if not stmts:
-        stmts = sorted((client_path / "statements").glob("*.xlsx"))
-    if not stmts:
-        stmts = sorted(client_path.glob("cas_detailed_report_*.xlsx"))
-    if not stmts:
-        stmts = sorted(client_path.glob("*.xlsx"))
-    if not stmts:
-        raise FileNotFoundError(f"No CAS Excel statements found in {client_path}")
+    from datetime import date
+    from ingestion.statement_selection import select_latest_statement
 
-    cas = stmts[-1]
+    if not isinstance(as_of, date):
+        raise ValueError("An explicit decision as_of date is required for CAS statement selection")
+    if max_statement_age_days is None:
+        raise ValueError("An approved maximum CAS statement age policy is required")
+
+    candidates = list((client_path / "statements").glob("*.xlsx"))
+    candidates.extend(client_path.glob("*.xlsx"))
+    selected = select_latest_statement(
+        candidates,
+        document_type="CAS",
+        as_of=as_of,
+        max_age_days=max_statement_age_days,
+    )
+    cas = selected.path
     metrics = client_path / "fund_metrics.json"
     config = client_path / "config.json"
     aliases = client_path / "fund_aliases.json"
