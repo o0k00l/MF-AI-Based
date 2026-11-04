@@ -231,6 +231,7 @@ def test_api_real_service_ingests_cas_and_holds_on_missing_portfolio_disclosure(
     sheet = workbook.active
     sheet.title = "Portfolio Details"
     sheet.append(["Synthetic CAS"])
+    sheet.append(["To Date", as_of.strftime("%d-%b-%Y")])
     sheet.append([
         "Scheme Name", "Folio No.", "Invested Value", "Current Value", "Units", "AMC Name"
     ])
