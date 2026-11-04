@@ -15,7 +15,6 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 from dotenv import load_dotenv
-from google import genai
 
 from core.models import FiduciaryFactsPayload
 
@@ -48,13 +47,28 @@ def _clean_markdown(text: str) -> str:
     cleaned = re.sub(r'```\s*$', '', cleaned)
     return cleaned.strip()
 
-def _call_llm_with_retry(prompt: str, model_name: str = "", max_retries: int = 3) -> str:
-    """Calls resilient 3-tier AI engine (Requesty -> OpenRouter -> Gemini + Cache & Discovery)."""
-    res = _engine_call_llm(prompt, system_instruction=SYSTEM_INSTRUCTION, use_cache=True)
+def _call_llm_with_retry(
+    prompt: str,
+    model_name: str = "",
+    max_retries: int = 3,
+    *,
+    external_processing_consent: bool = False,
+) -> str:
+    """Call a free provider only after explicit per-request investor consent."""
+    res = _engine_call_llm(
+        prompt,
+        system_instruction=SYSTEM_INSTRUCTION,
+        use_cache=False,
+        external_processing_consent=external_processing_consent,
+    )
     return _clean_markdown(res)
 
 
-def generate_health_audit_report(facts: FiduciaryFactsPayload) -> str:
+def generate_health_audit_report(
+    facts: FiduciaryFactsPayload,
+    *,
+    external_processing_consent: bool = False,
+) -> str:
     """Generates the comprehensive Portfolio Health & Commission Bleed Audit."""
     top_bleed_schemes = facts.fee_bleed.details[:8]
     high_overlap_pairs = facts.overlap_matrix[:6]
@@ -89,7 +103,7 @@ def generate_health_audit_report(facts: FiduciaryFactsPayload) -> str:
         stability_info = f"Total Stability Buffer: {sb.total_stability_buffer_pct:.2f}% (Embedded Debt: INR {sb.embedded_debt_inr:,.0f}, Embedded Cash: INR {sb.embedded_cash_inr:,.0f}). Meets Tier 6 Target: {sb.meets_tier_target}."
 
     prompt = f"""
-Generate Deliverable 1: 'Portfolio Health & Commission Bleed Audit' for {facts.client_name}.
+Generate Deliverable 1: 'Portfolio Health & Commission Bleed Audit' for the supplied investor portfolio.
 
 INPUT FACT PAYLOAD:
 - Total Portfolio Value: INR {facts.total_portfolio_value_inr:,.2f}
@@ -146,10 +160,14 @@ STRUCTURE YOUR REPORT AS FOLLOWS:
 7. Switch Cost Analysis: Report only the supplied scheme-level cost records. Do not infer tax treatment or cite statutory sections without validated source evidence.
 8. Immediate Diagnostic Summary: Clear, actionable summary for the investor.
     """
-    return _call_llm_with_retry(prompt)
+    return _call_llm_with_retry(prompt, external_processing_consent=external_processing_consent)
 
 
-def generate_switch_and_consolidation_plan(facts: FiduciaryFactsPayload) -> str:
+def generate_switch_and_consolidation_plan(
+    facts: FiduciaryFactsPayload,
+    *,
+    external_processing_consent: bool = False,
+) -> str:
     """Generate a source-grounded review register; never invent switch or tax instructions."""
     from core.models import PlanType
 
@@ -231,7 +249,7 @@ def generate_switch_and_consolidation_plan(facts: FiduciaryFactsPayload) -> str:
     )
 
     prompt = f"""
-Generate a fund-by-fund Regular-versus-Direct and portfolio-overlap review for {facts.client_name}.
+Generate a fund-by-fund Regular-versus-Direct and portfolio-overlap review for the supplied investor portfolio.
 This is a review, not an instruction to switch, redeem, consolidate or transact.
 
 VERIFIED PORTFOLIO FACTS:
@@ -277,7 +295,7 @@ REPORT REQUIREMENTS:
 6. Show unavailable evidence explicitly and retain all holdings pending independent review where required.
 7. Preserve the mandate state. No action is executable unless all external authorization controls are independently satisfied.
 """
-    return _call_llm_with_retry(prompt)
+    return _call_llm_with_retry(prompt, external_processing_consent=external_processing_consent)
 
 def _validate_lumpsum_plan_for_reporting(plan: Any, requested_amount: Any) -> tuple[bool, str]:
     """Validate basic cash gate and amount reconciliation before exposing tranches."""
@@ -355,7 +373,11 @@ def _build_dynamic_selection_dossier(facts: FiduciaryFactsPayload) -> str:
     return "\n".join(lines)
 
 
-def generate_cash_and_sip_plan(facts: FiduciaryFactsPayload) -> str:
+def generate_cash_and_sip_plan(
+    facts: FiduciaryFactsPayload,
+    *,
+    external_processing_consent: bool = False,
+) -> str:
     """Generate a grounded SIP/lumpsum report; absent plans remain NO ACTION."""
     lumpsum_amt = getattr(facts, "lumpsum_budget_inr", 0.0)
     lump_plan = getattr(facts, "deterministic_lumpsum_plan", None)
@@ -397,7 +419,7 @@ def generate_cash_and_sip_plan(facts: FiduciaryFactsPayload) -> str:
                 "No tax-saving or tax-classification conclusion is asserted."
             )
             for tranche in lump_plan.tranches:
-                folio = tranche.folio_target or "Not specified"
+                folio = "Not transmitted to external narrative provider"
                 lump_rows.append(
                     f"| {tranche.role} | {tranche.scheme_name} | {folio} | "
                     f"INR {tranche.amount_inr:,.2f} | {tranche.allocation_pct:.2f}% | "
@@ -418,7 +440,7 @@ def generate_cash_and_sip_plan(facts: FiduciaryFactsPayload) -> str:
     sip_rows = []
     if sip_plan is not None:
         for item in sip_plan.items:
-            folio = item.folio_target or "Not specified"
+            folio = "Not transmitted to external narrative provider"
             sip_rows.append(
                 f"| {item.category_role} | {item.scheme_name} | {folio} | "
                 f"INR {item.monthly_inr:,.2f} | {item.allocation_pct:.2f}% | "
@@ -453,11 +475,11 @@ def generate_cash_and_sip_plan(facts: FiduciaryFactsPayload) -> str:
     is_actionable_order = getattr(facts, "is_actionable_order", False)
 
     prompt = f"""
-Generate Deliverable 3: Fresh Money Deployment Plan (SIP & Lumpsum) for {facts.client_name}.
+Generate Deliverable 3: Fresh Money Deployment Plan (SIP & Lumpsum) for the supplied investor portfolio.
 This is non-executable decision support. Do not fill gaps with customary allocations or assumptions.
 
 INPUT FACT PAYLOAD:
-- Investor: {facts.client_name} (Age: {facts.client_age}, Horizon: {facts.horizon_years} Years)
+- Investor: the supplied investor portfolio (Age: {facts.client_age}, Horizon: {facts.horizon_years} Years)
 - Risk Profile: {facts.risk_tier_name}
 - Target Asset Allocation: {facts.saa_drift.target_equity_pct}% Equity / {facts.saa_drift.target_debt_pct}% Debt
 - Look-Through Stability Buffer: {stability_str}
@@ -494,9 +516,15 @@ REPORT REQUIREMENTS:
 6. Do not add unsupported TER, alpha, Sharpe, overlap, tax or statutory claims.
 7. Include a concise risk and statutory disclaimer; do not present this report as an order or tax opinion.
 """
-    return _call_llm_with_retry(prompt)
+    return _call_llm_with_retry(prompt, external_processing_consent=external_processing_consent)
 
-def answer_interactive_query(facts: FiduciaryFactsPayload, user_query: str, chat_history: Optional[List[Dict[str, str]]] = None) -> str:
+def answer_interactive_query(
+    facts: FiduciaryFactsPayload,
+    user_query: str,
+    chat_history: Optional[List[Dict[str, str]]] = None,
+    *,
+    external_processing_consent: bool = False,
+) -> str:
     """Answers ad-hoc interactive questions from the user using full verified context and canonical intent routing."""
     q_lower = user_query.strip().lower()
 
@@ -632,7 +660,7 @@ def answer_interactive_query(facts: FiduciaryFactsPayload, user_query: str, chat
             "investor mandate before drawing an allocation conclusion."
         )
     holdings_ledger = "\n".join(
-        f"- {h.fund_name} (Folio: {h.folio}) | {h.plan.value} | Val: INR {h.current_value_inr:,.0f} | Inv: INR {h.invested_value_inr:,.0f} | Gain: INR {h.current_value_inr - h.invested_value_inr:+,.0f}"
+        f"- {h.fund_name} | {h.plan.value} | Val: INR {h.current_value_inr:,.0f} | Inv: INR {h.invested_value_inr:,.0f} | Gain: INR {h.current_value_inr - h.invested_value_inr:+,.0f}"
         for h in sorted(facts.holdings, key=lambda x: -x.current_value_inr)
     )
 
@@ -642,7 +670,7 @@ def answer_interactive_query(facts: FiduciaryFactsPayload, user_query: str, chat
 
     context_summary = f"""
 CLIENT CONTEXT:
-- Name: {facts.client_name}
+- Name: the supplied investor portfolio
 - Total Portfolio: INR {facts.total_portfolio_value_inr:,.2f} ({facts.holdings_count} funds)
 - Invested Value: INR {facts.total_invested_value_inr:,.2f} | Unrealized Gain: INR {facts.total_unrealized_gain_inr:,.2f}
 - Portfolio XIRR: {xirr_str} | Benchmark: {benchmark_str} | Alpha: {alpha_str}
@@ -674,9 +702,13 @@ USER QUESTION:
 
 Provide an authoritative, practical, and mathematically grounded fiduciary response. Quote exact rupee amounts and fund names where relevant. Explain the underlying financial reasoning clearly.
 """
-    return _call_llm_with_retry(prompt)
+    return _call_llm_with_retry(prompt, external_processing_consent=external_processing_consent)
 
 
-def generate_fiduciary_report(payload: FiduciaryFactsPayload) -> str:
+def generate_fiduciary_report(
+    payload: FiduciaryFactsPayload,
+    *,
+    external_processing_consent: bool = False,
+) -> str:
     """Generates the comprehensive Fiduciary Fact Sheet report."""
-    return generate_health_audit_report(payload)
+    return generate_health_audit_report(payload, external_processing_consent=external_processing_consent)
