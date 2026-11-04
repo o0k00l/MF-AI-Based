@@ -309,6 +309,15 @@ def allocate_candidate_sip(
         raise PortfolioInputError("sleeve budgets cannot be negative")
 
     rows = list(candidates)
+    candidate_id_counts: dict[str, int] = {}
+    for row in rows:
+        if isinstance(row, Mapping):
+            value = row.get("candidate_id")
+            if isinstance(value, str) and value.strip():
+                candidate_id_counts[value] = candidate_id_counts.get(value, 0) + 1
+    duplicate_candidate_ids = {
+        candidate_id for candidate_id, count in candidate_id_counts.items() if count > 1
+    }
     ranked: dict[str, list[tuple[Decimal, str]]] = {key: [] for key in budgets}
     required_ticket: dict[str, Decimal] = {}
     rejected: dict[str, list[str]] = {}
@@ -321,6 +330,8 @@ def allocate_candidate_sip(
         reasons = []
         if not isinstance(candidate_id, str) or not candidate_id.strip():
             reasons.append("CANDIDATE_ID_MISSING")
+        elif candidate_id in duplicate_candidate_ids:
+            reasons.append("DUPLICATE_CANDIDATE_ID")
         elif candidate_id in seen:
             reasons.append("DUPLICATE_CANDIDATE_ID")
         else:
