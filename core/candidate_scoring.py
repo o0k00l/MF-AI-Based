@@ -303,6 +303,12 @@ def calculate_candidate_6_pillar_score(
 
     buffer_pct = optional_metric("cash_debt_buffer_pct", "debt")
     intl_pct = optional_metric("international_equity_pct")
+    if portfolio_aware:
+        # Unknown is not a neutral observation. Verified zero remains valid.
+        if buffer_pct is None:
+            raise ValueError("Portfolio-aware scoring requires verified cash/debt buffer evidence")
+        if intl_pct is None:
+            raise ValueError("Portfolio-aware scoring requires verified international exposure evidence")
     overlap_raw = verified_overlap_pct if portfolio_aware else portfolio_overlap_pct
     if not portfolio_aware:
         if overlap_raw is None:
