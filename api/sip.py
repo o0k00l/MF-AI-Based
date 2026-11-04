@@ -11,6 +11,8 @@ import tempfile
 from pathlib import Path
 from typing import Any, Callable
 
+from services.sip_reviewer_approval import load_sip_reviewer_trust_registry
+
 from fastapi import FastAPI, File, Form, UploadFile
 from fastapi.responses import JSONResponse
 
@@ -25,6 +27,11 @@ def create_sip_app(
     evidence_provider: Callable[..., dict[str, Any]] | None = None,
 ) -> FastAPI:
     """Create an isolated SIP API; provider supplies reviewed source evidence."""
+    try:
+        reviewer_trust_registry = load_sip_reviewer_trust_registry() if evidence_provider is not None else None
+    except (OSError, ValueError):
+        reviewer_trust_registry = None
+
     app = FastAPI(
         title="Mutual Fund SIP Decision Support API",
         version="1.0.0",
@@ -52,13 +59,25 @@ def create_sip_app(
                     "research_release_approval_missing",
                 ],
             }
+        if reviewer_trust_registry is None:
+            return {
+                "status": "not_ready",
+                "service": "sip-decision-support",
+                "checks": {"evidence_provider": "configured", "independent_reviewer_trust_registry": "missing_or_invalid"},
+                "evidence_validation_available": False,
+                "recommendations_enabled": False,
+                "release_blockers": [
+                    "independent_reviewer_trust_registry_unavailable",
+                    "authenticated_daily_tri_unavailable",
+                    "independent_nse_calendar_unavailable",
+                    "research_release_approval_missing",
+                ],
+            }
         return {
             "status": "ready_for_evidence_validation",
             "service": "sip-decision-support",
-            "checks": {"evidence_provider": "configured"},
+            "checks": {"evidence_provider": "configured", "independent_reviewer_trust_registry": "configured"},
             "evidence_validation_available": True,
-            # Provider configuration is not evidence validation. The service
-            # remains HOLD-only until independent release gates are approved.
             "recommendations_enabled": False,
             "release_blockers": [
                 "authenticated_daily_tri_unavailable",
@@ -145,6 +164,17 @@ def create_sip_app(
                 "unallocated_budget_inr": monthly_budget_inr,
             })
 
+        if reviewer_trust_registry is None:
+            return JSONResponse(content={
+                "status": "HOLD",
+                "decision": "NO_ACTION",
+                "reasons": [
+                    "Independent reviewer trust registry is missing or invalid; signed SIP evidence cannot be authenticated.",
+                    "The full budget remains unallocated.",
+                ],
+                "unallocated_budget_inr": monthly_budget_inr,
+            })
+
         # Temporary storage is isolated and removed automatically after the
         # request. Never write investor statements into the repository or logs.
         with tempfile.TemporaryDirectory(prefix="sip-cas-") as temp_dir:
@@ -156,7 +186,10 @@ def create_sip_app(
                     monthly_budget_inr=monthly_budget_inr,
                     risk_profile=risk_profile,
                 )
-                evidence = validate_evidence_provider_payload(evidence)
+                evidence = validate_evidence_provider_payload(
+                    evidence, trust_registry=reviewer_trust_registry,
+                    require_reviewer_signature=True,
+                )
                 # The validated provider envelope also carries provenance-only
                 # fields used at this boundary. Pass only the service's explicit
                 # input contract; never forward the envelope wholesale.
