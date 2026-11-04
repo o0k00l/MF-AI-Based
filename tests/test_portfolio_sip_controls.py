@@ -352,7 +352,7 @@ def test_classified_concentration_blocks_sector_market_cap_and_theme_breaches():
         classification_source_ref="sha256:issuer-classifications",
         max_evidence_age_days=30,
         max_sector_pct="50",
-        max_market_cap_pct="40",
+        max_market_cap_pct="25",
         max_theme_pct="40",
     )
     assert result["status"] == "HOLD"
