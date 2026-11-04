@@ -1,23 +1,16 @@
 """
-core/redemption_engine.py — Deterministic Fiduciary Personal Cash Redemption Engine.
+core/redemption_engine.py — Redemption decision-support safety boundary.
 
-Implements mathematically grounded personal cash liberation:
-1. 4-Tier Liquidation Priority Waterfall:
-   - Priority 1: Toxic Sector Bubbles & Extreme Concentration Derisking (Defence, Energy, Thematic).
-   - Priority 2: Fee Bleed Elimination (Regular Plans sorted by Section 70 Loss-Harvesting first, then commission leakage).
-   - Priority 3: SAA Rebalancing & Redundant Multi-cap / Overweight Direct Holdings.
-   - Priority 4: Core Direct Compounding Anchors (Protected from redemption).
+The former heuristic waterfall is disabled. The prior implementation could
+assume missing transaction lots were mature, treat generic maturity as a
+zero-exit-load guarantee, apply fallback tax rates/exemptions, and prioritize
+sectoral holdings using name-based heuristics. Those outputs are not safe for
+investor-specific redemption planning.
 
-2. Ticket-Size Scaling Logic:
-   - Small-Ticket (<= INR 1,00,000): Operational friction minimization -> Single-fund execution (1 MFCentral action).
-   - Medium-Ticket (INR 1,00,000 to INR 5,00,000): Complete folio exits -> Eliminates residual tail balances.
-   - Large-Ticket (> INR 5,00,000): Macro structural derisking & SAA preservation.
-
-3. Fiduciary Tax & Cost Minimization Safeguards:
-   - 0% Exit Load Guarantee: Only mature lots (> 365 days) are liquidated; immature lots are shielded.
-   - Section 112A Tax Shield Siphon: INR 1.25L LTCG annual tax-free exemption utilized first (12.5% on excess).
-   - Section 70 Loss Netting: Realized capital losses offset taxable gains within the plan.
-   - Permanent Fee Bleed Elimination: Eliminates ongoing ~1.05% distributor commission drag.
+Current behaviour: return NO ACTION until the tax framework has independent
+legal approval, exact transaction lots are reconciled, and scheme/plan/lot-
+specific exit-load evidence is available to a validated calculation engine.
+No redemption order, tranche, tax estimate or realized saving is generated.
 """
 from __future__ import annotations
 
