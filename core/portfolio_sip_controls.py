@@ -325,7 +325,31 @@ def allocate_candidate_sip(
     for sleeve, values in ranked.items():
         ranked_candidates.extend((sleeve, score, candidate_id) for score, candidate_id in values)
     ranked_candidates.sort(key=lambda item: (-item[1], item[0], item[2]))
-    selected = ranked_candidates[:max_funds]
+
+    # Keep a fund opportunity in each routed sleeve before spending remaining
+    # core-fund slots on additional high scores in a single sleeve. If the
+    # global fund cap is smaller than the number of routed sleeves, prioritize
+    # the largest evidenced monthly sleeve budget; all omitted budgets remain
+    # unallocated in their original sleeve.
+    active_sleeves = [
+        sleeve for sleeve, values in ranked.items()
+        if values and budgets[sleeve] >= minimum
+    ]
+    sleeve_priority = sorted(active_sleeves, key=lambda sleeve: (-budgets[sleeve], sleeve))
+    selected = []
+    selected_ids = set()
+    for sleeve in sleeve_priority:
+        if len(selected) >= max_funds:
+            break
+        score, candidate_id = sorted(ranked[sleeve], key=lambda item: (-item[0], item[1]))[0]
+        selected.append((sleeve, score, candidate_id))
+        selected_ids.add(candidate_id)
+    for item in ranked_candidates:
+        if len(selected) >= max_funds:
+            break
+        if item[2] not in selected_ids:
+            selected.append(item)
+            selected_ids.add(item[2])
     selected_by_sleeve: dict[str, list[tuple[str, Decimal, str]]] = {}
     for sleeve, score, candidate_id in selected:
         selected_by_sleeve.setdefault(sleeve, []).append((sleeve, score, candidate_id))
