@@ -979,22 +979,9 @@ from core.models import (
 )
 
 
-def _asset_class_to_risk_tier(asset_class: AssetClass) -> str:
-    """Map AssetClass to SEBI risk-o-meter tier."""
-    mapping = {
-        AssetClass.DEBT: "Tier 1 (Low)",
-        AssetClass.CASH: "Tier 1 (Low)",
-        AssetClass.HYBRID_BALANCED: "Tier 3 (Moderate)",
-        AssetClass.HYBRID: "Tier 3 (Moderate)",
-        AssetClass.LARGE_CAP: "Tier 5 (High)",
-        AssetClass.FLEXI_CAP: "Tier 5 (High)",
-        AssetClass.MULTI_CAP: "Tier 5 (High)",
-        AssetClass.INTERNATIONAL: "Tier 5 (High)",
-        AssetClass.MID_CAP: "Tier 6 (Very High)",
-        AssetClass.SMALL_CAP: "Tier 6 (Very High)",
-        AssetClass.OTHER: "Tier 3 (Moderate)",
-    }
-    return mapping.get(asset_class, "Tier 3 (Moderate)")
+def _asset_class_to_risk_tier(asset_class: AssetClass) -> Optional[str]:
+    """Asset class is not a scheme Riskometer observation; never infer a tier."""
+    return None
 
 # Import the new simplified SAA utilities
 from core.models import RiskTier, AssetAllocationTarget, SAA_POLICY_MAP
@@ -1242,7 +1229,7 @@ def load_holdings_from_cas_excel(
                 lookthrough_status=disclosure["status"],
                 lookthrough_reason=disclosure["reason"],
                 amc_name=amc_name or None,
-                risk_tier=_asset_class_to_risk_tier(asset_class) if metrics_status == "VERIFIED" else None,
+                risk_tier=None,
                 metrics_status=metrics_status,
             )
         )
@@ -2126,7 +2113,11 @@ def aggregate_fiduciary_facts(
     monthly_sip, lumpsum_budget, emergency_months = _validated_ips_numeric_inputs(ips)
     target_saa = cfg.get("target_allocation", {})
 
+    if not holdings:
+        raise ValueError("Portfolio diagnostics unavailable: CAS contains no verified active holdings; no zero-drift report can be produced")
     tot_cur = sum(h.current_value_inr for h in holdings)
+    if not math.isfinite(tot_cur) or tot_cur <= 0.0:
+        raise ValueError("Portfolio diagnostics unavailable: total verified holding value must be positive")
     tot_inv = sum(h.invested_value_inr for h in holdings)
     tot_gain = tot_cur - tot_inv
 
@@ -2679,16 +2670,11 @@ def calculate_saa_drift_minimizer(
     target_allocation: Dict[str, float],
     sip_budget_inr: float
 ) -> SAA_DriftMinimizer:
+    if not holdings:
+        raise ValueError("SAA diagnostics are unavailable: no verified active holdings were supplied")
     total_val = sum(h.current_value_inr for h in holdings)
-    if total_val <= 0:
-        return SAA_DriftMinimizer(
-            current_allocation={},
-            target_allocation=target_allocation,
-            sip_budget_inr=sip_budget_inr,
-            recommended_sip_allocation={},
-            drift_after_sip={},
-            total_drift_l2_norm=0.0
-        )
+    if not math.isfinite(total_val) or total_val <= 0:
+        raise ValueError("SAA diagnostics are unavailable: portfolio value denominator must be positive")
     
     current_alloc = {}
     for h in holdings:
