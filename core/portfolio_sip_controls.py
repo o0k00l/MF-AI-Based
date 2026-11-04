@@ -447,6 +447,104 @@ def calculate_lookthrough_exposure(
             "issuer_exposure_inr": {k: str(v) for k, v in sorted(issuer_exposure.items())}}
 
 
+
+def evaluate_classified_concentration(
+    issuer_exposure_inr: Mapping[str, Any],
+    classifications: Mapping[str, Any],
+    *,
+    total_portfolio_inr: Any,
+    as_of_date: str,
+    classification_as_of_date: str,
+    classification_source_ref: str,
+    max_evidence_age_days: int,
+    max_sector_pct: Any,
+    max_market_cap_pct: Any,
+    max_theme_pct: Any,
+) -> dict[str, Any]:
+    """Evaluate sector, market-cap and theme exposure using dated issuer classifications."""
+    today = _date(as_of_date, "as_of_date")
+    class_date = _date(classification_as_of_date, "classification_as_of_date")
+    if class_date > today or (today - class_date).days > max_evidence_age_days:
+        return {"status": "HOLD", "reason": "ISSUER_CLASSIFICATION_STALE_OR_FUTURE"}
+    if not isinstance(classification_source_ref, str) or not classification_source_ref.strip():
+        return {"status": "HOLD", "reason": "ISSUER_CLASSIFICATION_SOURCE_REFERENCE_MISSING"}
+    total = _decimal(total_portfolio_inr, "total_portfolio_inr")
+    limits = {
+        "sector": _decimal(max_sector_pct, "max_sector_pct"),
+        "market_cap": _decimal(max_market_cap_pct, "max_market_cap_pct"),
+        "theme": _decimal(max_theme_pct, "max_theme_pct"),
+    }
+    if total <= 0 or any(value <= 0 or value > 100 for value in limits.values()):
+        raise PortfolioInputError("portfolio total and concentration limits must be positive and bounded by 100")
+    if not isinstance(classifications, Mapping):
+        raise PortfolioInputError("issuer classifications must be a mapping")
+    aggregates = {
+        "sector": {},
+        "market_cap": {},
+        "theme": {},
+    }
+    missing = []
+    normalized_issuer_values = {}
+    for issuer, raw_value in issuer_exposure_inr.items():
+        if not isinstance(issuer, str) or not issuer.strip():
+            raise PortfolioInputError("issuer exposure keys must be stable identifiers")
+        value = _decimal(raw_value, f"issuer_exposure[{issuer}]")
+        if value < 0:
+            raise PortfolioInputError("issuer exposures cannot be negative")
+        normalized_issuer_values[issuer] = value
+        facts = classifications.get(issuer)
+        if not isinstance(facts, Mapping):
+            missing.append(issuer)
+            continue
+        sector = facts.get("sector")
+        market_cap = facts.get("market_cap_bucket")
+        themes = facts.get("themes")
+        if not isinstance(sector, str) or not sector.strip():
+            missing.append(issuer)
+            continue
+        if not isinstance(market_cap, str) or not market_cap.strip():
+            missing.append(issuer)
+            continue
+        if not isinstance(themes, list) or any(not isinstance(item, str) or not item.strip() for item in themes):
+            missing.append(issuer)
+            continue
+        aggregates["sector"][sector] = aggregates["sector"].get(sector, Decimal("0")) + value
+        aggregates["market_cap"][market_cap] = aggregates["market_cap"].get(market_cap, Decimal("0")) + value
+        for theme in set(themes):
+            aggregates["theme"][theme] = aggregates["theme"].get(theme, Decimal("0")) + value
+    if missing:
+        return {
+            "status": "HOLD",
+            "reason": "ISSUER_CLASSIFICATION_MISSING_OR_INVALID",
+            "unclassified_issuers": sorted(set(missing)),
+            "source_ref": classification_source_ref,
+        }
+    percentages = {
+        dimension: {key: value / total * 100 for key, value in sorted(values.items())}
+        for dimension, values in aggregates.items()
+    }
+    breaches = {
+        dimension: {
+            key: str(pct)
+            for key, pct in values.items()
+            if pct > limits[dimension]
+        }
+        for dimension, values in percentages.items()
+    }
+    breaches = {key: value for key, value in breaches.items() if value}
+    return {
+        "status": "HOLD" if breaches else "ASSESSED",
+        "as_of_date": class_date.isoformat(),
+        "source_ref": classification_source_ref,
+        "limits_pct": {key: str(value) for key, value in limits.items()},
+        "exposure_pct": {
+            dimension: {key: str(pct) for key, pct in values.items()}
+            for dimension, values in percentages.items()
+        },
+        "breaches": breaches,
+    }
+
+
 def build_decision_trace(record: Mapping[str, Any]) -> dict[str, str]:
     """Create deterministic content hash over an explicitly versioned decision record."""
     required = ("schema_version", "source_digests", "as_of_dates", "policy_version",
