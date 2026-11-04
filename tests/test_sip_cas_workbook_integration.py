@@ -23,6 +23,7 @@ def _cas_workbook(path: Path, *, include_amc: bool = True) -> Path:
     sheet = workbook.active
     sheet.title = "Portfolio Details"
     sheet.append(["CAS synthetic integration fixture"])
+    sheet.append(["To Date", AS_OF.strftime("%d-%b-%Y")])
     headers = ["Scheme Name", "Folio No.", "Invested Value", "Current Value", "Units"]
     if include_amc:
         headers.append("AMC Name")
@@ -47,6 +48,8 @@ def _scheme_master():
             "isin": ISIN,
             "scheme_name": SCHEME_NAME,
             "amc_name": AMC_NAME,
+            "plan_type": "Direct",
+            "option_type": "Growth",
         }],
     }, source_bytes)
 
