@@ -1,5 +1,13 @@
 # TRI and NSE Trading Calendar Data Contract
 
+The release gate also requires the complete approved benchmark universe, not merely any non-empty subset:
+
+- `NIFTY 500 TRI` — broad-market/flexi-cap comparison (including the approved HDFC Flexi Cap mapping).
+- `NIFTY 500 MULTICAP 50:25:25 TRI` — multi-cap comparison (including the approved Nippon India Multi Cap mapping).
+- `NIFTY MIDCAP 150 TRI` — mid-cap comparison (including the approved Motilal Oswal Midcap mapping).
+
+Benchmark names are matched case-insensitively after trimming whitespace. Additional series may be supplied, but cannot replace any required series. If any required benchmark is missing, alpha release is blocked.
+
 The cash-flow-matched TRI calculation requires two distinct inputs:
 
 1. A daily historical TRI series with a SHA256 checksum over its normalized `levels` mapping.
