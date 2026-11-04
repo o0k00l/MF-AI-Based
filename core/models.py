@@ -114,24 +114,31 @@ class HoldingItem(BaseModel):
     # must never be interpreted as zero exposure or used for SIP scoring.
     metrics_status: str = "MISSING"
     xirr_pct: Optional[float] = None
-    expense_ratio_pct: float = 0.0
+    expense_ratio_pct: Optional[float] = None
 
 
 class FeeBleedAnalysis(BaseModel):
-    annual_commission_leakage_inr: float
-    ten_year_compounded_loss_inr: float
+    """Verified commission analysis; unavailable is distinct from zero."""
+    annual_commission_leakage_inr: Optional[float] = None
+    ten_year_compounded_loss_inr: Optional[float] = None
     regular_funds_count: int
     regular_funds: List[Dict[str, Any]] = Field(default_factory=list)
     direct_alternatives: Dict[str, float] = Field(default_factory=dict)
+    availability_status: str = "UNAVAILABLE"
+    unavailable_reason: Optional[str] = (
+        "Scheme-, plan-, distributor- and effective-date-specific commission evidence is not supplied."
+    )
 
     # Backward compatibility properties
     @property
-    def annual_bleed_inr(self) -> float:
+    def annual_bleed_inr(self) -> Optional[float]:
         return self.annual_commission_leakage_inr
 
     @property
     def regular_portfolio_value_inr(self) -> float:
-        return sum(f.get("current_value_inr", 0) for f in self.regular_funds)
+        if not self.regular_funds or any(f.get("current_value_inr") is None for f in self.regular_funds):
+            return None
+        return sum(f["current_value_inr"] for f in self.regular_funds)
 
     @property
     def details(self) -> List[Dict[str, Any]]:
@@ -186,24 +193,24 @@ class CashDeploymentPlan(BaseModel):
 
 class ThematicExposureItem(BaseModel):
     theme_name: str
-    dedicated_funds_inr: float = 0.0
-    dedicated_funds_pct: float = 0.0
-    look_through_stocks_inr: float = 0.0
-    look_through_stocks_pct: float = 0.0
+    dedicated_funds_inr: Optional[float] = None
+    dedicated_funds_pct: Optional[float] = None
+    look_through_stocks_inr: Optional[float] = None
+    look_through_stocks_pct: Optional[float] = None
     coverage_status: str  # e.g., 'FULL', 'ADEQUATE', 'NEGLECTED', 'BY_DESIGN_MINIMAL'
     key_underlying_holdings: List[str] = Field(default_factory=list)
 
 
 class LookThroughStabilityBuffer(BaseModel):
-    embedded_debt_inr: float = 0.0
-    embedded_debt_pct: float = 0.0
-    embedded_cash_inr: float = 0.0
-    embedded_cash_pct: float = 0.0
-    bank_deployable_cash_inr: float = 0.0
-    emergency_reserve_inr: float = 0.0
-    total_stability_buffer_inr: float = 0.0
-    total_stability_buffer_pct: float = 0.0
-    meets_tier_target: bool = True
+    embedded_debt_inr: Optional[float] = None
+    embedded_debt_pct: Optional[float] = None
+    embedded_cash_inr: Optional[float] = None
+    embedded_cash_pct: Optional[float] = None
+    bank_deployable_cash_inr: Optional[float] = None
+    emergency_reserve_inr: Optional[float] = None
+    total_stability_buffer_inr: Optional[float] = None
+    total_stability_buffer_pct: Optional[float] = None
+    meets_tier_target: Optional[bool] = None
 
 
 class DeterministicSIPRecommendation(BaseModel):
@@ -253,8 +260,8 @@ class DeterministicSIPPlan(BaseModel):
 
     total_monthly_budget_inr: float
     unallocated_budget_inr: float = 0.0
-    equity_sip_pct: float = 100.0
-    debt_sip_pct: float = 0.0
+    equity_sip_pct: float
+    debt_sip_pct: float
     items: List[DeterministicSIPRecommendation] = Field(default_factory=list)
     mandate_state: MandateExecutionState = MandateExecutionState.HOLD_PENDING_TRI_VALIDATION
     is_execution_authorized: bool = False
@@ -293,7 +300,7 @@ class DeterministicLumpsumPlan(BaseModel):
     monthly_stp_total_inr: float
     parking_vehicle: str
     tax_savings_vs_debt_fund_inr: float = 0.0
-    cash_validation_passed: bool = True
+    cash_validation_passed: Optional[bool] = None
     cash_validation_message: str = ""
     tranches: List[LumpsumTrancheItem] = Field(default_factory=list)
     mandate_state: MandateExecutionState = MandateExecutionState.HOLD_PENDING_TRI_VALIDATION
@@ -315,7 +322,7 @@ class FiduciaryFactsPayload(BaseModel):
     client_name: str
     client_age: Optional[int] = None
     horizon_years: Optional[int] = None
-    risk_tier_name: str = "Tier 6 (Very High)"
+    risk_tier_name: Optional[str] = None
     total_portfolio_value_inr: float
     total_invested_value_inr: float
     total_unrealized_gain_inr: float
