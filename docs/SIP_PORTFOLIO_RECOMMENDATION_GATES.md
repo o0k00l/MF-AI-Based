@@ -61,7 +61,9 @@ not rank standalone schemes first and then force-fit a SIP split.
    - Assess each candidate's incremental effect on asset allocation, issuer,
      sector, market-cap, thematic and underlying-fund concentration.
    - Evaluate overlap against existing holdings and the other proposed funds.
-   - Unknown look-through cannot improve a score or be treated as zero risk.
+   - Aggregate issuer, sector, market-cap and theme exposures using dated issuer classifications and source-referenced limits.
+   - Missing or stale issuer classification blocks the candidate; unknown look-through cannot improve a score or be treated as zero risk.
+   - A rank score is accepted only with original reviewer-attested score bytes, a matching SHA-256 reference, effective date and methodology version. Normalized candidate JSON must also match its reviewed content digest.
    - Use only thresholds approved in the policy/IPS; this document does not
      invent concentration limits.
 
@@ -70,17 +72,22 @@ not rank standalone schemes first and then force-fit a SIP split.
      eligible candidates and constraints.
    - Keep every target sleeve independent. If no candidate qualifies for a
      positive-target sleeve, its amount remains unallocated.
-   - Reconcile `sum(recommended SIP items) + unallocated = requested budget`
-     within the approved rounding tolerance.
+   - Apply candidate-level allocation only after eligibility, operational and concentration checks; enforce approved per-fund minimums, contribution increments and core-fund limits.
+   - Do not move an unfilled sleeve budget into another sleeve. Reconcile `sum(simulated candidate SIPs) + unallocated = requested budget` within the approved rounding tolerance.
 
 10. **Decision trace and client explanation**
     - Retain source digests, source/as-of dates, policy and engine versions,
       candidate gate results, exposure deltas, arithmetic and explicit HOLD
       reasons.
-    - Distinguish verified facts, policy choices, assumptions and unavailable
-      evidence.
-    - Provide a deterministic replay path without exposing client identifiers
-      or uploaded statements in logs or shared artifacts.
+    - Hash original metrics, scheme-master, disclosure, candidate-universe, ranking-score, portfolio-context and policy bytes, with as-of dates and candidate-level score provenance.
+    - Include the sleeve and candidate allocation simulations in the canonical trace while keeping authorized allocation at zero until release approval.
+    - Distinguish verified facts, policy choices, assumptions and unavailable evidence.
+    - Provide a deterministic replay path without exposing client identifiers or uploaded statements in logs or shared artifacts.
+
+11. **Lifecycle and review history**
+    - Persist an immutable DRAFT snapshot keyed by decision-trace digest only when an external `MF_SIP_LIFECYCLE_DIR` is configured.
+    - Persist no CAS contents, investor identifiers, folios or portfolio rows in the lifecycle record.
+    - REVIEWED, SUPERSEDED and WITHDRAWN transitions still require an authenticated independent reviewer and append-only event history; no unauthenticated API transition is enabled.
 
 ## Mandatory fail-closed conditions
 
@@ -111,6 +118,11 @@ passes.
 | #25 | Candidate eligibility | Gate-by-gate candidate decision record |
 | #26 | Concentration and overlap | Portfolio-level incremental risk analysis |
 | #27 | Decision traceability and suitability | Replayable source-to-decision explanation |
+| #30 | Goal suitability | Approved dated goal/mandate validation |
+| #31 | Liquidity and reserve | Verified cash, obligations and reserve constraints |
+| #32 | SIP affordability | Income/expense/debt stress test |
+| #33 | Recommendation lifecycle | Immutable DRAFT trace record and controlled review history |
+| #34 | Scheme operations | Current lifecycle, minimum SIP and transaction constraints |
 
 ## Release boundary
 
