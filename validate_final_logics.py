@@ -62,6 +62,7 @@ test_lumpsums = [100000.0, 500000.0, 1000000.0, 2500000.0, 5000000.0]
 for L in test_lumpsums:
     lp = compute_deterministic_lumpsum_blueprint(
         lumpsum_amount=L,
+        risk_tier="Tier 6 (Very High)",
         bank_cash_total=435000.0,
         emergency_reserve=115000.0,
         bank_cash_verified=False,
