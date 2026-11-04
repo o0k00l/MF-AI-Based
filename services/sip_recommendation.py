@@ -135,6 +135,17 @@ def _build_cas_portfolio_assessment(holdings: list[Any], risk_profile: str) -> d
             "valuation_date_verified": False,
             "total_value_inr": round(total, 2),
             "holding_count": len(holdings),
+            "holding_plan_option_identity": [
+                {
+                    "scheme_id": getattr(holding, "scheme_id", None),
+                    "isin": getattr(holding, "isin", None),
+                    "plan": getattr(getattr(holding, "plan", None), "value", getattr(holding, "plan", None)),
+                    "is_direct": getattr(holding, "is_direct", None),
+                    "option_type": getattr(holding, "option_type", None),
+                    "status": getattr(holding, "plan_option_status", "MISSING"),
+                }
+                for holding in holdings
+            ],
             "current_sleeve_values_inr": {
                 key: round(value, 2) for key, value in sorted(current.items())
             },
