@@ -148,191 +148,139 @@ STRUCTURE YOUR REPORT AS FOLLOWS:
 
 
 def generate_switch_and_consolidation_plan(facts: FiduciaryFactsPayload) -> str:
-    """Generates the step-by-step Switch and Consolidation Action Plan with rich fiduciary exit reasons."""
+    """Generate a source-grounded review register; never invent switch or tax instructions."""
     from core.models import PlanType
-    direct_holdings = [h for h in facts.holdings if h.plan == PlanType.DIRECT]
-    regular_holdings = [h for h in facts.holdings if h.plan == PlanType.REGULAR]
 
-    overlap_fund_names = set()
-    for p in facts.overlap_matrix[:5]:
-        if p.overlap_pct >= 25.0:
-            overlap_fund_names.add(p.fund_a)
-            overlap_fund_names.add(p.fund_b)
+    direct_holdings = [holding for holding in facts.holdings if holding.plan == PlanType.DIRECT]
+    regular_holdings = [holding for holding in facts.holdings if holding.plan == PlanType.REGULAR]
 
-    consolidation_candidates = [
-        h for h in regular_holdings
-        if h.fund_name in overlap_fund_names or any(w in h.fund_name.lower() for w in ["defence", "energy", "thematic", "special opp"])
+    fee_details = getattr(facts.fee_bleed, "details", []) or []
+    fee_by_name = {
+        str(item.get("fund_name", "")).strip().casefold(): item
+        for item in fee_details
+        if item.get("fund_name")
+    }
+
+    regular_rows = []
+    for holding in regular_holdings:
+        fee_detail = fee_by_name.get(holding.fund_name.strip().casefold(), {})
+        annual_difference = fee_detail.get("annual_bleed_inr")
+        fee_text = (
+            f"reported annual expense difference INR {float(annual_difference):,.2f}"
+            if annual_difference is not None
+            else "scheme-level annual expense difference unavailable"
+        )
+        regular_rows.append(
+            f"- {holding.fund_name}: current value INR {holding.current_value_inr:,.2f}; "
+            f"{fee_text}; review only — no switch is authorized."
+        )
+
+    direct_rows = [
+        f"- {holding.fund_name}: current value INR {holding.current_value_inr:,.2f}; "
+        "existing Direct holding; retain status must be assessed against the investor mandate."
+        for holding in direct_holdings
     ]
-    switch_candidates = [h for h in regular_holdings if h not in consolidation_candidates]
-    if not switch_candidates and regular_holdings:
-        half = len(regular_holdings) // 2 or 1
-        switch_candidates = regular_holdings[:half]
-        consolidation_candidates = regular_holdings[half:]
 
-    # Build rich exit justifications for consolidation candidates
-    def _get_consolidation_reason(fund_name: str) -> str:
-        fn = fund_name.lower()
-        
-        # Get fund metrics for dynamic values
-        fund_metrics = _find_fund_metrics(fund_name, facts)
-        fund_pe = fund_metrics.get('pe_ratio', 'N/A') if fund_metrics else 'N/A'
-        fund_alpha = fund_metrics.get('alpha_3y', 0.0) if fund_metrics else 0.0
-        fund_beta = fund_metrics.get('beta', 0.0) if fund_metrics else 0.0
-        fund_ter = fund_metrics.get('ter_direct_pct', 0.0) if fund_metrics else 0.0
-        
-        if "defence" in fn:
-            # Get overlap data for defence funds
-            overlap_info = _get_overlap_info(fund_name, facts)
-            overlap_range = overlap_info.get('range', '70%') if overlap_info else '70%'
-            overlap_index = overlap_info.get('index', 'Motilal Defence Index') if overlap_info else 'Motilal Defence Index'
-            pe_text = f"Sector P/E >{fund_pe}x" if fund_pe != 'N/A' else "Sector P/E >80x"
-            ter_text = f"{fund_ter:.2f}% Regular TER" if fund_ter else "1.94% Regular TER"
-            return f"Extreme thematic valuation risk ({pe_text} vs historical median); {overlap_range} pairwise stock overlap with {overlap_index}. Eliminates {ter_text} fee drag and single-sector drawdown risk. Phased exit under Section 112A INR 1.25L exemption."
-        elif "energy" in fn:
-            # Get overlap data for energy funds
-            overlap_info = _get_overlap_info(fund_name, facts)
-            overlap_pct = overlap_info.get('pct', '60%') if overlap_info else '60%'
-            holdings_list = overlap_info.get('holdings', ['Reliance', 'GAIL', 'ONGC']) if overlap_info else ['Reliance', 'GAIL', 'ONGC']
-            holdings_text = ', '.join(holdings_list[:3])
-            ter_text = f"{fund_ter:.2f}% Regular TER" if fund_ter else "1.85% Regular TER"
-            beta_text = f"beta {fund_beta:.2f}" if fund_beta else "cyclical beta"
-            return f"High {beta_text} and sector concentration; {overlap_pct} overlap with existing energy and utility holdings ({holdings_text}). Eliminates {ter_text} and shields capital from commodity cycle downturns."
-        elif "special opp" in fn or "whiteoak" in fn:
-            ter_text = f"{fund_ter:.2f}% Regular TER" if fund_ter else "2.32% Regular TER"
-            return f"High {ter_text} drag with redundant multi-cap equity overlap. Exiting saves fees without sacrificing factor diversification."
-        else:
-            return "High pairwise overlap (>30%) and redundant multi-cap equity exposure. Consolidating eliminates duplicate TER fee drag."
+    overlap_rows = []
+    for pair in getattr(facts, "overlap_matrix", []) or []:
+        shared = getattr(pair, "shared_stocks", []) or []
+        overlap_rows.append(
+            f"- {pair.fund_a} / {pair.fund_b}: reported overlap "
+            f"{pair.overlap_pct:.2f}%; shared holdings supplied: "
+            f"{', '.join(shared[:10]) if shared else 'not supplied'}."
+        )
+    if not overlap_rows:
+        overlap_rows.append("- NO DATA: no pairwise overlap evidence supplied.")
 
-    def _find_fund_metrics(fund_name: str, facts_obj) -> dict:
-        """Find fund metrics from available data sources."""
-        # Try to find in fee_bleed details
-        if hasattr(facts_obj, 'fee_bleed') and facts_obj.fee_bleed.details:
-            for detail in facts_obj.fee_bleed.details:
-                if detail.get('fund_name', '').lower() in fund_name.lower() or fund_name.lower() in detail.get('fund_name', '').lower():
-                    return detail
-        # Try to find in metrics from facts
-        if hasattr(facts_obj, 'fund_metrics'):
-            for metric in facts_obj.fund_metrics:
-                if metric.get('fund_name', '').lower() in fund_name.lower() or fund_name.lower() in metric.get('fund_name', '').lower():
-                    return metric
-        return {}
+    weighted_rows = []
+    for pair in getattr(facts, "weighted_overlap", []) or []:
+        shared = getattr(pair, "shared_stocks", []) or []
+        weighted_rows.append(
+            f"- {pair.fund_a} / {pair.fund_b}: weighted overlap "
+            f"{pair.weighted_overlap_pct:.2f}%; verdict supplied: "
+            f"{getattr(pair, 'verdict', 'not supplied')}; "
+            f"shared holdings: {', '.join(shared[:10]) if shared else 'not supplied'}."
+        )
+    if not weighted_rows:
+        weighted_rows.append("- NO DATA: no weighted look-through overlap evidence supplied.")
 
-    def _get_overlap_info(fund_name: str, facts_obj) -> dict:
-        """Get overlap information from weighted_overlap or overlap_matrix."""
-        if hasattr(facts_obj, 'weighted_overlap'):
-            for pair in facts_obj.weighted_overlap:
-                if pair.fund_a.lower() in fund_name.lower() or fund_name.lower() in pair.fund_a.lower() or \
-                   pair.fund_b.lower() in fund_name.lower() or fund_name.lower() in pair.fund_b.lower():
-                    shared = getattr(pair, 'shared_stocks', [])
-                    return {
-                        'range': f"{pair.weighted_overlap_pct:.0f}%",
-                        'index': 'Benchmark Index',
-                        'pct': f"{pair.weighted_overlap_pct:.0f}%",
-                        'holdings': shared[:3] if shared else ['N/A']
-                    }
-        if hasattr(facts_obj, 'overlap_matrix'):
-            for pair in facts_obj.overlap_matrix:
-                if pair.fund_a.lower() in fund_name.lower() or fund_name.lower() in pair.fund_a.lower() or \
-                   pair.fund_b.lower() in fund_name.lower() or fund_name.lower() in pair.fund_b.lower():
-                    return {
-                        'range': f"{pair.overlap_pct:.0f}%",
-                        'index': 'Peer Index',
-                        'pct': f"{pair.overlap_pct:.0f}%",
-                        'holdings': pair.shared_stocks[:3] if pair.shared_stocks else ['N/A']
-                    }
-        return {}
+    switch_costs = getattr(facts, "switch_costs", []) or []
+    switch_cost_rows = [
+        f"- {item.get('fund_name', 'Unidentified scheme')}: "
+        f"reported cost INR {item.get('switch_cost_inr', 'not supplied')}; "
+        f"reported cost ratio {item.get('switch_cost_pct', 'not supplied')}; "
+        f"warning: {item.get('warning', 'not supplied')}."
+        for item in switch_costs
+    ]
+    if not switch_cost_rows:
+        switch_cost_rows.append("- NO ACTION: scheme-level exit-load and tax cost evidence is unavailable.")
 
-    switch_lines = [f"- {h.fund_name}: INR {h.current_value_inr:,.2f} | Est. Commission Drag: INR {h.current_value_inr * (h.expense_ratio_pct/100):,.2f}" for h in switch_candidates]
-    consolidate_lines = [f"- {h.fund_name}: INR {h.current_value_inr:,.2f} | Fiduciary Exit Rationale: {_get_consolidation_reason(h.fund_name)}" for h in consolidation_candidates]
-    retain_lines = [f"- {h.fund_name}: INR {h.current_value_inr:,.2f} (Direct Plan already)" for h in direct_holdings]
+    tax_lots = getattr(facts, "tax_lots_summary", None)
+    if tax_lots is not None and hasattr(tax_lots, "model_dump"):
+        tax_lot_summary = tax_lots.model_dump()
+    elif isinstance(tax_lots, dict):
+        tax_lot_summary = tax_lots
+    else:
+        tax_lot_summary = None
 
-    tax_lots = facts.tax_lots_summary
-    tax_dict = tax_lots.model_dump() if hasattr(tax_lots, "model_dump") else (tax_lots if isinstance(tax_lots, dict) else {})
-    immature_cost = getattr(tax_lots, "immature_locked_value_inr", tax_dict.get("immature_capital_inr", 0.0))
-    mature_val = getattr(tax_lots, "mature_switchable_value_inr", tax_dict.get("mature_capital_inr", 0.0))
-    projected_ltcg = getattr(tax_lots, "projected_ltcg_inr", 0.0)
-    stagger_req = getattr(tax_lots, "stagger_required", False)
-    total_lots = tax_dict.get("total_lots_count", 45)
-    mature_lots = tax_dict.get("mature_lots_count", 30)
-    immature_lots = tax_dict.get("immature_lots_count", 15)
-    exit_load_risk = tax_dict.get("total_exit_load_risk_inr", 0.0)
-    if exit_load_risk <= 0 and immature_cost > 0:
-        exit_load_risk = round(immature_cost * 0.01, 2)
-
-        # Mandate state for report transparency
-    mandate_state = facts.mandate_state.value if hasattr(facts.mandate_state, 'value') else str(facts.mandate_state)
-    is_execution_authorized = getattr(facts, 'is_execution_authorized', False)
-    is_actionable_order = getattr(facts, 'is_actionable_order', False)
+    mandate_state = facts.mandate_state.value if hasattr(facts.mandate_state, "value") else str(facts.mandate_state)
+    is_execution_authorized = getattr(facts, "is_execution_authorized", False)
+    is_actionable_order = getattr(facts, "is_actionable_order", False)
+    no_action = getattr(facts, "no_action", None)
+    no_action_text = (
+        f"{getattr(no_action, 'action', 'NO ACTION')}: {getattr(no_action, 'reason', 'No reason supplied.')}"
+        if no_action is not None
+        else "No separate NO ACTION decision object supplied."
+    )
 
     prompt = f"""
-Generate Deliverable 2: 'Fund-by-Fund Switch & Consolidation Action Plan' for {facts.client_name}.
-Provide an authoritative, detailed institutional transition plan with clear, rigorous reasons for every action.
+Generate a fund-by-fund Regular-versus-Direct and portfolio-overlap review for {facts.client_name}.
+This is a review, not an instruction to switch, redeem, consolidate or transact.
 
-INPUT FACTS:
-- Total Regular Plan Value: INR {facts.fee_bleed.regular_portfolio_value_inr:,.2f} across {facts.fee_bleed.regular_funds_count} schemes
-- Annual Savings on Switch: INR {facts.fee_bleed.annual_bleed_inr:,.2f} every year
-- 10-Year Opportunity Savings: INR {facts.fee_bleed.ten_year_compounded_loss_inr:,.2f}
-- TAX & LOT REALITY (CRITICAL): Under Section 45 read with Section 2(47) and Section 112A of the Income Tax Act, a Switch from Regular to Direct is legally a transfer (redemption) that triggers Capital Gains Tax and Exit Loads. It is NOT tax-neutral.
-- Lot-Level FIFO Maturation: Total {total_lots} purchase lots across portfolio:
-  • Mature Lots (>365 Days, 0% Exit Load, LTCG Eligible): {mature_lots} lots
-  • Immature Lots (<=365 Days, 1% Exit Load Risk, 20% STCG): {immature_lots} lots (Capital: INR {immature_cost:,.2f})
-  • Exit Load Penalty at Risk if switched prematurely: INR {exit_load_risk:,.2f}
-- Total Portfolio Unrealized Gain: INR {facts.total_unrealized_gain_inr:,.2f}
+VERIFIED PORTFOLIO FACTS:
+- Reported portfolio value: INR {facts.total_portfolio_value_inr:,.2f}
+- Reported holdings count: {facts.holdings_count}
+- Regular-plan holdings: {len(regular_holdings)}
+- Direct-plan holdings: {len(direct_holdings)}
+- Reported annual Regular-plan expense difference estimate: INR {facts.fee_bleed.annual_bleed_inr:,.2f}
+- Reported 10-year fee-difference scenario estimate: INR {facts.fee_bleed.ten_year_compounded_loss_inr:,.2f}
+  Treat this only as the supplied scenario estimate. Do not call it a guaranteed loss or realized saving.
+- Total unrealized gain supplied: INR {facts.total_unrealized_gain_inr:,.2f}
 
-CANDIDATES TO SWITCH FROM REGULAR TO DIRECT (Keep fund, eliminate intermediary commission):
-{chr(10).join(switch_lines) if switch_lines else "None (portfolio already Direct)"}
+REGULAR-PLAN HOLDINGS — REVIEW ONLY:
+{chr(10).join(regular_rows) if regular_rows else "None supplied."}
 
-OVERLAPPING / THEMATIC CANDIDATES TO CONSOLIDATE OR EXIT (WITH DETAILED FIDUCIARY EXIT RATIONALE):
-{chr(10).join(consolidate_lines) if consolidate_lines else "None"}
+DIRECT-PLAN HOLDINGS:
+{chr(10).join(direct_rows) if direct_rows else "None supplied."}
 
-EXISTING DIRECT ASSETS TO RETAIN:
-{chr(10).join(retain_lines) if retain_lines else "None"}
+PAIRWISE OVERLAP EVIDENCE:
+{chr(10).join(overlap_rows)}
 
-MANDATE STATE (for investor transparency):
-- Mandate Execution State: {mandate_state}
-- Is Execution Authorized: {is_execution_authorized}
-- Is Actionable Order: {is_actionable_order}
+WEIGHTED LOOK-THROUGH OVERLAP EVIDENCE:
+{chr(10).join(weighted_rows)}
 
-STRUCTURE YOUR REPORT AS FOLLOWS:
-# Fund-by-Fund Switch & Consolidation Action Plan
-> **Objective:** Eliminate INR {facts.fee_bleed.annual_bleed_inr:,.2f}/yr commission drag and consolidate {facts.holdings_count} holdings into a lean 4-5 fund institutional portfolio WITHOUT triggering unnecessary capital gains tax or exit loads.
+SCHEME-LEVEL SWITCH-COST EVIDENCE:
+{chr(10).join(switch_cost_rows)}
 
-**0. Mandate State & Execution Status (MANDATORY):**
-- **Mandate Execution State:** {mandate_state}
-- **Is Execution Authorized:** {is_execution_authorized}
-- **Is Actionable Order:** {is_actionable_order}
-- **Interpretation:** Explain what this means for the investor — e.g., "HOLD_PENDING_TRI_VALIDATION means all switch/SIP recommendations are PROPOSED ONLY and require explicit written client authorization before execution."
+TAX-LOT SUMMARY:
+{tax_lot_summary if tax_lot_summary is not None else "UNAVAILABLE — tax-lot conclusions and tax-optimized switch schedules are NO ACTION."}
 
-1. Fiduciary Reconciliation: Gross Commission Bleed vs. Net Realized Savings:
-   Include a side-by-side markdown reconciliation table comparing 'Naive Blind Switch (Week 1)' vs 'Fiduciary 3-Phase Tranche Switch':
-   - Gross Commission Bleed Recoverable: INR {facts.fee_bleed.annual_bleed_inr:,.2f}
-   - Immediate Exit Load Penalty ({immature_lots} immature lots <= 365d): Naive loses INR {exit_load_risk:,.2f} vs Tranche loses INR 0.00 (Hold to Day 366)
-   - Capital Gains Tax Drag (20% STCG + 12.5% LTCG): Naive triggers >INR 22,000 in immediate taxes vs Tranche pays INR 0.00 (Sheltered via Loss Netting & INR 1.25L Exemption)
-   - Net Year-1 Realized Benefit: Naive erases ~80% of savings (only INR ~7,700 net) vs Tranche preserves 100% (INR {facts.fee_bleed.annual_bleed_inr:,.2f})
-   - Investor Consent Status: PROPOSED / PENDING CLIENT VERIFICATION OF CGS & FORMAL ACCEPTANCE (Explain why calling gross commission difference an 'immediate saving' without factoring in taxes and investor approval is misleading).
+MANDATE AND CONTROL STATE:
+- Mandate state: {mandate_state}
+- Execution authorized: {is_execution_authorized}
+- Actionable order: {is_actionable_order}
+- Separate NO ACTION result: {no_action_text}
 
-2. Categorized Action Register (Use clean, comprehensive Markdown tables):
-   - **Bucket 1: Direct Switch Candidates (Keep the fund, switch from Regular to Direct):** Table with Fund Name, Current Value, Est Commission Drag (INR/yr), Action, Status.
-   - **Bucket 2: Consolidation & Exit Candidates:** Table with Fund Name, Current Value, Action, Detailed Fiduciary Reason. You MUST include the full reasons provided above (explaining the 80x P/E bubble for Defence, 70% pairwise stock overlap with Motilal Defence Index, and cyclical beta for Energy).
-   - **Bucket 3: Retain & Core Direct Funds:** Table with Fund Name, Current Value, Action, Strategic Role.
-
-3. Fiduciary Tranche Transition Roadmap (Tax-Shielded Execution):
-   Explain explicitly why switching INR {facts.fee_bleed.regular_portfolio_value_inr:,.0f} all at once in Week 1 is reckless advice that triggers massive 20% STCG and 1% exit loads. Detail the 3-Phase Execution Roadmap based on CGS and FIFO lots:
-   - **Step 0: CGS & CAS Lot-Level Audit:** Pull the CGS from CAMS/KFintech/MFCentral before placing any order.
-   - **Phase 1 (Immediate / Month 1 - Zero-Tax & Loss-Harvesting Tranche):** Switch ONLY loss-making folios and mature lots (>365 days) where net capital gains stay strictly within the INR 1.25 Lakh Section 112A annual exemption threshold.
-   - **Phase 2 (Months 2 to 11 - SIP Maturation & Exit Load Buffer):** Strictly hold all {immature_lots} recent SIP lots (INR {immature_cost:,.0f}) until each lot crosses 365 days.
-   - **Phase 3 (Next Financial Year - April 1):** For remaining mature gains exceeding the INR 1.25L threshold, execute switches in the subsequent financial year to utilize a fresh INR 1.25L tax exemption window.
-
-4. Statutory Tax & Lock-In Optimization Rules:
-   - Section 112A INR 1,25,000 yearly tax-free LTCG exemption utilization.
-   - Cross-folio tax loss netting rules under Income Tax Act Section 70/71.
-   - FIFO holding rule (sell units >365 days old first to avoid 20% STCG).
-   - Exit load buffer rule (1.0% penalty avoided by holding until day 366).
-
-5. Post-Consolidation Target Portfolio Structure (Showing how {facts.holdings_count} funds shrink to 4-5 elite funds).
+REPORT REQUIREMENTS:
+1. Do not invent scheme metrics, peer comparisons, AUM, TER, P/E, beta, alpha, return, overlap, shared stocks, exit-load rates, tax rates, exemption amounts, holding periods or statutory sections.
+2. Do not divide holdings arbitrarily between switch and consolidation buckets. A Regular-to-Direct conversion and a scheme exit are distinct decisions.
+3. Overlap is diagnostic evidence, not an automatic sell trigger. Do not infer that any holding must be consolidated or exited solely because overlap exists.
+4. If tax-lot or scheme-level switch-cost evidence is missing, state NO ACTION for any tax-optimized switch schedule. Do not create default lot counts, 1% exit loads, Day-366 instructions or phased dates.
+5. Distinguish reported expense-difference estimates from guaranteed savings or investment returns.
+6. Show unavailable evidence explicitly and retain all holdings pending independent review where required.
+7. Preserve the mandate state. No action is executable unless all external authorization controls are independently satisfied.
 """
     return _call_llm_with_retry(prompt)
-
 
 def _build_dynamic_selection_dossier(facts: FiduciaryFactsPayload) -> str:
     """Build a dossier only from supplied deterministic plans and eligibility evidence."""
