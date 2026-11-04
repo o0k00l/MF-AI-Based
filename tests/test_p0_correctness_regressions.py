@@ -2273,3 +2273,24 @@ def test_portfolio_disclosure_requires_hash_freshness_and_exact_scheme_id():
     )
     assert attached[0]["lookthrough_status"] == "MISSING"
     assert attached[0]["constituent_weights"] is None
+
+
+def test_primary_cas_ingestion_marks_constituent_lookthrough_missing(tmp_path):
+    from openpyxl import Workbook
+    from ingestion.cas_parser import parse_cas_xlsx
+
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Portfolio Details"
+    sheet.append(["To Date", "31-Oct-2026"])
+    sheet.append(["Scheme Name", "AMC Name", "Category", "Folio No.", "Invested Value", "Current Value"])
+    sheet.append(["Example Equity Fund - Direct Growth", "Example AMC", "Equity", "FOLIO-1", 90000, 100000])
+    path = tmp_path / "primary-cas.xlsx"
+    workbook.save(path)
+
+    parsed = parse_cas_xlsx(path)
+    assert len(parsed["holdings"]) == 1
+    holding = parsed["holdings"][0]
+    assert holding["lookthrough_status"] == "MISSING"
+    assert holding["constituent_weights"] is None
+    assert holding["constituent_weights_coverage_pct"] is None
