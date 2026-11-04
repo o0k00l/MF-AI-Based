@@ -11,6 +11,7 @@ def _holding():
         fund_id="FUND-1",
         scheme_id="SCHEME-1",
         lookthrough_status="VERIFIED",
+        metrics_status="VERIFIED",
         constituent_weights_coverage_pct=100.0,
         current_value_inr=125000.0,
     )
