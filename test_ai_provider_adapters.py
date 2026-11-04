@@ -186,6 +186,6 @@ def test_generation_blocks_model_when_live_zero_price_evidence_changes(monkeypat
     monkeypatch.setattr(ai_engine, "discover_openrouter_free_models", discovery)
     monkeypatch.setitem(__import__("sys").modules, "openai", SimpleNamespace(OpenAI=Client))
 
-    with pytest.raises(ai_engine.ProviderError, match="no usable discovered models"):
+    with pytest.raises(ai_engine.ProviderError, match="no longer verified as zero-priced"):
         ai_engine._call_openrouter("test")
     assert attempted == []
