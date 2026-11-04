@@ -18,7 +18,7 @@ def _synthetic_tax_evidence_kwargs():
 
 from core.eligibility import _finite_number, _risk_tier_to_int, check_eligibility_gates
 from types import SimpleNamespace
-from core.math_engine import _sip_operational_constraint_violations, compute_candidate_portfolio_overlap, select_autonomous_blueprint_funds
+from core.math_engine import _parse_sebi_risk_tier, _sip_operational_constraint_violations, compute_candidate_portfolio_overlap, select_autonomous_blueprint_funds
 from core.models import AssetAllocationTarget, DeterministicSIPPlan, DeterministicSIPRecommendation, RiskTier
 from tax.transition_planner import Lot, FundSellPlan, plan_fy_tranches, classify_fund_for_tax
 
@@ -63,6 +63,20 @@ def _write_test_nse_calendar(tmp_path, sessions):
 )
 def test_risk_tier_parser_resolves_unambiguous_labels(label, expected):
     assert _risk_tier_to_int(label) == expected
+
+
+@pytest.mark.parametrize(
+    ("label", "expected"),
+    [
+        ("Conservative", 2),
+        ("Moderate", 4),
+        ("Aggressive", 6),
+        ("Tier 3 (Moderate)", 3),
+        ("Tier 4 (Moderately High)", 4),
+    ],
+)
+def test_sip_builder_parser_distinguishes_investor_profiles_from_sebi_tiers(label, expected):
+    assert _parse_sebi_risk_tier(label) == expected
 
 
 @pytest.mark.parametrize("bad", [None, True, "", " ", "not-a-number", float("nan"), float("inf"), float("-inf")])
