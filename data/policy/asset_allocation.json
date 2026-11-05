@@ -154,6 +154,11 @@
     "max_core_fund_count": 6,
     "min_sip_per_fund_inr": 1000,
     "sip_increment_inr": 500,
+    "starter_flexi_sleeve_cap_exception": {
+      "permitted": true,
+      "max_sleeve_pct": 60,
+      "condition": "Starter heuristic (< INR 5L AUM) permits single core Flexi fund up to starter sleeve weight before portfolio reaches established threshold."
+    },
     "plan_migration_is_new_fund": false,
     "plan_migration_note": "Switching Regular to Direct within the same scheme (same ISIN family) is a plan migration, NOT a new fund introduction. It does not count against max_new_funds_per_12_months.",
     "very_high_sip_routing": {
