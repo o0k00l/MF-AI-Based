@@ -19,6 +19,7 @@ def get_engine_data_paths():
         "fund_metrics": data_dir / "fund_metrics.json",
         "fund_aliases": data_dir / "fund_aliases.json",
         "manifest": data_dir / "manifest.json",
+        "runtime_config": data_dir / "runtime_config.json",
     }
 
 
@@ -74,8 +75,9 @@ def get_default_paths(client_target: str | Path | None = None, *, as_of=None, ma
     cas = selected.path
     engine_paths = get_engine_data_paths()
     metrics = engine_paths["fund_metrics"]
-    # Retained for legacy investor-mandate compatibility; not engine config.
-    config = client_path / "config.json"
+    # Investor-specific facts remain a separate mandate input; this is not
+    # engine configuration and must never contain shared fund research data.
+    config = client_path / "investor_mandate.json"
     aliases = engine_paths["fund_aliases"]
     outputs = client_path / "outputs"
     return cas, metrics, config, aliases, outputs
