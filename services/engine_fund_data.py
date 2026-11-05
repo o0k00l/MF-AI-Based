@@ -278,19 +278,20 @@ def refresh_engine_fund_data(
     artifacts = build_public_fund_artifacts(feed)
     # Each artifact embeds the same source digest; the manifest is written last
     # and acts as the snapshot commit marker for readers.
+    snapshot_dir = config.data_dir / "snapshots" / feed.sha256
     output_paths = {
-        "scheme_master": config.data_dir / "scheme_master.json",
-        "fund_metrics": config.data_dir / "fund_metrics.json",
-        "fund_aliases": config.data_dir / "fund_aliases.json",
+        "scheme_master": snapshot_dir / "scheme_master.json",
+        "fund_metrics": snapshot_dir / "fund_metrics.json",
+        "fund_aliases": snapshot_dir / "fund_aliases.json",
     }
     for name, path in output_paths.items():
         _atomic_write_json(path, artifacts[name])
 
-    source_dir = config.data_dir / "sources"
+    source_dir = snapshot_dir / "sources"
     source_dir.mkdir(parents=True, exist_ok=True)
-    source_path = source_dir / f"amfi-nav-{feed.sha256}.txt"
+    source_path = source_dir / "amfi-nav.txt"
     if not source_path.exists():
-        temp_source = source_dir / f".{source_path.name}.tmp"
+        temp_source = source_dir / ".amfi-nav.txt.tmp"
         temp_source.write_bytes(feed.content)
         os.replace(temp_source, source_path)
 
@@ -302,7 +303,10 @@ def refresh_engine_fund_data(
         "source_url": feed.url,
         "source_sha256": feed.sha256,
         "source_file": str(source_path.relative_to(config.data_dir)),
-        "artifacts": {name: path.name for name, path in output_paths.items()},
+        "artifacts": {
+            name: str(path.relative_to(config.data_dir))
+            for name, path in output_paths.items()
+        },
         "promotion_eligible": False,
         "promotion_blockers": [
             "AMFI NAV feed alone is not a complete scheme-master or fund-metrics evidence bundle",
@@ -337,10 +341,12 @@ def load_engine_manifest(data_dir: Path) -> dict[str, Any]:
             raise FundDataAcquisitionError("Engine fund-data manifest is incomplete")
         for name in ("scheme_master", "fund_metrics", "fund_aliases"):
             relative = artifacts.get(name)
-            if not isinstance(relative, str) or Path(relative).name != relative:
+            if not isinstance(relative, str) or Path(relative).is_absolute():
                 raise FundDataAcquisitionError(f"Invalid artifact path for {name}")
+            artifact_path = (Path(data_dir) / relative).resolve()
             try:
-                artifact = json.loads((Path(data_dir) / relative).read_text(encoding="utf-8"))
+                artifact_path.relative_to(Path(data_dir).resolve())
+                artifact = json.loads(artifact_path.read_text(encoding="utf-8"))
             except (OSError, json.JSONDecodeError) as exc:
                 raise FundDataAcquisitionError(f"Engine fund-data artifact {name} is missing or invalid") from exc
             if not isinstance(artifact, dict) or artifact.get("dataset_id") != dataset_id:
