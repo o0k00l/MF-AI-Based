@@ -299,21 +299,21 @@ class SAADriftAnalysis(BaseModel):
     target_debt_pct: float
     tolerance_band_pct: float = 5.0
     rebalance_required: bool
-    equity_gap_inr: float
-    debt_gap_inr: float
-    look_through_debt_inr: Optional[float] = None
-    look_through_cash_inr: Optional[float] = None
+    equity_gap_inr: Union[Decimal, float]
+    debt_gap_inr: Union[Decimal, float]
+    look_through_debt_inr: Optional[Union[Decimal, float]] = None
+    look_through_cash_inr: Optional[Union[Decimal, float]] = None
     look_through_stability_buffer_pct: Optional[float] = None
 
 
 class CashDeploymentPlan(BaseModel):
     status: str = "AVAILABLE"
-    total_cash_inr: Optional[float] = None
-    emergency_reserve_inr: Optional[float] = None
+    total_cash_inr: Optional[Union[Decimal, float]] = None
+    emergency_reserve_inr: Optional[Union[Decimal, float]] = None
     emergency_months: Optional[float] = None
-    deployable_surplus_inr: Optional[float] = None
+    deployable_surplus_inr: Optional[Union[Decimal, float]] = None
     stp_recommendation: Optional[str] = None
-    stp_monthly_amount_inr: Optional[float] = None
+    stp_monthly_amount_inr: Optional[Union[Decimal, float]] = None
     stp_duration_months: Optional[int] = None
     stp_source_fund: Optional[str] = None
     stp_target_fund: Optional[str] = None
@@ -322,33 +322,33 @@ class CashDeploymentPlan(BaseModel):
     unavailable_reason: Optional[str] = None
 
     @property
-    def bank_cash_inr(self) -> Optional[float]:
+    def bank_cash_inr(self) -> Optional[Union[Decimal, float]]:
         return self.total_cash_inr
 
     @property
-    def emergency_buffer_inr(self) -> Optional[float]:
+    def emergency_buffer_inr(self) -> Optional[Union[Decimal, float]]:
         return self.emergency_reserve_inr
 
 
 
 class ThematicExposureItem(BaseModel):
     theme_name: str
-    dedicated_funds_inr: Optional[float] = None
+    dedicated_funds_inr: Optional[Union[Decimal, float]] = None
     dedicated_funds_pct: Optional[float] = None
-    look_through_stocks_inr: Optional[float] = None
+    look_through_stocks_inr: Optional[Union[Decimal, float]] = None
     look_through_stocks_pct: Optional[float] = None
     coverage_status: str = "MISSING"  # unavailable until source coverage is established
     key_underlying_holdings: List[str] = Field(default_factory=list)
 
 
 class LookThroughStabilityBuffer(BaseModel):
-    embedded_debt_inr: Optional[float] = None
+    embedded_debt_inr: Optional[Union[Decimal, float]] = None
     embedded_debt_pct: Optional[float] = None
-    embedded_cash_inr: Optional[float] = None
+    embedded_cash_inr: Optional[Union[Decimal, float]] = None
     embedded_cash_pct: Optional[float] = None
-    bank_deployable_cash_inr: Optional[float] = None
-    emergency_reserve_inr: Optional[float] = None
-    total_stability_buffer_inr: Optional[float] = None
+    bank_deployable_cash_inr: Optional[Union[Decimal, float]] = None
+    emergency_reserve_inr: Optional[Union[Decimal, float]] = None
+    total_stability_buffer_inr: Optional[Union[Decimal, float]] = None
     total_stability_buffer_pct: Optional[float] = None
     meets_tier_target: Optional[bool] = None
     cash_evidence_status: str = "AVAILABLE"
@@ -426,8 +426,8 @@ class LumpsumTrancheItem(BaseModel):
     role: str
     scheme_name: str
     folio_target: Optional[str] = None
-    amount_inr: float
-    monthly_inr: Optional[float] = None
+    amount_inr: Union[Decimal, float]
+    monthly_inr: Optional[Union[Decimal, float]] = None
     allocation_pct: float
     timing: str
     source_vehicle: str
@@ -440,15 +440,27 @@ class DeterministicLumpsumPlan(BaseModel):
         _validate_mandate_flags(self.mandate_state, self.is_execution_authorized, self.is_actionable_order)
         return self
 
+    @model_validator(mode="after")
+    def validate_lumpsum_budget_reconciliation(self):
+        total_dec = quantize_inr(self.total_lumpsum_inr)
+        unallocated_dec = quantize_inr(self.unallocated_amount_inr)
+        allocated_dec = sum(quantize_inr(item.amount_inr) for item in self.tranches)
+        if abs((allocated_dec + unallocated_dec) - total_dec) > Decimal("0.01"):
+            raise ValueError(
+                f"Allocated lumpsum amounts ({allocated_dec}) plus unallocated amount ({unallocated_dec}) "
+                f"must equal total lumpsum ({total_dec})"
+            )
+        return self
+
     total_lumpsum_inr: Union[Decimal, float]
     unallocated_amount_inr: Union[Decimal, float]
     is_big_ticket: bool
     stp_duration_months: int
-    immediate_amount_inr: float
-    stp_total_amount_inr: float
-    monthly_stp_total_inr: float
+    immediate_amount_inr: Union[Decimal, float]
+    stp_total_amount_inr: Union[Decimal, float]
+    monthly_stp_total_inr: Union[Decimal, float]
     parking_vehicle: str
-    tax_savings_vs_debt_fund_inr: Optional[float] = None
+    tax_savings_vs_debt_fund_inr: Optional[Union[Decimal, float]] = None
     cash_validation_passed: Optional[bool] = None
     cash_validation_message: str = ""
     tranches: List[LumpsumTrancheItem] = Field(default_factory=list)
@@ -510,9 +522,9 @@ class FiduciaryFactsPayload(BaseModel):
 
 
 class TaxLedger(BaseModel):
-    immature_locked_value_inr: float
-    mature_switchable_value_inr: float
-    projected_ltcg_inr: float
+    immature_locked_value_inr: Union[Decimal, float]
+    mature_switchable_value_inr: Union[Decimal, float]
+    projected_ltcg_inr: Union[Decimal, float]
     stagger_required: bool
 
 

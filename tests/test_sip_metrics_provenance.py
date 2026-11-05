@@ -102,6 +102,15 @@ def test_aliases_file_must_be_regular_non_symlink(tmp_path):
         validate_evidence_provider_payload(payload)
 
 
+def test_aliases_path_without_source_metadata_and_bytes_is_rejected(tmp_path):
+    payload = _base_payload(tmp_path)
+    aliases_file = tmp_path / "aliases.json"
+    aliases_file.write_bytes(b'{"aliases": {}}')
+    payload["aliases_path"] = aliases_file
+    with pytest.raises(EvidenceProviderContractError, match="Fund aliases path requires both aliases_source_metadata and aliases_source_bytes"):
+        validate_evidence_provider_payload(payload)
+
+
 def test_aliases_metadata_and_bytes_must_be_supplied_together(tmp_path):
     payload = _base_payload(tmp_path)
     aliases_file = tmp_path / "aliases.json"
