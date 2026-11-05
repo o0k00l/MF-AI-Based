@@ -109,3 +109,4 @@ def _tax_lot_maturity_classification_disabled(*args, **kwargs):
 # as a way to substitute a generic statutory holding period.
 TaxLot.is_long_term = _tax_lot_maturity_classification_disabled
 TaxLot.is_short_term = _tax_lot_maturity_classification_disabled
+TaxLot.is_short_term = _tax_lot_maturity_classification_disabled

@@ -215,8 +215,11 @@ def is_verified_passive_scheme(
     return False
 
 FUND_CATEGORY_TAXONOMY = {
+    "Large & Mid Cap Equity": [
+        "large & mid cap", "large and mid cap", "large & midcap", "large and midcap", "large-and-mid-cap"
+    ],
     "Large Cap Equity": [
-        "large cap", "large & mid cap", "large and mid cap", "large cap bluechip",
+        "large cap", "large cap bluechip",
         "bluechip", "top 100", "nifty 50", "nifty 100", "sensex"
     ],
     "Mid & Small Cap Equity": [
@@ -228,8 +231,11 @@ FUND_CATEGORY_TAXONOMY = {
     "Small Cap Equity": [
         "small cap", "small-cap", "smallcap", "nifty smallcap"
     ],
+    "Focused Equity": [
+        "focused", "focused fund", "focused equity"
+    ],
     "Flexi Cap Equity": [
-        "flexi cap", "flexi-cap", "flexicap", "focused"
+        "flexi cap", "flexi-cap", "flexicap"
     ],
     "Multi Cap Equity": [
         "multi cap", "multi-cap", "multicap"

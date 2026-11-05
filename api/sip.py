@@ -27,6 +27,12 @@ def create_sip_app(
     evidence_provider: Callable[..., dict[str, Any]] | None = None,
 ) -> FastAPI:
     """Create an isolated SIP API; provider supplies reviewed source evidence."""
+    import os
+    if evidence_provider is None and os.environ.get("MF_SIP_EVIDENCE_BUNDLE_DIR"):
+        try:
+            evidence_provider = build_sip_evidence_provider()
+        except Exception:
+            evidence_provider = None
     try:
         reviewer_trust_registry = load_sip_reviewer_trust_registry() if evidence_provider is not None else None
     except (OSError, ValueError):

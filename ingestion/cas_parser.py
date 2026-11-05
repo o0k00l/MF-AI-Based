@@ -506,37 +506,167 @@ def reconcile(parsed: dict, tolerance: float = 1.0) -> dict:
     return out
 
 
-def to_cache_csv(parsed: dict, enriched: bool = False) -> str:
+def _validate_financial_fields(r: dict, row_index: int) -> tuple[dict, list[str]]:
+    """
+    Issue #107: Validate required financial fields before cache materialization.
+    Returns (validated_dict, errors) where errors is a list of problem strings.
+    """
+    errors = []
+    validated = dict(r)
+    
+    required_fields = {
+        "current_value": ["current_value"],
+        "units": ["units"],
+        "invested": ["invested_value", "invested", "cost_value"],
+    }
+    
+    for field_name, aliases in required_fields.items():
+        value = None
+        source_key = None
+        for alias in aliases:
+            if alias in r and r[alias] is not None:
+                value = r[alias]
+                source_key = alias
+                break
+        
+        if value is None or (isinstance(value, str) and value.strip() == ""):
+            errors.append(f"Row {row_index}: Missing required field '{field_name}'")
+            validated[field_name] = None
+        elif isinstance(value, str):
+            try:
+                fval = float(value.strip().replace(",", ""))
+                if math.isnan(fval) or math.isinf(fval):
+                    errors.append(f"Row {row_index}: Field '{field_name}' is non-finite: {value}")
+                    validated[field_name] = None
+                else:
+                    validated[field_name] = fval
+            except (ValueError, TypeError):
+                errors.append(f"Row {row_index}: Malformed field '{field_name}': {value}")
+                validated[field_name] = None
+        elif isinstance(value, (int, float)):
+            if math.isnan(value) or math.isinf(value):
+                errors.append(f"Row {row_index}: Field '{field_name}' is non-finite: {value}")
+                validated[field_name] = None
+            else:
+                validated[field_name] = float(value)
+        else:
+            errors.append(f"Row {row_index}: Invalid type for field '{field_name}': {type(value)}")
+            validated[field_name] = None
+    
+    # Validate NAV (optional but if present must be valid)
+    nav = r.get("nav")
+    nav_is_source = nav is not None and (not isinstance(nav, str) or nav.strip() != "")
+    if nav is not None:
+        if isinstance(nav, str):
+            try:
+                fval = float(nav.strip().replace(",", ""))
+                if math.isnan(fval) or math.isinf(fval):
+                    errors.append(f"Row {row_index}: NAV is non-finite: {nav}")
+                    validated["nav"] = None
+                    validated["nav_is_derived"] = False
+                else:
+                    validated["nav"] = fval
+                    validated["nav_is_derived"] = False
+            except (ValueError, TypeError):
+                errors.append(f"Row {row_index}: Malformed NAV: {nav}")
+                validated["nav"] = None
+                validated["nav_is_derived"] = False
+        elif isinstance(nav, (int, float)):
+            if math.isnan(nav) or math.isinf(nav):
+                errors.append(f"Row {row_index}: NAV is non-finite: {nav}")
+                validated["nav"] = None
+                validated["nav_is_derived"] = False
+            else:
+                validated["nav"] = float(nav)
+                validated["nav_is_derived"] = False
+    else:
+        validated["nav"] = None
+        validated["nav_is_derived"] = False
+    
+    return validated, errors
+def to_cache_csv(parsed: dict, enriched: bool = False, strict: bool = True) -> str:
     """
     Render parsed holdings into the CSV the engine already reads.
 
+    Issue #107: Reject missing/malformed financial fields instead of coercing to zero.
+    
     When enriched=False (default), preserves the canonical contract expected by
     _live_folios() and unit tests: '"Scheme Name",Invested,CurrentValue'.
     When enriched=True (GAP-198), preserves all 7 ground-truth fields:
     '"Scheme Name",CurrentValue,Units,Invested,"Folio Number",ISIN,NAV'.
+    
+    strict=True: Raise ValueError if any row has validation errors.
+    strict=False: Skip invalid rows and log them.
     """
     holdings_list = parsed.get("holdings") or parsed.get("funds") or []
+    all_errors = []
+    valid_rows = []
+    
+    for idx, r in enumerate(holdings_list):
+        validated, errors = _validate_financial_fields(r, idx + 1)
+        if errors:
+            all_errors.extend(errors)
+        valid_rows.append(validated)
+    
+    if strict and all_errors:
+        raise ValueError(
+            f"Cache materialization failed: {len(all_errors)} validation error(s). "
+            f"First errors: {all_errors[:5]}"
+        )
+    
     if enriched:
-        out = ['"Scheme Name",CurrentValue,Units,Invested,"Folio Number",ISIN,NAV']
-        for r in holdings_list:
+        out = ['"Scheme Name",CurrentValue,Units,Invested,"Folio Number",ISIN,NAV,NAV_Source']
+        for r in valid_rows:
             name = str(r.get("scheme", "")).replace('"', "'").strip()
-            cur_val = float(r.get("current_value", 0.0) or 0.0)
-            units = float(r.get("units", 0.0) or 0.0)
-            invested = float(r.get("invested_value", 0.0) or r.get("invested", 0.0) or r.get("cost_value", 0.0) or 0.0)
+            
+            cur_val = r.get("current_value")
+            units = r.get("units")
+            invested = r.get("invested")
             folio = str(r.get("folio_no") or r.get("folio") or "").replace('"', "").strip()
             isin = str(r.get("isin", "")).replace('"', "").strip()
-            nav = float(r.get("nav", 0.0) or 0.0)
-            if nav == 0.0 and units > 0 and cur_val > 0:
+            nav = r.get("nav")
+            nav_is_derived = r.get("nav_is_derived", False)
+            
+            if cur_val is None:
+                cur_val_str = "UNAVAILABLE"
+            else:
+                cur_val_str = f"{cur_val:.2f}"
+            
+            if units is None:
+                units_str = "UNAVAILABLE"
+            else:
+                units_str = f"{units:.3f}"
+            
+            if invested is None:
+                invested_str = "UNAVAILABLE"
+            else:
+                invested_str = f"{invested:.2f}"
+            
+            # Derive NAV only if not source-reported, and mark it as derived
+            if nav is None and units is not None and units > 0 and cur_val is not None and cur_val > 0:
                 nav = cur_val / units
-            out.append(f'"{name}",{cur_val:.2f},{units:.3f},{invested:.2f},"{folio}","{isin}",{nav:.4f}')
+                nav_is_derived = True
+            
+            if nav is None:
+                nav_str = "UNAVAILABLE"
+                nav_source = "NONE"
+            else:
+                nav_str = f"{nav:.4f}"
+                nav_source = "DERIVED" if nav_is_derived else "SOURCE"
+            
+            out.append(f'"{name}",{cur_val_str},{units_str},{invested_str},"{folio}","{isin}",{nav_str},{nav_source}')
         return "\n".join(out) + "\n"
 
     out = ['"Scheme Name",Invested,CurrentValue']
-    for r in holdings_list:
+    for r in valid_rows:
         name = str(r.get("scheme", "")).replace('"', "'").strip()
-        invested = float(r.get("invested_value", 0.0) or r.get("invested", 0.0) or r.get("cost_value", 0.0) or 0.0)
-        cur_val = float(r.get("current_value", 0.0) or 0.0)
-        out.append(f'"{name}",{invested:.2f},{cur_val:.2f}')
+        invested = r.get("invested")
+        cur_val = r.get("current_value")
+        
+        invested_str = f"{invested:.2f}" if invested is not None else "UNAVAILABLE"
+        cur_val_str = f"{cur_val:.2f}" if cur_val is not None else "UNAVAILABLE"
+        
+        out.append(f'"{name}",{invested_str},{cur_val_str}')
     return "\n".join(out) + "\n"
 
 
@@ -545,29 +675,65 @@ def to_enriched_cache_csv(parsed: dict) -> str:
     return to_cache_csv(parsed, enriched=True)
 
 
-def stage_portfolio(parsed: dict, root, slug: str = "Upload_Portfolio") -> dict:
+def stage_portfolio(parsed: dict, root, slug: str = "Upload_Portfolio", require_validation: bool = True) -> dict:
     """
     Materialise a portfolio workspace from an uploaded statement.
 
+    Issue #107: Reject missing/malformed CAS values before materializing cache.
+    Makes staging atomic - no partial cache is left on failure.
+
     Writes only what the engine reads. No identity is written anywhere, so the
     staged folder contains no PAN, name, phone or email.
+    
+    require_validation=True: Require successful validation before writing cache.
     """
     root = pathlib.Path(root)
     pdir = root / slug
     (pdir / "data").mkdir(parents=True, exist_ok=True)
-    # GAP-198 / GAP-224: Materialize enriched cache CSV with all 7 ground-truth columns
-    (pdir / "data" / "_active_funds_cache.csv").write_text(
-        to_cache_csv(parsed, enriched=True), encoding="utf-8")
-        
+    
     import json
+    import tempfile
+    import os
+    
+    # Issue #107: Validate before writing - use strict mode
+    if require_validation:
+        try:
+            cache_content = to_cache_csv(parsed, enriched=True, strict=True)
+        except ValueError as e:
+            # Clean up any partial state
+            cache_path = pdir / "data" / "_active_funds_cache.csv"
+            if cache_path.exists():
+                cache_path.unlink()
+            return {
+                "slug": slug,
+                "root": str(pdir),
+                "cache": None,
+                "holdings": len(parsed.get("holdings", [])),
+                "identity_written": False,
+                "staging_failed": True,
+                "error": str(e),
+            }
+    else:
+        cache_content = to_cache_csv(parsed, enriched=True, strict=False)
+    
+    # Atomic write: write to temp file first, then rename
+    cache_path = pdir / "data" / "_active_funds_cache.csv"
+    tmp_path = cache_path.with_suffix(".tmp")
+    tmp_path.write_text(cache_content, encoding="utf-8")
+    os.replace(tmp_path, cache_path)
+    
     if parsed.get("transactions"):
-        (pdir / "data" / "transactions.json").write_text(
+        tx_path = pdir / "data" / "transactions.json"
+        tx_tmp = tx_path.with_suffix(".tmp")
+        tx_tmp.write_text(
             json.dumps({"transactions": parsed.get("transactions")}, indent=2), encoding="utf-8")
-            
+        os.replace(tx_tmp, tx_path)
+        
     return {"slug": slug, "root": str(pdir),
-            "cache": str(pdir / "data" / "_active_funds_cache.csv"),
+            "cache": str(cache_path),
             "holdings": len(parsed.get("holdings", [])),
-            "identity_written": False}
+            "identity_written": False,
+            "staging_failed": False}
 
 
 def _parse_cas_pdf_pypdf(source, password: str = "") -> dict:
@@ -964,79 +1130,177 @@ def detect_active_sips_from_cas(
 ) -> dict:
     """
     GAP-109: Transaction-Led Active Monthly SIP Periodicity Discovery.
-    Identifies active ongoing monthly SIP debits from transaction patterns.
-
-    Mathematical & Operational Invariants:
-      1. Group transactions by (folio_number, scheme_name).
-      2. Filter for positive inflows (PURCHASE, SIP, or positive amounts).
-      3. For consecutive inflows, check:
-         - monthly periodicity (20 <= delta <= 40 days)
-         - amount consistency (|amount_k - amount_{k-1}| <= 1.0 INR)
-         - recency (most recent debit within tolerance_days of statement as_of date)
-      4. Return active SIP schedule and aggregate monthly run-rate.
+    Issue #106: Prevent ordinary purchases and future-dated transactions
+    from being reported as active SIP mandates.
     """
     from collections import defaultdict
     import datetime
 
+    # Validate parameters
+    if tolerance_days <= 0:
+        raise ValueError(f"tolerance_days must be positive, got {tolerance_days}")
+    if max_history_days <= 0:
+        raise ValueError(f"max_history_days must be positive, got {max_history_days}")
+    
+    # Parse and validate as_of
+    ref_date = None
+    if as_of is not None:
+        try:
+            if isinstance(as_of, str):
+                ref_date = datetime.date.fromisoformat(as_of.split("T")[0])
+            elif isinstance(as_of, datetime.date):
+                ref_date = as_of
+            elif isinstance(as_of, datetime.datetime):
+                ref_date = as_of.date()
+            else:
+                raise ValueError(f"Invalid as_of type: {type(as_of)}")
+        except (ValueError, TypeError) as e:
+            raise ValueError(f"Invalid as_of date: {as_of} - {e}")
+
     by_scheme = defaultdict(list)
     parsed_dates = []
+    rejected_transactions = []
+    malformed_dates = 0
+    total_input = len(transactions)
+
+    SIP_EVIDENCE_PATTERNS = re.compile(
+        r'\b(SIP|NACH|NACHS|AUTOPAY|AUTO\s*PAY|RECURRING|MUTUAL\s*FUND\s*SIP|'
+        r'MF\s*SIP|SYSTEMATIC\s*INVESTMENT|SIP\s*DEBIT|SIP\s*INSTALLMENT|'
+        r'INSTALLMENT|AUTODEBIT|AUTO\s*DEBIT|RECURRING\s*DEBIT|MFAUTO)\b',
+        re.IGNORECASE
+    )
+    NON_SIP_PATTERNS = re.compile(
+        r'\b(LUMP\s*SUM|LUMP|ONE\s*TIME|ONE\s*OFF|ONE-OFF|SINGLE\s*PURCHASE|'
+        r'DIVIDEND|DIV\s*REINV|REINVESTMENT|SWITCH|SWITCH\s*IN|SWITCH\s*OUT|'
+        r'REVERSAL|REVERSE|CANCELLATION|CANCEL|REFUND|ADDITIONAL\s*PURCHASE|'
+        r'MANUAL\s*PURCHASE|MANUAL)\b',
+        re.IGNORECASE
+    )
 
     for t in transactions:
         amt = _num(t.get("amount"))
         dt_val = t.get("date")
-        if amt and amt > 0 and dt_val:
-            try:
-                if isinstance(dt_val, str):
-                    d = datetime.date.fromisoformat(dt_val.split("T")[0])
-                elif isinstance(dt_val, datetime.date):
-                    d = dt_val
-                elif isinstance(dt_val, datetime.datetime):
-                    d = dt_val.date()
-                else:
-                    continue
-                parsed_dates.append(d)
-                scheme = str(t.get("scheme", "")).strip()
-                folio = str(t.get("folio_no", t.get("folio", ""))).strip()
-                by_scheme[(folio, scheme)].append((d, amt, t.get("description", "")))
-            except Exception:
+        desc = str(t.get("description", "") or t.get("tx_type", "") or "").strip()
+        
+        if amt is None or amt <= 0 or not dt_val:
+            continue
+            
+        try:
+            if isinstance(dt_val, str):
+                d = datetime.date.fromisoformat(dt_val.split("T")[0])
+            elif isinstance(dt_val, datetime.date):
+                d = dt_val
+            elif isinstance(dt_val, datetime.datetime):
+                d = dt_val.date()
+            else:
+                malformed_dates += 1
                 continue
+        except (ValueError, TypeError):
+            malformed_dates += 1
+            continue
+        
+        parsed_dates.append(d)
+        
+        # Reject future-dated transactions if as_of is provided
+        if ref_date is not None and d > ref_date:
+            rejected_transactions.append({
+                "date": d.isoformat(),
+                "reason": "future_dated_transaction",
+                "amount": float(amt),
+                "description": desc,
+            })
+            continue
+        
+        scheme = str(t.get("scheme", "")).strip()
+        folio = str(t.get("folio_no", t.get("folio", ""))).strip()
+        
+        has_sip_evidence = bool(SIP_EVIDENCE_PATTERNS.search(desc))
+        has_non_sip_evidence = bool(NON_SIP_PATTERNS.search(desc))
+        
+        if has_non_sip_evidence and not has_sip_evidence:
+            rejected_transactions.append({
+                "date": d.isoformat(),
+                "reason": "non_sip_transaction_type",
+                "amount": float(amt),
+                "description": desc,
+            })
+            continue
+        
+        by_scheme[(folio, scheme)].append((d, amt, desc, has_sip_evidence))
 
     if not parsed_dates:
-        return {"active_sips": [], "total_monthly_sip": 0.0, "as_of": None, "active_sip_count": 0}
+        return {
+            "active_sips": [],
+            "total_monthly_sip": 0.0,
+            "as_of": ref_date.isoformat() if ref_date else None,
+            "active_sip_count": 0,
+            "unverified_patterns": [],
+            "unverified_count": 0,
+            "rejection_stats": {
+                "total_input": total_input,
+                "rejected_future_dated": sum(1 for r in rejected_transactions if r["reason"] == "future_dated_transaction"),
+                "rejected_non_sip": sum(1 for r in rejected_transactions if r["reason"] == "non_sip_transaction_type"),
+                "malformed_dates": malformed_dates,
+                "rejected_details": rejected_transactions,
+            },
+            "history_coverage": {
+                "total_transactions": 0,
+                "usable_transactions": 0,
+                "coverage_note": "No valid transactions available - cannot determine SIP status",
+            },
+        }
 
-    ref_date = as_of or max(parsed_dates)
+    if ref_date is None:
+        ref_date = max(parsed_dates)
 
     active_sips = []
     total_monthly = 0.0
+    unverified_patterns = []
 
     for (folio, scheme), items in by_scheme.items():
         items.sort(key=lambda x: x[0])
-        if len(items) < 2:
+        valid_items = [(d, amt, desc, has_sip) for d, amt, desc, has_sip in items if d <= ref_date]
+        if len(valid_items) < 2:
             continue
 
-        # GAP-088 FIX: Robust periodic cadence detection handling step-ups, lump sums and date shifts
-        found_sip = False
-        last_d, last_amt, last_desc = items[-1]
-        prev_d, prev_amt, prev_desc = items[-2]
+        last_d, last_amt, last_desc, last_has_sip = valid_items[-1]
+        prev_d, prev_amt, prev_desc, prev_has_sip = valid_items[-2]
 
         delta = (last_d - prev_d).days
         days_since = (ref_date - last_d).days
 
-        # Case 1: Standard consecutive match or valid annual step-up
+        if days_since < 0:
+            rejected_transactions.append({
+                "date": last_d.isoformat(),
+                "reason": "stale_or_future_dated",
+                "amount": float(last_amt),
+                "description": last_desc,
+            })
+            continue
+
+        any_sip_evidence = last_has_sip or prev_has_sip
+
         is_exact = abs(last_amt - prev_amt) <= 1.0
         is_step_up = (last_amt > prev_amt) and (20 <= delta <= 40) and (
             (last_amt - prev_amt) % 500 == 0 or (last_amt - prev_amt) % 1000 == 0 or (1.05 <= last_amt / prev_amt <= 2.0)
         )
 
-        if (is_exact or is_step_up) and 20 <= delta <= 40 and days_since <= tolerance_days:
+        if (is_exact or is_step_up) and 20 <= delta <= 40 and 0 <= days_since <= tolerance_days:
             streak = 2
-            for i in range(len(items) - 2, 0, -1):
-                cur_d, cur_amt, _ = items[i]
-                p_d, p_amt, _ = items[i - 1]
+            for i in range(len(valid_items) - 2, 0, -1):
+                cur_d, cur_amt, cur_desc, cur_has_sip = valid_items[i]
+                p_d, p_amt, p_desc, p_has_sip = valid_items[i - 1]
                 if (abs(cur_amt - p_amt) <= 1.0 or abs(cur_amt - prev_amt) <= 1.0) and 20 <= (cur_d - p_d).days <= 40:
                     streak += 1
                 else:
                     break
+
+            if any_sip_evidence:
+                confidence = "VERIFIED"
+                confidence_note = "SIP mandate evidence found in transaction description"
+            else:
+                confidence = "UNVERIFIED"
+                confidence_note = "Recurring pattern detected but no explicit SIP mandate evidence - may be manual purchases"
 
             sip_entry = {
                 "scheme": scheme,
@@ -1046,26 +1310,43 @@ def detect_active_sips_from_cas(
                 "cadence_days": delta,
                 "streak_months": streak,
                 "days_since_last": days_since,
+                "confidence": confidence,
+                "confidence_note": confidence_note,
             }
-            active_sips.append(sip_entry)
-            total_monthly += last_amt
-            found_sip = True
+            
+            if confidence == "VERIFIED":
+                active_sips.append(sip_entry)
+                total_monthly += last_amt
+            else:
+                unverified_patterns.append(sip_entry)
 
-        # Case 2: One-off lump sum arrived recently (last item is a lump sum, but items[-2] and items[-3] form an active SIP)
-        if not found_sip and len(items) >= 3:
-            prev_d, prev_amt, _ = items[-2]
-            p_prev_d, p_prev_amt, _ = items[-3]
+        # Case 2: One-off lump sum arrived recently
+        if not active_sips and not unverified_patterns and len(valid_items) >= 3:
+            prev_d, prev_amt, prev_desc, prev_has_sip = valid_items[-2]
+            p_prev_d, p_prev_amt, p_prev_desc, p_prev_has_sip = valid_items[-3]
             d_delta = (prev_d - p_prev_d).days
             d_days_since = (ref_date - prev_d).days
-            if abs(prev_amt - p_prev_amt) <= 1.0 and 20 <= d_delta <= 40 and d_days_since <= tolerance_days:
+            
+            if d_days_since < 0:
+                continue
+
+            if abs(prev_amt - p_prev_amt) <= 1.0 and 20 <= d_delta <= 40 and 0 <= d_days_since <= tolerance_days:
                 streak = 2
-                for i in range(len(items) - 3, 0, -1):
-                    cur_d, cur_amt, _ = items[i]
-                    p_d, p_amt, _ = items[i - 1]
+                for i in range(len(valid_items) - 3, 0, -1):
+                    cur_d, cur_amt, cur_desc, cur_has_sip = valid_items[i]
+                    p_d, p_amt, p_desc, p_has_sip = valid_items[i - 1]
                     if abs(cur_amt - p_amt) <= 1.0 and 20 <= (cur_d - p_d).days <= 40:
                         streak += 1
                     else:
                         break
+
+                case2_has_sip = prev_has_sip or p_prev_has_sip
+                if case2_has_sip:
+                    confidence = "VERIFIED"
+                    confidence_note = "SIP mandate evidence found in transaction description"
+                else:
+                    confidence = "UNVERIFIED"
+                    confidence_note = "Recurring pattern detected but no explicit SIP mandate evidence - may be manual purchases"
 
                 sip_entry = {
                     "scheme": scheme,
@@ -1075,16 +1356,45 @@ def detect_active_sips_from_cas(
                     "cadence_days": d_delta,
                     "streak_months": streak,
                     "days_since_last": d_days_since,
+                    "confidence": confidence,
+                    "confidence_note": confidence_note,
                 }
-                active_sips.append(sip_entry)
-                total_monthly += prev_amt
-                found_sip = True
+                
+                if confidence == "VERIFIED":
+                    active_sips.append(sip_entry)
+                    total_monthly += prev_amt
+                else:
+                    unverified_patterns.append(sip_entry)
 
     active_sips.sort(key=lambda x: x["monthly_amount"], reverse=True)
+    unverified_patterns.sort(key=lambda x: x["monthly_amount"], reverse=True)
+
+    usable_count = sum(len(items) for items in by_scheme.values())
+    history_coverage = {
+        "total_transactions": total_input,
+        "usable_transactions": usable_count,
+        "rejected_count": len(rejected_transactions) + malformed_dates,
+        "coverage_note": (
+            f"{usable_count} of {total_input} transactions usable. "
+            f"{len(rejected_transactions)} rejected, {malformed_dates} malformed dates."
+            if total_input > 0 else "No transactions provided."
+        ),
+    }
 
     return {
         "active_sips": active_sips,
         "total_monthly_sip": round(total_monthly, 2),
         "as_of": ref_date.isoformat(),
         "active_sip_count": len(active_sips),
+        "unverified_patterns": unverified_patterns,
+        "unverified_count": len(unverified_patterns),
+        "rejection_stats": {
+            "total_input": total_input,
+            "rejected_future_dated": sum(1 for r in rejected_transactions if r["reason"] == "future_dated_transaction"),
+            "rejected_non_sip": sum(1 for r in rejected_transactions if r["reason"] == "non_sip_transaction_type"),
+            "rejected_stale": sum(1 for r in rejected_transactions if r["reason"] == "stale_or_future_dated"),
+            "malformed_dates": malformed_dates,
+            "rejected_details": rejected_transactions,
+        },
+        "history_coverage": history_coverage,
     }

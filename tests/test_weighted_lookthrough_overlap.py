@@ -13,7 +13,6 @@ def _holding(fund_id, weights, *, status="VERIFIED", coverage=100.0, top_holding
         scheme_id=fund_id,
         equity_pct=equity_pct,
         current_value_inr=100000.0,
-        equity_pct=100.0,
         constituent_weights=weights,
         constituent_weights_coverage_pct=coverage,
         lookthrough_status=status,
