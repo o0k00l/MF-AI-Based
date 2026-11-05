@@ -211,29 +211,32 @@ def test_detect_active_sips_multi_step_up_streak_consistency():
     assert res["active_sip_count"] == 1
     assert res["active_sips"][0]["streak_months"] == 4
 
-def test_extract_mandate_evidence_from_real_world_cams_descriptions():
-    # 1. CAMS NACH UMRN in description
+def test_extract_mandate_evidence_distinguishes_found_from_confirmed():
+    # 1. Mandate ID found without explicit active status keyword:
+    # Must yield MANDATE_ID_FOUND with UNCONFIRMED status, NOT ACTIVE!
     desc1 = "SIP PUR - UMRN: NACH00000000012345"
     m1 = extract_mandate_evidence_from_transaction(desc1, "SIP")
     assert m1["mandate_id"] == "NACH00000000012345"
-    assert m1["umrn"] == "NACH00000000012345"
-    assert m1["mandate_status"] == "ACTIVE"
-    assert m1["has_auth_mandate"] is True
-    assert m1["mandate_source"] == "REGISTRAR_CAS_UMRN"
+    assert m1["mandate_status"] == "UNCONFIRMED"
+    assert m1["mandate_evidence_level"] == "MANDATE_ID_FOUND"
+    assert m1["has_auth_mandate"] is False
 
-    # 2. KFintech Mandate ID / Reg No in description
+    # 2. Mandate ID with explicit ACTIVE keyword:
+    # Confirms active status and yields ACTIVE_MANDATE_CONFIRMED
     desc2 = "Systematic Investment - Mandate ID: MND7829104 - Status: ACTIVE"
     m2 = extract_mandate_evidence_from_transaction(desc2, "SIP")
     assert m2["mandate_id"] == "MND7829104"
     assert m2["mandate_status"] == "ACTIVE"
+    assert m2["mandate_evidence_level"] == "ACTIVE_MANDATE_CONFIRMED"
     assert m2["has_auth_mandate"] is True
     assert m2["mandate_source"] == "REGISTRAR_CAS_REGN"
 
-    # 3. OTM ID in description
-    desc3 = "OTM SIP DEBIT - OTM ID: OTM9928172"
+    # 3. Explicit UMRN with STATUS: LIVE
+    desc3 = "SIP PUR - UMRN: NACH00000000099999 - STATUS: LIVE"
     m3 = extract_mandate_evidence_from_transaction(desc3, "SIP")
-    assert m3["mandate_id"] == "OTM9928172"
+    assert m3["mandate_id"] == "NACH00000000099999"
     assert m3["mandate_status"] == "ACTIVE"
+    assert m3["mandate_evidence_level"] == "ACTIVE_MANDATE_CONFIRMED"
     assert m3["has_auth_mandate"] is True
 
     # 4. Cancelled mandate description
@@ -241,6 +244,7 @@ def test_extract_mandate_evidence_from_real_world_cams_descriptions():
     m4 = extract_mandate_evidence_from_transaction(desc4, "SIP")
     assert m4["mandate_id"] == "NACH00000000012345"
     assert m4["mandate_status"] == "CANCELLED"
+    assert m4["mandate_evidence_level"] == "CANCELLED_OR_INACTIVE"
     assert m4["has_auth_mandate"] is False
 
     # 5. Ordinary manual purchase without mandate
@@ -248,6 +252,7 @@ def test_extract_mandate_evidence_from_real_world_cams_descriptions():
     m5 = extract_mandate_evidence_from_transaction(desc5, "PURCHASE")
     assert m5["mandate_id"] is None
     assert m5["mandate_status"] == "UNKNOWN"
+    assert m5["mandate_evidence_level"] == "NONE"
     assert m5["has_auth_mandate"] is False
 
 
@@ -259,26 +264,31 @@ def test_e2e_cas_workbook_extracts_and_authenticates_genuine_sips():
     ws_port = wb.active
     ws_port.title = "Portfolio Details"
     ws_port.append(["Current Portfolio Value"])
-    ws_port.append([25000.0])
+    ws_port.append([30000.0])
     ws_port.append(["To Date", "15-Oct-2026"])
     ws_port.append(["Scheme Name", "Folio No.", "Invested Value", "Current Value", "Units"])
     ws_port.append(["Scheme Genuine SIP", "FOLIO-1", 10000.0, 10000.0, 100.0])
-    ws_port.append(["Scheme Manual Purchases", "FOLIO-2", 10000.0, 10000.0, 100.0])
-    ws_port.append(["Scheme Cancelled SIP", "FOLIO-3", 5000.0, 5000.0, 50.0])
+    ws_port.append(["Scheme Unconfirmed Mandate", "FOLIO-2", 10000.0, 10000.0, 100.0])
+    ws_port.append(["Scheme Manual Purchases", "FOLIO-3", 5000.0, 5000.0, 50.0])
+    ws_port.append(["Scheme Cancelled SIP", "FOLIO-4", 5000.0, 5000.0, 50.0])
 
     # Transaction Details sheet
     ws_tx = wb.create_sheet("Transaction Details")
     ws_tx.append(["Scheme Name", "Date", "Amount", "Units", "Description"])
     
-    # Scheme 1: Genuine Active SIP with UMRN
-    ws_tx.append(["Scheme Genuine SIP", "05-Sep-2026", 5000.0, 50.0, "SIP PUR - UMRN: NACH00000000012345"])
-    ws_tx.append(["Scheme Genuine SIP", "05-Oct-2026", 5000.0, 50.0, "SIP PUR - UMRN: NACH00000000012345"])
+    # Scheme 1: Genuine Active SIP with explicit ACTIVE confirmation
+    ws_tx.append(["Scheme Genuine SIP", "05-Sep-2026", 5000.0, 50.0, "SIP PUR - UMRN: NACH00000000012345 - STATUS: ACTIVE"])
+    ws_tx.append(["Scheme Genuine SIP", "05-Oct-2026", 5000.0, 50.0, "SIP PUR - UMRN: NACH00000000012345 - STATUS: ACTIVE"])
 
-    # Scheme 2: Two recurring manual purchases (NO mandate ID)
-    ws_tx.append(["Scheme Manual Purchases", "05-Sep-2026", 5000.0, 50.0, "PURCHASE - CHEQUE DEBIT"])
-    ws_tx.append(["Scheme Manual Purchases", "05-Oct-2026", 5000.0, 50.0, "PURCHASE - CHEQUE DEBIT"])
+    # Scheme 2: Mandate ID found but NO active confirmation (MANDATE_ID_FOUND, UNCONFIRMED)
+    ws_tx.append(["Scheme Unconfirmed Mandate", "05-Sep-2026", 5000.0, 50.0, "SIP PUR - UMRN: NACH00000000077777"])
+    ws_tx.append(["Scheme Unconfirmed Mandate", "05-Oct-2026", 5000.0, 50.0, "SIP PUR - UMRN: NACH00000000077777"])
 
-    # Scheme 3: Cancelled SIP
+    # Scheme 3: Two recurring manual purchases (NO mandate ID)
+    ws_tx.append(["Scheme Manual Purchases", "05-Sep-2026", 2500.0, 25.0, "PURCHASE - CHEQUE DEBIT"])
+    ws_tx.append(["Scheme Manual Purchases", "05-Oct-2026", 2500.0, 25.0, "PURCHASE - CHEQUE DEBIT"])
+
+    # Scheme 4: Cancelled SIP
     ws_tx.append(["Scheme Cancelled SIP", "05-Sep-2026", 2500.0, 25.0, "SIP DEBIT - UMRN: NACH99999999999999 - CANCELLED"])
     ws_tx.append(["Scheme Cancelled SIP", "05-Oct-2026", 2500.0, 25.0, "SIP DEBIT - UMRN: NACH99999999999999 - CANCELLED"])
 
@@ -288,13 +298,18 @@ def test_e2e_cas_workbook_extracts_and_authenticates_genuine_sips():
 
     # Step 1: Upstream CAS parsing extracts mandate evidence directly from workbook
     parsed = parse_cas_xlsx(cas_bytes)
-    assert len(parsed["transactions"]) == 6
+    assert len(parsed["transactions"]) == 8
     
     # Verify transaction-level extracted metadata
     t_sip = [t for t in parsed["transactions"] if t["scheme"] == "Scheme Genuine SIP"]
     assert len(t_sip) == 2
     assert t_sip[0]["mandate_id"] == "NACH00000000012345"
     assert t_sip[0]["mandate_status"] == "ACTIVE"
+
+    t_unconf = [t for t in parsed["transactions"] if t["scheme"] == "Scheme Unconfirmed Mandate"]
+    assert len(t_unconf) == 2
+    assert t_unconf[0]["mandate_id"] == "NACH00000000077777"
+    assert t_unconf[0]["mandate_status"] == "UNCONFIRMED"
 
     t_man = [t for t in parsed["transactions"] if t["scheme"] == "Scheme Manual Purchases"]
     assert len(t_man) == 2
@@ -305,18 +320,24 @@ def test_e2e_cas_workbook_extracts_and_authenticates_genuine_sips():
     assert len(t_can) == 2
     assert t_can[0]["mandate_status"] == "CANCELLED"
 
-    # Step 2: Downstream active SIP discovery distinguishes genuine SIP from manual purchases
+    # Step 2: Downstream active SIP discovery strictly requires active confirmation
     res = detect_active_sips_from_cas(parsed["transactions"], as_of="2026-10-15")
     
-    # EXACTLY 1 active SIP (Scheme Genuine SIP)
+    # EXACTLY 1 active SIP (Scheme Genuine SIP with confirmed active status)
     assert res["active_sip_count"] == 1
     assert res["total_monthly_sip"] == 5000.0
     active_entry = res["active_sips"][0]
     assert active_entry["scheme"] == "Scheme Genuine SIP"
     assert active_entry["monthly_amount"] == 5000.0
     assert active_entry["confidence"] == "ACTIVE_MANDATE_VERIFIED"
-    assert active_entry["evidence_level"] == "MANDATE"
+    assert active_entry["evidence_level"] == "ACTIVE_MANDATE_CONFIRMED"
     assert active_entry["is_active_mandate"] is True
+
+    # Scheme Unconfirmed Mandate must be in recurring_transaction_patterns with MANDATE_ID_FOUND, NOT active_sips
+    unconf_patterns = [p for p in res["recurring_transaction_patterns"] if p["scheme"] == "Scheme Unconfirmed Mandate"]
+    assert len(unconf_patterns) == 1
+    assert unconf_patterns[0]["evidence_level"] == "MANDATE_ID_FOUND"
+    assert unconf_patterns[0]["is_active_mandate"] is False
 
     # Cancelled SIP rejected in rejection stats
     assert res["rejection_stats"]["rejected_paused_or_cancelled"] >= 2
@@ -329,21 +350,28 @@ def test_e2e_cas_workbook_with_active_mandate_sheet_schedule():
     ws_port = wb.active
     ws_port.title = "Portfolio Details"
     ws_port.append(["Current Portfolio Value"])
-    ws_port.append([10000.0])
+    ws_port.append([20000.0])
     ws_port.append(["To Date", "15-Oct-2026"])
     ws_port.append(["Scheme Name", "Folio No.", "Invested Value", "Current Value", "Units"])
-    ws_port.append(["Scheme Bluechip Growth", "FOLIO-101", 10000.0, 10000.0, 100.0])
+    ws_port.append(["Scheme Confirmed Schedule", "FOLIO-101", 10000.0, 10000.0, 100.0])
+    ws_port.append(["Scheme Missing Status Schedule", "FOLIO-102", 10000.0, 10000.0, 100.0])
 
     # Active SIP Mandates schedule sheet
     ws_mand = wb.create_sheet("Active SIPs")
     ws_mand.append(["Scheme Name", "Folio No", "Mandate ID", "Amount", "Status"])
-    ws_mand.append(["Scheme Bluechip Growth", "FOLIO-101", "MND-REGISTRAR-999", 5000.0, "ACTIVE"])
+    # Row 1: Explicit ACTIVE status
+    ws_mand.append(["Scheme Confirmed Schedule", "FOLIO-101", "MND-CONFIRMED-999", 5000.0, "ACTIVE"])
+    # Row 2: Missing status (must NOT default to ACTIVE!)
+    ws_mand.append(["Scheme Missing Status Schedule", "FOLIO-102", "MND-NOSTATUS-888", 5000.0, None])
 
-    # Transaction Details sheet (where description may just say "NACH SIP Debit")
+    # Transaction Details sheet
     ws_tx = wb.create_sheet("Transaction Details")
     ws_tx.append(["Scheme Name", "Folio No.", "Date", "Amount", "Units", "Description"])
-    ws_tx.append(["Scheme Bluechip Growth", "FOLIO-101", "05-Sep-2026", 5000.0, 50.0, "NACH SIP Debit"])
-    ws_tx.append(["Scheme Bluechip Growth", "FOLIO-101", "05-Oct-2026", 5000.0, 50.0, "NACH SIP Debit"])
+    ws_tx.append(["Scheme Confirmed Schedule", "FOLIO-101", "05-Sep-2026", 5000.0, 50.0, "NACH SIP Debit"])
+    ws_tx.append(["Scheme Confirmed Schedule", "FOLIO-101", "05-Oct-2026", 5000.0, 50.0, "NACH SIP Debit"])
+
+    ws_tx.append(["Scheme Missing Status Schedule", "FOLIO-102", "05-Sep-2026", 5000.0, 50.0, "NACH SIP Debit"])
+    ws_tx.append(["Scheme Missing Status Schedule", "FOLIO-102", "05-Oct-2026", 5000.0, 50.0, "NACH SIP Debit"])
 
     buf = io.BytesIO()
     wb.save(buf)
@@ -351,8 +379,10 @@ def test_e2e_cas_workbook_with_active_mandate_sheet_schedule():
 
     # Step 1: Upstream CAS parsing parses both transactions and active mandate schedule
     parsed = parse_cas_xlsx(cas_bytes)
-    assert len(parsed["active_mandates"]) == 1
-    assert parsed["active_mandates"][0]["mandate_id"] == "MND-REGISTRAR-999"
+    assert len(parsed["active_mandates"]) == 2
+    assert parsed["active_mandates"][0]["status"] == "ACTIVE"
+    # Missing status in mandate sheet must be UNKNOWN, NOT ACTIVE!
+    assert parsed["active_mandates"][1]["status"] == "UNKNOWN"
 
     # Step 2: detect_active_sips_from_cas binds transactions to the mandate schedule
     res = detect_active_sips_from_cas(
@@ -360,6 +390,9 @@ def test_e2e_cas_workbook_with_active_mandate_sheet_schedule():
         as_of="2026-10-15",
         active_mandates=parsed["active_mandates"]
     )
+    # Only Scheme Confirmed Schedule is authenticated as active SIP
     assert res["active_sip_count"] == 1
     assert res["total_monthly_sip"] == 5000.0
+    assert res["active_sips"][0]["scheme"] == "Scheme Confirmed Schedule"
     assert res["active_sips"][0]["confidence"] == "ACTIVE_MANDATE_VERIFIED"
+    assert res["active_sips"][0]["evidence_level"] == "ACTIVE_MANDATE_CONFIRMED"
