@@ -691,6 +691,42 @@ def to_enriched_cache_csv(parsed: dict) -> str:
     return to_cache_csv(parsed, enriched=True)
 
 
+def compute_holdings_canonical_digest(holdings: list[dict]) -> str:
+    """Compute deterministic SHA-256 digest over normalized holdings."""
+    import hashlib
+    import json
+    canonical_rows = []
+    for h in holdings:
+        if not isinstance(h, dict):
+            continue
+        scheme = str(h.get("scheme_name") or h.get("scheme", "")).strip()
+        folio = str(h.get("folio_no") or h.get("folio", "")).strip()
+        isin = str(h.get("isin", "")).strip().upper()
+        try:
+            units = f"{float(h.get('units', 0.0)):.4f}"
+        except (TypeError, ValueError):
+            units = "0.0000"
+        try:
+            curr_val = f"{float(h.get('current_value', 0.0)):.2f}"
+        except (TypeError, ValueError):
+            curr_val = "0.00"
+        try:
+            inv_val = f"{float(h.get('invested_value', 0.0)):.2f}"
+        except (TypeError, ValueError):
+            inv_val = "0.00"
+        canonical_rows.append({
+            "current_value": curr_val,
+            "folio": folio,
+            "invested_value": inv_val,
+            "isin": isin,
+            "scheme": scheme,
+            "units": units,
+        })
+    canonical_rows.sort(key=lambda r: (r["scheme"], r["folio"], r["isin"]))
+    payload = json.dumps(canonical_rows, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
 def validate_statement_reconciliation_envelope(
     parsed: dict,
     tolerance: float = 1.0,
@@ -698,7 +734,7 @@ def validate_statement_reconciliation_envelope(
 ) -> dict:
     """
     Issue #107: Validate whole-statement reconciliation envelope bound to statement date,
-    source digest, stated statement totals, and parsed holdings.
+    source digest, stated statement totals, and exact parsed holdings.
     """
     if not isinstance(parsed, dict):
         raise ValueError("Parsed statement payload must be a dictionary")
@@ -744,12 +780,14 @@ def validate_statement_reconciliation_envelope(
     clean_date = str(as_of).strip()
     clean_count = len(holdings)
     clean_total = round(parsed_total, 2)
+    holdings_digest = compute_holdings_canonical_digest(holdings)
     token = hashlib.sha256(
-        f"{clean_digest}:{clean_date}:{clean_count}:{clean_total:.2f}".encode("utf-8")
+        f"{clean_digest}:{clean_date}:{clean_count}:{clean_total:.2f}:{holdings_digest}".encode("utf-8")
     ).hexdigest()
 
     return {
         "status": "VERIFIED_RECONCILED",
+        "schema_version": "cas.statement_envelope.v1",
         "statement_date": clean_date,
         "stated_total": round(stated_val, 2),
         "parsed_total": clean_total,
@@ -757,6 +795,7 @@ def validate_statement_reconciliation_envelope(
         "tolerance": float(tolerance),
         "source_digest": clean_digest,
         "holdings_count": clean_count,
+        "holdings_digest": holdings_digest,
         "reconciliation_note": recon.get("note", ""),
         "validation_token": token,
     }
@@ -815,8 +854,8 @@ def stage_portfolio(
             if envelope is not None:
                 if not isinstance(envelope, dict) or envelope.get("status") != "VERIFIED_RECONCILED":
                     raise ValueError("Supplied reconciliation envelope is not VERIFIED_RECONCILED")
-                # Bind envelope strictly to the exact parsed statement date, source digest, holdings count and totals
-                for k in ("statement_date", "source_digest", "holdings_count", "parsed_total", "validation_token"):
+                # Bind envelope strictly to the exact parsed statement date, source digest, holdings count, holdings digest and totals
+                for k in ("schema_version", "statement_date", "source_digest", "holdings_count", "parsed_total", "holdings_digest", "validation_token"):
                     if envelope.get(k) != expected_envelope.get(k):
                         raise ValueError(
                             f"Supplied reconciliation envelope {k} mismatch: "
@@ -1295,8 +1334,8 @@ def detect_active_sips_from_cas(
 ) -> dict:
     """
     GAP-109: Transaction-Led Active Monthly SIP Periodicity Discovery.
-    Issue #106: Prevent ordinary purchases and future-dated transactions
-    from being reported as active SIP mandates.
+    Issue #106: Prevent ordinary purchases, future-dated transactions, and unverified
+    free-text patterns from being reported as active SIP mandates.
     Requires explicit as-of date for decision-time reference, provides exhaustive
     rejection accounting, distinguishes authenticated mandates from transaction-text
     classifications, and enforces consistent step-up streak logic.
@@ -1343,9 +1382,11 @@ def detect_active_sips_from_cas(
         r'\b(LUMP\s*SUM|LUMP|ONE\s*TIME|ONE\s*OFF|ONE-OFF|SINGLE\s*PURCHASE|'
         r'DIVIDEND|DIV\s*REINV|REINVESTMENT|SWITCH|SWITCH\s*IN|SWITCH\s*OUT|'
         r'REVERSAL|REVERSE|CANCELLATION|CANCEL|REFUND|ADDITIONAL\s*PURCHASE|'
-        r'MANUAL\s*PURCHASE|MANUAL)\b',
+        r'MANUAL\s*PURCHASE|MANUAL|REDEMPTION|REDEEM)\b',
         re.IGNORECASE
     )
+
+    seen_fingerprints = set()
 
     for t in transactions:
         amt = _num(t.get("amount"))
@@ -1353,7 +1394,19 @@ def detect_active_sips_from_cas(
         desc = str(t.get("description", "") or t.get("tx_type", "") or t.get("type", "") or "").strip()
         mandate_id = str(t.get("mandate_id", "") or t.get("registrar_mandate_id", "") or "").strip()
         mandate_status = str(t.get("mandate_status", "")).strip().upper()
-        has_auth_mandate = bool(mandate_id) or (mandate_status == "ACTIVE")
+        
+        # Authenticated mandate requires BOTH stable mandate reference AND active status
+        has_auth_mandate = bool(mandate_id) and (mandate_status == "ACTIVE")
+        is_paused_or_cancelled = mandate_status in ("PAUSED", "CANCELLED", "EXPIRED", "SUSPENDED", "INACTIVE", "FAILED")
+
+        if is_paused_or_cancelled:
+            rejected_transactions.append({
+                "date": str(dt_val) if dt_val else None,
+                "reason": "paused_or_cancelled_mandate",
+                "amount": float(amt) if amt is not None else None,
+                "description": desc,
+            })
+            continue
 
         if amt is None:
             rejected_transactions.append({
@@ -1410,6 +1463,21 @@ def detect_active_sips_from_cas(
 
         parsed_dates.append(d)
 
+        scheme = str(t.get("scheme", "")).strip()
+        folio = str(t.get("folio_no", t.get("folio", ""))).strip()
+
+        # Reject duplicate transaction records
+        fp = (scheme, folio, d.isoformat(), round(float(amt), 2), desc)
+        if fp in seen_fingerprints:
+            rejected_transactions.append({
+                "date": d.isoformat(),
+                "reason": "duplicate_transaction",
+                "amount": float(amt),
+                "description": desc,
+            })
+            continue
+        seen_fingerprints.add(fp)
+
         # Reject future-dated transactions if as_of is provided
         if ref_date is not None and d > ref_date:
             rejected_transactions.append({
@@ -1419,9 +1487,6 @@ def detect_active_sips_from_cas(
                 "description": desc,
             })
             continue
-
-        scheme = str(t.get("scheme", "")).strip()
-        folio = str(t.get("folio_no", t.get("folio", ""))).strip()
 
         has_sip_evidence = bool(SIP_EVIDENCE_PATTERNS.search(desc)) or has_auth_mandate
         has_non_sip_evidence = bool(NON_SIP_PATTERNS.search(desc))
@@ -1435,7 +1500,7 @@ def detect_active_sips_from_cas(
             })
             continue
 
-        by_scheme[(folio, scheme)].append((d, amt, desc, has_sip_evidence, has_auth_mandate))
+        by_scheme[(folio, scheme)].append((d, amt, desc, has_sip_evidence, has_auth_mandate, mandate_status or "UNKNOWN"))
 
     if not parsed_dates:
         return {
@@ -1444,6 +1509,8 @@ def detect_active_sips_from_cas(
             "as_of": ref_date.isoformat() if ref_date else None,
             "as_of_reference_mode": "EXPLICIT_DECISION_DATE" if ref_date else "UNAVAILABLE",
             "active_sip_count": 0,
+            "recurring_transaction_patterns": [],
+            "recurring_transaction_pattern_count": 0,
             "unverified_patterns": [],
             "unverified_count": 0,
             "rejection_stats": {
@@ -1455,6 +1522,9 @@ def detect_active_sips_from_cas(
                 "rejected_non_sip": sum(1 for r in rejected_transactions if r["reason"] == "non_sip_transaction_type"),
                 "rejected_stale": 0,
                 "rejected_outside_history_window": 0,
+                "rejected_duplicate": 0,
+                "rejected_paused_or_cancelled": sum(1 for r in rejected_transactions if r["reason"] == "paused_or_cancelled_mandate"),
+                "rejected_insufficient_history": 0,
                 "malformed_dates": malformed_dates,
                 "total_rejected": len(rejected_transactions),
                 "rejected_details": rejected_transactions,
@@ -1482,7 +1552,7 @@ def detect_active_sips_from_cas(
         items.sort(key=lambda x: x[0])
         # Enforce both as_of upper bound and max_history_days bounded history window
         valid_items = []
-        for d, amt, desc, has_sip, has_mandate in items:
+        for d, amt, desc, has_sip, has_mandate, m_status in items:
             if d > ref_date:
                 continue
             age_days = (ref_date - d).days
@@ -1494,14 +1564,21 @@ def detect_active_sips_from_cas(
                     "description": desc,
                 })
                 continue
-            valid_items.append((d, amt, desc, has_sip, has_mandate))
+            valid_items.append((d, amt, desc, has_sip, has_mandate, m_status))
             usable_dates.append(d)
 
         if len(valid_items) < 2:
+            for d, amt, desc, has_sip, has_mandate, m_status in valid_items:
+                rejected_transactions.append({
+                    "date": d.isoformat(),
+                    "reason": "insufficient_scheme_history",
+                    "amount": float(amt),
+                    "description": desc,
+                })
             continue
 
-        last_d, last_amt, last_desc, last_has_sip, last_has_mandate = valid_items[-1]
-        prev_d, prev_amt, prev_desc, prev_has_sip, prev_has_mandate = valid_items[-2]
+        last_d, last_amt, last_desc, last_has_sip, last_has_mandate, last_status = valid_items[-1]
+        prev_d, prev_amt, prev_desc, prev_has_sip, prev_has_mandate, prev_status = valid_items[-2]
 
         delta = (last_d - prev_d).days
         days_since = (ref_date - last_d).days
@@ -1521,8 +1598,8 @@ def detect_active_sips_from_cas(
         if _is_valid_cadence_pair(prev_amt, last_amt, delta) and 0 <= days_since <= tolerance_days:
             streak = 2
             for i in range(len(valid_items) - 2, 0, -1):
-                cur_d, cur_amt, cur_desc, cur_has_sip, cur_has_mandate = valid_items[i]
-                p_d, p_amt, p_desc, p_has_sip, p_has_mandate = valid_items[i - 1]
+                cur_d, cur_amt, cur_desc, cur_has_sip, cur_has_mandate, _ = valid_items[i]
+                p_d, p_amt, p_desc, p_has_sip, p_has_mandate, _ = valid_items[i - 1]
                 pair_delta = (cur_d - p_d).days
                 if _is_valid_cadence_pair(p_amt, cur_amt, pair_delta):
                     streak += 1
@@ -1531,10 +1608,10 @@ def detect_active_sips_from_cas(
 
             is_mandate = both_have_mandate
             if both_have_mandate:
-                confidence = "MANDATE_VERIFIED"
+                confidence = "ACTIVE_MANDATE_VERIFIED"
                 confidence_note = "Authenticated mandate evidence and recurring debit confirmed across qualifying installments"
             elif both_have_sip_evidence:
-                confidence = "TRANSACTION_TEXT_VERIFIED"
+                confidence = "SIP_LABELLED_TRANSACTION_PATTERN"
                 confidence_note = "Explicit SIP transaction-text classification confirmed across qualifying installments (transaction pattern only; not authenticated registrar mandate)"
             else:
                 confidence = "UNVERIFIED"
@@ -1551,6 +1628,7 @@ def detect_active_sips_from_cas(
                 "confidence": confidence,
                 "confidence_note": confidence_note,
                 "evidence_level": "MANDATE" if both_have_mandate else ("TRANSACTION_TEXT" if both_have_sip_evidence else "NONE"),
+                "mandate_status": "ACTIVE" if both_have_mandate else "UNKNOWN",
                 "is_active_mandate": is_mandate,
                 "is_verified": is_mandate,
             }
@@ -1558,26 +1636,23 @@ def detect_active_sips_from_cas(
             if is_mandate:
                 active_sips.append(sip_entry)
                 total_monthly += last_amt
-            elif confidence == "TRANSACTION_TEXT_VERIFIED":
+            elif both_have_sip_evidence:
                 recurring_transaction_patterns.append(sip_entry)
             else:
                 unverified_patterns.append(sip_entry)
 
         # Case 2: One-off lump sum arrived recently
-        if not active_sips and not unverified_patterns and len(valid_items) >= 3:
-            prev_d, prev_amt, prev_desc, prev_has_sip, prev_has_mandate = valid_items[-2]
-            p_prev_d, p_prev_amt, p_prev_desc, p_prev_has_sip, p_prev_has_mandate = valid_items[-3]
+        elif not active_sips and not unverified_patterns and len(valid_items) >= 3:
+            prev_d, prev_amt, prev_desc, prev_has_sip, prev_has_mandate, prev_status = valid_items[-2]
+            p_prev_d, p_prev_amt, p_prev_desc, p_prev_has_sip, p_prev_has_mandate, p_prev_status = valid_items[-3]
             d_delta = (prev_d - p_prev_d).days
             d_days_since = (ref_date - prev_d).days
 
-            if d_days_since < 0:
-                continue
-
-            if _is_valid_cadence_pair(p_prev_amt, prev_amt, d_delta) and 0 <= d_days_since <= tolerance_days:
+            if d_days_since >= 0 and _is_valid_cadence_pair(p_prev_amt, prev_amt, d_delta) and 0 <= d_days_since <= tolerance_days:
                 streak = 2
                 for i in range(len(valid_items) - 3, 0, -1):
-                    cur_d, cur_amt, cur_desc, cur_has_sip, cur_has_mandate = valid_items[i]
-                    p_d, p_amt, p_desc, p_has_sip, p_has_mandate = valid_items[i - 1]
+                    cur_d, cur_amt, cur_desc, cur_has_sip, cur_has_mandate, _ = valid_items[i]
+                    p_d, p_amt, p_desc, p_has_sip, p_has_mandate, _ = valid_items[i - 1]
                     pair_delta = (cur_d - p_d).days
                     if _is_valid_cadence_pair(p_amt, cur_amt, pair_delta):
                         streak += 1
@@ -1587,11 +1662,11 @@ def detect_active_sips_from_cas(
                 case2_both_have_mandate = prev_has_mandate and p_prev_has_mandate
                 case2_both_have_sip = prev_has_sip and p_prev_has_sip
                 if case2_both_have_mandate:
-                    confidence = "MANDATE_VERIFIED"
+                    confidence = "ACTIVE_MANDATE_VERIFIED"
                     confidence_note = "Authenticated mandate evidence and recurring debit confirmed across qualifying installments"
                 elif case2_both_have_sip:
-                    confidence = "TRANSACTION_TEXT_VERIFIED"
-                    confidence_note = "Explicit SIP transaction-text classification confirmed across qualifying installments"
+                    confidence = "SIP_LABELLED_TRANSACTION_PATTERN"
+                    confidence_note = "Explicit SIP transaction-text classification confirmed across qualifying installments (transaction pattern only; not authenticated registrar mandate)"
                 else:
                     confidence = "UNVERIFIED"
                     confidence_note = "Recurring payment pattern detected without continuous explicit mandate or transaction-text evidence"
@@ -1607,16 +1682,22 @@ def detect_active_sips_from_cas(
                     "confidence": confidence,
                     "confidence_note": confidence_note,
                     "evidence_level": "MANDATE" if case2_both_have_mandate else ("TRANSACTION_TEXT" if case2_both_have_sip else "NONE"),
-                    "is_verified": confidence in ("MANDATE_VERIFIED", "TRANSACTION_TEXT_VERIFIED"),
+                    "mandate_status": "ACTIVE" if case2_both_have_mandate else "UNKNOWN",
+                    "is_active_mandate": case2_both_have_mandate,
+                    "is_verified": case2_both_have_mandate,
                 }
 
-                if confidence in ("MANDATE_VERIFIED", "TRANSACTION_TEXT_VERIFIED"):
+                # CRITICAL: Free text transactions NEVER enter active_sips or total_monthly_sip
+                if case2_both_have_mandate:
                     active_sips.append(sip_entry)
                     total_monthly += prev_amt
+                elif case2_both_have_sip:
+                    recurring_transaction_patterns.append(sip_entry)
                 else:
                     unverified_patterns.append(sip_entry)
 
     active_sips.sort(key=lambda x: x["monthly_amount"], reverse=True)
+    recurring_transaction_patterns.sort(key=lambda x: x["monthly_amount"], reverse=True)
     unverified_patterns.sort(key=lambda x: x["monthly_amount"], reverse=True)
 
     usable_count = len(usable_dates)
@@ -1632,6 +1713,8 @@ def detect_active_sips_from_cas(
         "history_status": history_status,
         "history_window_days": window_days,
         "max_history_days": max_history_days,
+        "history_window_start": (ref_date - datetime.timedelta(days=max_history_days)).isoformat(),
+        "history_window_end": ref_date.isoformat(),
         "earliest_transaction_date": earliest_date.isoformat() if earliest_date else None,
         "latest_transaction_date": latest_date.isoformat() if latest_date else None,
         "coverage_note": (
@@ -1661,6 +1744,9 @@ def detect_active_sips_from_cas(
             "rejected_non_sip": sum(1 for r in rejected_transactions if r["reason"] == "non_sip_transaction_type"),
             "rejected_stale": sum(1 for r in rejected_transactions if r["reason"] == "stale_or_future_dated"),
             "rejected_outside_history_window": sum(1 for r in rejected_transactions if r["reason"] == "outside_history_window"),
+            "rejected_duplicate": sum(1 for r in rejected_transactions if r["reason"] == "duplicate_transaction"),
+            "rejected_paused_or_cancelled": sum(1 for r in rejected_transactions if r["reason"] == "paused_or_cancelled_mandate"),
+            "rejected_insufficient_history": sum(1 for r in rejected_transactions if r["reason"] == "insufficient_scheme_history"),
             "malformed_dates": malformed_dates,
             "total_rejected": len(rejected_transactions),
             "rejected_details": rejected_transactions,
