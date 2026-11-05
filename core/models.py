@@ -3,10 +3,19 @@ core/models.py — Pydantic V2 Data Contracts for Option B.
 """
 from __future__ import annotations
 
-from typing import List, Dict, Optional, Any, Tuple
+from decimal import Decimal, ROUND_HALF_UP
+from typing import List, Dict, Optional, Any, Tuple, Union
 from pydantic import BaseModel, Field, model_validator
 from datetime import date
 from enum import Enum
+
+INR_PAISE = Decimal("0.01")
+
+
+def quantize_inr(value: Union[Decimal, float, int, str]) -> Decimal:
+    """Quantize monetary amount to exact 2 decimal places (paise) using ROUND_HALF_UP."""
+    d = Decimal(str(value)) if not isinstance(value, Decimal) else value
+    return d.quantize(INR_PAISE, rounding=ROUND_HALF_UP)
 
 
 class PlanType(str, Enum):
@@ -211,10 +220,10 @@ class HoldingItem(BaseModel):
     debt_pct: float
     hybrid_pct: float
     international_pct: float
-    current_value_inr: float
-    invested_value_inr: float
-    units: float
-    nav: float
+    current_value_inr: Union[Decimal, float]
+    invested_value_inr: Union[Decimal, float]
+    units: Union[Decimal, float]
+    nav: Union[Decimal, float]
     top_holdings: List[str] = Field(default_factory=list)
     # Full, source-verified constituent weights as percentages of the fund equity sleeve.
     # Missing or partial look-through data must not be interpreted as zero overlap.
@@ -352,7 +361,7 @@ class DeterministicSIPRecommendation(BaseModel):
     isin: Optional[str] = None
     folio_target: Optional[str] = None
     is_direct: Optional[bool] = None
-    monthly_inr: float
+    monthly_inr: Union[Decimal, float]
     allocation_pct: float
     rational_code: str        # 'CORE_COMPOUNDER', 'ALPHA_ENGINE', 'SATELLITE_THEME'
     fiduciary_rationale: str
@@ -384,15 +393,20 @@ class DeterministicSIPPlan(BaseModel):
             raise ValueError("SIP item amounts and percentages cannot be negative")
         if any(not 0.0 <= value <= 100.0 for value in (self.equity_sip_pct, self.debt_sip_pct, *item_pcts)):
             raise ValueError("SIP allocation percentages must be between 0 and 100")
-        allocated = sum(item_amounts)
-        if abs((allocated + self.unallocated_budget_inr) - self.total_monthly_budget_inr) > 0.01:
-            raise ValueError("Allocated SIP amounts plus unallocated budget must equal the monthly budget")
+        total_dec = Decimal(str(self.total_monthly_budget_inr))
+        unallocated_dec = Decimal(str(self.unallocated_budget_inr))
+        allocated_dec = sum(Decimal(str(item.monthly_inr)) for item in self.items)
+        if abs((allocated_dec + unallocated_dec) - total_dec) > Decimal("0.01"):
+            raise ValueError(
+                f"Allocated SIP amounts ({allocated_dec}) plus unallocated budget ({unallocated_dec}) "
+                f"must equal the monthly budget ({total_dec})"
+            )
         if abs(sum(item_pcts) - (self.equity_sip_pct + self.debt_sip_pct)) > 0.11:
             raise ValueError("SIP item percentages must reconcile to the equity and debt SIP percentages")
         return self
 
-    total_monthly_budget_inr: float
-    unallocated_budget_inr: float
+    total_monthly_budget_inr: Union[Decimal, float]
+    unallocated_budget_inr: Union[Decimal, float]
     equity_sip_pct: float
     debt_sip_pct: float
     items: List[DeterministicSIPRecommendation] = Field(default_factory=list)
@@ -426,8 +440,8 @@ class DeterministicLumpsumPlan(BaseModel):
         _validate_mandate_flags(self.mandate_state, self.is_execution_authorized, self.is_actionable_order)
         return self
 
-    total_lumpsum_inr: float
-    unallocated_amount_inr: float
+    total_lumpsum_inr: Union[Decimal, float]
+    unallocated_amount_inr: Union[Decimal, float]
     is_big_ticket: bool
     stp_duration_months: int
     immediate_amount_inr: float
@@ -458,9 +472,9 @@ class FiduciaryFactsPayload(BaseModel):
     client_age: Optional[int] = None
     horizon_years: Optional[int] = None
     risk_tier_name: Optional[str] = None
-    total_portfolio_value_inr: float
-    total_invested_value_inr: float
-    total_unrealized_gain_inr: float
+    total_portfolio_value_inr: Union[Decimal, float]
+    total_invested_value_inr: Union[Decimal, float]
+    total_unrealized_gain_inr: Union[Decimal, float]
     holdings_count: int
     fee_bleed: FeeBleedAnalysis
     overlap_matrix: List[OverlapPair]
@@ -472,7 +486,7 @@ class FiduciaryFactsPayload(BaseModel):
     switch_costs: List[Dict[str, Any]] = Field(default_factory=list)
     eligibility_results: List[Dict[str, Any]] = Field(default_factory=list)
     no_action: Optional[NOActionResult] = None
-    monthly_sip_budget_inr: float
+    monthly_sip_budget_inr: Union[Decimal, float]
     lumpsum_budget_inr: float = 0.0
     lumpsum_plan: Optional[Dict[str, Any]] = None
     xirr_pct: Optional[float] = None
