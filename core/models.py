@@ -298,22 +298,26 @@ class SAADriftAnalysis(BaseModel):
 
 
 class CashDeploymentPlan(BaseModel):
-    total_cash_inr: float
-    emergency_reserve_inr: float
-    emergency_months: float
-    deployable_surplus_inr: float
+    status: str = "AVAILABLE"
+    total_cash_inr: Optional[float] = None
+    emergency_reserve_inr: Optional[float] = None
+    emergency_months: Optional[float] = None
+    deployable_surplus_inr: Optional[float] = None
     stp_recommendation: Optional[str] = None
-    stp_monthly_amount_inr: float
-    stp_duration_months: int
+    stp_monthly_amount_inr: Optional[float] = None
+    stp_duration_months: Optional[int] = None
     stp_source_fund: Optional[str] = None
     stp_target_fund: Optional[str] = None
+    as_of_date: Optional[str] = None
+    evidence_source: Optional[str] = None
+    unavailable_reason: Optional[str] = None
 
     @property
-    def bank_cash_inr(self) -> float:
+    def bank_cash_inr(self) -> Optional[float]:
         return self.total_cash_inr
 
     @property
-    def emergency_buffer_inr(self) -> float:
+    def emergency_buffer_inr(self) -> Optional[float]:
         return self.emergency_reserve_inr
 
 
@@ -338,6 +342,8 @@ class LookThroughStabilityBuffer(BaseModel):
     total_stability_buffer_inr: Optional[float] = None
     total_stability_buffer_pct: Optional[float] = None
     meets_tier_target: Optional[bool] = None
+    cash_evidence_status: str = "AVAILABLE"
+    cash_as_of_date: Optional[str] = None
 
 
 class DeterministicSIPRecommendation(BaseModel):
@@ -663,8 +669,11 @@ def calculate_weighted_overlap(fund_a_holdings: Dict[str, float], fund_b_holding
     overlap_weight = sum(min(fund_a_holdings[s], fund_b_holdings[s]) for s in shared_stocks)
     return round(overlap_weight, 2)
 
-def compute_liquidity_waterfall(bank_balance: float, monthly_expenses: float, months_reserve: float = 6.0) -> Tuple[float, float]:
-    """Self-contained cash deployment liquidity calculation."""
+def compute_liquidity_waterfall(bank_balance: float, monthly_expenses: float, months_reserve: float) -> Tuple[float, float]:
+    """Self-contained cash deployment liquidity calculation; requires explicit approved months_reserve."""
+    import math
+    if any(not math.isfinite(x) or x < 0 for x in (bank_balance, monthly_expenses, months_reserve)):
+        raise ValueError("Bank balance, monthly expenses, and months reserve must be finite non-negative numbers")
     emergency_reserve = monthly_expenses * months_reserve
     deployable_surplus = max(0.0, bank_balance - emergency_reserve)
     return round(emergency_reserve, 2), round(deployable_surplus, 2)

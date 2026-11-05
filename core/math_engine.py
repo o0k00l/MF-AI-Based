@@ -1711,39 +1711,68 @@ def _parse_cas_valuation_date(cas_path: Path) -> date:
     raise ValueError(f"CAS valuation date has an unsupported format: {date_text!r}")
 
 
-def compute_liquidity_waterfall(bank_balance: float, monthly_expenses: float, months_reserve: float = 6.0) -> Tuple[float, float]:
+def compute_liquidity_waterfall(bank_balance: float, monthly_expenses: float, months_reserve: float) -> Tuple[float, float]:
     """
-    Guards emergency buffer before investment.
+    Guards emergency buffer before investment; requires explicit approved months_reserve.
     Deployable_Surplus = max(0, bank_balance - (monthly_expenses * months_reserve))
     """
+    if any(not math.isfinite(x) or x < 0 for x in (bank_balance, monthly_expenses, months_reserve)):
+        raise ValueError("Bank balance, monthly expenses, and months reserve must be finite non-negative numbers")
     emergency_reserve = round(monthly_expenses * months_reserve, 2)
     deployable_surplus = max(0.0, round(bank_balance - emergency_reserve, 2))
     return emergency_reserve, deployable_surplus
 
 
 def calculate_cash_deployment(
-    bank_cash_inr: float = 0.0,
-    emergency_buffer_inr: float = 0.0,
-    stp_months: int = 6,
-    emergency_months: float = 6.0,
+    bank_cash_inr: Optional[float] = None,
+    emergency_buffer_inr: Optional[float] = None,
+    stp_months: Optional[int] = None,
+    emergency_months: Optional[float] = None,
+    as_of_date: Optional[str] = None,
+    evidence_source: Optional[str] = None,
 ) -> CashDeploymentPlan:
     """
     Computes cash deployment waterfall for bank balances.
     Allocates emergency reserve first, then spreads deployable surplus via STP.
+    Fails closed when evidence is missing; missing cash or reserve is never coerced to zero.
     """
-    deployable = max(0.0, bank_cash_inr - emergency_buffer_inr)
-    stp_monthly = deployable / stp_months if stp_months > 0 else 0.0
+    if bank_cash_inr is None or emergency_buffer_inr is None or emergency_months is None:
+        return CashDeploymentPlan(
+            status="EVIDENCE_MISSING",
+            total_cash_inr=None if bank_cash_inr is None else round(float(bank_cash_inr), 2),
+            emergency_reserve_inr=None if emergency_buffer_inr is None else round(float(emergency_buffer_inr), 2),
+            emergency_months=emergency_months,
+            deployable_surplus_inr=None,
+            stp_monthly_amount_inr=None,
+            stp_duration_months=stp_months,
+            as_of_date=as_of_date,
+            evidence_source=evidence_source,
+            unavailable_reason="Missing source-backed bank cash, emergency reserve, or approved reserve months; missing values are not coerced to zero."
+        )
+
+    bank_cash = float(bank_cash_inr)
+    emergency_buf = float(emergency_buffer_inr)
+    em_months = float(emergency_months)
+    if any(not math.isfinite(x) or x < 0 for x in (bank_cash, emergency_buf, em_months)):
+        raise ValueError("Bank cash, emergency reserve, and emergency months must be finite non-negative numbers")
+
+    deployable = max(0.0, bank_cash - emergency_buf)
+    duration = int(stp_months) if stp_months and stp_months > 0 else 6
+    stp_monthly = deployable / duration if duration > 0 else 0.0
 
     return CashDeploymentPlan(
-        total_cash_inr=round(bank_cash_inr, 2),
-        emergency_reserve_inr=round(emergency_buffer_inr, 2),
-        emergency_months=emergency_months,
+        status="AVAILABLE",
+        total_cash_inr=round(bank_cash, 2),
+        emergency_reserve_inr=round(emergency_buf, 2),
+        emergency_months=em_months,
         deployable_surplus_inr=round(deployable, 2),
         stp_recommendation=None,
         stp_monthly_amount_inr=round(stp_monthly, 2),
-        stp_duration_months=stp_months,
+        stp_duration_months=duration,
         stp_source_fund=None,
         stp_target_fund=None,
+        as_of_date=as_of_date,
+        evidence_source=evidence_source,
     )
 
 
@@ -1862,7 +1891,7 @@ def compute_fifo_tax_lots(
 
 
 def _validated_ips_numeric_inputs(ips: Dict[str, Any]) -> Tuple[float, float, float]:
-    """Validate investor-entered SIP/lumpsum/reserve inputs without bool coercion."""
+    """Validate investor-entered SIP/lumpsum/reserve inputs without bool coercion or default months."""
     if not isinstance(ips, dict):
         raise ValueError("IPS inputs must be an object")
     if "monthly_sip_budget" not in ips:
@@ -1872,12 +1901,17 @@ def _validated_ips_numeric_inputs(ips: Dict[str, Any]) -> Tuple[float, float, fl
         raise ValueError("IPS monetary and emergency-month inputs must not be booleans")
     try:
         monthly_sip = float(ips["monthly_sip_budget"])
-        lumpsum_budget = float(ips.get("lumpsum_budget", 0.0))
-        emergency_months = float(ips.get("emergency_months", 6.0))
     except (TypeError, ValueError) as exc:
-        raise ValueError("IPS SIP, lumpsum and emergency-month inputs must be numeric") from exc
+        raise ValueError("IPS monthly_sip_budget must be numeric") from exc
     if not math.isfinite(monthly_sip) or monthly_sip <= 0.0:
         raise ValueError("IPS monthly_sip_budget must be finite and greater than zero")
+    if "emergency_months" not in ips:
+        raise ValueError("Explicit ips.emergency_months is required; no hardcoded default reserve horizon (e.g. 6.0 months) is permitted")
+    try:
+        lumpsum_budget = float(ips.get("lumpsum_budget", 0.0))
+        emergency_months = float(ips["emergency_months"])
+    except (TypeError, ValueError) as exc:
+        raise ValueError("IPS SIP, lumpsum and emergency-month inputs must be numeric") from exc
     if not math.isfinite(lumpsum_budget) or lumpsum_budget < 0.0:
         raise ValueError("IPS lumpsum_budget must be finite and non-negative")
     if not math.isfinite(emergency_months) or emergency_months < 0.0:
@@ -2028,18 +2062,27 @@ def aggregate_fiduciary_facts(
     )
     
     # Module 3: Investor Suitability & Liquidity - with emergency months & bank cash from config
-    bank_cash_cfg = 0.0
-    emergency_reserve_cfg = 0.0
+    bank_cash_cfg = None
+    emergency_reserve_cfg = None
+    cash_as_of = None
+    cash_evidence_src = None
     if config_path.exists():
         with open(config_path, "r", encoding="utf-8") as cf:
-            cdata = json.load(cf).get("cash", {})
-            bank_cash_cfg = float(cdata.get("bank_cash_total", 0.0))
-            emergency_reserve_cfg = float(cdata.get("emergency_reserve", 0.0))
+            cdata = json.load(cf).get("cash")
+            if isinstance(cdata, dict):
+                if "bank_cash_total" in cdata and cdata["bank_cash_total"] is not None:
+                    bank_cash_cfg = float(cdata["bank_cash_total"])
+                if "emergency_reserve" in cdata and cdata["emergency_reserve"] is not None:
+                    emergency_reserve_cfg = float(cdata["emergency_reserve"])
+                cash_as_of = cdata.get("as_of_date")
+                cash_evidence_src = cdata.get("evidence_source")
 
     cash = calculate_cash_deployment(
         bank_cash_inr=bank_cash_cfg,
         emergency_buffer_inr=emergency_reserve_cfg,
-        emergency_months=emergency_months
+        emergency_months=emergency_months,
+        as_of_date=cash_as_of,
+        evidence_source=cash_evidence_src,
     )
 
     # Look-through stability and thematic exposures
@@ -2047,7 +2090,8 @@ def aggregate_fiduciary_facts(
         holdings=holdings,
         bank_cash_inr=bank_cash_cfg,
         emergency_reserve_inr=emergency_reserve_cfg,
-        target_debt_pct=saa.target_debt_pct
+        target_debt_pct=saa.target_debt_pct,
+        as_of_date=cash_as_of,
     )
     thematic_exps = calculate_thematic_exposures(holdings, metrics_path, aliases_path)
     # Keep the already validated risk profile from the IPS; do not overwrite it.
@@ -2782,9 +2826,10 @@ def calculate_saa_drift_minimizer(
 
 def calculate_lookthrough_stability_buffer(
     holdings: List[HoldingItem],
-    bank_cash_inr: float = 0.0,
-    emergency_reserve_inr: float = 0.0,
+    bank_cash_inr: Optional[float] = None,
+    emergency_reserve_inr: Optional[float] = None,
     target_debt_pct: float = 5.0,
+    as_of_date: Optional[str] = None,
 ) -> LookThroughStabilityBuffer:
     """Calculates look-through debt, cash, and total stability buffer across portfolio."""
     total_val = sum(h.current_value_inr for h in holdings)
@@ -2797,8 +2842,18 @@ def calculate_lookthrough_stability_buffer(
         for h in holdings
     )
 
-    deployable_cash = max(0.0, bank_cash_inr - emergency_reserve_inr)
-    total_stability = embedded_debt + embedded_cash
+    if bank_cash_inr is not None and emergency_reserve_inr is not None:
+        deployable_cash = max(0.0, float(bank_cash_inr) - float(emergency_reserve_inr))
+        bank_deployable = round(deployable_cash, 2)
+        em_reserve = round(float(emergency_reserve_inr), 2)
+        total_stability = embedded_debt + embedded_cash + deployable_cash
+        cash_status = "AVAILABLE"
+    else:
+        deployable_cash = 0.0
+        bank_deployable = None
+        em_reserve = None
+        total_stability = embedded_debt + embedded_cash
+        cash_status = "EVIDENCE_MISSING"
 
     total_stability_pct = (total_stability / total_val) * 100.0
     meets_target = total_stability_pct >= (target_debt_pct - 1.0)
@@ -2808,11 +2863,13 @@ def calculate_lookthrough_stability_buffer(
         embedded_debt_pct=round((embedded_debt / total_val) * 100.0, 2),
         embedded_cash_inr=round(embedded_cash, 2),
         embedded_cash_pct=round((embedded_cash / total_val) * 100.0, 2),
-        bank_deployable_cash_inr=round(deployable_cash, 2),
-        emergency_reserve_inr=round(emergency_reserve_inr, 2),
+        bank_deployable_cash_inr=bank_deployable,
+        emergency_reserve_inr=em_reserve,
         total_stability_buffer_inr=round(total_stability, 2),
         total_stability_buffer_pct=round(total_stability_pct, 2),
         meets_tier_target=meets_target,
+        cash_evidence_status=cash_status,
+        cash_as_of_date=as_of_date,
     )
 
 
@@ -4552,7 +4609,13 @@ def compute_deterministic_lumpsum_blueprint(
     )
 
 
-def _sip_operational_constraint_violations(items, sip_policy):
+def _sip_operational_constraint_violations(
+    items,
+    sip_policy,
+    portfolio_introduction_history: Optional[Dict[str, Any]] = None,
+    existing_schemes: Optional[List[Any]] = None,
+    is_starter: bool = False,
+):
     """Return fail-closed operational constraint violations for positive SIP lines."""
     import math
 
@@ -4571,13 +4634,26 @@ def _sip_operational_constraint_violations(items, sip_policy):
     ):
         raise ValueError("SIP operational constraint policy values must be finite and positive")
 
+    starter_exception = sip_policy.get("starter_flexi_sleeve_cap_exception")
+    starter_cap_permitted = (
+        is_starter
+        and isinstance(starter_exception, dict)
+        and starter_exception.get("permitted") is True
+    )
+    starter_max_sleeve_pct = (
+        float(starter_exception.get("max_sleeve_pct", 60.0))
+        if starter_cap_permitted else max_fund_pct
+    )
+
     active = [item for item in items if item.monthly_inr > 0.0]
     violations = []
     for item in active:
-        if item.allocation_pct > max_fund_pct + 1e-9:
+        is_starter_flexi = is_starter and "flexi" in item.category_role.lower()
+        effective_cap = starter_max_sleeve_pct if is_starter_flexi else max_fund_pct
+        if item.allocation_pct > effective_cap + 1e-9:
             violations.append(
                 f"{item.category_role} allocation {item.allocation_pct:.2f}% exceeds "
-                f"the {max_fund_pct:.2f}% per-fund cap"
+                f"the {effective_cap:.2f}% per-fund cap"
             )
         if item.monthly_inr + 1e-9 < min_ticket:
             violations.append(
@@ -4599,6 +4675,43 @@ def _sip_operational_constraint_violations(items, sip_policy):
         violations.append(
             f"{len(core_items)} active core funds exceed the maximum of {max_core_count}"
         )
+
+    # Enforce 12-month new-fund limit when portfolio introduction history is supplied or checked
+    if "max_new_funds_per_12_months" in sip_policy:
+        max_new_funds = int(sip_policy["max_new_funds_per_12_months"])
+        if portfolio_introduction_history is not None:
+            if not isinstance(portfolio_introduction_history, dict):
+                violations.append("Portfolio introduction history must be an object")
+            else:
+                prior_new_funds = portfolio_introduction_history.get("new_funds_last_12_months")
+                if prior_new_funds is None or not isinstance(prior_new_funds, (int, float)):
+                    violations.append(
+                        "Missing 12-month scheme introduction history; missing history is not treated as zero new funds"
+                    )
+                else:
+                    existing_names = set()
+                    if existing_schemes:
+                        for s in existing_schemes:
+                            name = s.get("scheme_name", s.get("scheme", "")) if isinstance(s, dict) else getattr(s, "scheme_name", getattr(s, "scheme", str(s)))
+                            existing_names.add(name.lower().strip())
+                    
+                    newly_introduced = 0
+                    for item in active:
+                        sname = item.scheme_name.lower().strip()
+                        # Regular to Direct within same scheme is plan migration, NOT new fund
+                        is_existing = any(
+                            (sname in en or en in sname)
+                            or (sname.replace("direct", "").strip() in en.replace("regular", "").strip())
+                            for en in existing_names
+                        )
+                        if not is_existing:
+                            newly_introduced += 1
+                    
+                    if prior_new_funds + newly_introduced > max_new_funds:
+                        violations.append(
+                            f"{newly_introduced} new fund(s) proposed + {int(prior_new_funds)} prior introductions "
+                            f"exceed the 12-month limit of {max_new_funds}"
+                        )
     return violations
 
 
@@ -4619,6 +4732,7 @@ def compute_deterministic_sip_blueprint(
     disclosure_max_age_days: int = 45,
     client_aum_verified: bool = False,
     policy_path: Optional[Path] = None,
+    portfolio_introduction_history: Optional[Dict[str, Any]] = None,
 ) -> DeterministicSIPPlan:
     """
     Computes deterministic SIP blueprint dynamically tailored across all SEBI risk tiers
@@ -5055,7 +5169,11 @@ def compute_deterministic_sip_blueprint(
     except (KeyError, TypeError) as exc:
         raise ValueError("SIP operational allocation policy is missing") from exc
     operational_violations = _sip_operational_constraint_violations(
-        items, sip_operational_policy
+        items,
+        sip_operational_policy,
+        portfolio_introduction_history=portfolio_introduction_history,
+        existing_schemes=holdings,
+        is_starter=is_starter,
     )
     if operational_violations:
         unallocated_budget = b
