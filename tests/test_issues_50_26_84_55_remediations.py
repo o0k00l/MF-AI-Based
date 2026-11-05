@@ -410,7 +410,26 @@ def test_check_eligibility_gates_rejects_unauthorized_threshold_overrides():
         )
 
 
-def test_check_eligibility_gates_allows_authorized_threshold_overrides():
+def test_check_eligibility_gates_prohibits_caller_controlled_boolean_override():
+    fund = {
+        "fund_id": "TEST_SCHEME_1",
+        "fund_name": "Test Scheme Direct Growth",
+        "category": "Flexi Cap",
+        "amc_name": "HDFC Mutual Fund",
+        "aum_crore": 5000.0,
+    }
+    holdings = [{"amc_name": "ICICI Mutual Fund", "current_value_inr": 100000.0}]
+    # Caller-controlled boolean cannot authorize overriding central screening policy
+    with pytest.raises(ValueError, match="Unauthorized per-call threshold override for 'min_sharpe'"):
+        check_eligibility_gates(
+            fund_data=fund,
+            portfolio_holdings=holdings,
+            min_sharpe=0.55,
+            allow_threshold_overrides=True,
+        )
+
+
+def test_check_eligibility_gates_authorizes_overrides_via_validated_policy():
     fund = {
         "fund_id": "TEST_SCHEME_1",
         "fund_name": "Test Scheme Direct Growth",
@@ -419,7 +438,7 @@ def test_check_eligibility_gates_allows_authorized_threshold_overrides():
         "aum_crore": 5000.0,
         "top10_concentration_pct": 30.0,
         "sector_concentration_pct": 20.0,
-        "sharpe": 0.8,
+        "sharpe": 0.45,  # Passes default 0.40, but will fail strict 0.55
         "alpha": 2.5,
         "downside_capture_ratio": 75.0,
         "upside_capture_ratio": 95.0,
@@ -427,15 +446,23 @@ def test_check_eligibility_gates_allows_authorized_threshold_overrides():
         "confidence_score": 0.95,
         "benchmark_type": "TRI",
         "is_direct": True,
+        "plan": "Direct",
         "expense_ratio": 0.75,
         "riskometer_score": 4,
     }
     holdings = [{"amc_name": "ICICI Mutual Fund", "current_value_inr": 100000.0}]
-    # With explicit authorization, override passes through
-    res = check_eligibility_gates(
-        fund_data=fund,
-        portfolio_holdings=holdings,
-        min_sharpe=0.55,
-        allow_threshold_overrides=True,
-    )
-    assert res.passed is True
+    
+    # 1. With standard policy (min_sharpe = 0.40), fund passes Gate 4
+    std_policy = load_fund_screening_policy()
+    res1 = check_eligibility_gates(fund_data=fund, portfolio_holdings=holdings, policy=std_policy)
+    assert res1.sharpe_alpha_gate is True
+
+    # 2. Legitimate threshold change must be supplied via an authoritative policy object
+    import copy
+    strict_policy = copy.deepcopy(std_policy)
+    strict_policy["gate_thresholds"]["min_sharpe"] = 0.55  # Stricter sharpe
+    
+    res2 = check_eligibility_gates(fund_data=fund, portfolio_holdings=holdings, policy=strict_policy)
+    # Now fails Gate 4 under the stricter policy
+    assert res2.sharpe_alpha_gate is False
+    assert any("Sharpe" in f for f in res2.failed_gates)

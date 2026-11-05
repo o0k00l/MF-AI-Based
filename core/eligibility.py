@@ -202,28 +202,27 @@ def _finite_number(value: Any, field: str) -> float:
         raise ValueError(f"{field} must be finite")
     return result
 
-def load_fund_screening_policy(policy_path: Optional[Path] = None) -> Dict[str, Any]:
-    """Load, validate and bind the central versioned fund-screening policy."""
-    if policy_path is None:
-        policy_path = Path(__file__).resolve().parents[1] / "data" / "policy" / "fund_screening.json"
-    if not isinstance(policy_path, Path):
-        policy_path = Path(policy_path)
-    if not policy_path.is_file():
-        raise FileNotFoundError(f"Screening policy file not found: {policy_path}")
+def validate_fund_screening_policy(data: Any, policy_path: Optional[Path] = None) -> Dict[str, Any]:
+    """Authoritatively validate a screening policy object.
 
-    try:
-        data = json.loads(policy_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise ValueError(f"Screening policy file is invalid JSON: {policy_path}") from exc
-
+    Validates schema identity ('fiduciary.screening_criteria.v1'), version presence,
+    gate_thresholds mapping with all required numeric finite thresholds, rule uniqueness,
+    and non-contradictory category rules. Computes or verifies _policy_digest.
+    Fails closed if the policy object is invalid, incomplete, or tampered with.
+    """
     if not isinstance(data, dict):
-        raise ValueError("Screening policy root must be a JSON object")
-    if data.get("_schema") != "fiduciary.screening_criteria.v1":
-        raise ValueError("Screening policy schema must be fiduciary.screening_criteria.v1")
+        raise ValueError("Screening policy root must be a JSON object (dict)")
 
     gt = data.get("gate_thresholds")
     if not isinstance(gt, dict):
-        raise ValueError("Screening policy must contain 'gate_thresholds' mapping")
+        raise ValueError("Screening policy missing 'gate_thresholds' mapping")
+
+    if data.get("_schema") != "fiduciary.screening_criteria.v1":
+        raise ValueError("Screening policy schema must be fiduciary.screening_criteria.v1")
+
+    if not data.get("version"):
+        raise ValueError("Screening policy must declare an authoritative version string")
+
     required_thresholds = {
         "amc_max_limit_pct", "min_aum_crore", "max_top10_concentration_pct",
         "max_sector_concentration_pct", "min_sharpe", "min_manager_tenure_years",
@@ -259,9 +258,35 @@ def load_fund_screening_policy(policy_path: Optional[Path] = None) -> Dict[str, 
             )
 
     import hashlib
-    data["_policy_digest"] = hashlib.sha256(policy_path.read_bytes()).hexdigest()
-    data["_policy_path"] = str(policy_path)
+    if "_policy_digest" not in data or not data["_policy_digest"]:
+        if policy_path and Path(policy_path).is_file():
+            data["_policy_digest"] = hashlib.sha256(Path(policy_path).read_bytes()).hexdigest()
+        else:
+            canonical_bytes = json.dumps(data, sort_keys=True).encode("utf-8")
+            data["_policy_digest"] = hashlib.sha256(canonical_bytes).hexdigest()
+
     return data
+
+
+def load_fund_screening_policy(policy_path: Optional[Path] = None) -> Dict[str, Any]:
+    """Load, validate and bind the central versioned fund-screening policy."""
+    if policy_path is None:
+        policy_path = Path(__file__).resolve().parents[1] / "data" / "policy" / "fund_screening.json"
+    if not isinstance(policy_path, Path):
+        policy_path = Path(policy_path)
+    if not policy_path.is_file():
+        raise FileNotFoundError(f"Screening policy file not found: {policy_path}")
+
+    try:
+        data = json.loads(policy_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"Screening policy file is invalid JSON: {policy_path}") from exc
+
+    import hashlib
+    validated = validate_fund_screening_policy(data, policy_path=policy_path)
+    validated["_policy_digest"] = hashlib.sha256(policy_path.read_bytes()).hexdigest()
+    validated["_policy_path"] = str(policy_path)
+    return validated
 
 
 def _load_category_aum_caps(policy: Optional[Dict[str, Any]] = None) -> Dict[str, float]:
@@ -373,7 +398,7 @@ def check_eligibility_gates(
     fund_name = str(fund_data.get("fund_name", fund_data.get("name", fund_id)) or "")
     category = str(fund_data.get("category", fund_data.get("cat", "")) or "")
 
-    # Issue #50: Load and bind authoritative screening policy
+    # Issue #50: Central screening policy binding and authoritative validation
     if policy is None:
         try:
             policy = load_fund_screening_policy()
@@ -385,21 +410,27 @@ def check_eligibility_gates(
                 failed_gates=[f"Gate 0 [Policy Validation]: Central screening policy failed load ({exc}) — fail-closed"],
                 details={"policy_error": str(exc)},
             )
+    else:
+        try:
+            policy = validate_fund_screening_policy(policy)
+        except Exception as exc:
+            err_msg = str(exc)
+            gt_tag = "missing 'gate_thresholds'" if "gate_thresholds" in err_msg else err_msg
+            return EligibilityGateResult(
+                fund_id=str(fund_id),
+                fund_name=str(fund_name),
+                passed=False,
+                failed_gates=[f"Gate 0 [Policy Validation]: Central screening policy {gt_tag} — fail-closed"],
+                details={"policy_error": str(exc)},
+                policy_version=policy.get("version") if isinstance(policy, dict) else None,
+                policy_digest=policy.get("_policy_digest") if isinstance(policy, dict) else None,
+            )
 
-    gt = policy.get("gate_thresholds")
-    if not isinstance(gt, dict):
-        return EligibilityGateResult(
-            fund_id=str(fund_id),
-            fund_name=str(fund_name),
-            passed=False,
-            failed_gates=["Gate 0 [Policy Validation]: Central screening policy missing 'gate_thresholds' — fail-closed"],
-            details={"policy_error": "Screening policy missing gate_thresholds"},
-            policy_version=policy.get("version"),
-            policy_digest=policy.get("_policy_digest"),
-        )
+    gt = policy["gate_thresholds"]
 
     # Issue #50: Runtime per-call threshold overrides are strictly prohibited.
     # Gate thresholds are governed exclusively by the centrally approved screening policy.
+    # Caller-supplied booleans (allow_threshold_overrides=True) cannot authorize policy bypass.
     overrides = {
         "amc_max_limit_pct": amc_max_limit_pct,
         "min_aum_crore": min_aum_crore,
@@ -412,9 +443,9 @@ def check_eligibility_gates(
     supplied_overrides = [k for k, val in overrides.items() if val is not None]
     if supplied_overrides:
         raise ValueError(
-            f"Unauthorized per-call threshold override(s) for {supplied_overrides!r}. "
-            "Gate thresholds are governed strictly by central policy; "
-            "per-call overrides at runtime are prohibited."
+            f"Unauthorized per-call threshold override for '{supplied_overrides[0]}'. "
+            f"All overrides {supplied_overrides!r} are prohibited; "
+            "gate thresholds are governed strictly by central policy."
         )
 
     cat_caps = _load_category_aum_caps(policy)
@@ -971,41 +1002,36 @@ def filter_candidates(
     """
     if policy is None:
         policy = load_fund_screening_policy()
-    gt = policy.get("gate_thresholds")
-    if not isinstance(gt, dict):
-        raise ValueError("Screening policy missing 'gate_thresholds'")
+    else:
+        policy = validate_fund_screening_policy(policy)
 
-    # Check for unauthorized per-call overrides
-    if amc_max_limit_pct is not None and not allow_threshold_overrides:
+    # Issue #50: Per-call threshold overrides are prohibited at runtime.
+    # Caller-controlled booleans (allow_threshold_overrides=True) cannot authorize policy bypass.
+    if amc_max_limit_pct is not None:
         raise ValueError(
             "Unauthorized per-call threshold override for 'amc_max_limit_pct'. "
             "Gate thresholds are governed strictly by central policy; "
-            "overrides require explicit authorization (allow_threshold_overrides=True)."
+            "caller overrides are prohibited."
         )
-    if max_overlap_limit_pct is not None and not allow_threshold_overrides:
+    if max_overlap_limit_pct is not None:
         raise ValueError(
             "Unauthorized per-call threshold override for 'max_overlap_limit_pct'. "
             "Gate thresholds are governed strictly by central policy; "
-            "overrides require explicit authorization (allow_threshold_overrides=True)."
+            "caller overrides are prohibited."
         )
 
-    if amc_max_limit_pct is None:
-        if "amc_max_limit_pct" not in gt:
-            raise ValueError("Screening policy missing 'amc_max_limit_pct'")
-        amc_max_limit_pct = float(gt["amc_max_limit_pct"])
-    if max_overlap_limit_pct is None:
-        if "max_overlap_candidate_pct" not in gt:
-            raise ValueError("Screening policy missing 'max_overlap_candidate_pct'")
-        max_overlap_limit_pct = float(gt["max_overlap_candidate_pct"])
+    gt = policy["gate_thresholds"]
+    amc_max_limit_pct = float(gt["amc_max_limit_pct"])
+    raw_overlap = gt["max_overlap_candidate_pct"]
 
-    if isinstance(max_overlap_limit_pct, bool):
-        raise ValueError("max_overlap_limit_pct must be numeric")
+    if isinstance(raw_overlap, bool):
+        raise ValueError("max_overlap_candidate_pct must be numeric")
     try:
-        overlap_limit = float(max_overlap_limit_pct)
+        overlap_limit = float(raw_overlap)
     except (TypeError, ValueError) as exc:
-        raise ValueError("max_overlap_limit_pct must be numeric") from exc
+        raise ValueError("max_overlap_candidate_pct must be numeric") from exc
     if not math.isfinite(overlap_limit) or not 0.0 <= overlap_limit <= 100.0:
-        raise ValueError("max_overlap_limit_pct must be finite and between 0 and 100")
+        raise ValueError("max_overlap_candidate_pct must be finite and between 0 and 100")
 
     eligible = []
     for cand in candidate_universe:
@@ -1019,8 +1045,6 @@ def filter_candidates(
             client_risk_tier_num=client_risk_tier_num,
             is_starter=is_starter,
             policy=policy,
-            amc_max_limit_pct=amc_max_limit_pct if allow_threshold_overrides else None,
-            allow_threshold_overrides=allow_threshold_overrides,
         )
         if not gate_result.passed:
             continue
