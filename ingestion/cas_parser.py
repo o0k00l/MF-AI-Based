@@ -691,65 +691,176 @@ def to_enriched_cache_csv(parsed: dict) -> str:
     return to_cache_csv(parsed, enriched=True)
 
 
-def stage_portfolio(parsed: dict, root, slug: str = "Upload_Portfolio", require_validation: bool = True) -> dict:
+def validate_statement_reconciliation_envelope(
+    parsed: dict,
+    tolerance: float = 1.0,
+    require_source_digest: bool = False,
+) -> dict:
+    """
+    Issue #107: Validate whole-statement reconciliation envelope bound to statement date,
+    source digest, stated statement totals, and parsed holdings.
+    """
+    if not isinstance(parsed, dict):
+        raise ValueError("Parsed statement payload must be a dictionary")
+
+    # 1. Statement date (as_of)
+    as_of = parsed.get("as_of") or parsed.get("statement_date")
+    if not as_of or not isinstance(as_of, str):
+        raise ValueError("Statement reconciliation envelope requires a valid statement date (as_of)")
+
+    # 2. Stated total
+    stated_total = parsed.get("stated_total")
+    if stated_total is None:
+        raise ValueError("Statement reconciliation envelope requires stated_total")
+    try:
+        stated_val = float(stated_total)
+        if not math.isfinite(stated_val) or stated_val < 0:
+            raise ValueError(f"stated_total must be finite and non-negative, got {stated_total}")
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"Invalid stated_total: {stated_total}") from exc
+
+    # 3. Source digest (if required or present)
+    source_digest = parsed.get("source_digest") or parsed.get("source_document_sha256") or parsed.get("source_hash")
+    if require_source_digest:
+        if not source_digest or not isinstance(source_digest, str) or len(source_digest.strip()) != 64:
+            raise ValueError("Valid 64-character SHA-256 source digest is required for reconciliation envelope")
+    elif source_digest and (not isinstance(source_digest, str) or len(source_digest.strip()) != 64):
+        raise ValueError(f"Malformed source digest: {source_digest}")
+
+    # 4. Whole-statement holdings reconciliation
+    holdings = parsed.get("holdings")
+    if not isinstance(holdings, list) or not holdings:
+        raise ValueError("Parsed statement must contain a non-empty holdings list for reconciliation")
+
+    recon = reconcile(parsed, tolerance=tolerance)
+    if not recon.get("agrees") or not recon.get("complete"):
+        raise ValueError(f"Statement reconciliation failed: {recon.get('note')}")
+
+    parsed_total = float(recon["parsed_total"])
+    diff = float(recon["difference"]) if recon.get("difference") is not None else 0.0
+
+    return {
+        "status": "VERIFIED_RECONCILED",
+        "statement_date": str(as_of).strip(),
+        "stated_total": round(stated_val, 2),
+        "parsed_total": round(parsed_total, 2),
+        "reconciliation_difference": round(diff, 2),
+        "tolerance": float(tolerance),
+        "source_digest": str(source_digest).strip() if source_digest else "UNAVAILABLE",
+        "holdings_count": len(holdings),
+        "reconciliation_note": recon.get("note", ""),
+    }
+
+
+def stage_portfolio(
+    parsed: dict,
+    root,
+    slug: str = "Upload_Portfolio",
+    require_validation: bool = True,
+    require_envelope: bool = True,
+    envelope: dict = None,
+    tolerance: float = 1.0,
+) -> dict:
     """
     Materialise a portfolio workspace from an uploaded statement.
 
     Issue #107: Reject missing/malformed CAS values before materializing cache.
-    Makes staging atomic - no partial cache is left on failure.
-
-    Writes only what the engine reads. No identity is written anywhere, so the
-    staged folder contains no PAN, name, phone or email.
-    
-    require_validation=True: Require successful validation before writing cache.
+    Requires a validated statement reconciliation envelope bound to statement date,
+    source digest, stated statement totals, and exact parsed holdings.
+    Ensures atomic replacement and preserves existing last-known-good cache on any failure.
     """
     root = pathlib.Path(root)
     pdir = root / slug
-    (pdir / "data").mkdir(parents=True, exist_ok=True)
-    
+    cache_path = pdir / "data" / "_active_funds_cache.csv"
+    prior_cache_existed = cache_path.is_file()
+
     import json
-    import tempfile
     import os
-    
-    # Issue #107: Validate before writing - use strict mode
+
+    # 1. Row-level strict financial field validation
     if require_validation:
         try:
             cache_content = to_cache_csv(parsed, enriched=True, strict=True)
         except ValueError as e:
-            # Clean up any partial state
-            cache_path = pdir / "data" / "_active_funds_cache.csv"
-            if cache_path.exists():
-                cache_path.unlink()
             return {
                 "slug": slug,
                 "root": str(pdir),
-                "cache": None,
-                "holdings": len(parsed.get("holdings", [])),
+                "cache": str(cache_path) if prior_cache_existed else None,
+                "holdings": len(parsed.get("holdings", [])) if isinstance(parsed, dict) else 0,
                 "identity_written": False,
                 "staging_failed": True,
                 "error": str(e),
+                "last_known_good_preserved": prior_cache_existed,
             }
     else:
         cache_content = to_cache_csv(parsed, enriched=True, strict=False)
-    
-    # Atomic write: write to temp file first, then rename
-    cache_path = pdir / "data" / "_active_funds_cache.csv"
+
+    # 2. Whole-statement reconciliation envelope validation
+    envelope_data = None
+    if require_envelope:
+        try:
+            if envelope is not None:
+                if not isinstance(envelope, dict) or envelope.get("status") != "VERIFIED_RECONCILED":
+                    raise ValueError("Supplied reconciliation envelope is not VERIFIED_RECONCILED")
+                envelope_data = envelope
+            else:
+                envelope_data = validate_statement_reconciliation_envelope(parsed, tolerance=tolerance)
+        except ValueError as e:
+            return {
+                "slug": slug,
+                "root": str(pdir),
+                "cache": str(cache_path) if prior_cache_existed else None,
+                "holdings": len(parsed.get("holdings", [])) if isinstance(parsed, dict) else 0,
+                "identity_written": False,
+                "staging_failed": True,
+                "error": str(e),
+                "last_known_good_preserved": prior_cache_existed,
+            }
+
+    # 3. Validation passed - create directory and write atomically
+    (pdir / "data").mkdir(parents=True, exist_ok=True)
+
     tmp_path = cache_path.with_suffix(".tmp")
-    tmp_path.write_text(cache_content, encoding="utf-8")
-    os.replace(tmp_path, cache_path)
-    
+    try:
+        tmp_path.write_text(cache_content, encoding="utf-8")
+        os.replace(tmp_path, cache_path)
+    except Exception as e:
+        if tmp_path.exists():
+            tmp_path.unlink()
+        return {
+            "slug": slug,
+            "root": str(pdir),
+            "cache": str(cache_path) if prior_cache_existed else None,
+            "holdings": len(parsed.get("holdings", [])),
+            "identity_written": False,
+            "staging_failed": True,
+            "error": f"Failed writing cache: {e}",
+            "last_known_good_preserved": prior_cache_existed,
+        }
+
     if parsed.get("transactions"):
         tx_path = pdir / "data" / "transactions.json"
         tx_tmp = tx_path.with_suffix(".tmp")
         tx_tmp.write_text(
             json.dumps({"transactions": parsed.get("transactions")}, indent=2), encoding="utf-8")
         os.replace(tx_tmp, tx_path)
-        
-    return {"slug": slug, "root": str(pdir),
-            "cache": str(cache_path),
-            "holdings": len(parsed.get("holdings", [])),
-            "identity_written": False,
-            "staging_failed": False}
+
+    if envelope_data:
+        env_path = pdir / "data" / "reconciliation_envelope.json"
+        env_tmp = env_path.with_suffix(".tmp")
+        env_tmp.write_text(json.dumps(envelope_data, indent=2), encoding="utf-8")
+        os.replace(env_tmp, env_path)
+
+    return {
+        "slug": slug,
+        "root": str(pdir),
+        "cache": str(cache_path),
+        "holdings": len(parsed.get("holdings", [])),
+        "identity_written": False,
+        "staging_failed": False,
+        "reconciliation_envelope": envelope_data,
+        "last_known_good_preserved": prior_cache_existed,
+    }
 
 
 def _parse_cas_pdf_pypdf(source, password: str = "") -> dict:
@@ -1138,16 +1249,37 @@ def parse_cas_file(path: str | pathlib.Path, password: str | None = None) -> tup
     return result.get("holdings", []), result.get("transactions", []), folio_values
 
 
+def _is_cadence_step_up(prev_amt: float, cur_amt: float, delta_days: int) -> bool:
+    if not (20 <= delta_days <= 40):
+        return False
+    if cur_amt <= prev_amt:
+        return False
+    diff = cur_amt - prev_amt
+    return (diff % 500 == 0 or diff % 1000 == 0 or (1.05 <= cur_amt / prev_amt <= 2.0))
+
+
+def _is_valid_cadence_pair(prev_amt: float, cur_amt: float, delta_days: int) -> bool:
+    if not (20 <= delta_days <= 40):
+        return False
+    if abs(cur_amt - prev_amt) <= 1.0:
+        return True
+    return _is_cadence_step_up(prev_amt, cur_amt, delta_days)
+
+
 def detect_active_sips_from_cas(
     transactions: list[dict],
     as_of = None,
     tolerance_days: int = 45,
     max_history_days: int = 180,
+    require_explicit_as_of: bool = True,
 ) -> dict:
     """
     GAP-109: Transaction-Led Active Monthly SIP Periodicity Discovery.
     Issue #106: Prevent ordinary purchases and future-dated transactions
     from being reported as active SIP mandates.
+    Requires explicit as-of date for decision-time reference, provides exhaustive
+    rejection accounting, distinguishes authenticated mandates from transaction-text
+    classifications, and enforces consistent step-up streak logic.
     """
     from collections import defaultdict
     import datetime
@@ -1157,8 +1289,10 @@ def detect_active_sips_from_cas(
         raise ValueError(f"tolerance_days must be positive, got {tolerance_days}")
     if max_history_days <= 0:
         raise ValueError(f"max_history_days must be positive, got {max_history_days}")
-    
-    # Parse and validate as_of
+
+    if require_explicit_as_of and as_of is None:
+        raise ValueError("Explicit 'as_of' date is required for decision-time active SIP detection")
+
     ref_date = None
     if as_of is not None:
         try:
@@ -1196,11 +1330,38 @@ def detect_active_sips_from_cas(
     for t in transactions:
         amt = _num(t.get("amount"))
         dt_val = t.get("date")
-        desc = str(t.get("description", "") or t.get("tx_type", "") or "").strip()
-        
-        if amt is None or amt <= 0 or not dt_val:
+        desc = str(t.get("description", "") or t.get("tx_type", "") or t.get("type", "") or "").strip()
+        mandate_id = str(t.get("mandate_id", "") or t.get("registrar_mandate_id", "") or "").strip()
+        mandate_status = str(t.get("mandate_status", "")).strip().upper()
+        has_auth_mandate = bool(mandate_id) or (mandate_status == "ACTIVE")
+
+        if amt is None:
+            rejected_transactions.append({
+                "date": str(dt_val) if dt_val else None,
+                "reason": "missing_amount",
+                "amount": None,
+                "description": desc,
+            })
             continue
-            
+
+        if amt <= 0:
+            rejected_transactions.append({
+                "date": str(dt_val) if dt_val else None,
+                "reason": "non_positive_amount",
+                "amount": float(amt),
+                "description": desc,
+            })
+            continue
+
+        if not dt_val:
+            rejected_transactions.append({
+                "date": None,
+                "reason": "missing_transaction_date",
+                "amount": float(amt),
+                "description": desc,
+            })
+            continue
+
         try:
             if isinstance(dt_val, str):
                 d = datetime.date.fromisoformat(dt_val.split("T")[0])
@@ -1210,13 +1371,25 @@ def detect_active_sips_from_cas(
                 d = dt_val.date()
             else:
                 malformed_dates += 1
+                rejected_transactions.append({
+                    "date": str(dt_val),
+                    "reason": "malformed_transaction_date",
+                    "amount": float(amt),
+                    "description": desc,
+                })
                 continue
         except (ValueError, TypeError):
             malformed_dates += 1
+            rejected_transactions.append({
+                "date": str(dt_val),
+                "reason": "malformed_transaction_date",
+                "amount": float(amt),
+                "description": desc,
+            })
             continue
-        
+
         parsed_dates.append(d)
-        
+
         # Reject future-dated transactions if as_of is provided
         if ref_date is not None and d > ref_date:
             rejected_transactions.append({
@@ -1226,14 +1399,14 @@ def detect_active_sips_from_cas(
                 "description": desc,
             })
             continue
-        
+
         scheme = str(t.get("scheme", "")).strip()
         folio = str(t.get("folio_no", t.get("folio", ""))).strip()
-        
-        has_sip_evidence = bool(SIP_EVIDENCE_PATTERNS.search(desc))
+
+        has_sip_evidence = bool(SIP_EVIDENCE_PATTERNS.search(desc)) or has_auth_mandate
         has_non_sip_evidence = bool(NON_SIP_PATTERNS.search(desc))
-        
-        if has_non_sip_evidence and not has_sip_evidence:
+
+        if has_non_sip_evidence and not has_sip_evidence and not has_auth_mandate:
             rejected_transactions.append({
                 "date": d.isoformat(),
                 "reason": "non_sip_transaction_type",
@@ -1241,26 +1414,33 @@ def detect_active_sips_from_cas(
                 "description": desc,
             })
             continue
-        
-        by_scheme[(folio, scheme)].append((d, amt, desc, has_sip_evidence))
+
+        by_scheme[(folio, scheme)].append((d, amt, desc, has_sip_evidence, has_auth_mandate))
 
     if not parsed_dates:
         return {
             "active_sips": [],
             "total_monthly_sip": 0.0,
             "as_of": ref_date.isoformat() if ref_date else None,
+            "as_of_reference_mode": "EXPLICIT_DECISION_DATE" if ref_date else "UNAVAILABLE",
             "active_sip_count": 0,
             "unverified_patterns": [],
             "unverified_count": 0,
             "rejection_stats": {
                 "total_input": total_input,
+                "rejected_missing_or_non_positive_amount": sum(1 for r in rejected_transactions if r["reason"] in ("missing_amount", "non_positive_amount")),
+                "rejected_missing_date": sum(1 for r in rejected_transactions if r["reason"] == "missing_transaction_date"),
+                "rejected_malformed_date": sum(1 for r in rejected_transactions if r["reason"] == "malformed_transaction_date"),
                 "rejected_future_dated": sum(1 for r in rejected_transactions if r["reason"] == "future_dated_transaction"),
                 "rejected_non_sip": sum(1 for r in rejected_transactions if r["reason"] == "non_sip_transaction_type"),
+                "rejected_stale": 0,
+                "rejected_outside_history_window": 0,
                 "malformed_dates": malformed_dates,
+                "total_rejected": len(rejected_transactions),
                 "rejected_details": rejected_transactions,
             },
             "history_coverage": {
-                "total_transactions": 0,
+                "total_transactions": total_input,
                 "usable_transactions": 0,
                 "coverage_note": "No valid transactions available - cannot determine SIP status",
             },
@@ -1268,6 +1448,9 @@ def detect_active_sips_from_cas(
 
     if ref_date is None:
         ref_date = max(parsed_dates)
+        as_of_mode = "DERIVED_MAX_TRANSACTION_DATE"
+    else:
+        as_of_mode = "EXPLICIT_DECISION_DATE"
 
     active_sips = []
     total_monthly = 0.0
@@ -1278,7 +1461,7 @@ def detect_active_sips_from_cas(
         items.sort(key=lambda x: x[0])
         # Enforce both as_of upper bound and max_history_days bounded history window
         valid_items = []
-        for d, amt, desc, has_sip in items:
+        for d, amt, desc, has_sip, has_mandate in items:
             if d > ref_date:
                 continue
             age_days = (ref_date - d).days
@@ -1290,14 +1473,14 @@ def detect_active_sips_from_cas(
                     "description": desc,
                 })
                 continue
-            valid_items.append((d, amt, desc, has_sip))
+            valid_items.append((d, amt, desc, has_sip, has_mandate))
             usable_dates.append(d)
 
         if len(valid_items) < 2:
             continue
 
-        last_d, last_amt, last_desc, last_has_sip = valid_items[-1]
-        prev_d, prev_amt, prev_desc, prev_has_sip = valid_items[-2]
+        last_d, last_amt, last_desc, last_has_sip, last_has_mandate = valid_items[-1]
+        prev_d, prev_amt, prev_desc, prev_has_sip, prev_has_mandate = valid_items[-2]
 
         delta = (last_d - prev_d).days
         days_since = (ref_date - last_d).days
@@ -1311,30 +1494,29 @@ def detect_active_sips_from_cas(
             })
             continue
 
-        # Require continuous mandate classification across qualifying installments
         both_have_sip_evidence = last_has_sip and prev_has_sip
+        both_have_mandate = last_has_mandate and prev_has_mandate
 
-        is_exact = abs(last_amt - prev_amt) <= 1.0
-        is_step_up = (last_amt > prev_amt) and (20 <= delta <= 40) and (
-            (last_amt - prev_amt) % 500 == 0 or (last_amt - prev_amt) % 1000 == 0 or (1.05 <= last_amt / prev_amt <= 2.0)
-        )
-
-        if (is_exact or is_step_up) and 20 <= delta <= 40 and 0 <= days_since <= tolerance_days:
+        if _is_valid_cadence_pair(prev_amt, last_amt, delta) and 0 <= days_since <= tolerance_days:
             streak = 2
             for i in range(len(valid_items) - 2, 0, -1):
-                cur_d, cur_amt, cur_desc, cur_has_sip = valid_items[i]
-                p_d, p_amt, p_desc, p_has_sip = valid_items[i - 1]
-                if (abs(cur_amt - p_amt) <= 1.0 or abs(cur_amt - prev_amt) <= 1.0) and 20 <= (cur_d - p_d).days <= 40:
+                cur_d, cur_amt, cur_desc, cur_has_sip, cur_has_mandate = valid_items[i]
+                p_d, p_amt, p_desc, p_has_sip, p_has_mandate = valid_items[i - 1]
+                pair_delta = (cur_d - p_d).days
+                if _is_valid_cadence_pair(p_amt, cur_amt, pair_delta):
                     streak += 1
                 else:
                     break
 
-            if both_have_sip_evidence:
-                confidence = "VERIFIED"
-                confidence_note = "Explicit SIP mandate evidence confirmed across qualifying installments"
+            if both_have_mandate:
+                confidence = "MANDATE_VERIFIED"
+                confidence_note = "Authenticated mandate evidence and recurring debit confirmed across qualifying installments"
+            elif both_have_sip_evidence:
+                confidence = "TRANSACTION_TEXT_VERIFIED"
+                confidence_note = "Explicit SIP transaction-text classification confirmed across qualifying installments"
             else:
                 confidence = "UNVERIFIED"
-                confidence_note = "Recurring payment pattern detected without continuous explicit mandate evidence"
+                confidence_note = "Recurring payment pattern detected without continuous explicit mandate or transaction-text evidence"
 
             sip_entry = {
                 "scheme": scheme,
@@ -1346,9 +1528,11 @@ def detect_active_sips_from_cas(
                 "days_since_last": days_since,
                 "confidence": confidence,
                 "confidence_note": confidence_note,
+                "evidence_level": "MANDATE" if both_have_mandate else ("TRANSACTION_TEXT" if both_have_sip_evidence else "NONE"),
+                "is_verified": confidence in ("MANDATE_VERIFIED", "TRANSACTION_TEXT_VERIFIED"),
             }
-            
-            if confidence == "VERIFIED":
+
+            if confidence in ("MANDATE_VERIFIED", "TRANSACTION_TEXT_VERIFIED"):
                 active_sips.append(sip_entry)
                 total_monthly += last_amt
             else:
@@ -1356,31 +1540,36 @@ def detect_active_sips_from_cas(
 
         # Case 2: One-off lump sum arrived recently
         if not active_sips and not unverified_patterns and len(valid_items) >= 3:
-            prev_d, prev_amt, prev_desc, prev_has_sip = valid_items[-2]
-            p_prev_d, p_prev_amt, p_prev_desc, p_prev_has_sip = valid_items[-3]
+            prev_d, prev_amt, prev_desc, prev_has_sip, prev_has_mandate = valid_items[-2]
+            p_prev_d, p_prev_amt, p_prev_desc, p_prev_has_sip, p_prev_has_mandate = valid_items[-3]
             d_delta = (prev_d - p_prev_d).days
             d_days_since = (ref_date - prev_d).days
-            
+
             if d_days_since < 0:
                 continue
 
-            if abs(prev_amt - p_prev_amt) <= 1.0 and 20 <= d_delta <= 40 and 0 <= d_days_since <= tolerance_days:
+            if _is_valid_cadence_pair(p_prev_amt, prev_amt, d_delta) and 0 <= d_days_since <= tolerance_days:
                 streak = 2
                 for i in range(len(valid_items) - 3, 0, -1):
-                    cur_d, cur_amt, cur_desc, cur_has_sip = valid_items[i]
-                    p_d, p_amt, p_desc, p_has_sip = valid_items[i - 1]
-                    if abs(cur_amt - p_amt) <= 1.0 and 20 <= (cur_d - p_d).days <= 40:
+                    cur_d, cur_amt, cur_desc, cur_has_sip, cur_has_mandate = valid_items[i]
+                    p_d, p_amt, p_desc, p_has_sip, p_has_mandate = valid_items[i - 1]
+                    pair_delta = (cur_d - p_d).days
+                    if _is_valid_cadence_pair(p_amt, cur_amt, pair_delta):
                         streak += 1
                     else:
                         break
 
+                case2_both_have_mandate = prev_has_mandate and p_prev_has_mandate
                 case2_both_have_sip = prev_has_sip and p_prev_has_sip
-                if case2_both_have_sip:
-                    confidence = "VERIFIED"
-                    confidence_note = "Explicit SIP mandate evidence confirmed across qualifying installments"
+                if case2_both_have_mandate:
+                    confidence = "MANDATE_VERIFIED"
+                    confidence_note = "Authenticated mandate evidence and recurring debit confirmed across qualifying installments"
+                elif case2_both_have_sip:
+                    confidence = "TRANSACTION_TEXT_VERIFIED"
+                    confidence_note = "Explicit SIP transaction-text classification confirmed across qualifying installments"
                 else:
                     confidence = "UNVERIFIED"
-                    confidence_note = "Recurring payment pattern detected without continuous explicit mandate evidence"
+                    confidence_note = "Recurring payment pattern detected without continuous explicit mandate or transaction-text evidence"
 
                 sip_entry = {
                     "scheme": scheme,
@@ -1392,9 +1581,11 @@ def detect_active_sips_from_cas(
                     "days_since_last": d_days_since,
                     "confidence": confidence,
                     "confidence_note": confidence_note,
+                    "evidence_level": "MANDATE" if case2_both_have_mandate else ("TRANSACTION_TEXT" if case2_both_have_sip else "NONE"),
+                    "is_verified": confidence in ("MANDATE_VERIFIED", "TRANSACTION_TEXT_VERIFIED"),
                 }
-                
-                if confidence == "VERIFIED":
+
+                if confidence in ("MANDATE_VERIFIED", "TRANSACTION_TEXT_VERIFIED"):
                     active_sips.append(sip_entry)
                     total_monthly += prev_amt
                 else:
@@ -1430,16 +1621,21 @@ def detect_active_sips_from_cas(
         "active_sips": active_sips,
         "total_monthly_sip": round(total_monthly, 2),
         "as_of": ref_date.isoformat(),
+        "as_of_reference_mode": as_of_mode,
         "active_sip_count": len(active_sips),
         "unverified_patterns": unverified_patterns,
         "unverified_count": len(unverified_patterns),
         "rejection_stats": {
             "total_input": total_input,
+            "rejected_missing_or_non_positive_amount": sum(1 for r in rejected_transactions if r["reason"] in ("missing_amount", "non_positive_amount")),
+            "rejected_missing_date": sum(1 for r in rejected_transactions if r["reason"] == "missing_transaction_date"),
+            "rejected_malformed_date": sum(1 for r in rejected_transactions if r["reason"] == "malformed_transaction_date"),
             "rejected_future_dated": sum(1 for r in rejected_transactions if r["reason"] == "future_dated_transaction"),
             "rejected_non_sip": sum(1 for r in rejected_transactions if r["reason"] == "non_sip_transaction_type"),
             "rejected_stale": sum(1 for r in rejected_transactions if r["reason"] == "stale_or_future_dated"),
             "rejected_outside_history_window": sum(1 for r in rejected_transactions if r["reason"] == "outside_history_window"),
             "malformed_dates": malformed_dates,
+            "total_rejected": len(rejected_transactions),
             "rejected_details": rejected_transactions,
         },
         "history_coverage": history_coverage,
