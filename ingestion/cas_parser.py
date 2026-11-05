@@ -96,6 +96,97 @@ def _num(v):
     return value
 
 
+def extract_mandate_evidence_from_transaction(
+    description: str,
+    tx_type: str = "",
+    extra_fields: dict | None = None,
+) -> dict:
+    """
+    Issue #106: Extract authenticated registrar mandate evidence (UMRN, registration number,
+    mandate ID, and mandate status) from transaction descriptions and metadata.
+    
+    Distinguishes:
+    - Authenticated mandate with verifiable registrar ID (UMRN, REG NO, Mandate ID, OTM ID)
+    - Generic transaction text with no mandate identity
+    - Paused / Cancelled / Expired / Failed mandate states
+    """
+    import re
+    
+    desc = str(description or "").strip()
+    extra = extra_fields or {}
+    
+    # 1. Check if caller already supplied explicit mandate fields
+    mandate_id = str(extra.get("mandate_id", "") or extra.get("registrar_mandate_id", "") or "").strip()
+    mandate_status = str(extra.get("mandate_status", "")).strip().upper()
+    mandate_source = str(extra.get("mandate_source", "")).strip() or None
+    umrn = str(extra.get("umrn", "")).strip() or None
+    
+    # 2. Extract UMRN from transaction description if not already provided
+    # UMRN format: NPCI NACH alphanumeric identifier (typically 10-30 chars)
+    if not umrn:
+        umrn_match = re.search(
+            r'\b(?:NACH\s*UMRN|UMRN\s*NO|UMRN)[:\s/]+([A-Za-z0-9]{10,30})\b',
+            desc,
+            re.IGNORECASE
+        )
+        if umrn_match:
+            umrn = umrn_match.group(1).strip()
+            if not mandate_id:
+                mandate_id = umrn
+                mandate_source = "REGISTRAR_CAS_UMRN"
+
+    # 3. Extract Mandate ID / Registration Number / OTM ID from description
+    if not mandate_id:
+        m_reg = re.search(
+            r'\b(?:MANDATE\s*(?:ID|NO|NUM|NUMBER)?|SIP\s*REG(?:ISTRATION)?\s*(?:NO|NUM|NUMBER|ID)?|'
+            r'REG(?:ISTRATION)?\s*(?:NO|NUM|NUMBER|ID)?|REGN\s*NO|OTM\s*(?:ID|NO|NUM)?|'
+            r'ACH\s*[-/]?\s*DR\s*[-/]?\s*ID)[:\s/]+([A-Za-z0-9\-_]{4,30})\b',
+            desc,
+            re.IGNORECASE
+        )
+        if m_reg:
+            extracted_id = m_reg.group(1).strip()
+            if extracted_id.upper() not in ("NA", "NIL", "NONE", "NULL", "UNKNOWN"):
+                mandate_id = extracted_id
+                mandate_source = "REGISTRAR_CAS_REGN"
+
+    # 4. Check for mandate cancellation / pause / failure markers
+    PAUSE_CANCEL_PATTERNS = re.compile(
+        r'\b(PAUSED|PAUSE|CANCELLED|CANCELED|CANCEL|EXPIRED|SUSPENDED|STOPPED|TERMINATED|INACTIVE|FAILED|BOUNCE|BOUNCED|REJECTED)\b',
+        re.IGNORECASE
+    )
+    is_cancelled_or_paused = bool(PAUSE_CANCEL_PATTERNS.search(desc)) or mandate_status in (
+        "PAUSED", "CANCELLED", "EXPIRED", "SUSPENDED", "INACTIVE", "FAILED"
+    )
+
+    if is_cancelled_or_paused:
+        if re.search(r'\b(PAUSED|PAUSE)\b', desc, re.IGNORECASE) or mandate_status == "PAUSED":
+            mandate_status = "PAUSED"
+        elif re.search(r'\b(EXPIRED|EXPIRY)\b', desc, re.IGNORECASE) or mandate_status == "EXPIRED":
+            mandate_status = "EXPIRED"
+        elif re.search(r'\b(SUSPENDED)\b', desc, re.IGNORECASE) or mandate_status == "SUSPENDED":
+            mandate_status = "SUSPENDED"
+        elif re.search(r'\b(FAILED|BOUNCE|REJECTED)\b', desc, re.IGNORECASE) or mandate_status == "FAILED":
+            mandate_status = "FAILED"
+        else:
+            mandate_status = "CANCELLED"
+    elif mandate_id:
+        if not mandate_status or mandate_status == "UNKNOWN":
+            mandate_status = "ACTIVE"
+    else:
+        mandate_status = "UNKNOWN"
+        mandate_source = "NONE"
+
+    return {
+        "mandate_id": mandate_id or None,
+        "registrar_mandate_id": mandate_id or None,
+        "umrn": umrn or None,
+        "mandate_status": mandate_status,
+        "mandate_source": mandate_source or "NONE",
+        "has_auth_mandate": bool(mandate_id) and (mandate_status == "ACTIVE"),
+    }
+
+
 def parse_cas_xlsx(source, scheme_master=None, scheme_master_source_bytes=None) -> dict:
     """
     Parse a CAS .xlsx from a path or bytes.
@@ -284,11 +375,51 @@ def parse_cas_xlsx(source, scheme_master=None, scheme_master_source_bytes=None) 
         out["problems"].append("the statement contains no live holdings")
         
     out["transactions"] = []
+    out["active_mandates"] = []
     tx_sheet = None
+    mandate_sheet = None
     for name in wb.sheetnames:
-        if "transaction" in name.lower():
+        n_low = name.lower()
+        if "transaction" in n_low and tx_sheet is None:
             tx_sheet = wb[name]
-            break
+        if any(kw in n_low for kw in ("sip detail", "active sip", "mandate", "systematic")) and mandate_sheet is None:
+            mandate_sheet = wb[name]
+
+    if mandate_sheet:
+        m_rows = list(mandate_sheet.iter_rows(values_only=True))
+        m_hdr_idx = None
+        for i, r in enumerate(m_rows):
+            lbls = [_canon(c) for c in r if c is not None]
+            if any("scheme" in x for x in lbls) and any(x in lbls for x in ["mandate id", "mandate no", "reg no", "umrn", "amount", "status"]):
+                m_hdr_idx = i
+                break
+        if m_hdr_idx is not None:
+            m_hdr = [_canon(c) for c in m_rows[m_hdr_idx]]
+            def m_pos(names):
+                for n in names:
+                    if n in m_hdr: return m_hdr.index(n)
+                return None
+            m_sn_col = m_pos(["scheme name", "scheme"])
+            m_fol_col = m_pos(["folio no", "folio number", "folio", "folio no."])
+            m_id_col = m_pos(["mandate id", "mandate no", "mandate", "reg no", "regn no", "umrn", "otm id", "registration no"])
+            m_amt_col = m_pos(["sip amount", "amount", "installment amount"])
+            m_st_col = m_pos(["status", "mandate status", "state"])
+            for r in m_rows[m_hdr_idx + 1:]:
+                if not any(v not in (None, "") for v in r):
+                    continue
+                sch_val = str(r[m_sn_col] or "").strip() if m_sn_col is not None and m_sn_col < len(r) else ""
+                fol_val = str(r[m_fol_col] or "").strip() if m_fol_col is not None and m_fol_col < len(r) else ""
+                mid_val = str(r[m_id_col] or "").strip() if m_id_col is not None and m_id_col < len(r) else ""
+                amt_val = _num(r[m_amt_col]) if m_amt_col is not None and m_amt_col < len(r) else None
+                st_val = str(r[m_st_col] or "ACTIVE").strip().upper() if m_st_col is not None and m_st_col < len(r) else "ACTIVE"
+                if sch_val or mid_val:
+                    out["active_mandates"].append({
+                        "scheme": sch_val,
+                        "folio_no": fol_val,
+                        "mandate_id": mid_val,
+                        "amount": amt_val,
+                        "status": st_val,
+                    })
             
     if tx_sheet:
         tx_rows = list(tx_sheet.iter_rows(values_only=True))
@@ -312,6 +443,9 @@ def parse_cas_xlsx(source, scheme_master=None, scheme_master_source_bytes=None) 
             unt_col = tx_pos(["units"])
             nav_col = tx_pos(["nav", "purchase price"])
             desc_col = tx_pos(["transaction description", "description", "trxn type"])
+            folio_col = tx_pos(["folio no", "folio number", "folio", "folio no."])
+            mandate_id_col = tx_pos(["mandate id", "mandate no", "mandate", "reg no", "regn no", "umrn", "otm id", "registration no"])
+            mandate_status_col = tx_pos(["mandate status", "status", "mandate state"])
             
             if sn_col is not None and dt_col is not None and amt_col is not None:
                 last_scheme = ""
@@ -405,8 +539,35 @@ def parse_cas_xlsx(source, scheme_master=None, scheme_master_source_bytes=None) 
                         }
                         if tx_type in unit_changing_types and nav is not None and nav <= 0:
                             raise ValueError(f"{tx_type} requires a positive NAV when NAV is supplied")
+                        raw_mandate_id = str(r[mandate_id_col] or "").strip() if mandate_id_col is not None and mandate_id_col < len(r) and r[mandate_id_col] is not None else ""
+                        raw_mandate_status = str(r[mandate_status_col] or "").strip() if mandate_status_col is not None and mandate_status_col < len(r) and r[mandate_status_col] is not None else ""
+                        raw_folio = str(r[folio_col] or "").strip() if folio_col is not None and folio_col < len(r) and r[folio_col] is not None else ""
+
+                        mandate_info = extract_mandate_evidence_from_transaction(
+                            description=description,
+                            tx_type=tx_type,
+                            extra_fields={
+                                "mandate_id": raw_mandate_id,
+                                "mandate_status": raw_mandate_status,
+                            }
+                        )
+
+                        if not mandate_info.get("mandate_id") and out.get("active_mandates"):
+                            for am in out["active_mandates"]:
+                                if am.get("mandate_id") and (
+                                    (raw_folio and am.get("folio_no") == raw_folio) or
+                                    (last_scheme and am.get("scheme", "").casefold() == last_scheme.casefold())
+                                ):
+                                    mandate_info["mandate_id"] = am["mandate_id"]
+                                    mandate_info["registrar_mandate_id"] = am["mandate_id"]
+                                    mandate_info["mandate_status"] = am.get("status", "ACTIVE")
+                                    mandate_info["mandate_source"] = "REGISTRAR_CAS_MANDATE_TABLE"
+                                    mandate_info["has_auth_mandate"] = (mandate_info["mandate_status"] == "ACTIVE")
+                                    break
+
                         record = {
                             "scheme": last_scheme,
+                            "folio_no": raw_folio,
                             "date": parsed_date.isoformat(),
                             "amount": amount,
                             "units": units,
@@ -415,6 +576,11 @@ def parse_cas_xlsx(source, scheme_master=None, scheme_master_source_bytes=None) 
                             "raw_description": description,
                             "source_row": row_number,
                             "type": tx_type,
+                            "mandate_id": mandate_info.get("mandate_id"),
+                            "registrar_mandate_id": mandate_info.get("registrar_mandate_id"),
+                            "umrn": mandate_info.get("umrn"),
+                            "mandate_status": mandate_info.get("mandate_status"),
+                            "mandate_source": mandate_info.get("mandate_source"),
                         }
                         out["transactions"].append(record)
                         if tx_type == "UNKNOWN":
@@ -1155,6 +1321,7 @@ def _parse_cas_pdf_pypdf(source, password: str = "") -> dict:
                     if tx_type in ("PURCHASE", "SIP") and t_amt > 0:
                         sec_invested += t_amt
 
+                    m_info = extract_mandate_evidence_from_transaction(t_desc_clean, tx_type)
                     out["transactions"].append({
                         "scheme": sch_name,
                         "folio_no": folio,
@@ -1164,6 +1331,11 @@ def _parse_cas_pdf_pypdf(source, password: str = "") -> dict:
                         "nav": t_nav,
                         "description": t_desc_clean,
                         "type": tx_type,
+                        "mandate_id": m_info.get("mandate_id"),
+                        "registrar_mandate_id": m_info.get("registrar_mandate_id"),
+                        "umrn": m_info.get("umrn"),
+                        "mandate_status": m_info.get("mandate_status"),
+                        "mandate_source": m_info.get("mandate_source"),
                     })
 
                 h = {
@@ -1326,15 +1498,23 @@ def parse_cas_pdf(source, password: str) -> dict:
                 out["dormant"].append(h)
                 
             for tx in scheme.get("transactions", []):
+                tx_desc_val = tx.get("description", "")
+                tx_type_str = str(tx.get("type", "")).split(".")[-1]
+                m_info = extract_mandate_evidence_from_transaction(tx_desc_val, tx_type_str, extra_fields=tx)
                 out["transactions"].append({
                     "scheme": scheme_name,
                     "folio_no": folio_num,
                     "date": str(tx.get("date", "")).split()[0] if tx.get("date") else "",
-                    "description": tx.get("description", ""),
+                    "description": tx_desc_val,
                     "amount": _num(tx.get("amount")),
                     "units": _num(tx.get("units")),
                     "nav": _num(tx.get("nav")),
-                    "type": str(tx.get("type", "")).split(".")[-1],
+                    "type": tx_type_str,
+                    "mandate_id": m_info.get("mandate_id"),
+                    "registrar_mandate_id": m_info.get("registrar_mandate_id"),
+                    "umrn": m_info.get("umrn"),
+                    "mandate_status": m_info.get("mandate_status"),
+                    "mandate_source": m_info.get("mandate_source"),
                 })
                 
     # GAP-211 FIX: a PDF parse can never be reconciled against a
@@ -1412,6 +1592,7 @@ def detect_active_sips_from_cas(
     tolerance_days: int = 45,
     max_history_days: int = 180,
     require_explicit_as_of: bool = True,
+    active_mandates: list[dict] | None = None,
 ) -> dict:
     """
     GAP-109: Transaction-Led Active Monthly SIP Periodicity Discovery.
@@ -1488,7 +1669,27 @@ def detect_active_sips_from_cas(
         desc = str(t.get("description", "") or t.get("tx_type", "") or t.get("type", "") or "").strip()
         mandate_id = str(t.get("mandate_id", "") or t.get("registrar_mandate_id", "") or "").strip()
         mandate_status = str(t.get("mandate_status", "")).strip().upper()
-        
+
+        # If not present on transaction dict, extract directly from description or active_mandates
+        if not mandate_id or not mandate_status or mandate_status == "UNKNOWN":
+            m_extracted = extract_mandate_evidence_from_transaction(desc, str(t.get("type", "")))
+            if not mandate_id and m_extracted.get("mandate_id"):
+                mandate_id = m_extracted["mandate_id"]
+            if (not mandate_status or mandate_status == "UNKNOWN") and m_extracted.get("mandate_status"):
+                mandate_status = m_extracted["mandate_status"]
+
+        if not mandate_id and active_mandates:
+            t_fol = str(t.get("folio_no", t.get("folio", ""))).strip()
+            t_sch = str(t.get("scheme", "")).strip().casefold()
+            for am in active_mandates:
+                if am.get("mandate_id") and (
+                    (t_fol and str(am.get("folio_no", "")).strip() == t_fol) or
+                    (t_sch and str(am.get("scheme", "")).strip().casefold() == t_sch)
+                ):
+                    mandate_id = str(am["mandate_id"]).strip()
+                    mandate_status = str(am.get("status", "ACTIVE")).strip().upper()
+                    break
+
         # Authenticated mandate requires BOTH stable mandate reference AND active status
         has_auth_mandate = bool(mandate_id) and (mandate_status == "ACTIVE")
         is_paused_or_cancelled = mandate_status in ("PAUSED", "CANCELLED", "EXPIRED", "SUSPENDED", "INACTIVE", "FAILED")
