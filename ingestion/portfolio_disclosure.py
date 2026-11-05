@@ -66,11 +66,25 @@ def validate_portfolio_disclosure(
         return missing("Constituent weights are absent.")
     if isinstance(coverage_raw, bool):
         return missing("Constituent coverage is absent or invalid.")
-    try:
-        coverage = float(coverage_raw)
-        weights = {str(k).strip().upper(): float(v) for k, v in raw_weights.items()}
-    except (TypeError, ValueError):
+    if (
+        isinstance(coverage_raw, bool)
+        or not isinstance(coverage_raw, (int, float))
+        or any(
+            not isinstance(key, str) or not key.strip()
+            or isinstance(value, bool) or not isinstance(value, (int, float))
+            for key, value in raw_weights.items()
+        )
+    ):
         return missing("Constituent identifiers, weights or coverage are malformed.")
+
+    normalized_keys = [key.strip().upper() for key in raw_weights]
+    if len(normalized_keys) != len(set(normalized_keys)):
+        return missing("Constituent identifiers are duplicated after normalization.")
+    coverage = float(coverage_raw)
+    weights = {
+        key.strip().upper(): float(value)
+        for key, value in raw_weights.items()
+    }
     if (not math.isfinite(coverage) or not 99.5 <= coverage <= 100.0
             or any(not key or not math.isfinite(value) or value < 0 or value > 100
                    for key, value in weights.items())
