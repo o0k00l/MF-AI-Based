@@ -206,7 +206,9 @@ def load_fund_screening_policy(policy_path: Optional[Path] = None) -> Dict[str, 
     """Load, validate and bind the central versioned fund-screening policy."""
     if policy_path is None:
         policy_path = Path(__file__).resolve().parents[1] / "data" / "policy" / "fund_screening.json"
-    if not isinstance(policy_path, Path) or not policy_path.is_file():
+    if not isinstance(policy_path, Path):
+        policy_path = Path(policy_path)
+    if not policy_path.is_file():
         raise FileNotFoundError(f"Screening policy file not found: {policy_path}")
 
     try:
@@ -218,6 +220,22 @@ def load_fund_screening_policy(policy_path: Optional[Path] = None) -> Dict[str, 
         raise ValueError("Screening policy root must be a JSON object")
     if data.get("_schema") != "fiduciary.screening_criteria.v1":
         raise ValueError("Screening policy schema must be fiduciary.screening_criteria.v1")
+
+    gt = data.get("gate_thresholds")
+    if not isinstance(gt, dict):
+        raise ValueError("Screening policy must contain 'gate_thresholds' mapping")
+    required_thresholds = {
+        "amc_max_limit_pct", "min_aum_crore", "max_top10_concentration_pct",
+        "max_sector_concentration_pct", "min_sharpe", "min_manager_tenure_years",
+        "min_confidence_score", "max_overlap_candidate_pct"
+    }
+    missing_thresholds = required_thresholds - set(gt.keys())
+    if missing_thresholds:
+        raise ValueError(f"Screening policy gate_thresholds missing required keys: {sorted(missing_thresholds)}")
+    for k in required_thresholds:
+        v = gt[k]
+        if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(float(v)) or float(v) < 0:
+            raise ValueError(f"Screening policy gate_thresholds[{k!r}] must be a finite non-negative number")
 
     seen_rule_ids = set()
     for rule_set_key in ("quarantine_rules", "reject_rules", "flag_rules"):
@@ -242,6 +260,7 @@ def load_fund_screening_policy(policy_path: Optional[Path] = None) -> Dict[str, 
 
     import hashlib
     data["_policy_digest"] = hashlib.sha256(policy_path.read_bytes()).hexdigest()
+    data["_policy_path"] = str(policy_path)
     return data
 
 
@@ -286,7 +305,36 @@ def _load_category_aum_caps(policy: Optional[Dict[str, Any]] = None) -> Dict[str
     return validated
 
 
-CATEGORY_AUM_CAPS = _load_category_aum_caps()
+class _DynamicCategoryAumCaps(dict):
+    """Dynamic mapping proxy that resolves category AUM caps from the authoritative screening policy."""
+    def _current(self) -> Dict[str, float]:
+        return _load_category_aum_caps(load_fund_screening_policy())
+
+    def __getitem__(self, key: str) -> float:
+        return self._current()[key]
+
+    def get(self, key: str, default=None):
+        return self._current().get(key, default)
+
+    def __contains__(self, key: object) -> bool:
+        return key in self._current()
+
+    def __iter__(self):
+        return iter(self._current())
+
+    def __len__(self) -> int:
+        return len(self._current())
+
+    def keys(self):
+        return self._current().keys()
+
+    def values(self):
+        return self._current().values()
+
+    def items(self):
+        return self._current().items()
+
+CATEGORY_AUM_CAPS = _DynamicCategoryAumCaps()
 
 
 def check_eligibility_gates(
@@ -337,21 +385,35 @@ def check_eligibility_gates(
                 details={"policy_error": str(exc)},
             )
 
+    gt = policy.get("gate_thresholds")
+    if not isinstance(gt, dict):
+        return EligibilityGateResult(
+            fund_id=str(fund_id),
+            fund_name=str(fund_name),
+            passed=False,
+            failed_gates=["Gate 0 [Policy Validation]: Central screening policy missing 'gate_thresholds' — fail-closed"],
+            details={"policy_error": "Screening policy missing gate_thresholds"},
+            policy_version=policy.get("version"),
+            policy_digest=policy.get("_policy_digest"),
+        )
+
     cat_caps = _load_category_aum_caps(policy)
     if amc_max_limit_pct is None:
-        amc_max_limit_pct = 30.0
+        amc_max_limit_pct = float(gt["amc_max_limit_pct"])
     if min_aum_crore is None:
-        min_aum_crore = 1000.0
+        min_aum_crore = float(gt["min_aum_crore"])
     if max_top10_concentration_pct is None:
-        max_top10_concentration_pct = 55.0
+        max_top10_concentration_pct = float(gt["max_top10_concentration_pct"])
     if max_sector_concentration_pct is None:
-        max_sector_concentration_pct = 35.0
+        max_sector_concentration_pct = float(gt["max_sector_concentration_pct"])
     if min_sharpe is None:
-        min_sharpe = 0.40
+        min_sharpe = float(gt["min_sharpe"])
     if min_manager_tenure_years is None:
-        min_manager_tenure_years = 2.0
+        min_manager_tenure_years = float(gt["min_manager_tenure_years"])
     if min_confidence_score is None:
-        min_confidence_score = 0.80
+        min_confidence_score = float(gt["min_confidence_score"])
+    if client_risk_tier_num is None:
+        client_risk_tier_num = int(gt.get("client_default_risk_tier", 6))
 
     # --- Gate 1: AMC Concentration Gate ---
     # Never infer an AMC from the first token of a scheme name: many AMCs have
@@ -860,11 +922,23 @@ def _portfolio_weighted_constituent_overlap_pct(
 def filter_candidates(
     candidate_universe: List[Dict[str, Any]],
     current_portfolio: List[Dict[str, Any]],
-    amc_max_limit_pct: float = 30.0,
-    max_overlap_limit_pct: float = 30.0,
+    amc_max_limit_pct: Optional[float] = None,
+    max_overlap_limit_pct: Optional[float] = None,
     client_risk_tier_num: Optional[int] = None,
     is_starter: bool = False,
+    policy: Optional[Dict[str, Any]] = None,
 ) -> List[str]:
+    """
+    Apply the binary eligibility gates and a portfolio-weighted look-through
+    overlap ceiling bound to the authoritative screening policy.
+    """
+    if policy is None:
+        policy = load_fund_screening_policy()
+    gt = policy.get("gate_thresholds", {})
+    if amc_max_limit_pct is None:
+        amc_max_limit_pct = float(gt.get("amc_max_limit_pct", 30.0))
+    if max_overlap_limit_pct is None:
+        max_overlap_limit_pct = float(gt.get("max_overlap_candidate_pct", 40.0))
     """
     Apply the binary eligibility gates and a portfolio-weighted look-through
     overlap ceiling. The overlap limit is enforced only when it can be measured
@@ -891,6 +965,7 @@ def filter_candidates(
             portfolio_holdings=current_portfolio,
             client_risk_tier_num=client_risk_tier_num,
             is_starter=is_starter,
+            policy=policy,
             amc_max_limit_pct=amc_max_limit_pct,
         )
         if not gate_result.passed:

@@ -79,6 +79,9 @@ def validate_portfolio_disclosure(
     ):
         return missing("Constituent identifiers, weights or coverage are malformed.")
 
+    if require_security_master and security_master is None:
+        return missing("Authoritative security master is required before disclosure constituents can be verified.")
+
     from core.security_master import normalize_constituent_weights
     try:
         weights, original_labels = normalize_constituent_weights(
@@ -120,10 +123,23 @@ def validate_portfolio_disclosure(
                 "constituent_weights_coverage_pct": None,
             }
 
-    return {"status": "VERIFIED", "reason": "Hash, reviewer, date and constituent coverage checks passed.",
-            "scheme_id": scheme_id.strip(), "effective_date": effective_date.isoformat(),
-            "source_url": source_url, "source_document_sha256": actual_hash,
-            "constituent_weights": weights, "constituent_weights_coverage_pct": coverage}
+    sec_digest = None
+    if isinstance(security_master, dict):
+        sec_digest = security_master.get("_master_digest")
+
+    return {
+        "status": "VERIFIED",
+        "reason": "Hash, reviewer, date and constituent coverage checks passed.",
+        "scheme_id": scheme_id.strip(),
+        "effective_date": effective_date.isoformat(),
+        "source_url": source_url,
+        "source_document_sha256": actual_hash,
+        "constituent_weights": weights,
+        "original_constituent_labels": original_labels,
+        "constituent_weights_coverage_pct": coverage,
+        "security_master_bound": security_master is not None,
+        "security_master_digest": sec_digest,
+    }
 
 
 def attach_verified_disclosures(

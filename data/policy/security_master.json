@@ -1,0 +1,136 @@
+{
+  "_schema": "fiduciary.security_master.v1",
+  "version": "2026.10",
+  "as_of": "2026-10-05",
+  "market": "India",
+  "securities": {
+    "INE002A01018": {
+      "canonical_id": "RELIANCE",
+      "name": "Reliance Industries Limited",
+      "isin": "INE002A01018",
+      "sector": "Energy",
+      "market_cap_bucket": "Large Cap",
+      "themes": ["Diversified", "Energy"]
+    },
+    "RELIANCE": {
+      "canonical_id": "RELIANCE",
+      "name": "Reliance Industries Limited",
+      "isin": "INE002A01018",
+      "sector": "Energy",
+      "market_cap_bucket": "Large Cap",
+      "themes": ["Diversified", "Energy"]
+    },
+    "RELIANCE IND": {
+      "canonical_id": "RELIANCE",
+      "name": "Reliance Industries Limited",
+      "isin": "INE002A01018",
+      "sector": "Energy",
+      "market_cap_bucket": "Large Cap",
+      "themes": ["Diversified", "Energy"]
+    },
+    "RELIANCE LIMITED": {
+      "canonical_id": "RELIANCE",
+      "name": "Reliance Industries Limited",
+      "isin": "INE002A01018",
+      "sector": "Energy",
+      "market_cap_bucket": "Large Cap",
+      "themes": ["Diversified", "Energy"]
+    },
+    "INE009A01021": {
+      "canonical_id": "INFY",
+      "name": "Infosys Limited",
+      "isin": "INE009A01021",
+      "sector": "Technology",
+      "market_cap_bucket": "Large Cap",
+      "themes": ["Technology", "IT Services"]
+    },
+    "INFY": {
+      "canonical_id": "INFY",
+      "name": "Infosys Limited",
+      "isin": "INE009A01021",
+      "sector": "Technology",
+      "market_cap_bucket": "Large Cap",
+      "themes": ["Technology", "IT Services"]
+    },
+    "INFOSYS": {
+      "canonical_id": "INFY",
+      "name": "Infosys Limited",
+      "isin": "INE009A01021",
+      "sector": "Technology",
+      "market_cap_bucket": "Large Cap",
+      "themes": ["Technology", "IT Services"]
+    },
+    "INE040A01034": {
+      "canonical_id": "HDFCBANK",
+      "name": "HDFC Bank Limited",
+      "isin": "INE040A01034",
+      "sector": "Financial Services",
+      "market_cap_bucket": "Large Cap",
+      "themes": ["Banking", "Private Banks"]
+    },
+    "HDFCBANK": {
+      "canonical_id": "HDFCBANK",
+      "name": "HDFC Bank Limited",
+      "isin": "INE040A01034",
+      "sector": "Financial Services",
+      "market_cap_bucket": "Large Cap",
+      "themes": ["Banking", "Private Banks"]
+    },
+    "HDFC BANK": {
+      "canonical_id": "HDFCBANK",
+      "name": "HDFC Bank Limited",
+      "isin": "INE040A01034",
+      "sector": "Financial Services",
+      "market_cap_bucket": "Large Cap",
+      "themes": ["Banking", "Private Banks"]
+    },
+    "INE467B01029": {
+      "canonical_id": "TCS",
+      "name": "Tata Consultancy Services Limited",
+      "isin": "INE467B01029",
+      "sector": "Technology",
+      "market_cap_bucket": "Large Cap",
+      "themes": ["Technology", "IT Services"]
+    },
+    "TCS": {
+      "canonical_id": "TCS",
+      "name": "Tata Consultancy Services Limited",
+      "isin": "INE467B01029",
+      "sector": "Technology",
+      "market_cap_bucket": "Large Cap",
+      "themes": ["Technology", "IT Services"]
+    },
+    "INE018A01030": {
+      "canonical_id": "LT",
+      "name": "Larsen & Toubro Limited",
+      "isin": "INE018A01030",
+      "sector": "Industrials",
+      "market_cap_bucket": "Large Cap",
+      "themes": ["Infrastructure", "Capital Goods"]
+    },
+    "LT": {
+      "canonical_id": "LT",
+      "name": "Larsen & Toubro Limited",
+      "isin": "INE018A01030",
+      "sector": "Industrials",
+      "market_cap_bucket": "Large Cap",
+      "themes": ["Infrastructure", "Capital Goods"]
+    },
+    "INE090A01021": {
+      "canonical_id": "ICICIBANK",
+      "name": "ICICI Bank Limited",
+      "isin": "INE090A01021",
+      "sector": "Financial Services",
+      "market_cap_bucket": "Large Cap",
+      "themes": ["Banking", "Private Banks"]
+    },
+    "ICICIBANK": {
+      "canonical_id": "ICICIBANK",
+      "name": "ICICI Bank Limited",
+      "isin": "INE090A01021",
+      "sector": "Financial Services",
+      "market_cap_bucket": "Large Cap",
+      "themes": ["Banking", "Private Banks"]
+    }
+  }
+}
