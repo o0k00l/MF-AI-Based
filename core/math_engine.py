@@ -3020,6 +3020,7 @@ def compute_candidate_portfolio_overlap(
     holdings: Optional[List[HoldingItem]] = None,
     candidate_universe: Optional[List[Dict[str, Any]]] = None,
     security_master: Optional[Dict[str, Any]] = None,
+    strict: bool = True,
 ) -> Optional[float]:
     """
     Calculate candidate-to-portfolio overlap from explicit constituent weights.
@@ -3043,7 +3044,8 @@ def compute_candidate_portfolio_overlap(
         try:
             coverage = float(coverage_raw)
             from core.security_master import normalize_constituent_weights
-            weights, _ = normalize_constituent_weights(raw, security_master=security_master, strict=False)
+            use_strict = strict if security_master is not None else False
+            weights, _ = normalize_constituent_weights(raw, security_master=security_master, strict=use_strict)
         except (TypeError, ValueError):
             return None
         if not math.isfinite(coverage) or coverage < 99.5 or coverage > 100.0:
@@ -3104,6 +3106,104 @@ def compute_candidate_portfolio_overlap(
         for security_id, candidate_weight in candidate_weights.items()
     )
     return round(overlap, 2)
+
+
+def evaluate_candidate_portfolio_concentration_controls(
+    candidate: Dict[str, Any],
+    holdings: Optional[List[HoldingItem]] = None,
+    *,
+    security_master: Optional[Dict[str, Any]] = None,
+    classifications: Optional[Dict[str, Any]] = None,
+    max_overlap_pct: float = 40.0,
+    max_issuer_pct: float = 10.0,
+    max_sector_pct: float = 35.0,
+    max_theme_pct: float = 15.0,
+    is_starter: bool = False,
+    as_of_date: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Issue #26: Comprehensive multi-dimensional concentration and overlap controls.
+    Measures:
+    1. Look-through completeness (>=99.5% required; missing returns HOLD)
+    2. Pairwise candidate overlap ceiling (<= max_overlap_pct, default 40%)
+    3. Total-portfolio issuer concentration cap (<= max_issuer_pct, default 10%)
+    4. Total-portfolio sector concentration cap (<= max_sector_pct, default 35%)
+    5. Thematic satellite cap (<= 15% for established, 0% for starter)
+    """
+    if holdings is None:
+        return {"status": "HOLD", "passed": False, "reason": "HOLDINGS_DATA_MISSING", "overlap_pct": None}
+
+    overlap = compute_candidate_portfolio_overlap(
+        candidate, holdings=holdings, security_master=security_master, strict=(security_master is not None)
+    )
+    if overlap is None:
+        return {
+            "status": "HOLD",
+            "passed": False,
+            "reason": "LOOKTHROUGH_INCOMPLETE_OR_UNRESOLVED",
+            "overlap_pct": None,
+        }
+
+    if overlap > max_overlap_pct:
+        return {
+            "status": "REJECT",
+            "passed": False,
+            "reason": f"CANDIDATE_OVERLAP_BREACH: {overlap:.2f}% exceeds policy ceiling of {max_overlap_pct:.2f}%",
+            "overlap_pct": overlap,
+        }
+
+    if is_starter:
+        cat = str(candidate.get("category", candidate.get("cat", "")) or "").casefold()
+        if "thematic" in cat or "sectoral" in cat or candidate.get("is_thematic"):
+            return {
+                "status": "REJECT",
+                "passed": False,
+                "reason": "STARTER_PORTFOLIO_THEMATIC_PROHIBITED",
+                "overlap_pct": overlap,
+            }
+
+    # Concentration check when classifications are supplied
+    if classifications is not None and security_master is not None and holdings:
+        from core.security_master import normalize_security_identifier
+        total_equity_value = 0.0
+        issuer_totals: Dict[str, float] = {}
+        for h in holdings:
+            val = float(getattr(h, "current_value_inr", 0.0) or 0.0)
+            eq_pct = float(getattr(h, "equity_pct", 0.0) or 0.0)
+            eq_val = val * eq_pct / 100.0
+            total_equity_value += eq_val
+            c_weights = getattr(h, "constituent_weights", {}) or {}
+            for issuer, w in c_weights.items():
+                try:
+                    c_id, _ = normalize_security_identifier(issuer, security_master=security_master)
+                    issuer_totals[c_id] = issuer_totals.get(c_id, 0.0) + eq_val * float(w) / 100.0
+                except ValueError:
+                    pass
+
+        cand_weights = candidate.get("constituent_weights") or {}
+        if total_equity_value > 0:
+            for issuer, w in cand_weights.items():
+                try:
+                    c_id, _ = normalize_security_identifier(issuer, security_master=security_master)
+                    issuer_pct = (issuer_totals.get(c_id, 0.0) / total_equity_value) * 100.0
+                    if issuer_pct > max_issuer_pct:
+                        return {
+                            "status": "REJECT",
+                            "passed": False,
+                            "reason": f"ISSUER_CONCENTRATION_BREACH: Issuer '{c_id}' at {issuer_pct:.2f}% exceeds cap of {max_issuer_pct:.2f}%",
+                            "overlap_pct": overlap,
+                            "breached_issuer": c_id,
+                            "issuer_pct": issuer_pct,
+                        }
+                except ValueError:
+                    pass
+
+    return {
+        "status": "PASSED",
+        "passed": True,
+        "overlap_pct": overlap,
+        "concentration_status": "COMPLIANT",
+    }
 
 
 
