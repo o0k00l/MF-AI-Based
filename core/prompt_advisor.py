@@ -350,7 +350,7 @@ def _build_dynamic_selection_dossier(facts: FiduciaryFactsPayload) -> str:
                 f"{index}. {item.category_role}: {item.scheme_name} | "
                 f"{item.allocation_pct:.2f}% | INR {item.monthly_inr:,.2f}/month"
             )
-            lines.append(f"   Target folio: {item.folio_target or 'Not specified'}")
+            lines.append("   Target folio: Redacted for external narrative" if item.folio_target else "   Target folio: Not specified")
             lines.append(f"   Supplied rationale: {item.fiduciary_rationale or 'Not supplied'}")
     else:
         lines.append("NO ACTION: no deterministic SIP selections were supplied.")

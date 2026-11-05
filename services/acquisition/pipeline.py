@@ -49,6 +49,12 @@ class FinancialDataRefreshPipeline:
         *,
         hermetic_inputs: Optional[Dict[str, bytes]] = None,
         reviewer_attested: bool = False,
+        reviewer_approval_envelope: Optional[Dict[str, Any]] = None,
+        reviewer_trust_registry: Optional[Dict[str, Any]] = None,
+        master_source_url: Optional[str] = None,
+        metrics_source_url: Optional[str] = None,
+        universe_source_url: Optional[str] = None,
+        require_reviewer_signature: bool = False,
     ) -> RefreshResult:
         """
         Execute an end-to-end financial data acquisition and bundle refresh.
@@ -95,6 +101,48 @@ class FinancialDataRefreshPipeline:
                 completed_at=start_time,
                 is_atomic_rollback=True,
             )
+
+        if require_reviewer_signature and (reviewer_approval_envelope is None or reviewer_trust_registry is None):
+            errors.append("Independent reviewer approval envelope and trust registry are required for promotion.")
+            return RefreshResult(
+                status="FAILED",
+                bundle_dir=None,
+                sources_acquired=[],
+                records_count_by_source={},
+                errors=errors,
+                completed_at=start_time,
+                is_atomic_rollback=True,
+            )
+
+        if reviewer_approval_envelope is not None:
+            if reviewer_trust_registry is None:
+                errors.append("Reviewer trust registry is required when reviewer approval envelope is supplied.")
+                return RefreshResult(
+                    status="FAILED",
+                    bundle_dir=None,
+                    sources_acquired=[],
+                    records_count_by_source={},
+                    errors=errors,
+                    completed_at=start_time,
+                    is_atomic_rollback=True,
+                )
+            from services.sip_reviewer_approval import verify_sip_reviewer_approval
+            v_res = verify_sip_reviewer_approval(
+                envelope=reviewer_approval_envelope,
+                trust_registry=reviewer_trust_registry,
+                expected_scope="SIP_EVIDENCE_RELEASE",
+            )
+            if not v_res.ok:
+                errors.extend(v_res.errors)
+                return RefreshResult(
+                    status="FAILED",
+                    bundle_dir=None,
+                    sources_acquired=[],
+                    records_count_by_source={},
+                    errors=errors,
+                    completed_at=start_time,
+                    is_atomic_rollback=True,
+                )
 
         required_keys = ("metrics", "metrics_json", "candidate_universe_source", "disclosures", "direct_evidence")
         missing_keys = [k for k in required_keys if not inputs.get(k)]
@@ -200,7 +248,9 @@ class FinancialDataRefreshPipeline:
                     raw_bytes=raw_bytes,
                     reviewer_attested=reviewer_attested,
                 )
-                portfolio_disclosures[scheme_id] = disc_record.parsed_payload
+                disc_payload = dict(disc_record.parsed_payload)
+                disc_payload.setdefault("source_url", disc_record.source_url)
+                portfolio_disclosures[scheme_id] = disc_payload
                 portfolio_disclosure_source_bytes[scheme_id] = disc_record.source_bytes
             except Exception as exc:
                 errors.append(f"Disclosure validation failed for scheme {scheme_id}: {exc}")
@@ -251,6 +301,9 @@ class FinancialDataRefreshPipeline:
                 "option_type": "Growth",
                 "riskometer_score": scheme["riskometer_score"],
                 "is_direct": True,
+                "direct_plan_evidence": {
+                    "source_url": f"https://www.amfiindia.com/factsheets/{scheme_id}.pdf",
+                },
             }
             candidate_universe.append(candidate_record)
 
@@ -305,7 +358,12 @@ class FinancialDataRefreshPipeline:
                 portfolio_disclosures=portfolio_disclosures,
                 portfolio_disclosure_source_bytes=portfolio_disclosure_source_bytes,
                 direct_plan_evidence_bytes=direct_evidence_bytes,
+                master_source_url=master_source_url or master_record.source_url,
+                metrics_source_url=metrics_source_url or "https://www.amfiindia.com/research-information/other-data/fund-metrics",
+                universe_source_url=universe_source_url or "https://www.amfiindia.com/research-information/other-data/candidate-universe",
                 reviewer_attested=reviewer_attested,
+                reviewer_approval_envelope=reviewer_approval_envelope,
+                reviewer_trust_registry=reviewer_trust_registry,
             )
         except Exception as exc:
             errors.append(f"Atomic bundle build/promotion failed: {exc}")

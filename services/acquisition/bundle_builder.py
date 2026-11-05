@@ -64,11 +64,29 @@ class EvidenceBundleBuilder:
         aliases_payload: Optional[Dict[str, Any]] = None,
         aliases_source_bytes: Optional[bytes] = None,
         reviewer_attested: bool = False,
+        reviewer_approval_envelope: Optional[Dict[str, Any]] = None,
+        reviewer_trust_registry: Optional[Dict[str, Any]] = None,
     ) -> Path:
         """
         Build an evidence bundle in a staging directory, verify its integrity,
-        and atomically promote it to target_dir.
+        and atomically promote it to target_dir. Fails closed on any synthetic
+        or missing evidence.
         """
+        if reviewer_attested is not True:
+            raise ValueError("Explicit reviewer attestation is required; default or unverified bundles cannot be promoted.")
+
+        if reviewer_approval_envelope is not None:
+            if reviewer_trust_registry is None:
+                raise ValueError("Reviewer trust registry is required when reviewer approval envelope is supplied.")
+            from services.sip_reviewer_approval import verify_sip_reviewer_approval
+            approval_res = verify_sip_reviewer_approval(
+                envelope=reviewer_approval_envelope,
+                trust_registry=reviewer_trust_registry,
+                expected_scope="SIP_EVIDENCE_RELEASE",
+            )
+            if not approval_res.ok:
+                raise ValueError(f"Independent reviewer approval verification failed: {'; '.join(approval_res.errors)}")
+
         self.target_dir.parent.mkdir(parents=True, exist_ok=True)
         staging_dir = self.target_dir.parent / f".staging_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
         staging_dir.mkdir(parents=True, exist_ok=True)
@@ -80,7 +98,10 @@ class EvidenceBundleBuilder:
             master_source_sha256 = hashlib.sha256(scheme_master_source_bytes).hexdigest()
 
             normalized_master = dict(scheme_master)
-            normalized_master["source_url"] = master_source_url or normalized_master.get("source_url", "https://amfiindia.com/scheme-details")
+            master_url = master_source_url or normalized_master.get("source_url")
+            if not master_url or not str(master_url).strip():
+                raise ValueError("Authoritative scheme master source URL is missing; synthetic defaults are prohibited.")
+            normalized_master["source_url"] = str(master_url).strip()
             normalized_master["source_document_sha256"] = master_source_sha256
             normalized_master["reviewer_attested"] = reviewer_attested
             normalized_master["effective_date"] = as_of.isoformat()
@@ -97,8 +118,12 @@ class EvidenceBundleBuilder:
             normalized_metrics_bytes = (staging_dir / "metrics.json").read_bytes()
             normalized_metrics_sha256 = hashlib.sha256(normalized_metrics_bytes).hexdigest()
 
+            m_url = metrics_source_url or metrics_payload.get("source_url")
+            if not m_url or not str(m_url).strip():
+                raise ValueError("Authoritative fund metrics source URL is missing; synthetic defaults are prohibited.")
+
             metrics_metadata = {
-                "source_url": metrics_source_url or "https://amfiindia.com/metrics",
+                "source_url": str(m_url).strip(),
                 "source_document_sha256": metrics_source_sha256,
                 "reviewer_attested": reviewer_attested,
                 "effective_date": as_of.isoformat(),
@@ -109,27 +134,36 @@ class EvidenceBundleBuilder:
 
             # 3. Direct plan evidence documents
             for scheme_id, raw_pdf in direct_plan_evidence_bytes.items():
+                if not isinstance(raw_pdf, bytes) or not raw_pdf.startswith(b"%PDF-"):
+                    raise ValueError(f"Direct plan evidence for scheme {scheme_id} must be genuine PDF bytes.")
                 rel_path = f"originals/direct/{scheme_id}.pdf"
                 self._write_bytes(staging_dir / rel_path, raw_pdf)
 
             # 4. Candidate Universe & Metadata
+            if not candidate_universe:
+                raise ValueError("Candidate universe cannot be empty.")
             candidates_for_bundle: List[Dict[str, Any]] = []
             for cand in candidate_universe:
                 cand_copy = dict(cand)
                 scheme_id = cand_copy["scheme_id"]
                 cand_copy.pop("_evidence_root", None)
 
-                # Ensure direct_plan_evidence references bundle relative file
+                if scheme_id not in direct_plan_evidence_bytes:
+                    raise ValueError(f"Missing direct plan evidence bytes for candidate scheme {scheme_id}; synthetic defaults are prohibited.")
+                direct_bytes = direct_plan_evidence_bytes[scheme_id]
+                if not isinstance(direct_bytes, bytes) or not direct_bytes.startswith(b"%PDF-"):
+                    raise ValueError(f"Direct plan evidence for scheme {scheme_id} must be genuine PDF bytes.")
+
                 direct_evidence = dict(cand_copy.get("direct_plan_evidence", {}))
                 rel_direct_file = f"originals/direct/{scheme_id}.pdf"
-                direct_bytes = direct_plan_evidence_bytes.get(scheme_id, b"factsheet-evidence")
-                if scheme_id not in direct_plan_evidence_bytes:
-                    self._write_bytes(staging_dir / rel_direct_file, direct_bytes)
+                direct_url = direct_evidence.get("source_url") or cand_copy.get("direct_plan_evidence_source_url")
+                if not direct_url or not str(direct_url).strip():
+                    raise ValueError(f"Missing direct plan evidence source URL for candidate scheme {scheme_id}; synthetic defaults are prohibited.")
 
                 direct_evidence.update({
                     "source_file": rel_direct_file,
                     "source_document_sha256": hashlib.sha256(direct_bytes).hexdigest(),
-                    "source_url": direct_evidence.get("source_url", f"https://amfiindia.com/factsheets/{scheme_id}.pdf"),
+                    "source_url": str(direct_url).strip(),
                     "source_type": "AMC_FACTSHEET",
                     "reviewer_attested": reviewer_attested,
                     "plan": "Direct",
@@ -150,8 +184,11 @@ class EvidenceBundleBuilder:
             self._write_bytes(staging_dir / universe_rel_source, candidate_universe_source_bytes)
             universe_source_sha256 = hashlib.sha256(candidate_universe_source_bytes).hexdigest()
 
+            if not universe_source_url or not str(universe_source_url).strip():
+                raise ValueError("Candidate universe source URL is missing; synthetic defaults are prohibited.")
+
             candidate_metadata = {
-                "source_url": universe_source_url or "https://amfiindia.com/candidate-universe",
+                "source_url": str(universe_source_url).strip(),
                 "source_document_sha256": universe_source_sha256,
                 "reviewer_attested": reviewer_attested,
                 "effective_date": as_of.isoformat(),
@@ -167,13 +204,17 @@ class EvidenceBundleBuilder:
             for scheme_id, disclosure_dict in portfolio_disclosures.items():
                 disc_rel_source = f"originals/disclosures/{scheme_id}.json"
                 raw_disc_bytes = portfolio_disclosure_source_bytes.get(scheme_id)
-                if not raw_disc_bytes:
-                    raw_disc_bytes = json.dumps(disclosure_dict).encode("utf-8")
+                if not raw_disc_bytes or not isinstance(raw_disc_bytes, bytes) or not raw_disc_bytes.strip():
+                    raise ValueError(f"Missing original portfolio disclosure source bytes for scheme {scheme_id}; synthetic defaults are prohibited.")
                 self._write_bytes(staging_dir / disc_rel_source, raw_disc_bytes)
                 disc_source_sha256 = hashlib.sha256(raw_disc_bytes).hexdigest()
 
                 normalized_disc = dict(disclosure_dict)
-                normalized_disc.setdefault("source_url", f"https://amfiindia.com/disclosures/{scheme_id}")
+                disc_url = normalized_disc.get("source_url")
+                if not disc_url or not str(disc_url).strip():
+                    raise ValueError(f"Missing portfolio disclosure source URL for scheme {scheme_id}; synthetic defaults are prohibited.")
+
+                normalized_disc["source_url"] = str(disc_url).strip()
                 normalized_disc["source_document_sha256"] = disc_source_sha256
                 normalized_disc["reviewer_attested"] = reviewer_attested
                 normalized_disc["effective_date"] = as_of.isoformat()
@@ -196,6 +237,15 @@ class EvidenceBundleBuilder:
                 if aliases_source_bytes is not None:
                     self._write_bytes(staging_dir / "originals/aliases.json", aliases_source_bytes)
 
+            # Optional reviewer verification files
+            reviewer_envelope_manifest: Optional[str] = None
+            reviewer_registry_manifest: Optional[str] = None
+            if reviewer_approval_envelope is not None:
+                reviewer_envelope_manifest = "reviewer_approval_envelope.json"
+                reviewer_registry_manifest = "reviewer_trust_registry.json"
+                self._write_json(staging_dir / reviewer_envelope_manifest, reviewer_approval_envelope)
+                self._write_json(staging_dir / reviewer_registry_manifest, reviewer_trust_registry)
+
             # 7. Manifest (Schema Version 1)
             manifest = {
                 "schema_version": 1,
@@ -211,10 +261,13 @@ class EvidenceBundleBuilder:
                 "candidate_universe_source_file": universe_rel_source,
                 "aliases_file": aliases_file_manifest,
             }
+            if reviewer_envelope_manifest and reviewer_registry_manifest:
+                manifest["reviewer_approval_envelope_file"] = reviewer_envelope_manifest
+                manifest["reviewer_trust_registry_file"] = reviewer_registry_manifest
+
             self._write_json(staging_dir / "manifest.json", manifest)
 
             # 8. Pre-promotion Verification
-            # Test that the bundle can be parsed by build_sip_evidence_provider
             provider = build_sip_evidence_provider(staging_dir)
             if provider is None:
                 raise ValueError("Pre-promotion validation failed: provider could not be built from staging bundle.")

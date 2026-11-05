@@ -42,6 +42,7 @@ def _sample_amfi_nav_bytes(as_of: date) -> bytes:
 def _sample_scheme_master_dict(as_of: date) -> dict:
     return {
         "status": "VERIFIED",
+        "source_url": "https://www.amfiindia.com/research-information/other-data/scheme-details",
         "schemes": [
             {
                 "scheme_id": "scheme-1",
@@ -210,10 +211,12 @@ def test_evidence_bundle_builder_staging_and_atomic_promotion(tmp_path):
         "scheme-1": {
             "constituent_weights": {"RELIANCE": 100.0},
             "constituent_weights_coverage_pct": 100.0,
+            "source_url": "https://www.amfiindia.com/disclosures/scheme-1",
         },
         "scheme-2": {
             "constituent_weights": {"INFY": 100.0},
             "constituent_weights_coverage_pct": 100.0,
+            "source_url": "https://www.amfiindia.com/disclosures/scheme-2",
         },
     }
     disc_bytes = {
@@ -238,6 +241,9 @@ def test_evidence_bundle_builder_staging_and_atomic_promotion(tmp_path):
             "option_type": "Growth",
             "riskometer_score": master["schemes"][0]["riskometer_score"],
             "is_direct": True,
+            "direct_plan_evidence": {
+                "source_url": "https://www.amfiindia.com/factsheets/scheme-1.pdf",
+            },
         },
         {
             "fund_id": "fund-2",
@@ -252,6 +258,9 @@ def test_evidence_bundle_builder_staging_and_atomic_promotion(tmp_path):
             "option_type": "Growth",
             "riskometer_score": master["schemes"][1]["riskometer_score"],
             "is_direct": True,
+            "direct_plan_evidence": {
+                "source_url": "https://www.amfiindia.com/factsheets/scheme-2.pdf",
+            },
         },
     ]
 
@@ -267,6 +276,9 @@ def test_evidence_bundle_builder_staging_and_atomic_promotion(tmp_path):
         portfolio_disclosures=disclosures,
         portfolio_disclosure_source_bytes=disc_bytes,
         direct_plan_evidence_bytes=direct_evidence,
+        master_source_url="https://www.amfiindia.com/research-information/other-data/scheme-details",
+        metrics_source_url="https://www.amfiindia.com/research-information/other-data/fund-metrics",
+        universe_source_url="https://www.amfiindia.com/research-information/other-data/candidate-universe",
         reviewer_attested=True,
     )
 
@@ -315,16 +327,23 @@ def test_evidence_bundle_builder_atomic_rollback_on_failure(tmp_path):
             "option_type": "Growth",
             "riskometer_score": master["schemes"][0]["riskometer_score"],
             "is_direct": True,
+            "direct_plan_evidence": {
+                "source_url": "https://www.amfiindia.com/factsheets/scheme-1.pdf",
+            },
         }],
         candidate_universe_source_bytes=b"universe_1",
         portfolio_disclosures={
             "scheme-1": {
                 "constituent_weights": {"RELIANCE": 100.0},
                 "constituent_weights_coverage_pct": 100.0,
+                "source_url": "https://www.amfiindia.com/disclosures/scheme-1",
             }
         },
         portfolio_disclosure_source_bytes={"scheme-1": b"disc_1"},
         direct_plan_evidence_bytes={"scheme-1": b"%PDF-1.4 direct 1"},
+        master_source_url="https://www.amfiindia.com/research-information/other-data/scheme-details",
+        metrics_source_url="https://www.amfiindia.com/research-information/other-data/fund-metrics",
+        universe_source_url="https://www.amfiindia.com/research-information/other-data/candidate-universe",
         reviewer_attested=True,
     )
     initial_manifest_content = (target_bundle_dir / "manifest.json").read_text(encoding="utf-8")
@@ -342,6 +361,9 @@ def test_evidence_bundle_builder_atomic_rollback_on_failure(tmp_path):
             portfolio_disclosures={},
             portfolio_disclosure_source_bytes={},
             direct_plan_evidence_bytes={},
+            master_source_url="https://www.amfiindia.com/research-information/other-data/scheme-details",
+            metrics_source_url="https://www.amfiindia.com/research-information/other-data/fund-metrics",
+            universe_source_url="https://www.amfiindia.com/research-information/other-data/candidate-universe",
             reviewer_attested=True,
         )
 
@@ -528,3 +550,163 @@ def test_refresh_pipeline_fails_closed_on_empty_metrics_funds(tmp_path):
     assert result.status == "FAILED"
     assert any("non-empty funds array" in err for err in result.errors)
     assert not bundle_target.exists()
+
+
+def test_builder_fails_closed_on_missing_direct_plan_evidence_bytes(tmp_path):
+    as_of = date.today()
+    builder = EvidenceBundleBuilder(tmp_path / "bundle")
+    master = _sample_scheme_master_dict(as_of)
+    with pytest.raises(ValueError, match="Missing direct plan evidence bytes"):
+        builder.build_and_promote(
+            as_of,
+            scheme_master=master,
+            scheme_master_source_bytes=json.dumps(master).encode("utf-8"),
+            metrics_payload={"funds": [{"fund_id": "fund-1", "nav": "82.45"}]},
+            metrics_source_bytes=b"metrics_1",
+            candidate_universe=[{
+                "fund_id": "fund-1",
+                "fund_name": "Fund 1",
+                "scheme_id": "scheme-1",
+                "isin": "INF200K01TX4",
+                "amc_name": "SBI",
+                "category": "Large Cap",
+                "benchmark_identity": "NIFTY 100 TRI",
+                "scheme_structure": "OPEN_ENDED_EQUITY",
+                "plan_type": "Direct",
+                "option_type": "Growth",
+                "riskometer_score": 5,
+                "is_direct": True,
+                "direct_plan_evidence": {"source_url": "https://amfiindia.com/factsheets/scheme-1.pdf"},
+            }],
+            candidate_universe_source_bytes=b"universe_1",
+            portfolio_disclosures={"scheme-1": {"constituent_weights": {}, "source_url": "https://amfi.com/d/1"}},
+            portfolio_disclosure_source_bytes={"scheme-1": b"bytes"},
+            direct_plan_evidence_bytes={},  # Missing!
+            master_source_url="https://amfiindia.com/master",
+            metrics_source_url="https://amfiindia.com/metrics",
+            universe_source_url="https://amfiindia.com/universe",
+            reviewer_attested=True,
+        )
+
+
+def test_builder_fails_closed_on_missing_direct_plan_evidence_source_url(tmp_path):
+    as_of = date.today()
+    builder = EvidenceBundleBuilder(tmp_path / "bundle")
+    master = _sample_scheme_master_dict(as_of)
+    with pytest.raises(ValueError, match="Missing direct plan evidence source URL"):
+        builder.build_and_promote(
+            as_of,
+            scheme_master=master,
+            scheme_master_source_bytes=json.dumps(master).encode("utf-8"),
+            metrics_payload={"funds": [{"fund_id": "fund-1", "nav": "82.45"}]},
+            metrics_source_bytes=b"metrics_1",
+            candidate_universe=[{
+                "fund_id": "fund-1",
+                "fund_name": "Fund 1",
+                "scheme_id": "scheme-1",
+                "isin": "INF200K01TX4",
+                "amc_name": "SBI",
+                "category": "Large Cap",
+                "benchmark_identity": "NIFTY 100 TRI",
+                "scheme_structure": "OPEN_ENDED_EQUITY",
+                "plan_type": "Direct",
+                "option_type": "Growth",
+                "riskometer_score": 5,
+                "is_direct": True,
+                "direct_plan_evidence": {},  # Missing source_url!
+            }],
+            candidate_universe_source_bytes=b"universe_1",
+            portfolio_disclosures={"scheme-1": {"constituent_weights": {}, "source_url": "https://amfi.com/d/1"}},
+            portfolio_disclosure_source_bytes={"scheme-1": b"bytes"},
+            direct_plan_evidence_bytes={"scheme-1": b"%PDF-1.4 direct 1"},
+            master_source_url="https://amfiindia.com/master",
+            metrics_source_url="https://amfiindia.com/metrics",
+            universe_source_url="https://amfiindia.com/universe",
+            reviewer_attested=True,
+        )
+
+
+def test_builder_fails_closed_on_missing_disclosure_source_bytes(tmp_path):
+    as_of = date.today()
+    builder = EvidenceBundleBuilder(tmp_path / "bundle")
+    master = _sample_scheme_master_dict(as_of)
+    with pytest.raises(ValueError, match="Missing original portfolio disclosure source bytes"):
+        builder.build_and_promote(
+            as_of,
+            scheme_master=master,
+            scheme_master_source_bytes=json.dumps(master).encode("utf-8"),
+            metrics_payload={"funds": [{"fund_id": "fund-1", "nav": "82.45"}]},
+            metrics_source_bytes=b"metrics_1",
+            candidate_universe=[{
+                "fund_id": "fund-1",
+                "fund_name": "Fund 1",
+                "scheme_id": "scheme-1",
+                "isin": "INF200K01TX4",
+                "amc_name": "SBI",
+                "category": "Large Cap",
+                "benchmark_identity": "NIFTY 100 TRI",
+                "scheme_structure": "OPEN_ENDED_EQUITY",
+                "plan_type": "Direct",
+                "option_type": "Growth",
+                "riskometer_score": 5,
+                "is_direct": True,
+                "direct_plan_evidence": {"source_url": "https://amfiindia.com/factsheets/scheme-1.pdf"},
+            }],
+            candidate_universe_source_bytes=b"universe_1",
+            portfolio_disclosures={"scheme-1": {"constituent_weights": {}, "source_url": "https://amfi.com/d/1"}},
+            portfolio_disclosure_source_bytes={"scheme-1": b"bytes"},
+            direct_plan_evidence_bytes={"scheme-1": b"%PDF-1.4 direct 1"},
+            master_source_url="https://amfiindia.com/master",
+            metrics_source_url="https://amfiindia.com/metrics",
+            universe_source_url="https://amfiindia.com/universe",
+            reviewer_attested=True,
+        )
+
+
+def test_builder_fails_closed_on_missing_disclosure_source_url(tmp_path):
+    as_of = date.today()
+    builder = EvidenceBundleBuilder(tmp_path / "bundle")
+    master = _sample_scheme_master_dict(as_of)
+    with pytest.raises(ValueError, match="Missing portfolio disclosure source URL"):
+        builder.build_and_promote(
+            as_of,
+            scheme_master=master,
+            scheme_master_source_bytes=json.dumps(master).encode("utf-8"),
+            metrics_payload={"funds": [{"fund_id": "fund-1", "nav": "82.45"}]},
+            metrics_source_bytes=b"metrics_1",
+            candidate_universe=[{
+                "fund_id": "fund-1",
+                "fund_name": "Fund 1",
+                "scheme_id": "scheme-1",
+                "isin": "INF200K01TX4",
+                "amc_name": "SBI",
+                "category": "Large Cap",
+                "benchmark_identity": "NIFTY 100 TRI",
+                "scheme_structure": "OPEN_ENDED_EQUITY",
+                "plan_type": "Direct",
+                "option_type": "Growth",
+                "riskometer_score": 5,
+                "is_direct": True,
+                "direct_plan_evidence": {"source_url": "https://amfiindia.com/factsheets/scheme-1.pdf"},
+            }],
+            candidate_universe_source_bytes=b"universe_1",
+            portfolio_disclosures={"scheme-1": {"constituent_weights": {}}},  # Missing source_url!
+            portfolio_disclosure_source_bytes={"scheme-1": b"bytes"},
+            direct_plan_evidence_bytes={"scheme-1": b"%PDF-1.4 direct 1"},
+            master_source_url="https://amfiindia.com/master",
+            metrics_source_url="https://amfiindia.com/metrics",
+            universe_source_url="https://amfiindia.com/universe",
+            reviewer_attested=True,
+        )
+
+
+def test_pipeline_fails_closed_when_reviewer_signature_required_but_missing(tmp_path):
+    pipeline = FinancialDataRefreshPipeline()
+    result = pipeline.refresh(
+        tmp_path / "sig_bundle",
+        date.today(),
+        reviewer_attested=True,
+        require_reviewer_signature=True,
+    )
+    assert result.status == "FAILED"
+    assert any("reviewer approval envelope and trust registry are required" in err for err in result.errors)

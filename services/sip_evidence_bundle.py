@@ -100,7 +100,8 @@ def build_sip_evidence_provider(
     portfolio_context_fields = {"portfolio_context_file", "portfolio_context_metadata_file", "portfolio_context_source_file"}
     candidate_score_fields = {"candidate_score_metadata_file", "candidate_score_source_file"}
     category_anchor_fields = {"category_anchor_metadata_file", "category_anchor_source_file"}
-    unexpected = set(manifest) - (required_manifest_fields | {"aliases_file"} | portfolio_context_fields | candidate_score_fields | category_anchor_fields)
+    reviewer_fields = {"reviewer_approval_envelope_file", "reviewer_trust_registry_file"}
+    unexpected = set(manifest) - (required_manifest_fields | {"aliases_file"} | portfolio_context_fields | candidate_score_fields | category_anchor_fields | reviewer_fields)
     supplied_portfolio_context_fields = set(manifest) & portfolio_context_fields
     if supplied_portfolio_context_fields and supplied_portfolio_context_fields != portfolio_context_fields:
         raise ValueError("Portfolio context file, metadata and original source file must be configured together.")
@@ -110,6 +111,9 @@ def build_sip_evidence_provider(
     supplied_category_anchor_fields = set(manifest) & category_anchor_fields
     if supplied_category_anchor_fields and supplied_category_anchor_fields != category_anchor_fields:
         raise ValueError("Category anchor metadata and original source file must be configured together.")
+    supplied_reviewer_fields = set(manifest) & reviewer_fields
+    if supplied_reviewer_fields and supplied_reviewer_fields != reviewer_fields:
+        raise ValueError("Reviewer approval envelope and reviewer trust registry files must be configured together.")
     if missing or unexpected:
         raise ValueError(
             "SIP evidence manifest fields invalid; missing="
@@ -238,6 +242,22 @@ def build_sip_evidence_provider(
         payload.update({
             "category_anchor_source_metadata": category_anchor_metadata,
             "category_anchor_source_bytes": category_anchor_source,
+        })
+
+    if supplied_reviewer_fields:
+        reviewer_envelope = _read_json(
+            root, manifest["reviewer_approval_envelope_file"],
+            label="reviewer_approval_envelope_file",
+        )
+        reviewer_reg = _read_json(
+            root, manifest["reviewer_trust_registry_file"],
+            label="reviewer_trust_registry_file",
+        )
+        if not isinstance(reviewer_envelope, dict) or not isinstance(reviewer_reg, dict):
+            raise ValueError("Reviewer envelope and trust registry must be JSON objects.")
+        payload.update({
+            "reviewer_approval_envelope": reviewer_envelope,
+            "reviewer_trust_registry": reviewer_reg,
         })
 
     if supplied_portfolio_context_fields:

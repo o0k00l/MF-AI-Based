@@ -4774,11 +4774,27 @@ def _sip_operational_constraint_violations(
         if starter_cap_permitted else max_fund_pct
     )
 
+    established_exception = sip_policy.get("established_sleeve_cap_exception")
+    established_cap_permitted = (
+        (not is_starter)
+        and isinstance(established_exception, dict)
+        and established_exception.get("permitted") is True
+    )
+    established_max_sleeve_pct = (
+        float(established_exception.get("max_sleeve_pct", 35.0))
+        if established_cap_permitted else max_fund_pct
+    )
+
     active = [item for item in items if item.monthly_inr > 0.0]
     violations = []
     for item in active:
         is_starter_flexi = is_starter and "flexi" in item.category_role.lower()
-        effective_cap = starter_max_sleeve_pct if is_starter_flexi else max_fund_pct
+        if is_starter_flexi:
+            effective_cap = starter_max_sleeve_pct
+        elif not is_starter and established_cap_permitted:
+            effective_cap = established_max_sleeve_pct
+        else:
+            effective_cap = max_fund_pct
         if item.allocation_pct > effective_cap + 1e-9:
             violations.append(
                 f"{item.category_role} allocation {item.allocation_pct:.2f}% exceeds "

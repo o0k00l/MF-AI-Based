@@ -159,6 +159,11 @@
       "max_sleeve_pct": 60,
       "condition": "Starter heuristic (< INR 5L AUM) permits single core Flexi fund up to starter sleeve weight before portfolio reaches established threshold."
     },
+    "established_sleeve_cap_exception": {
+      "permitted": true,
+      "max_sleeve_pct": 35,
+      "condition": "Permits core sleeve allocations up to 35% when strategic asset allocation targets in behavioral_risk_profiles dictate single-fund sleeve weights exceeding 20% prior to multi-fund sleeve expansion."
+    },
     "plan_migration_is_new_fund": false,
     "plan_migration_note": "Switching Regular to Direct within the same scheme (same ISIN family) is a plan migration, NOT a new fund introduction. It does not count against max_new_funds_per_12_months.",
     "very_high_sip_routing": {

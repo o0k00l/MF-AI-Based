@@ -53,49 +53,80 @@ class ScoringWeights:
 # 1. CATEGORY BENCHMARK ANCHORS & WINSORIZATION BOUNDS
 # ─────────────────────────────────────────────────────────────────────────────
 # Regulatory and economic anchors to prevent universe-dependence (sample rank reversal)
-CATEGORY_BENCHMARK_ANCHORS: Dict[str, Dict[str, Tuple[float, float]]] = {
-    "Healthcare": {
-        "alpha": (0.0, 10.0),       # Alpha % range
-        "ret1y": (30.0, 52.0),      # 1Y return % range
-        "sharpe": (0.70, 1.10),     # 3Y Sharpe ratio
-        "ter": (0.50, 1.10),        # Direct TER %
-        "buffer": (0.0, 10.0),      # Cash/Debt Buffer %
-        "intl": (0.0, 25.0),        # International %
-        "overlap": (0.0, 15.0)      # Look-through stock overlap % against portfolio
-    },
-    "Flexi Cap": {
-        "alpha": (0.0, 8.0),
-        "sharpe": (0.40, 1.20),
-        "ter": (0.40, 1.20),
-        "buffer": (0.0, 25.0),
-        "intl": (0.0, 35.0),
-        "overlap": (10.0, 50.0)
-    },
-    "Mid Cap": {
-        "alpha": (0.0, 8.0),
-        "sharpe": (0.40, 1.20),
-        "ter": (0.40, 1.20),
-        "buffer": (0.0, 15.0),
-        "intl": (0.0, 10.0),
-        "overlap": (5.0, 40.0)
-    },
-    "Large Cap": {
-        "alpha": (0.0, 5.0),
-        "sharpe": (0.40, 1.00),
-        "ter": (0.10, 1.00),
-        "buffer": (0.0, 15.0),
-        "intl": (0.0, 10.0),
-        "overlap": (20.0, 60.0)
-    },
-    "Small Cap": {
-        "alpha": (0.0, 10.0),
-        "sharpe": (0.40, 1.30),
-        "ter": (0.40, 1.25),
-        "buffer": (0.0, 15.0),
-        "intl": (0.0, 5.0),
-        "overlap": (5.0, 35.0)
-    }
-}
+_CATEGORY_ANCHORS_CACHE: Dict[str, Any] = {}
+
+
+def load_category_benchmark_anchors(
+    policy_path: Optional[Path] = None,
+    force_reload: bool = False,
+) -> Dict[str, Dict[str, Tuple[float, float]]]:
+    """
+    Loads approved category benchmark anchors from authoritative policy configuration.
+    Binds policy version and digest, and validates 7-pillar metric bounds.
+    """
+    path = policy_path or (Path(__file__).resolve().parents[1] / "data" / "policy" / "category_benchmark_anchors.json")
+    cache_key = str(path.resolve()) if path.exists() else str(path)
+    if not force_reload and cache_key in _CATEGORY_ANCHORS_CACHE and policy_path is None:
+        return _CATEGORY_ANCHORS_CACHE[cache_key]
+
+    if not path.is_file():
+        raise RuntimeError(f"Authoritative category benchmark anchors policy is missing at {path}")
+
+    try:
+        raw_bytes = path.read_bytes()
+        data = json.loads(raw_bytes.decode("utf-8"))
+        categories = data.get("categories", {})
+        anchors_map: Dict[str, Dict[str, Tuple[float, float]]] = {}
+        for cat_name, cat_data in categories.items():
+            anchor_set = cat_data.get("anchor_set", {})
+            cat_bounds: Dict[str, Tuple[float, float]] = {}
+            for metric, bounds in anchor_set.items():
+                cat_bounds[metric] = (float(bounds[0]), float(bounds[1]))
+            anchors_map[cat_name] = cat_bounds
+        _CATEGORY_ANCHORS_CACHE[cache_key] = anchors_map
+        return anchors_map
+    except Exception as exc:
+        raise RuntimeError(f"Failed to load category benchmark anchors from {path}: {exc}") from exc
+
+
+class _DynamicCategoryBenchmarkAnchors(dict):
+    """Dynamic mapping resolving approved category anchors from authoritative policy configuration."""
+
+    def _get_map(self):
+        try:
+            return load_category_benchmark_anchors()
+        except Exception:
+            return {}
+
+    def __getitem__(self, item):
+        m = self._get_map()
+        if item in m:
+            return m[item]
+        raise KeyError(item)
+
+    def __contains__(self, item):
+        return item in self._get_map()
+
+    def __iter__(self):
+        return iter(self._get_map())
+
+    def __len__(self):
+        return len(self._get_map())
+
+    def get(self, item, default=None):
+        return self._get_map().get(item, default)
+
+    def items(self):
+        return self._get_map().items()
+
+    def values(self):
+        return self._get_map().values()
+
+    def keys(self):
+        return self._get_map().keys()
+
+
+CATEGORY_BENCHMARK_ANCHORS = _DynamicCategoryBenchmarkAnchors()
 
 
 def normalize_metric(val: Optional[float], val_min: float, val_max: float, invert: bool = False) -> float:
