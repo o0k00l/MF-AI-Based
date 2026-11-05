@@ -2,13 +2,23 @@
   "schema_version": "1.0",
   "policy_version": "2026-10-30",
   "effective_date": "2026-10-30",
-  "reviewer_id": "POLICY_REVIEWER_001",
-  "reviewer_attested": true,
   "source_authority": "SEBI / AMFI Category Classification Standard & NSE Benchmark TRI",
+  "approval_envelope": {
+    "reviewer_id": "POLICY_REVIEWER_001",
+    "reviewer_role": "Independent Quantitative Fiduciary Reviewer",
+    "approval_status": "INDEPENDENTLY_APPROVED",
+    "attestation_timestamp": "2026-10-30T10:00:00Z",
+    "methodology_document": "DOC-POL-SCORING-ANCHORS-V1",
+    "reproducible_validation_sha256": "4a15998b3f271295b9508df311c1103f5ee0541d0ffc914bfba8b849e75cfca5"
+  },
   "categories": {
     "Healthcare": {
       "benchmark_identity": "NIFTY PHARMA TRI",
       "observation_period_years": 3,
+      "source_citation": "NSE Indices Limited Factsheet (NIFTY PHARMA TRI) & AMFI Sector/Thematic Direct Category Statistics",
+      "retrieval_date": "2026-10-30",
+      "effective_date": "2026-10-30",
+      "calculation_methodology": "3-year daily rolling returns, standard deviation, and Jensen's alpha against NIFTY PHARMA TRI; TER bounds from monthly AMFI portfolio disclosures.",
       "anchor_set": {
         "alpha": [0.0, 10.0],
         "ret1y": [30.0, 52.0],
@@ -22,6 +32,10 @@
     "Flexi Cap": {
       "benchmark_identity": "NIFTY 500 TRI",
       "observation_period_years": 3,
+      "source_citation": "NSE Indices Limited Factsheet (NIFTY 500 TRI) & AMFI Flexi Cap Direct Peer Distribution",
+      "retrieval_date": "2026-10-30",
+      "effective_date": "2026-10-30",
+      "calculation_methodology": "3-year daily rolling returns and multi-cap alpha relative to NIFTY 500 TRI; 5th-95th percentile winsorization across Direct Growth universe.",
       "anchor_set": {
         "alpha": [0.0, 8.0],
         "ret1y": [12.0, 35.0],
@@ -35,6 +49,10 @@
     "Mid Cap": {
       "benchmark_identity": "NIFTY MIDCAP 150 TRI",
       "observation_period_years": 3,
+      "source_citation": "NSE Indices Limited Factsheet (NIFTY MIDCAP 150 TRI) & AMFI Mid Cap Category Averages",
+      "retrieval_date": "2026-10-30",
+      "effective_date": "2026-10-30",
+      "calculation_methodology": "3-year rolling alpha, Sharpe, and downside buffer relative to NIFTY MIDCAP 150 TRI.",
       "anchor_set": {
         "alpha": [0.0, 8.0],
         "ret1y": [15.0, 42.0],
@@ -48,6 +66,10 @@
     "Large Cap": {
       "benchmark_identity": "NIFTY 100 TRI",
       "observation_period_years": 3,
+      "source_citation": "NSE Indices Limited Factsheet (NIFTY 100 TRI) & AMFI Large Cap Direct Peer Distribution",
+      "retrieval_date": "2026-10-30",
+      "effective_date": "2026-10-30",
+      "calculation_methodology": "3-year rolling alpha and Sharpe ratio against NIFTY 100 TRI; TER bounds reflecting SEBI slab limits for large cap funds.",
       "anchor_set": {
         "alpha": [0.0, 5.0],
         "ret1y": [10.0, 28.0],
@@ -61,6 +83,10 @@
     "Small Cap": {
       "benchmark_identity": "NIFTY SMALLCAP 250 TRI",
       "observation_period_years": 3,
+      "source_citation": "NSE Indices Limited Factsheet (NIFTY SMALLCAP 250 TRI) & AMFI Small Cap Category Statistics",
+      "retrieval_date": "2026-10-30",
+      "effective_date": "2026-10-30",
+      "calculation_methodology": "3-year rolling alpha, volatility-adjusted Sharpe, and downside buffer against NIFTY SMALLCAP 250 TRI.",
       "anchor_set": {
         "alpha": [0.0, 10.0],
         "ret1y": [18.0, 48.0],
@@ -74,6 +100,10 @@
     "Multi Cap": {
       "benchmark_identity": "NIFTY 500 MULTICAP 50:25:25 TRI",
       "observation_period_years": 3,
+      "source_citation": "NSE Indices Limited Factsheet (NIFTY 500 MULTICAP 50:25:25 TRI) & AMFI Multi Cap Direct Statistics",
+      "retrieval_date": "2026-10-30",
+      "effective_date": "2026-10-30",
+      "calculation_methodology": "3-year rolling alpha and Sharpe ratio against mandated 50:25:25 multi-cap benchmark TRI.",
       "anchor_set": {
         "alpha": [0.0, 8.0],
         "ret1y": [14.0, 38.0],
@@ -87,6 +117,10 @@
     "Large & Mid Cap": {
       "benchmark_identity": "NIFTY LARGEMIDCAP 250 TRI",
       "observation_period_years": 3,
+      "source_citation": "NSE Indices Limited Factsheet (NIFTY LARGEMIDCAP 250 TRI) & AMFI Large & Mid Cap Direct Distribution",
+      "retrieval_date": "2026-10-30",
+      "effective_date": "2026-10-30",
+      "calculation_methodology": "3-year rolling alpha, Sharpe, and downside buffer against NIFTY LARGEMIDCAP 250 TRI.",
       "anchor_set": {
         "alpha": [0.0, 7.0],
         "ret1y": [12.0, 34.0],

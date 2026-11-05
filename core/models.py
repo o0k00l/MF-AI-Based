@@ -220,10 +220,23 @@ class HoldingItem(BaseModel):
     debt_pct: float
     hybrid_pct: float
     international_pct: float
-    current_value_inr: Union[Decimal, float]
-    invested_value_inr: Union[Decimal, float]
-    units: Union[Decimal, float]
-    nav: Union[Decimal, float]
+    current_value_inr: Decimal
+    invested_value_inr: Decimal
+    units: Decimal
+    nav: Decimal
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_decimal_monetary_fields(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            for f in ("current_value_inr", "invested_value_inr"):
+                if f in data and data[f] is not None:
+                    data[f] = quantize_inr(data[f])
+            for f in ("units", "nav"):
+                if f in data and data[f] is not None:
+                    if not isinstance(data[f], Decimal):
+                        data[f] = Decimal(str(data[f]))
+        return data
     top_holdings: List[str] = Field(default_factory=list)
     # Full, source-verified constituent weights as percentages of the fund equity sleeve.
     # Missing or partial look-through data must not be interpreted as zero overlap.
@@ -361,10 +374,17 @@ class DeterministicSIPRecommendation(BaseModel):
     isin: Optional[str] = None
     folio_target: Optional[str] = None
     is_direct: Optional[bool] = None
-    monthly_inr: Union[Decimal, float]
+    monthly_inr: Decimal
     allocation_pct: float
     rational_code: str        # 'CORE_COMPOUNDER', 'ALPHA_ENGINE', 'SATELLITE_THEME'
     fiduciary_rationale: str
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_monthly_inr(cls, data: Any) -> Any:
+        if isinstance(data, dict) and "monthly_inr" in data and data["monthly_inr"] is not None:
+            data["monthly_inr"] = quantize_inr(data["monthly_inr"])
+        return data
 
 
 class DeterministicSIPPlan(BaseModel):
@@ -405,8 +425,17 @@ class DeterministicSIPPlan(BaseModel):
             raise ValueError("SIP item percentages must reconcile to the equity and debt SIP percentages")
         return self
 
-    total_monthly_budget_inr: Union[Decimal, float]
-    unallocated_budget_inr: Union[Decimal, float]
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_sip_plan_budget_fields(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            for f in ("total_monthly_budget_inr", "unallocated_budget_inr"):
+                if f in data and data[f] is not None:
+                    data[f] = quantize_inr(data[f])
+        return data
+
+    total_monthly_budget_inr: Decimal
+    unallocated_budget_inr: Decimal
     equity_sip_pct: float
     debt_sip_pct: float
     items: List[DeterministicSIPRecommendation] = Field(default_factory=list)
@@ -426,8 +455,18 @@ class LumpsumTrancheItem(BaseModel):
     role: str
     scheme_name: str
     folio_target: Optional[str] = None
-    amount_inr: Union[Decimal, float]
-    monthly_inr: Optional[Union[Decimal, float]] = None
+    amount_inr: Decimal
+    monthly_inr: Optional[Decimal] = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_tranche_amounts(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            if "amount_inr" in data and data["amount_inr"] is not None:
+                data["amount_inr"] = quantize_inr(data["amount_inr"])
+            if "monthly_inr" in data and data["monthly_inr"] is not None:
+                data["monthly_inr"] = quantize_inr(data["monthly_inr"])
+        return data
     allocation_pct: float
     timing: str
     source_vehicle: str
@@ -452,15 +491,24 @@ class DeterministicLumpsumPlan(BaseModel):
             )
         return self
 
-    total_lumpsum_inr: Union[Decimal, float]
-    unallocated_amount_inr: Union[Decimal, float]
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_lump_plan_amounts(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            for f in ("total_lumpsum_inr", "unallocated_amount_inr", "immediate_amount_inr", "stp_total_amount_inr", "monthly_stp_total_inr", "tax_savings_vs_debt_fund_inr"):
+                if f in data and data[f] is not None:
+                    data[f] = quantize_inr(data[f])
+        return data
+
+    total_lumpsum_inr: Decimal
+    unallocated_amount_inr: Decimal
     is_big_ticket: bool
     stp_duration_months: int
-    immediate_amount_inr: Union[Decimal, float]
-    stp_total_amount_inr: Union[Decimal, float]
-    monthly_stp_total_inr: Union[Decimal, float]
+    immediate_amount_inr: Decimal
+    stp_total_amount_inr: Decimal
+    monthly_stp_total_inr: Decimal
     parking_vehicle: str
-    tax_savings_vs_debt_fund_inr: Optional[Union[Decimal, float]] = None
+    tax_savings_vs_debt_fund_inr: Optional[Decimal] = None
     cash_validation_passed: Optional[bool] = None
     cash_validation_message: str = ""
     tranches: List[LumpsumTrancheItem] = Field(default_factory=list)
@@ -484,9 +532,18 @@ class FiduciaryFactsPayload(BaseModel):
     client_age: Optional[int] = None
     horizon_years: Optional[int] = None
     risk_tier_name: Optional[str] = None
-    total_portfolio_value_inr: Union[Decimal, float]
-    total_invested_value_inr: Union[Decimal, float]
-    total_unrealized_gain_inr: Union[Decimal, float]
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_facts_monetary_fields(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            for f in ("total_portfolio_value_inr", "total_invested_value_inr", "total_unrealized_gain_inr", "monthly_sip_budget_inr", "lumpsum_budget_inr"):
+                if f in data and data[f] is not None:
+                    data[f] = quantize_inr(data[f])
+        return data
+
+    total_portfolio_value_inr: Decimal
+    total_invested_value_inr: Decimal
+    total_unrealized_gain_inr: Decimal
     holdings_count: int
     fee_bleed: FeeBleedAnalysis
     overlap_matrix: List[OverlapPair]
@@ -498,8 +555,8 @@ class FiduciaryFactsPayload(BaseModel):
     switch_costs: List[Dict[str, Any]] = Field(default_factory=list)
     eligibility_results: List[Dict[str, Any]] = Field(default_factory=list)
     no_action: Optional[NOActionResult] = None
-    monthly_sip_budget_inr: Union[Decimal, float]
-    lumpsum_budget_inr: float = 0.0
+    monthly_sip_budget_inr: Decimal
+    lumpsum_budget_inr: Decimal = Decimal("0.00")
     lumpsum_plan: Optional[Dict[str, Any]] = None
     xirr_pct: Optional[float] = None
     benchmark_xirr_pct: Optional[float] = None
@@ -522,9 +579,18 @@ class FiduciaryFactsPayload(BaseModel):
 
 
 class TaxLedger(BaseModel):
-    immature_locked_value_inr: Union[Decimal, float]
-    mature_switchable_value_inr: Union[Decimal, float]
-    projected_ltcg_inr: Union[Decimal, float]
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_tax_ledger_fields(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            for f in ("immature_locked_value_inr", "mature_switchable_value_inr", "projected_ltcg_inr"):
+                if f in data and data[f] is not None:
+                    data[f] = quantize_inr(data[f])
+        return data
+
+    immature_locked_value_inr: Decimal
+    mature_switchable_value_inr: Decimal
+    projected_ltcg_inr: Decimal
     stagger_required: bool
 
 

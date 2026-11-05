@@ -287,3 +287,84 @@ def test_clean_install_bootstrap_to_advisor_workflow(tmp_path, monkeypatch):
     assert paths_after["scheme_master"].is_file()
     assert paths_after["fund_metrics"].is_file()
     assert paths_after["fund_aliases"].is_file()
+
+
+def test_lumpsum_weighted_lookthrough_and_parking_validation(tmp_path, monkeypatch):
+    cas_path = _create_synthetic_cas(tmp_path)
+    mandate = InvestorMandateInput(
+        as_of_date=date.today(),
+        horizon_years=5.0,
+        goal="Wealth Preservation",
+        lumpsum_budget_inr=Decimal("400000"),
+        explicit_authorized_risk_tier="Tier 3",
+        bank_cash_inr=Decimal("500000"),
+        emergency_reserve_inr=Decimal("100000"),
+    )
+
+    dummy_metrics = tmp_path / "metrics.json"
+    dummy_metrics.write_text("{}", encoding="utf-8")
+    dummy_aliases = tmp_path / "aliases.json"
+    dummy_aliases.write_text("{}", encoding="utf-8")
+
+    # 1. Candidate universe with NO qualifying Direct Arbitrage parking fund
+    def fake_provider_no_parking(**kwargs):
+        return {
+            "metrics_path": dummy_metrics,
+            "aliases_path": dummy_aliases,
+            "scheme_master": {"schemes": []},
+            "scheme_master_source_bytes": b"master",
+            "candidate_universe": [
+                {"category": "Flexi Cap", "plan_type": "Direct", "is_direct": True}
+            ],
+        }
+
+    res_no_parking = evaluate_portfolio_aware_lumpsum(
+        cas_path, mandate, evidence_provider=fake_provider_no_parking
+    )
+    assert res_no_parking.status == "HOLD"
+    assert any("HOLD_NO_QUALIFYING_PARKING" in err for err in res_no_parking.missing_evidence)
+
+    # 2. Candidate universe with qualifying Direct Arbitrage parking fund + mock holdings
+    from types import SimpleNamespace
+    mock_holding = SimpleNamespace(
+        scheme="SBI Bluechip Fund Direct",
+        fund_name="SBI Bluechip Fund Direct",
+        isin="INF200K01123",
+        current_value_inr=Decimal("100000.00"),
+        lookthrough_status="VERIFIED",
+        constituent_weights_coverage_pct=95.0,
+    )
+    import services.lumpsum_recommendation as lumpsum_mod
+    monkeypatch.setattr(lumpsum_mod, "load_holdings_from_cas_excel", lambda *a, **k: [mock_holding])
+
+    def fake_provider_valid(**kwargs):
+        return {
+            "metrics_path": dummy_metrics,
+            "aliases_path": dummy_aliases,
+            "scheme_master": {"schemes": []},
+            "scheme_master_source_bytes": b"master",
+            "candidate_universe": [
+                {
+                    "category": "Arbitrage",
+                    "plan_type": "Direct",
+                    "is_direct": True,
+                    "lifecycle_status": "ACTIVE",
+                    "is_eligible": True,
+                    "scheme_name": "Kotak Equity Arbitrage Direct Growth",
+                    "fund_id": "KOTAK-ARB-DIR",
+                    "isin": "INF174K01LS2",
+                    "source_url": "https://kotakmf.com/factsheet",
+                    "as_of_date": "2026-10-31",
+                }
+            ],
+        }
+
+    res_valid = evaluate_portfolio_aware_lumpsum(
+        cas_path, mandate, evidence_provider=fake_provider_valid
+    )
+    assert res_valid.status == "ELIGIBLE_FOR_HUMAN_REVIEW"
+    assert res_valid.lookthrough_coverage_pct == 95.0
+    assert res_valid.allocated_amount_inr == Decimal("0")  # Retained unallocated pending review
+    assert res_valid.unallocated_amount_inr == Decimal("400000")
+    assert len(res_valid.candidate_allocations) == 1
+    assert res_valid.candidate_allocations[0]["scheme_name"] == "Kotak Equity Arbitrage Direct Growth"

@@ -37,6 +37,7 @@ class LumpsumDecisionResult:
     existing_portfolio_value_inr: Decimal
     lookthrough_coverage_pct: float
     facts_used: Dict[str, Any]
+    candidate_allocations: Tuple[Dict[str, Any], ...] = ()
     is_execution_authorized: bool = False
     decision_timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
@@ -79,9 +80,10 @@ def evaluate_portfolio_aware_lumpsum(
     else:
         missing_evidence.append("SIP evidence provider is not configured; public fund evidence is unverified.")
 
-    # 3. CAS holdings load & Scheme Identity Reconcile
+    # 3. CAS holdings load & Scheme Identity Reconcile with Value-Weighted Look-Through
     holdings: List[HoldingItem] = []
     total_existing_val = Decimal("0")
+    total_weighted_cov = Decimal("0")
     lookthrough_coverage = 0.0
 
     if cas_path.exists() and cas_path.is_file():
@@ -107,8 +109,25 @@ def evaluate_portfolio_aware_lumpsum(
                 for h in holdings:
                     val = Decimal(str(h.current_value_inr))
                     total_existing_val += val
-                    if h.constituent_weights_coverage_pct is not None:
-                        lookthrough_coverage = max(lookthrough_coverage, float(h.constituent_weights_coverage_pct))
+                    cov = Decimal(str(h.constituent_weights_coverage_pct or 0.0))
+                    total_weighted_cov += val * cov
+                    if h.lookthrough_status != "VERIFIED" or h.constituent_weights_coverage_pct is None:
+                        missing_evidence.append(
+                            f"HOLD_UNVERIFIED_LOOKTHROUGH: Scheme '{h.scheme}' (ISIN: {h.isin or 'UNKNOWN'}) "
+                            f"has incomplete or unverified constituent look-through disclosure."
+                        )
+
+                if total_existing_val > Decimal("0"):
+                    lookthrough_coverage = float((total_weighted_cov / total_existing_val).quantize(Decimal("0.01")))
+                else:
+                    lookthrough_coverage = 100.0
+
+                min_lookthrough_pct = float(lumpsum_policy.get("min_lookthrough_coverage_pct", 85.0))
+                if total_existing_val > Decimal("0") and lookthrough_coverage < min_lookthrough_pct:
+                    missing_evidence.append(
+                        f"HOLD_INSUFFICIENT_LOOKTHROUGH: Portfolio value-weighted look-through coverage "
+                        f"({lookthrough_coverage:.1f}%) is below mandatory threshold ({min_lookthrough_pct:.1f}%)."
+                    )
             except Exception as exc:
                 missing_evidence.append(f"CAS holdings reconciliation error: {exc}")
     else:
@@ -135,18 +154,46 @@ def evaluate_portfolio_aware_lumpsum(
     parking_amount = (mandate.lumpsum_budget_inr * Decimal(str(parking_ratio))).quantize(Decimal("0.01"))
     stp_amount = (mandate.lumpsum_budget_inr - parking_amount).quantize(Decimal("0.01"))
 
-    # 5. Parking Candidate Availability
+    # 5. Parking Candidate Availability & Strict Identity/Eligibility
     candidate_univ = bundle_evidence.get("candidate_universe", [])
-    direct_arbitrage_available = any(
-        c.get("category") == "Arbitrage" and c.get("plan_type") == "Direct" and c.get("is_direct") is True
-        for c in candidate_univ
-        if isinstance(c, dict)
-    )
-    if not direct_arbitrage_available:
-        missing_evidence.append("No verified Direct Arbitrage parking candidate available in candidate universe.")
+    valid_parking_candidates: List[Dict[str, Any]] = []
+    for c in candidate_univ:
+        if not isinstance(c, dict):
+            continue
+        if c.get("category") != "Arbitrage":
+            continue
+        if c.get("plan_type") != "Direct" and c.get("is_direct") is not True:
+            continue
+        lifecycle = str(c.get("lifecycle_status", "ACTIVE")).strip().upper()
+        if lifecycle not in ("ACTIVE", "VERIFIED"):
+            continue
+        if c.get("is_eligible") is False or c.get("eligibility_status") in ("FAIL", "FAILED", "REJECTED"):
+            continue
+        scheme_name = c.get("scheme_name") or c.get("fund_name")
+        if not scheme_name or not str(scheme_name).strip():
+            continue
+        has_source = bool(
+            c.get("_provenance")
+            or c.get("source_url")
+            or c.get("source_document_sha256")
+            or c.get("as_of_date")
+            or c.get("nav_date")
+        )
+        if not has_source:
+            continue
+        valid_parking_candidates.append(c)
 
-    # 6. Fiduciary Determination
-    # If any mandate, cash evidence, lookthrough, or release gate is missing -> HOLD
+    if not valid_parking_candidates:
+        missing_evidence.append(
+            "HOLD_NO_QUALIFYING_PARKING: No verified, eligible Direct Arbitrage parking candidate "
+            "with active lifecycle status, exact scheme identity, and source provenance was found in candidate universe."
+        )
+
+    # 6. Candidate Allocation & Fiduciary Determination
+    # Fiduciary policy: Tranche orders are non-executable without independent review.
+    # Unsupported or pending allocation slots remain strictly unallocated.
+    candidate_allocations: List[Dict[str, Any]] = []
+
     if missing_evidence:
         reasons.append("Deployment blocked pending missing investor mandate facts or verified public evidence.")
         for err in missing_evidence:
@@ -157,8 +204,20 @@ def evaluate_portfolio_aware_lumpsum(
     else:
         reasons.append("Pre-requisite mandate and portfolio checks cleared for independent adviser review.")
         status = "ELIGIBLE_FOR_HUMAN_REVIEW"
-        allocated = mandate.lumpsum_budget_inr
-        unallocated = Decimal("0")
+        # Preserve full requested budget as unallocated pending human review
+        allocated = Decimal("0")
+        unallocated = mandate.lumpsum_budget_inr
+        if valid_parking_candidates:
+            best_parking = valid_parking_candidates[0]
+            candidate_allocations.append({
+                "role": "Parking Vehicle (Arbitrage)",
+                "scheme_name": best_parking.get("scheme_name") or best_parking.get("fund_name"),
+                "fund_id": best_parking.get("fund_id"),
+                "isin": best_parking.get("isin"),
+                "allocation_inr": str(parking_amount),
+                "allocation_pct": parking_ratio * 100.0,
+                "status": "PROPOSED_FOR_REVIEW",
+            })
 
     facts_used = {
         "as_of_date": mandate.as_of_date.isoformat(),
@@ -189,5 +248,6 @@ def evaluate_portfolio_aware_lumpsum(
         existing_portfolio_value_inr=total_existing_val,
         lookthrough_coverage_pct=lookthrough_coverage,
         facts_used=facts_used,
+        candidate_allocations=tuple(candidate_allocations),
         is_execution_authorized=False,
     )
