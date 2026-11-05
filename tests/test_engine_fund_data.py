@@ -93,9 +93,38 @@ def test_refresh_writes_engine_owned_snapshot_and_manifest_last(tmp_path):
     assert manifest["promotion_eligible"] is False
     assert manifest["status"] == "ACQUIRED_UNVERIFIED"
     assert all(path.is_file() for path in paths.values())
+    assert load_engine_manifest(tmp_path)["dataset_id"] == manifest["dataset_id"]
 
 
 def test_missing_manifest_is_not_a_client_setup_error(tmp_path):
     manifest = load_engine_manifest(tmp_path)
     assert manifest["status"] == "NOT_ACQUIRED"
     assert manifest["promotion_eligible"] is False
+
+
+def test_nav_decimal_precision_is_not_rounded_through_binary_float():
+    precise = SAMPLE.replace(b"|123.45|", b"|123.450000000000000001|")
+    row = parse_amfi_nav_feed(precise)[0]
+    assert row["nav"] == "123.450000000000000001"
+
+
+def test_manifest_rejects_tampered_or_mixed_snapshot(tmp_path):
+    paths = refresh_engine_fund_data(
+        EngineRuntimeConfig(data_dir=tmp_path),
+        session=FakeSession(),
+        now=datetime(2026, 11, 5, tzinfo=timezone.utc),
+    )
+    metrics = json.loads(paths["fund_metrics"].read_text())
+    metrics["dataset_id"] = "0" * 64
+    paths["fund_metrics"].write_text(json.dumps(metrics))
+    with pytest.raises(FundDataAcquisitionError, match="inconsistent"):
+        load_engine_manifest(tmp_path)
+
+
+def test_engine_paths_are_independent_of_client_data_directory(tmp_path, monkeypatch):
+    from advisor import get_engine_data_paths
+    monkeypatch.setenv("MF_ENGINE_DATA_DIR", str(tmp_path / "engine-store"))
+    monkeypatch.delenv("MF_CLIENT_DATA_DIR", raising=False)
+    paths = get_engine_data_paths()
+    assert paths["fund_metrics"].parent == tmp_path / "engine-store"
+    assert paths["fund_aliases"].parent == tmp_path / "engine-store"
