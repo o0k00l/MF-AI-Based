@@ -93,13 +93,13 @@ class AmfiNavAdapter(BaseSourceAdapter):
                 rejected_rows_count += 1
                 continue
 
-            # Validate numeric NAV
+            # Validate numeric NAV and preserve Decimal precision
             try:
                 nav_dec = Decimal(nav_str)
                 if not nav_dec.is_finite() or nav_dec <= 0:
                     rejected_rows_count += 1
                     continue
-                nav_val = float(nav_dec)
+                nav_val = nav_dec
             except (InvalidOperation, ValueError, TypeError):
                 rejected_rows_count += 1
                 continue
