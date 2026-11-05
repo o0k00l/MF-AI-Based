@@ -1,13 +1,16 @@
 """
 tests/test_financial_data_acquisition.py - Unit and integration tests for acquisition pipeline.
-Issue #110: Test deterministic source retrieval, validation, staging, and atomic rollback.
+Issue #110 & #112: Test deterministic source retrieval, validation, staging, atomic rollback,
+and fail-closed rejection of synthetic or self-attested evidence.
 """
 
 from __future__ import annotations
 
 import hashlib
+import inspect
 import json
 from datetime import date, timedelta
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -68,7 +71,7 @@ def _sample_scheme_master_dict(as_of: date) -> dict:
     }
 
 
-def test_amfi_nav_adapter_parses_valid_feed():
+def test_amfi_nav_adapter_parses_valid_feed_and_preserves_decimal():
     as_of = date.today()
     raw = _sample_amfi_nav_bytes(as_of)
     adapter = AmfiNavAdapter()
@@ -79,7 +82,8 @@ def test_amfi_nav_adapter_parses_valid_feed():
     assert record.record_count == 4
     records = record.parsed_payload
     assert records[0]["scheme_code"] == "119551"
-    assert records[0]["nav"] == 82.4532
+    # Issue #112: Decimal precision must be preserved
+    assert records[0]["nav"] == Decimal("82.4532")
     assert records[0]["isin_growth"] == "INF200K01TX4"
     assert records[0]["isin_reinvestment"] == "INF200K01TY2"
     assert records[2]["isin_reinvestment"] is None
@@ -121,7 +125,7 @@ def test_amfi_scheme_master_adapter_json_and_validation():
     raw = json.dumps(master_dict).encode("utf-8")
 
     adapter = AmfiSchemeMasterAdapter()
-    record = adapter.acquire(as_of, raw_bytes=raw)
+    record = adapter.acquire(as_of, raw_bytes=raw, reviewer_attested=True)
 
     assert record.source_name == "AMFI_SCHEME_MASTER"
     assert record.record_count == 2
@@ -162,7 +166,7 @@ def test_amfi_scheme_master_adapter_rejects_duplicates():
     raw = json.dumps(dup_schemes).encode("utf-8")
     adapter = AmfiSchemeMasterAdapter()
     with pytest.raises(ValueError, match="Duplicate scheme_id"):
-        adapter.acquire(as_of, raw_bytes=raw)
+        adapter.acquire(as_of, raw_bytes=raw, reviewer_attested=True)
 
 
 def test_portfolio_disclosure_adapter_validation():
@@ -173,7 +177,7 @@ def test_portfolio_disclosure_adapter_validation():
     }
     raw = json.dumps(payload).encode("utf-8")
     adapter = PortfolioDisclosureAdapter("scheme-1")
-    record = adapter.acquire(as_of, raw_bytes=raw)
+    record = adapter.acquire(as_of, raw_bytes=raw, reviewer_attested=True)
 
     assert record.record_count == 2
     assert record.parsed_payload["constituent_weights"]["RELIANCE"] == 55.5
@@ -189,7 +193,7 @@ def test_portfolio_disclosure_adapter_rejects_negative_weight():
     raw = json.dumps(payload).encode("utf-8")
     adapter = PortfolioDisclosureAdapter("scheme-1")
     with pytest.raises(ValueError, match="Negative constituent weight"):
-        adapter.acquire(as_of, raw_bytes=raw)
+        adapter.acquire(as_of, raw_bytes=raw, reviewer_attested=True)
 
 
 def test_evidence_bundle_builder_staging_and_atomic_promotion(tmp_path):
@@ -217,8 +221,8 @@ def test_evidence_bundle_builder_staging_and_atomic_promotion(tmp_path):
         "scheme-2": json.dumps(disclosures["scheme-2"]).encode("utf-8"),
     }
     direct_evidence = {
-        "scheme-1": b"direct_pdf_bytes_1",
-        "scheme-2": b"direct_pdf_bytes_2",
+        "scheme-1": b"%PDF-1.4 factsheet 1",
+        "scheme-2": b"%PDF-1.4 factsheet 2",
     }
     candidates = [
         {
@@ -256,13 +260,14 @@ def test_evidence_bundle_builder_staging_and_atomic_promotion(tmp_path):
         as_of,
         scheme_master=master,
         scheme_master_source_bytes=master_bytes,
-        metrics_payload={"funds": []},
+        metrics_payload={"funds": [{"fund_id": "fund-1", "nav": Decimal("82.45")}]},
         metrics_source_bytes=metrics_bytes,
         candidate_universe=candidates,
         candidate_universe_source_bytes=universe_bytes,
         portfolio_disclosures=disclosures,
         portfolio_disclosure_source_bytes=disc_bytes,
         direct_plan_evidence_bytes=direct_evidence,
+        reviewer_attested=True,
     )
 
     assert promoted_dir == target_bundle_dir
@@ -295,7 +300,7 @@ def test_evidence_bundle_builder_atomic_rollback_on_failure(tmp_path):
         as_of,
         scheme_master=master,
         scheme_master_source_bytes=master_bytes,
-        metrics_payload={"funds": []},
+        metrics_payload={"funds": [{"fund_id": "fund-1", "nav": "82.45"}]},
         metrics_source_bytes=b"metrics_1",
         candidate_universe=[{
             "fund_id": "fund-1",
@@ -319,7 +324,8 @@ def test_evidence_bundle_builder_atomic_rollback_on_failure(tmp_path):
             }
         },
         portfolio_disclosure_source_bytes={"scheme-1": b"disc_1"},
-        direct_plan_evidence_bytes={"scheme-1": b"direct_pdf_1"},
+        direct_plan_evidence_bytes={"scheme-1": b"%PDF-1.4 direct 1"},
+        reviewer_attested=True,
     )
     initial_manifest_content = (target_bundle_dir / "manifest.json").read_text(encoding="utf-8")
 
@@ -336,6 +342,7 @@ def test_evidence_bundle_builder_atomic_rollback_on_failure(tmp_path):
             portfolio_disclosures={},
             portfolio_disclosure_source_bytes={},
             direct_plan_evidence_bytes={},
+            reviewer_attested=True,
         )
 
     # Verify initial bundle was NOT mutated or removed
@@ -351,6 +358,37 @@ def test_financial_data_refresh_pipeline_hermetic_success(tmp_path):
     master_bytes = json.dumps(master).encode("utf-8")
     nav_bytes = _sample_amfi_nav_bytes(as_of)
 
+    candidates = [
+        {
+            "fund_id": "fund-1",
+            "fund_name": master["schemes"][0]["scheme_name"],
+            "scheme_id": "scheme-1",
+            "isin": master["schemes"][0]["isin"],
+            "amc_name": master["schemes"][0]["amc_name"],
+            "category": master["schemes"][0]["category"],
+            "benchmark_identity": master["schemes"][0]["benchmark_identity"],
+            "scheme_structure": master["schemes"][0]["scheme_structure"],
+            "plan_type": "Direct",
+            "option_type": "Growth",
+            "riskometer_score": master["schemes"][0]["riskometer_score"],
+            "is_direct": True,
+        },
+        {
+            "fund_id": "fund-2",
+            "fund_name": master["schemes"][1]["scheme_name"],
+            "scheme_id": "scheme-2",
+            "isin": master["schemes"][1]["isin"],
+            "amc_name": master["schemes"][1]["amc_name"],
+            "category": master["schemes"][1]["category"],
+            "benchmark_identity": master["schemes"][1]["benchmark_identity"],
+            "scheme_structure": master["schemes"][1]["scheme_structure"],
+            "plan_type": "Direct",
+            "option_type": "Growth",
+            "riskometer_score": master["schemes"][1]["riskometer_score"],
+            "is_direct": True,
+        },
+    ]
+
     pipeline = FinancialDataRefreshPipeline()
     result = pipeline.refresh(
         bundle_target,
@@ -359,7 +397,18 @@ def test_financial_data_refresh_pipeline_hermetic_success(tmp_path):
             "scheme_master": master_bytes,
             "daily_nav": nav_bytes,
             "metrics": b"scheme_id,nav,alpha\n",
+            "metrics_json": json.dumps({"funds": [{"fund_id": "fund-1", "nav": "82.4532"}]}).encode("utf-8"),
+            "candidate_universe_source": json.dumps(candidates).encode("utf-8"),
+            "disclosures": {
+                "scheme-1": json.dumps({"constituent_weights": {"RELIANCE": 100.0}, "constituent_weights_coverage_pct": 100.0}).encode("utf-8"),
+                "scheme-2": json.dumps({"constituent_weights": {"INFY": 100.0}, "constituent_weights_coverage_pct": 100.0}).encode("utf-8"),
+            },
+            "direct_evidence": {
+                "scheme-1": b"%PDF-1.4 factsheet 1",
+                "scheme-2": b"%PDF-1.4 factsheet 2",
+            },
         },
+        reviewer_attested=True,
     )
 
     assert result.status == "SUCCESS"
@@ -384,7 +433,7 @@ def test_financial_data_refresh_pipeline_future_date_fails_closed(tmp_path):
     bundle_target = tmp_path / "future_bundle"
 
     pipeline = FinancialDataRefreshPipeline()
-    result = pipeline.refresh(bundle_target, future_date)
+    result = pipeline.refresh(bundle_target, future_date, reviewer_attested=True)
 
     assert result.status == "FAILED"
     assert result.bundle_dir is None
@@ -392,3 +441,90 @@ def test_financial_data_refresh_pipeline_future_date_fails_closed(tmp_path):
     assert result.is_atomic_rollback is True
     assert not bundle_target.exists()
 
+
+def test_refresh_pipeline_fails_closed_when_required_source_evidence_is_missing(tmp_path):
+    pipeline = FinancialDataRefreshPipeline()
+    target = tmp_path / "bundle"
+
+    result = pipeline.refresh(target, date.today(), reviewer_attested=True)
+
+    assert result.status == "FAILED"
+    assert result.bundle_dir is None
+    assert result.is_atomic_rollback is True
+    assert "synthetic defaults are prohibited" in " ".join(result.errors)
+    assert not target.exists()
+
+
+def test_refresh_pipeline_does_not_default_reviewer_attestation_to_true():
+    parameter = inspect.signature(FinancialDataRefreshPipeline.refresh).parameters["reviewer_attested"]
+    assert parameter.default is False
+
+
+def test_refresh_pipeline_fails_closed_on_fabricated_text_direct_evidence(tmp_path):
+    as_of = date.today()
+    bundle_target = tmp_path / "bad_pdf_bundle"
+
+    master = _sample_scheme_master_dict(as_of)
+    master_bytes = json.dumps(master).encode("utf-8")
+    nav_bytes = _sample_amfi_nav_bytes(as_of)
+
+    pipeline = FinancialDataRefreshPipeline()
+    result = pipeline.refresh(
+        bundle_target,
+        as_of,
+        hermetic_inputs={
+            "scheme_master": master_bytes,
+            "daily_nav": nav_bytes,
+            "metrics": b"scheme_id,nav,alpha\n",
+            "metrics_json": json.dumps({"funds": [{"fund_id": "fund-1", "nav": "82.4532"}]}).encode("utf-8"),
+            "candidate_universe_source": b"candidate_source",
+            "disclosures": {
+                "scheme-1": json.dumps({"constituent_weights": {"RELIANCE": 100.0}, "constituent_weights_coverage_pct": 100.0}).encode("utf-8"),
+                "scheme-2": json.dumps({"constituent_weights": {"INFY": 100.0}, "constituent_weights_coverage_pct": 100.0}).encode("utf-8"),
+            },
+            "direct_evidence": {
+                "scheme-1": b"fabricated text placeholder",  # Not a PDF!
+                "scheme-2": b"%PDF-1.4 factsheet 2",
+            },
+        },
+        reviewer_attested=True,
+    )
+
+    assert result.status == "FAILED"
+    assert any("PDF direct-plan evidence" in err for err in result.errors)
+    assert not bundle_target.exists()
+
+
+def test_refresh_pipeline_fails_closed_on_empty_metrics_funds(tmp_path):
+    as_of = date.today()
+    bundle_target = tmp_path / "empty_metrics_bundle"
+
+    master = _sample_scheme_master_dict(as_of)
+    master_bytes = json.dumps(master).encode("utf-8")
+    nav_bytes = _sample_amfi_nav_bytes(as_of)
+
+    pipeline = FinancialDataRefreshPipeline()
+    result = pipeline.refresh(
+        bundle_target,
+        as_of,
+        hermetic_inputs={
+            "scheme_master": master_bytes,
+            "daily_nav": nav_bytes,
+            "metrics": b"scheme_id,nav,alpha\n",
+            "metrics_json": b'{"funds": []}',  # Empty funds array!
+            "candidate_universe_source": b"candidate_source",
+            "disclosures": {
+                "scheme-1": json.dumps({"constituent_weights": {"RELIANCE": 100.0}, "constituent_weights_coverage_pct": 100.0}).encode("utf-8"),
+                "scheme-2": json.dumps({"constituent_weights": {"INFY": 100.0}, "constituent_weights_coverage_pct": 100.0}).encode("utf-8"),
+            },
+            "direct_evidence": {
+                "scheme-1": b"%PDF-1.4 factsheet 1",
+                "scheme-2": b"%PDF-1.4 factsheet 2",
+            },
+        },
+        reviewer_attested=True,
+    )
+
+    assert result.status == "FAILED"
+    assert any("non-empty funds array" in err for err in result.errors)
+    assert not bundle_target.exists()

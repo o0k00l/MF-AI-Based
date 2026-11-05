@@ -48,7 +48,7 @@ class FinancialDataRefreshPipeline:
         as_of: date,
         *,
         hermetic_inputs: Optional[Dict[str, bytes]] = None,
-        reviewer_attested: bool = True,
+        reviewer_attested: bool = False,
     ) -> RefreshResult:
         """
         Execute an end-to-end financial data acquisition and bundle refresh.
@@ -82,6 +82,35 @@ class FinancialDataRefreshPipeline:
             )
 
         inputs = hermetic_inputs or {}
+
+        # Issue #112: Fail closed if required source evidence is missing or self-attested
+        if reviewer_attested is not True:
+            errors.append("Explicit reviewer attestation is required; default approval is prohibited.")
+            return RefreshResult(
+                status="FAILED",
+                bundle_dir=None,
+                sources_acquired=[],
+                records_count_by_source={},
+                errors=errors,
+                completed_at=start_time,
+                is_atomic_rollback=True,
+            )
+
+        required_keys = ("metrics", "metrics_json", "candidate_universe_source", "disclosures", "direct_evidence")
+        missing_keys = [k for k in required_keys if not inputs.get(k)]
+        if missing_keys:
+            errors.append(
+                f"Required source evidence is missing; synthetic defaults are prohibited: {', '.join(sorted(missing_keys))}"
+            )
+            return RefreshResult(
+                status="FAILED",
+                bundle_dir=None,
+                sources_acquired=[],
+                records_count_by_source={},
+                errors=errors,
+                completed_at=start_time,
+                is_atomic_rollback=True,
+            )
 
         # 2. Acquire AMFI Scheme Master
         try:
@@ -152,13 +181,17 @@ class FinancialDataRefreshPipeline:
         for scheme in direct_schemes:
             scheme_id = scheme["scheme_id"]
             raw_bytes = disclosures_raw_map.get(scheme_id)
-            if not raw_bytes:
-                # Synthesize standard verified disclosure if not provided in hermetic inputs
-                default_disclosure = {
-                    "constituent_weights": {f"EQUITY_{scheme_id.upper()}": 100.0},
-                    "constituent_weights_coverage_pct": 100.0,
-                }
-                raw_bytes = json.dumps(default_disclosure).encode("utf-8")
+            if not isinstance(raw_bytes, bytes) or not raw_bytes.strip():
+                errors.append(f"Missing original portfolio disclosure bytes for scheme {scheme_id}.")
+                return RefreshResult(
+                    status="FAILED",
+                    bundle_dir=None,
+                    sources_acquired=sources_acquired,
+                    records_count_by_source=counts_by_source,
+                    errors=errors,
+                    completed_at=datetime.now(timezone.utc).isoformat(),
+                    is_atomic_rollback=True,
+                )
 
             disc_adapter = PortfolioDisclosureAdapter(scheme_id)
             try:
@@ -191,7 +224,18 @@ class FinancialDataRefreshPipeline:
 
         for idx, scheme in enumerate(direct_schemes, start=1):
             scheme_id = scheme["scheme_id"]
-            pdf_bytes = direct_evidence_inputs.get(scheme_id, f"AMC factsheet direct evidence for {scheme_id}".encode("utf-8"))
+            pdf_bytes = direct_evidence_inputs.get(scheme_id)
+            if not isinstance(pdf_bytes, bytes) or not pdf_bytes.startswith(b"%PDF-"):
+                errors.append(f"Missing or invalid original PDF direct-plan evidence for scheme {scheme_id}.")
+                return RefreshResult(
+                    status="FAILED",
+                    bundle_dir=None,
+                    sources_acquired=sources_acquired,
+                    records_count_by_source=counts_by_source,
+                    errors=errors,
+                    completed_at=datetime.now(timezone.utc).isoformat(),
+                    is_atomic_rollback=True,
+                )
             direct_evidence_bytes[scheme_id] = pdf_bytes
 
             candidate_record = {
@@ -218,12 +262,32 @@ class FinancialDataRefreshPipeline:
         counts_by_source["REVIEWED_CANDIDATE_UNIVERSE"] = len(candidate_universe)
 
         # 6. Metrics Payload
-        metrics_source_bytes = inputs.get("metrics", b"scheme_id,nav,alpha\n")
-        raw_metrics_json = inputs.get("metrics_json")
-        if raw_metrics_json:
+        metrics_source_bytes = inputs["metrics"]
+        raw_metrics_json = inputs["metrics_json"]
+        try:
             metrics_payload = json.loads(raw_metrics_json.decode("utf-8"))
-        else:
-            metrics_payload = {"funds": []}
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            errors.append(f"Metrics source is not valid UTF-8 JSON: {exc}")
+            return RefreshResult(
+                status="FAILED",
+                bundle_dir=None,
+                sources_acquired=sources_acquired,
+                records_count_by_source=counts_by_source,
+                errors=errors,
+                completed_at=datetime.now(timezone.utc).isoformat(),
+                is_atomic_rollback=True,
+            )
+        if not isinstance(metrics_payload, dict) or not isinstance(metrics_payload.get("funds"), list) or not metrics_payload["funds"]:
+            errors.append("Metrics source must contain a non-empty funds array.")
+            return RefreshResult(
+                status="FAILED",
+                bundle_dir=None,
+                sources_acquired=sources_acquired,
+                records_count_by_source=counts_by_source,
+                errors=errors,
+                completed_at=datetime.now(timezone.utc).isoformat(),
+                is_atomic_rollback=True,
+            )
         sources_acquired.append("OFFICIAL_FUND_METRICS")
         counts_by_source["OFFICIAL_FUND_METRICS"] = len(metrics_payload.get("funds", []))
 

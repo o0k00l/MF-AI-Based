@@ -32,8 +32,13 @@ class EvidenceBundleBuilder:
         self.target_dir = Path(target_bundle_dir).expanduser().resolve()
 
     def _write_json(self, path: Path, data: Any) -> None:
+        from decimal import Decimal
         path.parent.mkdir(parents=True, exist_ok=True)
-        serialized = json.dumps(data, indent=2, sort_keys=True)
+        def decimal_default(obj):
+            if isinstance(obj, Decimal):
+                return str(obj)
+            raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
+        serialized = json.dumps(data, indent=2, sort_keys=True, default=decimal_default)
         path.write_text(serialized, encoding="utf-8")
 
     def _write_bytes(self, path: Path, raw_bytes: bytes) -> None:
@@ -53,9 +58,12 @@ class EvidenceBundleBuilder:
         portfolio_disclosures: Dict[str, Dict[str, Any]],
         portfolio_disclosure_source_bytes: Dict[str, bytes],
         direct_plan_evidence_bytes: Dict[str, bytes],
+        master_source_url: Optional[str] = None,
+        metrics_source_url: Optional[str] = None,
+        universe_source_url: Optional[str] = None,
         aliases_payload: Optional[Dict[str, Any]] = None,
         aliases_source_bytes: Optional[bytes] = None,
-        reviewer_attested: bool = True,
+        reviewer_attested: bool = False,
     ) -> Path:
         """
         Build an evidence bundle in a staging directory, verify its integrity,
@@ -72,7 +80,7 @@ class EvidenceBundleBuilder:
             master_source_sha256 = hashlib.sha256(scheme_master_source_bytes).hexdigest()
 
             normalized_master = dict(scheme_master)
-            normalized_master.setdefault("source_url", "https://amfiindia.com/scheme-details")
+            normalized_master["source_url"] = master_source_url or normalized_master.get("source_url", "https://amfiindia.com/scheme-details")
             normalized_master["source_document_sha256"] = master_source_sha256
             normalized_master["reviewer_attested"] = reviewer_attested
             normalized_master["effective_date"] = as_of.isoformat()
@@ -90,7 +98,7 @@ class EvidenceBundleBuilder:
             normalized_metrics_sha256 = hashlib.sha256(normalized_metrics_bytes).hexdigest()
 
             metrics_metadata = {
-                "source_url": "https://amfiindia.com/metrics",
+                "source_url": metrics_source_url or "https://amfiindia.com/metrics",
                 "source_document_sha256": metrics_source_sha256,
                 "reviewer_attested": reviewer_attested,
                 "effective_date": as_of.isoformat(),
@@ -143,7 +151,7 @@ class EvidenceBundleBuilder:
             universe_source_sha256 = hashlib.sha256(candidate_universe_source_bytes).hexdigest()
 
             candidate_metadata = {
-                "source_url": "https://amfiindia.com/candidate-universe",
+                "source_url": universe_source_url or "https://amfiindia.com/candidate-universe",
                 "source_document_sha256": universe_source_sha256,
                 "reviewer_attested": reviewer_attested,
                 "effective_date": as_of.isoformat(),
