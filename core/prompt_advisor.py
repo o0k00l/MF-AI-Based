@@ -59,22 +59,45 @@ def _clean_markdown(text: str) -> str:
     cleaned = re.sub(r'```\s*$', '', cleaned)
     return cleaned.strip()
 
+
+def sanitize_prompt_for_privacy(text: str, client_name: Optional[str] = None) -> str:
+    """
+    Minimizes and sanitizes investor PII from outbound prompt payloads:
+    - Redacts PAN patterns: [A-Z]{5}[0-9]{4}[A-Z] -> [REDACTED_PAN]
+    - Redacts Email addresses -> [REDACTED_EMAIL]
+    - Redacts Phone numbers -> [REDACTED_PHONE]
+    - Redacts Folio / Account identifiers -> [REDACTED_FOLIO]
+    - Redacts explicit Client names if provided or matched
+    """
+    if not text:
+        return ""
+    s = str(text)
+    s = re.sub(r"\b[A-Z]{5}[0-9]{4}[A-Z]\b", "[REDACTED_PAN]", s, flags=re.IGNORECASE)
+    s = re.sub(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b", "[REDACTED_EMAIL]", s)
+    s = re.sub(r"(?:\+91[\-\s]?)?[6789]\d{9}\b", "[REDACTED_PHONE]", s)
+    s = re.sub(r"(?i)\b(?:folio|acct|account|acc)?\s*[:#-]?\s*(\d{5,16}(?:/\d{1,6})?)\b", "[REDACTED_FOLIO]", s)
+    if client_name and len(str(client_name).strip()) > 1:
+        s = re.sub(re.escape(str(client_name).strip()), "the supplied investor portfolio", s, flags=re.IGNORECASE)
+    return s
+
 def _call_llm_with_retry(
     prompt: str,
     model_name: str = "",
     max_retries: int = 3,
     *,
     external_processing_consent: bool = False,
+    client_name: Optional[str] = None,
 ) -> str:
-    """Call a free provider only after explicit per-request investor consent."""
+    """Call a free provider only after explicit per-request investor consent and prompt sanitization."""
     if external_processing_consent is not True:
         from core.ai_engine import ProviderError
         raise ProviderError(
             "Privacy",
             "External AI processing is blocked: explicit investor consent is required for this request.",
         )
+    sanitized_prompt = sanitize_prompt_for_privacy(prompt, client_name=client_name)
     res = _engine_call_llm(
-        prompt,
+        sanitized_prompt,
         system_instruction=SYSTEM_INSTRUCTION,
         use_cache=False,
         external_processing_consent=external_processing_consent,
@@ -178,7 +201,7 @@ STRUCTURE YOUR REPORT AS FOLLOWS:
 7. Switch Cost Analysis: Report only the supplied scheme-level cost records. Do not infer tax treatment or cite statutory sections without validated source evidence.
 8. Immediate Diagnostic Summary: Clear, actionable summary for the investor.
     """
-    return _call_llm_with_retry(prompt, external_processing_consent=external_processing_consent)
+    return _call_llm_with_retry(prompt, external_processing_consent=external_processing_consent, client_name=facts.client_name)
 
 
 def generate_switch_and_consolidation_plan(
@@ -313,7 +336,7 @@ REPORT REQUIREMENTS:
 6. Show unavailable evidence explicitly and retain all holdings pending independent review where required.
 7. Preserve the mandate state. No action is executable unless all external authorization controls are independently satisfied.
 """
-    return _call_llm_with_retry(prompt, external_processing_consent=external_processing_consent)
+    return _call_llm_with_retry(prompt, external_processing_consent=external_processing_consent, client_name=facts.client_name)
 
 def _validate_lumpsum_plan_for_reporting(plan: Any, requested_amount: Any) -> tuple[bool, str]:
     """Validate basic cash gate and amount reconciliation before exposing tranches."""
@@ -534,7 +557,7 @@ REPORT REQUIREMENTS:
 6. Do not add unsupported TER, alpha, Sharpe, overlap, tax or statutory claims.
 7. Include a concise risk and statutory disclaimer; do not present this report as an order or tax opinion.
 """
-    return _call_llm_with_retry(prompt, external_processing_consent=external_processing_consent)
+    return _call_llm_with_retry(prompt, external_processing_consent=external_processing_consent, client_name=facts.client_name)
 
 def answer_interactive_query(
     facts: FiduciaryFactsPayload,
@@ -544,7 +567,9 @@ def answer_interactive_query(
     external_processing_consent: bool = False,
 ) -> str:
     """Answers ad-hoc interactive questions from the user using full verified context and canonical intent routing."""
-    q_lower = user_query.strip().lower()
+    c_name = getattr(facts, "client_name", None)
+    sanitized_query = sanitize_prompt_for_privacy(user_query, client_name=c_name)
+    q_lower = sanitized_query.strip().lower()
 
     # Intent 1: Switch / Transition / Commission Bleed
     if any(k in q_lower for k in ("should i switch", "is switching worth it", "switch plan", "commission bleed", "broker fee", "regular vs direct", "switch cost")):
@@ -707,7 +732,9 @@ ALL ACTIVE HOLDINGS:
     history_str = ""
     if chat_history:
         for turn in chat_history[-4:]:
-            history_str += f"{turn['role'].upper()}: {turn['content']}\n"
+            turn_role = turn.get("role", "user").upper()
+            turn_content = sanitize_prompt_for_privacy(turn.get("content", ""), client_name=c_name)
+            history_str += f"{turn_role}: {turn_content}\n"
 
     prompt = f"""
 {context_summary}
@@ -716,11 +743,11 @@ CONVERSATION HISTORY:
 {history_str}
 
 USER QUESTION:
-"{user_query}"
+"{sanitized_query}"
 
 Provide an authoritative, practical, and mathematically grounded fiduciary response. Quote exact rupee amounts and fund names where relevant. Explain the underlying financial reasoning clearly.
 """
-    return _call_llm_with_retry(prompt, external_processing_consent=external_processing_consent)
+    return _call_llm_with_retry(prompt, external_processing_consent=external_processing_consent, client_name=c_name)
 
 
 def generate_fiduciary_report(

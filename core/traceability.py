@@ -1,4 +1,5 @@
 from __future__ import annotations
+import re
 import rfc8785
 import uuid
 import hashlib
@@ -55,7 +56,7 @@ class Evidence:
         if not isinstance(self.timestamp, datetime):
             raise ValueError("Evidence timestamp must be an explicit datetime object representing source observation time")
         if self.timestamp.tzinfo != timezone.utc:
-            raise ValueError("Evidence timestamp must have explicit UTC timezone (timezone.utc required; implicit conversion prohibited)")
+            raise ValueError("Evidence timestamp must be timezone-aware with explicit UTC timezone (timezone.utc required; implicit conversion prohibited)")
         if self.confidence is not None:
             if isinstance(self.confidence, bool) or not isinstance(self.confidence, (int, float)):
                 raise ValueError("Evidence confidence must be numeric")
@@ -96,7 +97,7 @@ class Decision:
         if not isinstance(self.timestamp, datetime):
             raise ValueError("Decision timestamp must be a datetime object")
         if self.timestamp.tzinfo != timezone.utc:
-            raise ValueError("Decision timestamp must have explicit UTC timezone (timezone.utc required; implicit conversion prohibited)")
+            raise ValueError("Decision timestamp must be timezone-aware with explicit UTC timezone (timezone.utc required; implicit conversion prohibited)")
         if not isinstance(self.policy_version, str) or not self.policy_version.strip():
             raise ValueError("Explicit running policy_version is required; hardcoded defaults prohibited")
         if not isinstance(self.code_version, str) or not self.code_version.strip():

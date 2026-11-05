@@ -5,6 +5,7 @@ rejecting random, corrupt, or irrelevant files (e.g. utility bills, invoices, bl
 """
 from __future__ import annotations
 
+import hashlib
 import io
 import re
 import warnings
@@ -35,6 +36,13 @@ class StatementValidationResult:
     is_valid: bool
     document_type: str                  # "CAS_EXCEL" | "CAS_PDF" | "CGS_EXCEL" | "INVALID"
     rta_source: str                     # "CAMS" | "KFintech" | "MFCentral" | "Generic Mutual Fund" | "Unknown"
+    structural_validity: bool = False
+    detected_content_publisher: str = "Unknown"
+    publisher_authenticity_status: str = "UNVERIFIED"
+    is_publisher_authenticated: bool = False
+    authenticated_publisher: Optional[str] = None
+    provenance_digest: Optional[str] = None
+    provenance_source: Dict[str, Any] = field(default_factory=dict)
     file_name: str = ""
     file_size_bytes: int = 0
     client_name: Optional[str] = None
@@ -87,12 +95,17 @@ def validate_file_header(file_bytes: bytes, file_name: str) -> Tuple[bool, str, 
 
 def validate_cas_excel(file_bytes: bytes, file_name: str) -> StatementValidationResult:
     """Deep structural validation for CAMS/KFintech/MFCentral CAS Excel workbooks."""
+    digest = hashlib.sha256(file_bytes).hexdigest()
     res = StatementValidationResult(
         is_valid=False,
         document_type="CAS_EXCEL",
         rta_source="Unknown",
         file_name=file_name,
-        file_size_bytes=len(file_bytes)
+        file_size_bytes=len(file_bytes),
+        provenance_digest=digest,
+        structural_validity=False,
+        detected_content_publisher="Unknown",
+        publisher_authenticity_status="UNVERIFIED",
     )
 
     try:
@@ -190,29 +203,43 @@ def validate_cas_excel(file_bytes: bytes, file_name: str) -> StatementValidation
     if res.total_portfolio_value_inr == 0.0:
         res.total_portfolio_value_inr = calculated_total
 
-    # Detect RTA
+    # Detect RTA text keywords in document body
     full_text = " ".join([str(c) for r in rows[:15] for c in r if c is not None]).lower()
     if "cams" in full_text:
         res.rta_source = "CAMS"
+        res.detected_content_publisher = "CAMS"
+        res.publisher_authenticity_status = "UNAUTHENTICATED_DOCUMENT_CONTENT"
     elif "kfintech" in full_text or "karvy" in full_text:
         res.rta_source = "KFintech"
+        res.detected_content_publisher = "KFintech"
+        res.publisher_authenticity_status = "UNAUTHENTICATED_DOCUMENT_CONTENT"
     elif "mfcentral" in full_text:
         res.rta_source = "MFCentral"
+        res.detected_content_publisher = "MFCentral"
+        res.publisher_authenticity_status = "UNAUTHENTICATED_DOCUMENT_CONTENT"
     else:
         res.rta_source = "Unknown"
+        res.detected_content_publisher = "Unknown"
+        res.publisher_authenticity_status = "UNVERIFIED"
 
     res.is_valid = True
+    res.structural_validity = True
     return res
 
 
 def validate_cgs_excel(file_bytes: bytes, file_name: str) -> StatementValidationResult:
     """Deep structural validation for Capital Gains Statement (CGS) workbooks."""
+    digest = hashlib.sha256(file_bytes).hexdigest()
     res = StatementValidationResult(
         is_valid=False,
         document_type="CGS_EXCEL",
         rta_source="Unknown",
         file_name=file_name,
-        file_size_bytes=len(file_bytes)
+        file_size_bytes=len(file_bytes),
+        provenance_digest=digest,
+        structural_validity=False,
+        detected_content_publisher="Unknown",
+        publisher_authenticity_status="UNVERIFIED",
     )
 
     try:
@@ -252,6 +279,7 @@ def validate_cgs_excel(file_bytes: bytes, file_name: str) -> StatementValidation
         return res
 
     res.is_valid = True
+    res.structural_validity = True
     cgs_text = " ".join([
         " ".join([str(c).lower() for c in r if c is not None])
         for sheet_name in wb.sheetnames
@@ -259,12 +287,20 @@ def validate_cgs_excel(file_bytes: bytes, file_name: str) -> StatementValidation
     ])
     if "cams" in cgs_text or "computer age" in cgs_text:
         res.rta_source = "CAMS"
+        res.detected_content_publisher = "CAMS"
+        res.publisher_authenticity_status = "UNAUTHENTICATED_DOCUMENT_CONTENT"
     elif "kfintech" in cgs_text or "karvy" in cgs_text:
         res.rta_source = "KFintech"
+        res.detected_content_publisher = "KFintech"
+        res.publisher_authenticity_status = "UNAUTHENTICATED_DOCUMENT_CONTENT"
     elif "mfcentral" in cgs_text:
         res.rta_source = "MFCentral"
+        res.detected_content_publisher = "MFCentral"
+        res.publisher_authenticity_status = "UNAUTHENTICATED_DOCUMENT_CONTENT"
     else:
         res.rta_source = "Unknown"
+        res.detected_content_publisher = "Unknown"
+        res.publisher_authenticity_status = "UNVERIFIED"
     return res
 
 
@@ -272,12 +308,17 @@ def validate_cas_pdf(file_bytes: bytes, file_name: str, password: Optional[str] 
     """Validates mutual fund CAS PDF files, testing decryption and RTA keyword presence."""
     import pypdf
 
+    digest = hashlib.sha256(file_bytes).hexdigest()
     res = StatementValidationResult(
         is_valid=False,
         document_type="CAS_PDF",
         rta_source="Unknown",
         file_name=file_name,
-        file_size_bytes=len(file_bytes)
+        file_size_bytes=len(file_bytes),
+        provenance_digest=digest,
+        structural_validity=False,
+        detected_content_publisher="Unknown",
+        publisher_authenticity_status="UNVERIFIED",
     )
 
     try:
@@ -329,15 +370,23 @@ def validate_cas_pdf(file_bytes: bytes, file_name: str, password: Optional[str] 
         )
         return res
 
-    # Identify RTA
+    # Identify RTA text markers
     if "cams" in extracted_text or "computer age" in extracted_text:
         res.rta_source = "CAMS"
+        res.detected_content_publisher = "CAMS"
+        res.publisher_authenticity_status = "UNAUTHENTICATED_DOCUMENT_CONTENT"
     elif "kfintech" in extracted_text or "karvy" in extracted_text:
         res.rta_source = "KFintech"
+        res.detected_content_publisher = "KFintech"
+        res.publisher_authenticity_status = "UNAUTHENTICATED_DOCUMENT_CONTENT"
     elif "mfcentral" in extracted_text:
         res.rta_source = "MFCentral"
+        res.detected_content_publisher = "MFCentral"
+        res.publisher_authenticity_status = "UNAUTHENTICATED_DOCUMENT_CONTENT"
     else:
         res.rta_source = "Unknown"
+        res.detected_content_publisher = "Unknown"
+        res.publisher_authenticity_status = "UNVERIFIED"
 
     # Search for PAN pattern
     pan_match = re.search(r"\b([A-Z]{5}[0-9]{4}[A-Z])\b", extracted_text.upper())
@@ -345,6 +394,7 @@ def validate_cas_pdf(file_bytes: bytes, file_name: str, password: Optional[str] 
         res.masked_pan = mask_pan(pan_match.group(1))
 
     res.is_valid = True
+    res.structural_validity = True
     return res
 
 
@@ -358,6 +408,7 @@ def inspect_and_validate_statement(
     Unified entry point for validating any uploaded mutual fund statement.
     Rejects random files, non-statements, and corrupt uploads before ingestion.
     """
+    digest = hashlib.sha256(file_bytes).hexdigest()
     ok, basic_type, err = validate_file_header(file_bytes, file_name)
     if not ok:
         res = StatementValidationResult(
@@ -365,7 +416,11 @@ def inspect_and_validate_statement(
             document_type="INVALID",
             rta_source="Unknown",
             file_name=file_name,
-            file_size_bytes=len(file_bytes)
+            file_size_bytes=len(file_bytes),
+            provenance_digest=digest,
+            structural_validity=False,
+            detected_content_publisher="Unknown",
+            publisher_authenticity_status="UNVERIFIED",
         )
         res.errors.append(err)
         return res
@@ -388,13 +443,18 @@ def inspect_and_validate_statement(
         document_type="INVALID",
         rta_source="Unknown",
         file_name=file_name,
-        file_size_bytes=len(file_bytes)
+        file_size_bytes=len(file_bytes),
+        provenance_digest=digest,
+        structural_validity=False,
+        detected_content_publisher="Unknown",
+        publisher_authenticity_status="UNVERIFIED",
     )
     combined_res.errors.append(
         "❌ Unrecognized Spreadsheet: The uploaded file is not an official CAMS / KFintech / MFCentral CAS or CGS statement. "
         "It lacks the required mutual fund portfolio tables and capital gains tax structures."
     )
     return combined_res
+
 
 def authenticate_statement_provenance(
     result: StatementValidationResult,
@@ -446,6 +506,7 @@ def authenticate_statement_provenance(
     result.is_publisher_authenticated = True
     result.publisher_authenticity_status = "AUTHENTICATED_SOURCE"
     result.authenticated_publisher = publisher
+    result.rta_source = publisher
     result.provenance_source = dict(evidence)
     return result
 

@@ -734,3 +734,30 @@ def test_individual_concentration_uses_fund_minimum_and_combined_selection_uses_
     assert allocation["reconciliation_ok"] is True
     assert Decimal(allocation["allocated_budget_inr"]) <= Decimal("10000")
     assert Decimal(allocation["unallocated_budget_inr"]) + Decimal(allocation["allocated_budget_inr"]) == Decimal("10000")
+
+def test_custom_risk_profile_without_target_fails_closed(tmp_path):
+    args = _inputs(tmp_path)
+    args["risk_profile"] = "Custom"
+    result = service.recommend_sip(**args)
+    assert result["status"] == "HOLD"
+    assert any("HOLD_CUSTOM_SAA_MANDATE_REQUIRED" in r for r in result["reasons"])
+
+
+def test_custom_risk_profile_with_invalid_target_fails_closed(tmp_path):
+    args = _inputs(tmp_path)
+    args["risk_profile"] = "Custom"
+    args["custom_saa_target"] = {"not": "an AssetAllocationTarget"}
+    result = service.recommend_sip(**args)
+    assert result["status"] == "HOLD"
+    assert any("HOLD_CUSTOM_SAA_INVALID" in r for r in result["reasons"])
+
+
+def test_custom_risk_profile_with_valid_target_fails_closed_safely(tmp_path):
+    from core.models import AssetAllocationTarget
+    target = AssetAllocationTarget(equity_pct=70.0, debt_pct=25.0, cash_pct=5.0)
+    args = _inputs(tmp_path)
+    args["risk_profile"] = "Custom"
+    args["custom_saa_target"] = target
+    result = service.recommend_sip(**args)
+    assert result["status"] == "HOLD"
+    assert any("HOLD_CUSTOM_SAA_BLUEPRINT_PENDING" in r for r in result["reasons"])
