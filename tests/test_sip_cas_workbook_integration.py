@@ -284,3 +284,30 @@ def test_recommendation_surfaces_invalid_cas_as_hold_with_full_budget(tmp_path):
         "CAS valuation-date validation failed closed (ValueError)" in reason
         for reason in result["reasons"]
     )
+
+@pytest.mark.parametrize(
+    "weights,coverage",
+    [
+        ({"RELIANCE": True, "HDFCBANK": 50.0}, 100.0),
+        ({"RELIANCE": "50.0", "HDFCBANK": 50.0}, 100.0),
+        ({"RELIANCE": 50.0, " reliance ": 50.0}, 100.0),
+        ({"RELIANCE": 50.0, "HDFCBANK": 50.0}, True),
+        ({"RELIANCE": 50.0, "HDFCBANK": 50.0}, "100.0"),
+    ],
+)
+def test_portfolio_disclosure_rejects_boolean_string_and_duplicate_numeric_inputs(
+    weights, coverage
+):
+    from ingestion.portfolio_disclosure import validate_portfolio_disclosure
+
+    disclosure, source_bytes = _disclosure()
+    disclosure["constituent_weights"] = weights
+    disclosure["constituent_weights_coverage_pct"] = coverage
+
+    result = validate_portfolio_disclosure(
+        disclosure, source_bytes, as_of=AS_OF, max_age_days=45
+    )
+
+    assert result["status"] == "MISSING"
+    assert result["constituent_weights"] is None
+
