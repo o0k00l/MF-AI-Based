@@ -8,8 +8,25 @@ from pathlib import Path
 import os
 
 
+def get_engine_data_paths():
+    """Return engine-owned dataset paths; never resolve these from client files."""
+    from services.engine_fund_data import EngineRuntimeConfig
+
+    data_dir = EngineRuntimeConfig.from_environment().data_dir
+    return {
+        "data_dir": data_dir,
+        "scheme_master": data_dir / "scheme_master.json",
+        "fund_metrics": data_dir / "fund_metrics.json",
+        "fund_aliases": data_dir / "fund_aliases.json",
+        "manifest": data_dir / "manifest.json",
+    }
+
+
 def get_default_paths(client_target: str | Path | None = None, *, as_of=None, max_statement_age_days=None):
-    """Resolve an explicitly configured external client-data directory.
+    """Legacy CAS path resolver; fund datasets are now engine-owned.
+
+    New runtime code must use get_engine_data_paths() for public fund data and
+    must not ask an investor to create fund_metrics.json or fund_aliases.json.
 
     The application never scans the repository for client folders and never
     chooses a default investor. Generated reports stay beside the local data.
@@ -55,8 +72,10 @@ def get_default_paths(client_target: str | Path | None = None, *, as_of=None, ma
         max_age_days=max_statement_age_days,
     )
     cas = selected.path
-    metrics = client_path / "fund_metrics.json"
+    engine_paths = get_engine_data_paths()
+    metrics = engine_paths["fund_metrics"]
+    # Retained for legacy investor-mandate compatibility; not engine config.
     config = client_path / "config.json"
-    aliases = client_path / "fund_aliases.json"
+    aliases = engine_paths["fund_aliases"]
     outputs = client_path / "outputs"
     return cas, metrics, config, aliases, outputs
