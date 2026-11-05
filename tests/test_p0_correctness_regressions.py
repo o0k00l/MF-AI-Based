@@ -2670,3 +2670,46 @@ def test_aggregate_portfolio_diagnostics_hold_when_cas_has_no_active_holdings(mo
             metrics_path=tmp_path / "metrics.json",
             config_path=tmp_path / "client.json",
         )
+
+
+@pytest.mark.parametrize(
+    "authorization_value,remove_flag",
+    [
+        (None, True),
+        (None, False),
+        ("false", False),
+        (0, False),
+        (1, False),
+        (False, False),
+    ],
+)
+def test_tier6_policy_authorization_must_be_explicit_literal_true(
+    monkeypatch, authorization_value, remove_flag
+):
+    """Malformed or permissive policy edits must never enable Tier 6 equity-only routing."""
+    import json
+    from pathlib import Path
+    from core.math_engine import calculate_universal_tier_split
+
+    policy_path = (
+        Path(__file__).resolve().parents[1]
+        / "data"
+        / "policy"
+        / "asset_allocation.json"
+    )
+    original_read_text = Path.read_text
+
+    def patched_read_text(self, *args, **kwargs):
+        if self == policy_path:
+            policy = json.loads(original_read_text(self, *args, **kwargs))
+            sip = policy["behavioral_risk_profiles"]["very_high"]["new_sip_allocation"]
+            if remove_flag:
+                sip.pop("requires_explicit_ips_authorization", None)
+            else:
+                sip["requires_explicit_ips_authorization"] = authorization_value
+            return json.dumps(policy)
+        return original_read_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", patched_read_text)
+    with pytest.raises(ValueError, match="Invalid allocation policy"):
+        calculate_universal_tier_split(6, equity_sip_routing_override=True)
