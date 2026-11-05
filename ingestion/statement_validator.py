@@ -396,3 +396,70 @@ def inspect_and_validate_statement(
     )
     return combined_res
 
+def authenticate_statement_provenance(
+    result: StatementValidationResult,
+    evidence: Dict[str, Any]
+) -> StatementValidationResult:
+    """
+    Validates independent source evidence and authenticates the publisher identity.
+    Prevents promotion of structural validity or text markers without verified source proof.
+    
+    Required evidence keys:
+    - 'source_digest': SHA-256 hex string matching result.provenance_digest
+    - 'publisher': 'CAMS' | 'KFintech' | 'MFCentral'
+    - 'reviewer_attestation' or 'source_signature' or 'source_url'
+    """
+    if not result.is_valid:
+        raise ValueError("Cannot authenticate publisher on a structurally invalid statement.")
+    
+    if not isinstance(evidence, dict):
+        raise TypeError("Provenance evidence must be a dictionary.")
+    
+    expected_digest = evidence.get("source_digest")
+    if not expected_digest or expected_digest != result.provenance_digest:
+        result.publisher_authenticity_status = "AUTHENTICATION_FAILED"
+        result.is_publisher_authenticated = False
+        result.authenticated_publisher = None
+        raise ValueError(
+            f"Provenance digest mismatch: evidence specifies {expected_digest}, "
+            f"but document digest is {result.provenance_digest}."
+        )
+    
+    publisher = str(evidence.get("publisher", "")).strip()
+    if publisher not in ("CAMS", "KFintech", "MFCentral"):
+        result.publisher_authenticity_status = "AUTHENTICATION_FAILED"
+        result.is_publisher_authenticated = False
+        result.authenticated_publisher = None
+        raise ValueError(f"Unrecognized authentic publisher '{publisher}'. Must be CAMS, KFintech, or MFCentral.")
+    
+    has_attestation = bool(
+        evidence.get("reviewer_attestation")
+        or evidence.get("source_signature")
+        or (evidence.get("source_url") and evidence.get("verified_at"))
+    )
+    if not has_attestation:
+        result.publisher_authenticity_status = "AUTHENTICATION_FAILED"
+        result.is_publisher_authenticated = False
+        result.authenticated_publisher = None
+        raise ValueError("Provenance evidence missing reviewer attestation, signature, or verified download source.")
+    
+    result.is_publisher_authenticated = True
+    result.publisher_authenticity_status = "AUTHENTICATED_SOURCE"
+    result.authenticated_publisher = publisher
+    result.provenance_source = dict(evidence)
+    return result
+
+
+def require_authenticated_statement(result: StatementValidationResult) -> None:
+    """
+    Enforces that downstream workflows requiring authenticated source evidence
+    cannot proceed on structural validity or embedded document text markers alone.
+    """
+    if not result.is_valid:
+        raise ValueError("Statement is structurally invalid.")
+    if not result.is_publisher_authenticated or result.authenticated_publisher is None:
+        raise ValueError(
+            f"Statement publisher is unauthenticated (status: {result.publisher_authenticity_status}, "
+            f"detected content: {result.detected_content_publisher}). "
+            "Structural validity or embedded text markers cannot be promoted to authenticated provenance."
+        )

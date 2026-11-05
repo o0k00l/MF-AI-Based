@@ -59,6 +59,8 @@ class AssetAllocationTarget(BaseModel):
     equity_pct: float = Field(ge=0.0, le=100.0)
     debt_pct: float = Field(ge=0.0, le=100.0)
     cash_pct: float = Field(ge=0.0, le=100.0)
+    policy_version: Optional[str] = None
+    policy_digest: Optional[str] = None
 
     @model_validator(mode="after")
     def validate_total_allocation(self) -> "AssetAllocationTarget":
@@ -76,14 +78,63 @@ class AssetAllocationTarget(BaseModel):
 # behavioural-risk SAA profiles used by the SIP engine:
 # Conservative -> SEBI Tier 2 (40/60), Moderate -> Tier 4 (75/25),
 # Aggressive -> Tier 6 (95/5). Custom remains explicit and separately approved.
-def _load_saa_policy_map() -> Dict[RiskTier, AssetAllocationTarget]:
-    """Build the public SAA contract from the single authoritative policy file."""
+_SAA_POLICY_CACHE: Dict[str, Dict[RiskTier, AssetAllocationTarget]] = {}
+_SAA_POLICY_META_CACHE: Dict[str, Dict[str, str]] = {}
+
+
+def get_saa_policy_metadata(policy_path: Optional[Path] = None, force_reload: bool = False) -> Dict[str, str]:
+    """Returns authoritative policy version, SHA-256 digest, and canonical path."""
+    import hashlib
     import json
     from pathlib import Path
 
-    policy_path = Path(__file__).resolve().parents[1] / "data" / "policy" / "asset_allocation.json"
+    path = policy_path or (Path(__file__).resolve().parents[1] / "data" / "policy" / "asset_allocation.json")
+    cache_key = str(path.resolve()) if path.exists() else str(path)
+    if not force_reload and cache_key in _SAA_POLICY_META_CACHE and policy_path is None:
+        return _SAA_POLICY_META_CACHE[cache_key]
+
+    if not path.is_file():
+        raise RuntimeError(f"Authoritative asset-allocation policy is missing at {path}")
+
     try:
-        policy = json.loads(policy_path.read_text(encoding="utf-8"))
+        raw_bytes = path.read_bytes()
+        digest = hashlib.sha256(raw_bytes).hexdigest()
+        policy = json.loads(raw_bytes.decode("utf-8"))
+        version = str(policy.get("as_of", policy.get("version", "UNKNOWN")))
+        meta = {"policy_version": version, "policy_digest": digest, "policy_path": str(path)}
+        _SAA_POLICY_META_CACHE[cache_key] = meta
+        return meta
+    except Exception as exc:
+        raise RuntimeError(f"Authoritative asset-allocation policy at {path} is invalid: {exc}") from exc
+
+
+def load_saa_policy_map(
+    policy_path: Optional[Path] = None,
+    force_reload: bool = False
+) -> Dict[RiskTier, AssetAllocationTarget]:
+    """
+    Build the public SAA contract dynamically from the single authoritative policy file.
+    Attaches policy_version and policy_digest to every target.
+    Fails closed if the policy file is missing, malformed, or out of schema.
+    """
+    import hashlib
+    import json
+    from pathlib import Path
+
+    path = policy_path or (Path(__file__).resolve().parents[1] / "data" / "policy" / "asset_allocation.json")
+    cache_key = str(path.resolve()) if path.exists() else str(path)
+
+    if not force_reload and cache_key in _SAA_POLICY_CACHE and policy_path is None:
+        return _SAA_POLICY_CACHE[cache_key]
+
+    if not path.is_file():
+        raise RuntimeError(f"Authoritative asset-allocation policy is missing at {path}")
+
+    try:
+        raw_bytes = path.read_bytes()
+        digest = hashlib.sha256(raw_bytes).hexdigest()
+        policy = json.loads(raw_bytes.decode("utf-8"))
+        version = str(policy.get("as_of", policy.get("version", "UNKNOWN")))
         profiles = policy["behavioral_risk_profiles"]
         profile_by_risk = {
             RiskTier.CONSERVATIVE: "low_to_moderate",
@@ -92,6 +143,8 @@ def _load_saa_policy_map() -> Dict[RiskTier, AssetAllocationTarget]:
         }
         result: Dict[RiskTier, AssetAllocationTarget] = {}
         for risk, profile_name in profile_by_risk.items():
+            if profile_name not in profiles:
+                raise ValueError(f"Missing risk profile '{profile_name}' in asset allocation policy")
             targets = profiles[profile_name]["saa_targets"]
             equity = sum(float(targets[key]) for key in (
                 "large_cap_pct", "mid_cap_pct", "small_cap_pct", "flexi_multi_cap_pct"
@@ -100,13 +153,47 @@ def _load_saa_policy_map() -> Dict[RiskTier, AssetAllocationTarget]:
                 equity_pct=equity,
                 debt_pct=float(targets["debt_liquid_pct"]),
                 cash_pct=float(targets.get("cash_pct", 0.0)),
+                policy_version=version,
+                policy_digest=digest,
             )
+        _SAA_POLICY_CACHE[cache_key] = result
         return result
     except (OSError, ValueError, TypeError, KeyError) as exc:
-        raise RuntimeError("Authoritative asset-allocation policy is missing or invalid") from exc
+        raise RuntimeError(f"Authoritative asset-allocation policy is missing or invalid: {exc}") from exc
 
 
-SAA_POLICY_MAP = _load_saa_policy_map()
+def _load_saa_policy_map() -> Dict[RiskTier, AssetAllocationTarget]:
+    return load_saa_policy_map()
+
+
+class _DynamicSaaPolicyMap(dict):
+    """Dynamic mapping that resolves from authoritative policy on access and supports dict operations."""
+    def __getitem__(self, item):
+        return load_saa_policy_map()[item]
+
+    def __contains__(self, item):
+        return item in load_saa_policy_map()
+
+    def __iter__(self):
+        return iter(load_saa_policy_map())
+
+    def __len__(self):
+        return len(load_saa_policy_map())
+
+    def get(self, item, default=None):
+        return load_saa_policy_map().get(item, default)
+
+    def items(self):
+        return load_saa_policy_map().items()
+
+    def values(self):
+        return load_saa_policy_map().values()
+
+    def keys(self):
+        return load_saa_policy_map().keys()
+
+
+SAA_POLICY_MAP = _DynamicSaaPolicyMap()
 
 
 class HoldingItem(BaseModel):
@@ -303,6 +390,8 @@ class DeterministicSIPPlan(BaseModel):
     equity_sip_pct: float
     debt_sip_pct: float
     items: List[DeterministicSIPRecommendation] = Field(default_factory=list)
+    policy_version: Optional[str] = None
+    policy_digest: Optional[str] = None
     mandate_state: MandateExecutionState = MandateExecutionState.HOLD_PENDING_TRI_VALIDATION
     is_execution_authorized: bool = False
     is_actionable_order: bool = False
@@ -557,6 +646,8 @@ class SAA_DriftMinimizer(BaseModel):
     drift_after_sip: Dict[str, float]
     total_drift_l2_norm: float
     disclaimer: str = "This minimizes allocation drift only. Does NOT consider expected returns, correlations, or tax efficiency."
+    policy_version: Optional[str] = None
+    policy_digest: Optional[str] = None
 
 
 # Backward compatibility aliases

@@ -704,16 +704,26 @@ def _asset_class_to_risk_tier(asset_class: AssetClass) -> Optional[str]:
 # Import the new simplified SAA utilities
 from core.models import RiskTier, AssetAllocationTarget, SAA_POLICY_MAP
 
-def get_target_allocation(tier: RiskTier, custom_target: AssetAllocationTarget = None) -> AssetAllocationTarget:
+def get_target_allocation(
+    tier: RiskTier,
+    custom_target: Optional[AssetAllocationTarget] = None,
+    policy_path: Optional[Path] = None,
+) -> AssetAllocationTarget:
     """
-    Returns the exact target allocation based on the 3+1 logic.
+    Returns the exact target allocation based on the 3+1 logic from the authoritative policy.
+    Carries authoritative policy_version and policy_digest.
+    Fails closed if tier is CUSTOM and custom_target is not explicitly provided.
     """
     if tier == RiskTier.CUSTOM:
         if not custom_target:
             raise ValueError("Custom Tier selected but no custom target provided.")
         return custom_target
-        
-    return SAA_POLICY_MAP[tier]
+
+    from core.models import load_saa_policy_map
+    policy_map = load_saa_policy_map(policy_path=policy_path)
+    if tier not in policy_map:
+        raise ValueError(f"Unrecognized RiskTier: {tier}")
+    return policy_map[tier]
 
 
 def load_holdings_from_cas_excel(
@@ -2606,7 +2616,8 @@ def calculate_switch_cost_analysis(
 def calculate_saa_drift_minimizer(
     holdings: List[HoldingItem],
     target_allocation: Dict[str, float],
-    sip_budget_inr: float
+    sip_budget_inr: float,
+    policy_path: Optional[Path] = None,
 ) -> SAA_DriftMinimizer:
     if not holdings:
         raise ValueError("SAA diagnostics are unavailable: no verified active holdings were supplied")
@@ -2747,13 +2758,22 @@ def calculate_saa_drift_minimizer(
     drift = {k: projected_alloc.get(k, 0) - target_pct.get(k, 0) for k in target_pct}
     l2_norm = math.sqrt(sum(d * d for d in drift.values()))
     
+    policy_meta = {}
+    try:
+        from core.models import get_saa_policy_metadata
+        policy_meta = get_saa_policy_metadata(policy_path=policy_path)
+    except Exception:
+        pass
+
     return SAA_DriftMinimizer(
         current_allocation=current_pct,
         target_allocation=target_pct,
         sip_budget_inr=sip_budget_inr,
         recommended_sip_allocation=sip_alloc,
         drift_after_sip=drift,
-        total_drift_l2_norm=round(l2_norm, 2)
+        total_drift_l2_norm=round(l2_norm, 2),
+        policy_version=policy_meta.get("policy_version"),
+        policy_digest=policy_meta.get("policy_digest"),
     )
 
 
@@ -4598,6 +4618,7 @@ def compute_deterministic_sip_blueprint(
     disclosure_as_of_date: Optional[date] = None,
     disclosure_max_age_days: int = 45,
     client_aum_verified: bool = False,
+    policy_path: Optional[Path] = None,
 ) -> DeterministicSIPPlan:
     """
     Computes deterministic SIP blueprint dynamically tailored across all SEBI risk tiers
@@ -4644,11 +4665,13 @@ def compute_deterministic_sip_blueprint(
                 "are not treated as the complete investor portfolio."
             ),
         )
-    policy_path = Path(__file__).resolve().parents[1] / "data" / "policy" / "asset_allocation.json"
-    if not policy_path.is_file():
-        raise ValueError(f"Required allocation policy file is missing: {policy_path}")
+    policy_file = policy_path or (Path(__file__).resolve().parents[1] / "data" / "policy" / "asset_allocation.json")
+    if not policy_file.is_file():
+        raise ValueError(f"Required allocation policy file is missing: {policy_file}")
     try:
-        allocation_policy = json.loads(policy_path.read_text(encoding="utf-8"))
+        from core.models import get_saa_policy_metadata
+        policy_meta = get_saa_policy_metadata(policy_path=policy_file)
+        allocation_policy = json.loads(policy_file.read_text(encoding="utf-8"))
         satellite_policy = allocation_policy["thematic_satellite_policy"]
         max_satellite_pct = float(satellite_policy["max_pct_of_equity"])
     except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
@@ -5050,7 +5073,9 @@ def compute_deterministic_sip_blueprint(
         unallocated_budget_inr=unallocated_budget,
         equity_sip_pct=target_eq,
         debt_sip_pct=target_debt,
-        items=items
+        items=items,
+        policy_version=policy_meta.get("policy_version"),
+        policy_digest=policy_meta.get("policy_digest"),
     )
 
     from core.eligibility import validate_thematic_satellite_cap, validate_direct_sip_mandate
