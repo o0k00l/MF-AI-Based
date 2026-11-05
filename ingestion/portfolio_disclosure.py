@@ -249,6 +249,7 @@ def resolve_scheme_identity(
         return unresolved("Matched master record has no ISIN; identity is not accepted.")
     raw_plan = record.get("plan_type")
     raw_option = record.get("option_type")
+    raw_category = record.get("category")
     raw_riskometer = record.get("riskometer_score")
     if (isinstance(raw_riskometer, bool) or not isinstance(raw_riskometer, int)
             or not 1 <= raw_riskometer <= 6):
@@ -257,6 +258,7 @@ def resolve_scheme_identity(
     option_map = {"growth": "GROWTH", "idcw": "IDCW"}
     plan_type = plan_map.get(str(raw_plan or "").strip().casefold())
     option_type = option_map.get(str(raw_option or "").strip().casefold())
+    category = str(raw_category or "").strip() or None
     if plan_type and option_type:
         plan_option_status = "VERIFIED"
     elif raw_plan is not None or raw_option is not None:
@@ -267,6 +269,8 @@ def resolve_scheme_identity(
         "status": "VERIFIED",
         "scheme_id": scheme_id.strip(),
         "isin": isin.strip(),
+        "amc_name": record.get("amc_name", "").strip(),
+        "category": category,
         "plan_type": plan_type,
         "option_type": option_type,
         "plan_option_status": plan_option_status,
