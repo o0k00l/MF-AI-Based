@@ -11,15 +11,16 @@ metrics; this module deliberately does not invent them.
 """
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
-from datetime import date, datetime, timezone
+from dataclasses import dataclass
+from datetime import datetime, timezone
 import hashlib
 import json
 import os
 from pathlib import Path
 import re
 import tempfile
-from typing import Any, Iterable
+from decimal import Decimal, InvalidOperation
+from typing import Any
 from urllib.parse import urlparse
 
 import requests
@@ -87,6 +88,7 @@ def acquire_amfi_nav_feed(
     url: str = AMFI_NAV_FEED_URL,
     timeout_seconds: float = 20.0,
     now: datetime | None = None,
+    user_agent: str = "MF-Engine/1.0 (public-data acquisition)",
 ) -> AcquiredFeed:
     """Download AMFI's NAV feed and preserve the exact source bytes and digest."""
     _validate_source_url(url)
@@ -100,7 +102,7 @@ def acquire_amfi_nav_feed(
         response = client.get(
             url,
             timeout=float(timeout_seconds),
-            headers={"User-Agent": "MF-Engine/1.0 (public-data acquisition)"},
+            headers={"User-Agent": user_agent},
         )
         response.raise_for_status()
         content = response.content
@@ -161,10 +163,10 @@ def parse_amfi_nav_feed(content: bytes) -> list[dict[str, Any]]:
         except ValueError as exc:
             raise FundDataAcquisitionError(f"Invalid NAV date at line {line_number}") from exc
         try:
-            nav = float(nav_raw)
-        except ValueError as exc:
+            nav = Decimal(nav_raw)
+        except (InvalidOperation, ValueError) as exc:
             raise FundDataAcquisitionError(f"Invalid NAV value at line {line_number}") from exc
-        if not (nav > 0 and nav < float("inf")):
+        if not nav.is_finite() or nav <= 0:
             raise FundDataAcquisitionError(f"NAV must be finite and positive at line {line_number}")
 
         isins = {
@@ -175,7 +177,7 @@ def parse_amfi_nav_feed(content: bytes) -> list[dict[str, Any]]:
             "amfi_scheme_code": scheme_code,
             "isin_values": sorted(isins),
             "scheme_name_raw": scheme_name,
-            "nav": format(nav, ".10g"),
+            "nav": format(nav.normalize(), "f"),
             "nav_date": nav_date.isoformat(),
         })
 
@@ -271,6 +273,7 @@ def refresh_engine_fund_data(
         session=session,
         timeout_seconds=config.request_timeout_seconds,
         now=now,
+        user_agent=config.user_agent,
     )
     artifacts = build_public_fund_artifacts(feed)
     # Each artifact embeds the same source digest; the manifest is written last
@@ -283,6 +286,14 @@ def refresh_engine_fund_data(
     for name, path in output_paths.items():
         _atomic_write_json(path, artifacts[name])
 
+    source_dir = config.data_dir / "sources"
+    source_dir.mkdir(parents=True, exist_ok=True)
+    source_path = source_dir / f"amfi-nav-{feed.sha256}.txt"
+    if not source_path.exists():
+        temp_source = source_dir / f".{source_path.name}.tmp"
+        temp_source.write_bytes(feed.content)
+        os.replace(temp_source, source_path)
+
     manifest = {
         "schema": _DATASET_SCHEMA,
         "dataset_id": feed.sha256,
@@ -290,6 +301,7 @@ def refresh_engine_fund_data(
         "retrieved_at": feed.retrieved_at,
         "source_url": feed.url,
         "source_sha256": feed.sha256,
+        "source_file": str(source_path.relative_to(config.data_dir)),
         "artifacts": {name: path.name for name, path in output_paths.items()},
         "promotion_eligible": False,
         "promotion_blockers": [
@@ -318,4 +330,30 @@ def load_engine_manifest(data_dir: Path) -> dict[str, Any]:
         raise FundDataAcquisitionError("Engine fund-data manifest is unreadable or invalid") from exc
     if not isinstance(manifest, dict) or manifest.get("schema") != _DATASET_SCHEMA:
         raise FundDataAcquisitionError("Engine fund-data manifest schema is unsupported")
+    if manifest.get("status") == "ACQUIRED_UNVERIFIED":
+        dataset_id = manifest.get("dataset_id")
+        artifacts = manifest.get("artifacts")
+        if not isinstance(dataset_id, str) or not isinstance(artifacts, dict):
+            raise FundDataAcquisitionError("Engine fund-data manifest is incomplete")
+        for name in ("scheme_master", "fund_metrics", "fund_aliases"):
+            relative = artifacts.get(name)
+            if not isinstance(relative, str) or Path(relative).name != relative:
+                raise FundDataAcquisitionError(f"Invalid artifact path for {name}")
+            try:
+                artifact = json.loads((Path(data_dir) / relative).read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as exc:
+                raise FundDataAcquisitionError(f"Engine fund-data artifact {name} is missing or invalid") from exc
+            if not isinstance(artifact, dict) or artifact.get("dataset_id") != dataset_id:
+                raise FundDataAcquisitionError(f"Engine fund-data snapshot is inconsistent for {name}")
+        source_relative = manifest.get("source_file")
+        if not isinstance(source_relative, str) or Path(source_relative).is_absolute():
+            raise FundDataAcquisitionError("Engine fund-data source path is invalid")
+        source_path = (Path(data_dir) / source_relative).resolve()
+        try:
+            source_path.relative_to(Path(data_dir).resolve())
+            source_digest = hashlib.sha256(source_path.read_bytes()).hexdigest()
+        except (OSError, ValueError) as exc:
+            raise FundDataAcquisitionError("Original AMFI source bytes are missing or outside the data store") from exc
+        if source_digest != dataset_id:
+            raise FundDataAcquisitionError("Original AMFI source digest does not match the dataset manifest")
     return manifest
