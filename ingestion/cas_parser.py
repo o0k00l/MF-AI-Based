@@ -538,6 +538,9 @@ def _validate_financial_fields(r: dict, row_index: int) -> tuple[dict, list[str]
                 if math.isnan(fval) or math.isinf(fval):
                     errors.append(f"Row {row_index}: Field '{field_name}' is non-finite: {value}")
                     validated[field_name] = None
+                elif fval < 0:
+                    errors.append(f"Row {row_index}: Negative value for field '{field_name}': {value}")
+                    validated[field_name] = None
                 else:
                     validated[field_name] = fval
             except (ValueError, TypeError):
@@ -546,6 +549,9 @@ def _validate_financial_fields(r: dict, row_index: int) -> tuple[dict, list[str]
         elif isinstance(value, (int, float)):
             if math.isnan(value) or math.isinf(value):
                 errors.append(f"Row {row_index}: Field '{field_name}' is non-finite: {value}")
+                validated[field_name] = None
+            elif value < 0:
+                errors.append(f"Row {row_index}: Negative value for field '{field_name}': {value}")
                 validated[field_name] = None
             else:
                 validated[field_name] = float(value)
@@ -564,6 +570,10 @@ def _validate_financial_fields(r: dict, row_index: int) -> tuple[dict, list[str]
                     errors.append(f"Row {row_index}: NAV is non-finite: {nav}")
                     validated["nav"] = None
                     validated["nav_is_derived"] = False
+                elif fval < 0:
+                    errors.append(f"Row {row_index}: Negative value for NAV: {nav}")
+                    validated["nav"] = None
+                    validated["nav_is_derived"] = False
                 else:
                     validated["nav"] = fval
                     validated["nav_is_derived"] = False
@@ -574,6 +584,10 @@ def _validate_financial_fields(r: dict, row_index: int) -> tuple[dict, list[str]
         elif isinstance(nav, (int, float)):
             if math.isnan(nav) or math.isinf(nav):
                 errors.append(f"Row {row_index}: NAV is non-finite: {nav}")
+                validated["nav"] = None
+                validated["nav_is_derived"] = False
+            elif nav < 0:
+                errors.append(f"Row {row_index}: Negative value for NAV: {nav}")
                 validated["nav"] = None
                 validated["nav_is_derived"] = False
             else:
@@ -606,6 +620,8 @@ def to_cache_csv(parsed: dict, enriched: bool = False, strict: bool = True) -> s
         validated, errors = _validate_financial_fields(r, idx + 1)
         if errors:
             all_errors.extend(errors)
+            if not strict:
+                continue
         valid_rows.append(validated)
     
     if strict and all_errors:
@@ -1256,10 +1272,27 @@ def detect_active_sips_from_cas(
     active_sips = []
     total_monthly = 0.0
     unverified_patterns = []
+    usable_dates = []
 
     for (folio, scheme), items in by_scheme.items():
         items.sort(key=lambda x: x[0])
-        valid_items = [(d, amt, desc, has_sip) for d, amt, desc, has_sip in items if d <= ref_date]
+        # Enforce both as_of upper bound and max_history_days bounded history window
+        valid_items = []
+        for d, amt, desc, has_sip in items:
+            if d > ref_date:
+                continue
+            age_days = (ref_date - d).days
+            if age_days > max_history_days:
+                rejected_transactions.append({
+                    "date": d.isoformat(),
+                    "reason": "outside_history_window",
+                    "amount": float(amt),
+                    "description": desc,
+                })
+                continue
+            valid_items.append((d, amt, desc, has_sip))
+            usable_dates.append(d)
+
         if len(valid_items) < 2:
             continue
 
@@ -1278,7 +1311,8 @@ def detect_active_sips_from_cas(
             })
             continue
 
-        any_sip_evidence = last_has_sip or prev_has_sip
+        # Require continuous mandate classification across qualifying installments
+        both_have_sip_evidence = last_has_sip and prev_has_sip
 
         is_exact = abs(last_amt - prev_amt) <= 1.0
         is_step_up = (last_amt > prev_amt) and (20 <= delta <= 40) and (
@@ -1295,12 +1329,12 @@ def detect_active_sips_from_cas(
                 else:
                     break
 
-            if any_sip_evidence:
+            if both_have_sip_evidence:
                 confidence = "VERIFIED"
-                confidence_note = "SIP mandate evidence found in transaction description"
+                confidence_note = "Explicit SIP mandate evidence confirmed across qualifying installments"
             else:
                 confidence = "UNVERIFIED"
-                confidence_note = "Recurring pattern detected but no explicit SIP mandate evidence - may be manual purchases"
+                confidence_note = "Recurring payment pattern detected without continuous explicit mandate evidence"
 
             sip_entry = {
                 "scheme": scheme,
@@ -1340,13 +1374,13 @@ def detect_active_sips_from_cas(
                     else:
                         break
 
-                case2_has_sip = prev_has_sip or p_prev_has_sip
-                if case2_has_sip:
+                case2_both_have_sip = prev_has_sip and p_prev_has_sip
+                if case2_both_have_sip:
                     confidence = "VERIFIED"
-                    confidence_note = "SIP mandate evidence found in transaction description"
+                    confidence_note = "Explicit SIP mandate evidence confirmed across qualifying installments"
                 else:
                     confidence = "UNVERIFIED"
-                    confidence_note = "Recurring pattern detected but no explicit SIP mandate evidence - may be manual purchases"
+                    confidence_note = "Recurring payment pattern detected without continuous explicit mandate evidence"
 
                 sip_entry = {
                     "scheme": scheme,
@@ -1369,14 +1403,25 @@ def detect_active_sips_from_cas(
     active_sips.sort(key=lambda x: x["monthly_amount"], reverse=True)
     unverified_patterns.sort(key=lambda x: x["monthly_amount"], reverse=True)
 
-    usable_count = sum(len(items) for items in by_scheme.values())
+    usable_count = len(usable_dates)
+    earliest_date = min(usable_dates, default=None)
+    latest_date = max(usable_dates, default=None)
+    window_days = (ref_date - earliest_date).days if earliest_date else 0
+    history_status = "SUFFICIENT" if usable_count >= 2 else "INSUFFICIENT"
+
     history_coverage = {
         "total_transactions": total_input,
         "usable_transactions": usable_count,
         "rejected_count": len(rejected_transactions) + malformed_dates,
+        "history_status": history_status,
+        "history_window_days": window_days,
+        "max_history_days": max_history_days,
+        "earliest_transaction_date": earliest_date.isoformat() if earliest_date else None,
+        "latest_transaction_date": latest_date.isoformat() if latest_date else None,
         "coverage_note": (
-            f"{usable_count} of {total_input} transactions usable. "
-            f"{len(rejected_transactions)} rejected, {malformed_dates} malformed dates."
+            f"{usable_count} of {total_input} transactions usable in {max_history_days}-day window. "
+            f"{len(rejected_transactions)} rejected, {malformed_dates} malformed dates. "
+            f"History status: {history_status}."
             if total_input > 0 else "No transactions provided."
         ),
     }
@@ -1393,6 +1438,7 @@ def detect_active_sips_from_cas(
             "rejected_future_dated": sum(1 for r in rejected_transactions if r["reason"] == "future_dated_transaction"),
             "rejected_non_sip": sum(1 for r in rejected_transactions if r["reason"] == "non_sip_transaction_type"),
             "rejected_stale": sum(1 for r in rejected_transactions if r["reason"] == "stale_or_future_dated"),
+            "rejected_outside_history_window": sum(1 for r in rejected_transactions if r["reason"] == "outside_history_window"),
             "malformed_dates": malformed_dates,
             "rejected_details": rejected_transactions,
         },

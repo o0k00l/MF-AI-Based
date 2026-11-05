@@ -551,6 +551,7 @@ def calculate_lookthrough_exposure(
     holdings: Iterable[Mapping[str, Any]],
     *,
     required_coverage_pct: Any,
+    security_master: Optional[Mapping[str, Any]] = None,
 ) -> dict[str, Any]:
     """Aggregate constituent exposure from portfolio-weighted scheme look-through."""
     required = _decimal(required_coverage_pct, "required_coverage_pct")
@@ -577,14 +578,16 @@ def calculate_lookthrough_exposure(
         if coverage < 100 and not constituents:
             continue
         disclosed_weight_total = Decimal("0")
+        from core.security_master import normalize_security_identifier
         for issuer, weight_raw in constituents.items():
             if not isinstance(issuer, str) or not issuer.strip():
                 raise PortfolioInputError("invalid issuer identifier")
+            canon_issuer, _ = normalize_security_identifier(issuer, security_master=security_master)
             weight = _decimal(weight_raw, f"constituent[{issuer}]")
             if weight < 0 or weight > 100:
                 raise PortfolioInputError("constituent weight must be between 0 and 100")
             disclosed_weight_total += weight
-            issuer_exposure[issuer] = issuer_exposure.get(issuer, Decimal("0")) + value * weight / 100
+            issuer_exposure[canon_issuer] = issuer_exposure.get(canon_issuer, Decimal("0")) + value * weight / 100
         if coverage >= required and abs(disclosed_weight_total - Decimal("100")) > Decimal("0.5"):
             raise PortfolioInputError("constituent weights do not reconcile to reported coverage")
     if total_value <= 0:

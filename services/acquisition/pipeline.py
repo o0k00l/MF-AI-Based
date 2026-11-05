@@ -281,3 +281,4 @@ class FinancialDataRefreshPipeline:
             completed_at=datetime.now(timezone.utc).isoformat(),
             is_atomic_rollback=False,
         )
+

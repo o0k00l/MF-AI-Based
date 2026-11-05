@@ -234,3 +234,4 @@ class EvidenceBundleBuilder:
             raise IOError(f"Atomic promotion failed; restored prior bundle state: {exc}") from exc
 
         return self.target_dir
+

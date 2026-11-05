@@ -78,3 +78,4 @@ flowchart TD
    - Verify upstream source availability (`https://www.amfiindia.com/spages/NAVAll.txt`).
    - If upstream published malformed data, retain the existing bundle until upstream rectifies the feed.
    - Use hermetic fixtures to verify that local code parser rules have not drifted from regulatory schema updates.
+

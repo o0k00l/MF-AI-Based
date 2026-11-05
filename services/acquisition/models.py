@@ -37,3 +37,4 @@ class RefreshResult:
     errors: List[str] = field(default_factory=list)
     completed_at: Optional[str] = None
     is_atomic_rollback: bool = False
+

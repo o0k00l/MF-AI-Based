@@ -125,7 +125,7 @@
       "rule_classification": "RESEARCH_HEURISTIC"
     },
     {
-      "id": "RISKOMETER_MISMATCH",
+      "id": "RISKOMETER_EXCEEDS_STATUTORY_MAX",
       "test": "riskometer_score > 6",
       "action": "REJECT",
       "severity": "blocking",
@@ -352,7 +352,7 @@
       "rule_classification": "RESEARCH_HEURISTIC"
     },
     {
-      "id": "RISKOMETER_MISMATCH",
+      "id": "RISKOMETER_EXCEEDS_DEFAULT_CEILING",
       "test": "riskometer_score > 4",
       "action": "REJECT",
       "severity": "blocking",
@@ -365,7 +365,7 @@
       "test": "aum_cr < 50.0",
       "action": "FLAG",
       "severity": "high",
-      "rationale": "Fund AUM is below institutional threshold (₹50 Cr for retail diversified equity / ₹5 Cr statutory VR cut-off). High risk of expense bleed, illiquidity, and scheme wind-up.",
+      "rationale": "Fund AUM is below institutional threshold (\u20b950 Cr for retail diversified equity / \u20b95 Cr statutory VR cut-off). High risk of expense bleed, illiquidity, and scheme wind-up.",
       "rule_classification": "RESEARCH_HEURISTIC"
     },
     {

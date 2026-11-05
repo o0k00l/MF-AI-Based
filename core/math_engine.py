@@ -2912,7 +2912,8 @@ def find_client_direct_folio(holdings: Optional[List[HoldingItem]], category_key
 def compute_candidate_portfolio_overlap(
     cand: Dict[str, Any],
     holdings: Optional[List[HoldingItem]] = None,
-    candidate_universe: Optional[List[Dict[str, Any]]] = None
+    candidate_universe: Optional[List[Dict[str, Any]]] = None,
+    security_master: Optional[Dict[str, Any]] = None,
 ) -> Optional[float]:
     """
     Calculate candidate-to-portfolio overlap from explicit constituent weights.
@@ -2935,7 +2936,8 @@ def compute_candidate_portfolio_overlap(
             return None
         try:
             coverage = float(coverage_raw)
-            weights = {str(k).strip().casefold(): float(v) for k, v in raw.items()}
+            from core.security_master import normalize_constituent_weights
+            weights, _ = normalize_constituent_weights(raw, security_master=security_master, strict=False)
         except (TypeError, ValueError):
             return None
         if not math.isfinite(coverage) or coverage < 99.5 or coverage > 100.0:
