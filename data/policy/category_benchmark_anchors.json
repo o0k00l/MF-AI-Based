@@ -1,0 +1,101 @@
+{
+  "schema_version": "1.0",
+  "policy_version": "2026-10-30",
+  "effective_date": "2026-10-30",
+  "reviewer_id": "POLICY_REVIEWER_001",
+  "reviewer_attested": true,
+  "source_authority": "SEBI / AMFI Category Classification Standard & NSE Benchmark TRI",
+  "categories": {
+    "Healthcare": {
+      "benchmark_identity": "NIFTY PHARMA TRI",
+      "observation_period_years": 3,
+      "anchor_set": {
+        "alpha": [0.0, 10.0],
+        "ret1y": [30.0, 52.0],
+        "sharpe": [0.70, 1.10],
+        "ter": [0.50, 1.10],
+        "buffer": [0.0, 10.0],
+        "intl": [0.0, 25.0],
+        "overlap": [0.0, 15.0]
+      }
+    },
+    "Flexi Cap": {
+      "benchmark_identity": "NIFTY 500 TRI",
+      "observation_period_years": 3,
+      "anchor_set": {
+        "alpha": [0.0, 8.0],
+        "ret1y": [12.0, 35.0],
+        "sharpe": [0.40, 1.20],
+        "ter": [0.40, 1.20],
+        "buffer": [0.0, 25.0],
+        "intl": [0.0, 35.0],
+        "overlap": [10.0, 50.0]
+      }
+    },
+    "Mid Cap": {
+      "benchmark_identity": "NIFTY MIDCAP 150 TRI",
+      "observation_period_years": 3,
+      "anchor_set": {
+        "alpha": [0.0, 8.0],
+        "ret1y": [15.0, 42.0],
+        "sharpe": [0.40, 1.20],
+        "ter": [0.40, 1.20],
+        "buffer": [0.0, 15.0],
+        "intl": [0.0, 10.0],
+        "overlap": [5.0, 40.0]
+      }
+    },
+    "Large Cap": {
+      "benchmark_identity": "NIFTY 100 TRI",
+      "observation_period_years": 3,
+      "anchor_set": {
+        "alpha": [0.0, 5.0],
+        "ret1y": [10.0, 28.0],
+        "sharpe": [0.40, 1.00],
+        "ter": [0.10, 1.00],
+        "buffer": [0.0, 15.0],
+        "intl": [0.0, 10.0],
+        "overlap": [20.0, 60.0]
+      }
+    },
+    "Small Cap": {
+      "benchmark_identity": "NIFTY SMALLCAP 250 TRI",
+      "observation_period_years": 3,
+      "anchor_set": {
+        "alpha": [0.0, 10.0],
+        "ret1y": [18.0, 48.0],
+        "sharpe": [0.40, 1.30],
+        "ter": [0.40, 1.25],
+        "buffer": [0.0, 15.0],
+        "intl": [0.0, 5.0],
+        "overlap": [5.0, 35.0]
+      }
+    },
+    "Multi Cap": {
+      "benchmark_identity": "NIFTY 500 MULTICAP 50:25:25 TRI",
+      "observation_period_years": 3,
+      "anchor_set": {
+        "alpha": [0.0, 8.0],
+        "ret1y": [14.0, 38.0],
+        "sharpe": [0.40, 1.25],
+        "ter": [0.40, 1.20],
+        "buffer": [0.0, 20.0],
+        "intl": [0.0, 15.0],
+        "overlap": [10.0, 45.0]
+      }
+    },
+    "Large & Mid Cap": {
+      "benchmark_identity": "NIFTY LARGEMIDCAP 250 TRI",
+      "observation_period_years": 3,
+      "anchor_set": {
+        "alpha": [0.0, 7.0],
+        "ret1y": [12.0, 34.0],
+        "sharpe": [0.40, 1.15],
+        "ter": [0.35, 1.15],
+        "buffer": [0.0, 15.0],
+        "intl": [0.0, 15.0],
+        "overlap": [15.0, 50.0]
+      }
+    }
+  }
+}
