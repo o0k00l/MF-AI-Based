@@ -43,6 +43,8 @@ def get_default_paths(client_target: str | Path | None = None, *, as_of=None, ma
     from datetime import date
     from ingestion.statement_selection import select_latest_statement
 
+    from ingestion.statement_selection import _validate_document
+
     if as_of is not None and max_statement_age_days is not None:
         selected = select_latest_statement(
             candidates,
@@ -52,7 +54,25 @@ def get_default_paths(client_target: str | Path | None = None, *, as_of=None, ma
         )
         cas = selected.path
     else:
-        cas = candidates[0]
+        valid_candidates = []
+        for p in sorted(set(candidates)):
+            if p.is_file():
+                try:
+                    embedded_dt, _ = _validate_document(p, "CAS")
+                    valid_candidates.append((embedded_dt, p))
+                except (OSError, ValueError):
+                    continue
+        if not valid_candidates:
+            raise ValueError(f"No verifiable CAS statement candidates found in {client_path}")
+        valid_candidates.sort(key=lambda x: x[0], reverse=True)
+        newest_date = valid_candidates[0][0]
+        newest_matches = [p for d, p in valid_candidates if d == newest_date]
+        if len(newest_matches) > 1:
+            raise ValueError(
+                f"Ambiguous CAS statement selection: multiple statements share the latest embedded date {newest_date}: "
+                + ", ".join(p.name for p in newest_matches)
+            )
+        cas = newest_matches[0]
     metrics = client_path / "fund_metrics.json"
     config = client_path / "config.json"
     aliases = client_path / "fund_aliases.json"

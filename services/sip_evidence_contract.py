@@ -28,7 +28,7 @@ REQUIRED_EVIDENCE_FIELDS = frozenset({
     "candidate_universe_source_bytes",
 })
 REQUEST_BOUND_FIELDS = frozenset({"cas_path", "monthly_budget_inr", "risk_profile"})
-OPTIONAL_EVIDENCE_FIELDS = frozenset({"portfolio_context", "portfolio_context_source_metadata", "portfolio_context_source_bytes", "candidate_score_source_metadata", "candidate_score_source_bytes", "category_anchor_source_metadata", "category_anchor_source_bytes"})
+OPTIONAL_EVIDENCE_FIELDS = frozenset({"portfolio_context", "portfolio_context_source_metadata", "portfolio_context_source_bytes", "candidate_score_source_metadata", "candidate_score_source_bytes", "category_anchor_source_metadata", "category_anchor_source_bytes", "aliases_source_metadata", "aliases_source_bytes"})
 
 
 class EvidenceProviderContractError(ValueError):
@@ -234,6 +234,12 @@ def validate_evidence_provider_payload(
     if anchor_source_present and anchor_source_present != anchor_source_fields:
         raise EvidenceProviderContractError(
             "Category anchor source metadata and original source bytes must be supplied together."
+        )
+    aliases_source_fields = {"aliases_source_metadata", "aliases_source_bytes"}
+    aliases_source_present = optional_present & aliases_source_fields
+    if aliases_source_present and aliases_source_present != aliases_source_fields:
+        raise EvidenceProviderContractError(
+            "Fund aliases source metadata and original source bytes must be supplied together."
         )
 
     as_of = payload["disclosure_as_of_date"]
@@ -529,12 +535,47 @@ def validate_evidence_provider_payload(
                     f"Candidate {fund_id!r} benchmark identity or category anchor approval conflicts."
                 )
 
-    for optional_path in ("metrics_path", "aliases_path"):
-        value = payload[optional_path]
-        if optional_path == "metrics_path" and (value is None or not hasattr(value, "is_file")):
-            raise EvidenceProviderContractError("metrics_path must be a Path-like source for candidate evidence files.")
-        if value is not None and not hasattr(value, "is_file"):
-            raise EvidenceProviderContractError(f"{optional_path} must be a Path-like object or None.")
+    metrics_path = payload.get("metrics_path")
+    if metrics_path is None or not hasattr(metrics_path, "is_file") or not metrics_path.is_file():
+        raise EvidenceProviderContractError("metrics_path must be a Path-like source for candidate evidence files.")
+
+    aliases_path = payload.get("aliases_path")
+    if aliases_path is not None:
+        if not hasattr(aliases_path, "is_file") or not aliases_path.is_file() or aliases_path.is_symlink():
+            raise EvidenceProviderContractError("aliases_path must be a regular, non-symlink file.")
+        if aliases_path.stat().st_size <= 0 or aliases_path.stat().st_size > 10 * 1024 * 1024:
+            raise EvidenceProviderContractError("aliases_path is empty or exceeds the 10 MiB limit.")
+        if aliases_source_present:
+            _validate_source_document(
+                payload["aliases_source_metadata"],
+                payload["aliases_source_bytes"],
+                label="Fund aliases",
+                as_of=as_of,
+            )
+            norm_hash = payload["aliases_source_metadata"].get("normalized_aliases_sha256")
+            if not isinstance(norm_hash, str) or not re.fullmatch(r"[0-9a-fA-F]{64}", norm_hash):
+                raise EvidenceProviderContractError("Fund aliases metadata requires normalized_aliases_sha256.")
+            actual_norm = hashlib.sha256(aliases_path.read_bytes()).hexdigest()
+            if actual_norm.lower() != norm_hash.lower():
+                raise EvidenceProviderContractError(
+                    "Fund aliases normalized file SHA-256 does not match reviewed metadata."
+                )
+        try:
+            with open(aliases_path, "r", encoding="utf-8") as f:
+                alias_data = json.load(f)
+            target_ids = set()
+            if isinstance(alias_data, dict):
+                if "aliases" in alias_data and isinstance(alias_data["aliases"], dict):
+                    target_ids.update(alias_data["aliases"].keys())
+                else:
+                    target_ids.update(str(v).strip() for v in alias_data.values())
+            for target_id in target_ids:
+                if target_id not in scheme_index:
+                    raise EvidenceProviderContractError(
+                        f"Fund alias maps to scheme ID {target_id!r} which is absent from verified scheme master."
+                    )
+        except (OSError, json.JSONDecodeError) as exc:
+            raise EvidenceProviderContractError(f"Fund aliases file is malformed JSON: {exc}") from exc
 
     # The completeness flag is an attestation, not an independent proof that
     # every eligible scheme in the stated market scope has been enumerated.

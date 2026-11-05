@@ -150,6 +150,8 @@ def _require_field(fund_data: dict, gate: str, *names):
 
 def _risk_tier_to_int(tier: Any) -> int:
     """Parse a SEBI riskometer tier without ambiguous substring matching."""
+    if tier is None or (isinstance(tier, str) and not tier.strip()):
+        raise ValueError("Risk tier is required")
     if isinstance(tier, bool):
         raise ValueError("Risk tier must be an integer from 1 to 6, not boolean")
     if isinstance(tier, int):
@@ -171,20 +173,22 @@ def _risk_tier_to_int(tier: Any) -> int:
     if match:
         return int(match.group(1))
     # Match the most specific labels first.
-    if "very high" in tier_str or "aggressive" in tier_str:
-        return 6
+    if "capital preservation" in tier_str or "very low" in tier_str or tier_str in {"preservation"}:
+        return 1
+    if "low to moderate" in tier_str or tier_str == "low moderate":
+        return 2
     if "moderately high" in tier_str:
         return 4
-    if tier_str in {"high", "5_high"} or tier_str.endswith("_high"):
-        return 5
-    if "low to moderate" in tier_str:
+    if "very high" in tier_str or "aggressive" in tier_str or "risk_tier.aggressive" in tier_str:
+        return 6
+    if tier_str == "low" or "conservative" in tier_str or "risk_tier.conservative" in tier_str:
         return 2
     if tier_str in {"moderate", "risk_tier.moderate"}:
         return 4
-    if "moderate" in tier_str:
+    if "moderate" in tier_str and "high" not in tier_str:
         return 3
-    if tier_str in {"low", "preservation"}:
-        return 1
+    if tier_str in {"high", "5_high"} or tier_str.startswith("high ") or tier_str.endswith("_high"):
+        return 5
     raise ValueError(f"Unrecognized risk tier: {tier!r}")
 
 

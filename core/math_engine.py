@@ -68,305 +68,9 @@ def get_statutory_tax_citation(as_of: Optional[date] = None) -> StatutoryTaxCita
 
 
 def calculate_xirr(cashflows: List[Tuple[date, float]]) -> Optional[float]:
-    """
-    Calculate XIRR (Extended Internal Rate of Return) for irregular cash flows.
-    
-    Args:
-        cashflows: List of (date, amount) tuples where negative = investment, positive = return
-        
-    Returns:
-        Annualized XIRR as decimal (e.g., 0.134 for 13.4%), or None if cannot converge
-    """
-    if not cashflows or len(cashflows) < 2:
-        return None
-    
-    # Sort by date
-    cashflows = sorted(cashflows, key=lambda x: x[0])
-    
-    # Check if we have both positive and negative flows
-    has_negative = any(cf[1] < 0 for cf in cashflows)
-    has_positive = any(cf[1] > 0 for cf in cashflows)
-    if not (has_negative and has_positive):
-        return None
-    
-    # Use Newton-Raphson method to solve for IRR
-    # NPV(rate) = sum(cf / (1+rate)^(days/365)) = 0
-    
-    def npv(rate: float) -> float:
-        total = 0.0
-        base_date = cashflows[0][0]
-        for cf_date, amount in cashflows:
-            days = (cf_date - base_date).days
-            total += amount / ((1 + rate) ** (days / 365.0))
-        return total
-    
-    def npv_derivative(rate: float) -> float:
-        total = 0.0
-        base_date = cashflows[0][0]
-        for cf_date, amount in cashflows:
-            days = (cf_date - base_date).days
-            total += -amount * (days / 365.0) / ((1 + rate) ** (days / 365.0 + 1))
-        return total
-    
-    # Initial guess: simple approximation
-    total_invested = sum(abs(cf[1]) for cf in cashflows if cf[1] < 0)
-    total_returned = sum(cf[1] for cf in cashflows if cf[1] > 0)
-    if total_invested > 0:
-        guess = (total_returned - total_invested) / total_invested
-        guess = max(-0.99, min(10.0, guess))  # Clamp between -99% and 1000%
-    else:
-        guess = 0.1
-    
-    # Newton-Raphson iteration
-    rate = guess
-    for _ in range(100):
-        # Guard against invalid rates that would cause math errors
-        if rate <= -1.0:
-            # If we get an invalid rate, fallback to bisection method
-            break
-            
-        npv_val = npv(rate)
-        if abs(npv_val) < 1e-6:
-            return rate
-        deriv = npv_derivative(rate)
-        if abs(deriv) < 1e-10:
-            break
-        rate_new = rate - npv_val / deriv
-        # Guard against rate_new going below -1
-        if rate_new <= -1.0:
-            rate_new = -0.99  # Stay in valid range
-        if abs(rate_new - rate) < 1e-8:
-            return rate_new
-        rate = rate_new
-    
-    # Fallback: secant method
-    rate_low, rate_high = -0.99, 10.0
-    npv_low, npv_high = npv(rate_low), npv(rate_high)
-    if npv_low * npv_high > 0:
-        return None
-    for _ in range(50):
-        rate_mid = (rate_low + rate_high) / 2
-        npv_mid = npv(rate_mid)
-        if abs(npv_mid) < 1e-6:
-            return rate_mid
-        if npv_low * npv_mid <= 0:
-            rate_high, npv_high = rate_mid, npv_mid
-        else:
-            rate_low, npv_low = rate_mid, npv_mid
-    return (rate_low + rate_high) / 2
-
-
-def reconcile_cas_holdings_with_transactions(holdings: List[HoldingItem], transactions_path: Path) -> Dict[str, Any]:
-    """Reconcile aggregated CAS units to transaction history by exact normalized scheme name.
-
-    Rows across multiple folios are aggregated before comparison. Substring/fuzzy
-    matching is deliberately prohibited: unresolved identities are discrepancies.
-    """
-    import re
-
-    if not transactions_path.exists():
-        return {"status": "NO_TRANSACTION_FILE", "reconciled_schemes": 0,
-                "total_schemes": len(holdings), "discrepancies": [],
-                "unmatched_transaction_schemes": []}
-    try:
-        with open(transactions_path, "r", encoding="utf-8") as handle:
-            data = json.load(handle)
-        if not isinstance(data, dict) or not isinstance(data.get("transactions"), list):
-            raise ValueError("transactions.json must contain a transactions array")
-    except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as exc:
-        return {"status": "READ_ERROR", "error": str(exc), "reconciled_schemes": 0,
-                "total_schemes": len(holdings), "discrepancies": [],
-                "unmatched_transaction_schemes": []}
-
-    def key(value: Any) -> str:
-        return re.sub(r"[^a-z0-9]", "", str(value or "").casefold())
-
-    cas_units: Dict[str, float] = {}
-    cas_names: Dict[str, str] = {}
-    for holding in holdings:
-        scheme_name = getattr(holding, "scheme", None)
-        scheme_key = key(scheme_name)
-        try:
-            units = float(getattr(holding, "units"))
-        except (TypeError, ValueError, AttributeError):
-            return {"status": "INVALID_CAS_UNITS", "reconciled_schemes": 0,
-                    "total_schemes": len(holdings), "discrepancies": [],
-                    "unmatched_transaction_schemes": []}
-        if not scheme_key or not math.isfinite(units) or units < 0:
-            return {"status": "INVALID_CAS_UNITS", "reconciled_schemes": 0,
-                    "total_schemes": len(holdings), "discrepancies": [],
-                    "unmatched_transaction_schemes": []}
-        cas_units[scheme_key] = cas_units.get(scheme_key, 0.0) + units
-        cas_names.setdefault(scheme_key, str(scheme_name))
-
-    transaction_units: Dict[str, float] = {}
-    transaction_names: Dict[str, str] = {}
-    supported_types = {"PURCHASE", "SIP", "SWITCH_IN", "STP_IN", "DIVIDEND_REINVEST",
-                       "DIVIDEND", "REDEMPTION", "SWITCH_OUT", "STP_OUT", "CHARGES"}
-    for index, transaction in enumerate(data["transactions"]):
-        if not isinstance(transaction, dict):
-            return {"status": "INVALID_TRANSACTION", "error": f"Transaction row {index} is not an object",
-                    "reconciled_schemes": 0, "total_schemes": len(holdings),
-                    "discrepancies": [], "unmatched_transaction_schemes": []}
-        scheme_name = transaction.get("scheme")
-        scheme_key = key(scheme_name)
-        txn_type = str(transaction.get("type", "UNKNOWN")).upper().strip()
-        try:
-            units = float(transaction.get("units", 0.0) or 0.0)
-            amount = float(transaction.get("amount", 0.0) or 0.0)
-        except (TypeError, ValueError):
-            units = float("nan")
-        if (not scheme_key or txn_type not in supported_types or not math.isfinite(units)
-                or units < 0.0 or not math.isfinite(amount)
-                or (txn_type in {"DIVIDEND", "CHARGES"} and units != 0.0)):
-            return {"status": "INVALID_TRANSACTION", "error": f"Invalid scheme, type or units at transaction row {index}",
-                    "reconciled_schemes": 0, "total_schemes": len(holdings),
-                    "discrepancies": [], "unmatched_transaction_schemes": []}
-        if txn_type in {"DIVIDEND", "CHARGES"}:
-            sign = 0.0  # Cash-only events do not change mutual-fund units.
-        else:
-            sign = -1.0 if txn_type in {"REDEMPTION", "SWITCH_OUT", "STP_OUT"} else 1.0
-        transaction_units[scheme_key] = transaction_units.get(scheme_key, 0.0) + sign * units
-        transaction_names.setdefault(scheme_key, str(scheme_name))
-
-    discrepancies = []
-    reconciled_count = 0
-    for scheme_key, cas_total in cas_units.items():
-        if scheme_key not in transaction_units:
-            discrepancies.append({"scheme": cas_names[scheme_key], "cas_units": round(cas_total, 3),
-                                  "transaction_units": None, "difference": None,
-                                  "reason": "NO_EXACT_TRANSACTION_SCHEME_MATCH"})
-            continue
-        tx_total = transaction_units[scheme_key]
-        difference = cas_total - tx_total
-        if abs(difference) <= 0.05:
-            reconciled_count += 1
-        else:
-            discrepancies.append({"scheme": cas_names[scheme_key], "cas_units": round(cas_total, 3),
-                                  "transaction_units": round(tx_total, 3),
-                                  "difference": round(difference, 3), "reason": "UNIT_MISMATCH"})
-
-    unmatched_active = []
-    for scheme_key, tx_total in transaction_units.items():
-        if scheme_key not in cas_units and abs(tx_total) > 0.05:
-            unmatched_active.append({"scheme": transaction_names[scheme_key],
-                                     "transaction_units": round(tx_total, 3),
-                                     "reason": "ACTIVE_TRANSACTION_SCHEME_NOT_IN_CAS"})
-    status = "VERIFIED_RECONCILED" if not discrepancies and not unmatched_active else "PARTIALLY_RECONCILED"
-    return {"status": status, "reconciled_schemes": reconciled_count,
-            "total_schemes": len(cas_units), "discrepancies": discrepancies,
-            "unmatched_transaction_schemes": unmatched_active}
-
-
-def calculate_portfolio_xirr(
-    transactions_path: Path,
-    holdings: Any,
-    cas_invested: Optional[float] = None,
-    cas_current: Optional[float] = None,
-    as_of_date: Optional[date] = None
-) -> Optional[float]:
-    """
-    Calculate portfolio XIRR only from a structurally complete, supported
-    transaction ledger. Any malformed row makes the result unavailable;
-    silently dropping a cash flow can materially distort investor returns.
-    """
-    if not transactions_path.exists():
-        return None
-
-    try:
-        with open(transactions_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-    except (OSError, UnicodeError, json.JSONDecodeError):
-        return None
-
-    if not isinstance(data, dict):
-        return None
-    transactions = data.get("transactions")
-    if not isinstance(transactions, list) or not transactions:
-        return None
-
-    supported_types = {
-        "PURCHASE", "SIP", "REDEMPTION", "SWITCH_IN", "SWITCH_OUT",
-        "STP_IN", "STP_OUT", "DIVIDEND", "SWP", "DIVIDEND_REINVEST", "CHARGES",
-    }
-    cashflows = []
-    txn_dates = []
-    for index, txn in enumerate(transactions, start=1):
-        if not isinstance(txn, dict):
-            return None
-        date_value = txn.get("date")
-        txn_type = str(txn.get("type", "")).strip().upper()
-        if not isinstance(date_value, str) or not date_value.strip() or txn_type not in supported_types:
-            return None
-        try:
-            txn_date = datetime.strptime(date_value[:10], "%Y-%m-%d").date()
-            amount = float(txn.get("amount"))
-        except (TypeError, ValueError, OverflowError):
-            return None
-        if not math.isfinite(amount):
-            return None
-
-        desc = str(txn.get("description", "")).lower()
-        subtype = str(txn.get("subtype", "")).upper()
-        is_reversal = any(kw in desc for kw in ("reversal", "dishonour", "reject"))
-        txn_dates.append(txn_date)
-
-        # A zero amount is only safely ignorable when explicitly identified
-        # as a non-cash administrative event; unsupported rows fail closed.
-        if amount == 0.0:
-            continue
-
-        if txn_type == "CHARGES":
-            # Charges are reconciled as cash-only ledger events, but their
-            # investor cash-flow treatment is not sufficiently specified to
-            # include in XIRR without risk of double-counting purchase costs.
-            return None
-        elif amount < 0:
-            cf = -amount
-        elif txn_type in ("REDEMPTION", "SWITCH_OUT", "STP_OUT", "DIVIDEND", "SWP") and not is_reversal:
-            cf = abs(amount)
-        else:
-            cf = -amount
-        cashflows.append((txn_date, cf))
-
-    # A current wall-clock date is not a substitute for the uploaded CAS
-    # valuation date; without it the terminal portfolio value is undated.
-    if not isinstance(as_of_date, date) or isinstance(as_of_date, datetime):
-        return None
-    valuation_date = as_of_date
-    if valuation_date < max(txn_dates):
-        return None
-
-    try:
-        if cas_current is not None:
-            total_value = float(cas_current)
-            if not math.isfinite(total_value) or total_value < 0:
-                return None
-        else:
-            total_value = 0.0
-            for holding in (holdings or []):
-                if isinstance(holding, dict):
-                    raw_value = holding.get("value", holding.get("current_value"))
-                else:
-                    raw_value = getattr(holding, "current_value_inr", None)
-                if raw_value is None:
-                    return None
-                value = float(raw_value)
-                if not math.isfinite(value) or value < 0:
-                    return None
-                total_value += value
-    except (TypeError, ValueError, OverflowError):
-        return None
-
-    if total_value > 0:
-        cashflows.append((valuation_date, total_value))
-    if len(cashflows) < 2:
-        return None
-    try:
-        return calculate_xirr(cashflows)
-    except (ValueError, OverflowError, ZeroDivisionError):
-        return None
-
+    """Calculate XIRR using the canonical solver; strict domain and convergence verification."""
+    from core.math.xirr import calculate_xirr as canonical_xirr
+    return canonical_xirr(cashflows)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2381,6 +2085,7 @@ def aggregate_fiduciary_facts(
     # supplied history is malformed or does not reconcile, however, it cannot
     # be ignored while issuing a portfolio-aware SIP proposal.
     if transactions_path.exists() and cas_recon.get("status") != "VERIFIED_RECONCILED":
+        portfolio_xirr = None
         det_sip_plan.unallocated_budget_inr = det_sip_plan.total_monthly_budget_inr
         for sip_item in det_sip_plan.items:
             sip_item.monthly_inr = 0.0
@@ -3187,37 +2892,15 @@ def calculate_thematic_exposures(
 
 
 
-def _parse_sebi_risk_tier(risk_tier: str) -> int:
-    """Parse an explicit SEBI riskometer tier; reject ambiguous/unknown labels."""
-    import re
-
-    tier_str = str(risk_tier or "").strip().casefold()
-    if not tier_str:
-        raise ValueError("Risk tier is required")
-    match = re.search(r"\btier\s*([1-6])\b", tier_str)
-    if match:
-        return int(match.group(1))
-    if "capital preservation" in tier_str or "very low" in tier_str or tier_str == "preservation":
-        return 1
-    if "low to moderate" in tier_str or tier_str == "low moderate":
-        return 2
-    if "moderately high" in tier_str:
-        return 4
-    if "very high" in tier_str or "aggressive" in tier_str:
-        return 6
-    if tier_str == "low" or "conservative" in tier_str:
-        return 2
-    # The investor-facing 3-tier profile "Moderate" maps to the
-    # approved middle profile (SEBI Tier 4). Explicit SEBI labels such as
-    # "Tier 3 (Moderate)" have already been resolved by the Tier N parser
-    # above and retain their literal Riskometer meaning.
-    if tier_str == "moderate":
-        return 4
-    if "moderate" in tier_str and "high" not in tier_str:
-        return 3
-    if tier_str == "high" or tier_str.startswith("high "):
-        return 5
-    raise ValueError(f"Unrecognized SEBI risk tier: {risk_tier!r}")
+def _parse_sebi_risk_tier(risk_tier: Any) -> int:
+    """Parse an explicit SEBI riskometer tier; unified canonical mapping across engines."""
+    from core.eligibility import _risk_tier_to_int
+    try:
+        return _risk_tier_to_int(risk_tier)
+    except ValueError as exc:
+        if "Unrecognized risk tier" in str(exc):
+            raise ValueError(f"Unrecognized SEBI risk tier: {risk_tier!r}") from exc
+        raise
 
 
 
@@ -5448,4 +5131,5 @@ def _tax_lot_maturity_classification_disabled(*args, **kwargs):
 
 # Prevent direct class imports from bypassing the module-level FIFO release gate.
 TaxLot.is_long_term = _tax_lot_maturity_classification_disabled
+TaxLot.is_short_term = _tax_lot_maturity_classification_disabled
 TaxLot.is_short_term = _tax_lot_maturity_classification_disabled
