@@ -72,20 +72,19 @@ class EvidenceBundleBuilder:
         and atomically promote it to target_dir. Fails closed on any synthetic
         or missing evidence.
         """
-        if reviewer_attested is not True:
-            raise ValueError("Explicit reviewer attestation is required; default or unverified bundles cannot be promoted.")
-
-        if reviewer_approval_envelope is not None:
-            if reviewer_trust_registry is None:
-                raise ValueError("Reviewer trust registry is required when reviewer approval envelope is supplied.")
-            from services.sip_reviewer_approval import verify_sip_reviewer_approval
-            approval_res = verify_sip_reviewer_approval(
-                envelope=reviewer_approval_envelope,
-                trust_registry=reviewer_trust_registry,
-                expected_scope="SIP_EVIDENCE_RELEASE",
+        if reviewer_approval_envelope is None or reviewer_trust_registry is None:
+            raise ValueError(
+                "Promotion blocked: independent reviewer approval envelope and trust registry are required; "
+                "caller-asserted boolean flags without cryptographic signature cannot promote an evidence bundle."
             )
-            if not approval_res.ok:
-                raise ValueError(f"Independent reviewer approval verification failed: {'; '.join(approval_res.errors)}")
+        from services.sip_reviewer_approval import verify_sip_reviewer_approval
+        approval_res = verify_sip_reviewer_approval(
+            envelope=reviewer_approval_envelope,
+            trust_registry=reviewer_trust_registry,
+            expected_scope="SIP_EVIDENCE_RELEASE",
+        )
+        if not approval_res.ok:
+            raise ValueError(f"Independent reviewer approval verification failed: {'; '.join(approval_res.errors)}")
 
         self.target_dir.parent.mkdir(parents=True, exist_ok=True)
         staging_dir = self.target_dir.parent / f".staging_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"

@@ -23,6 +23,38 @@ from services.lumpsum_recommendation import (
     evaluate_portfolio_aware_lumpsum,
     LumpsumDecisionResult,
 )
+from services.sip_reviewer_approval import (
+    create_sip_reviewer_approval_envelope,
+    create_sip_trust_registry,
+)
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from cryptography.hazmat.primitives import serialization
+import base64
+
+def _make_test_approval(scope="SIP_EVIDENCE_RELEASE"):
+    priv = Ed25519PrivateKey.generate()
+    pub_bytes = priv.public_key().public_bytes(
+        serialization.Encoding.Raw, serialization.PublicFormat.Raw
+    )
+    b64_pub = base64.urlsafe_b64encode(pub_bytes).decode("ascii").rstrip("=")
+    key_dict = {
+        "key_id": "test-key-1",
+        "reviewer_id": "test-reviewer-1",
+        "reviewer_role": "independent",
+        "public_key": b64_pub,
+        "valid_from": "2025-01-01T00:00:00Z",
+        "valid_until": "2027-01-01T00:00:00Z",
+    }
+    registry = create_sip_trust_registry([key_dict])
+    envelope = create_sip_reviewer_approval_envelope(
+        priv,
+        key_id="test-key-1",
+        reviewer_id="test-reviewer-1",
+        scope=scope,
+        source_bytes=b"test_source_bytes",
+        structured_records={"verified": True},
+    )
+    return envelope, registry
 
 
 def _create_synthetic_cas(tmp_path: Path) -> Path:
@@ -103,19 +135,22 @@ def test_engine_bootstrap_pipeline_validation_report(tmp_path):
     assert len(report.gates) >= 5
     assert not all(g.passed for g in report.gates)
 
-    # Complete inputs should produce PROMOTABLE status
+    # Complete inputs with valid cryptographic reviewer envelope produce PROMOTABLE status
+    envelope, registry = _make_test_approval()
     report_valid = pipeline.build_staging_bundle(
         staging_dir,
         as_of,
         hermetic_inputs={
-            "scheme_master": b"..." * 50,
-            "daily_nav": b"..." * 50,
-            "metrics": b"..." * 50,
-            "metrics_json": b"..." * 50,
-            "direct_evidence": {"s-1": b"%PDF-1.4 factsheet"},
-            "disclosures": {"s-1": b"{\"constituents\": {}}"},
+            "scheme_master": json.dumps({"schemes": [{"scheme_code": "100001", "scheme_name": "Scheme 1"}]}).encode("utf-8"),
+            "daily_nav": b"100001|INF001|INF002|Scheme 1|123.45|04-Nov-2026\n",
+            "metrics": b"scheme_id,nav\n",
+            "metrics_json": json.dumps({"funds": [{"fund_id": "100001", "nav": "123.45"}]}).encode("utf-8"),
+            "direct_evidence": {"100001": b"%PDF-1.4 factsheet direct evidence"},
+            "disclosures": {"100001": json.dumps({"constituent_weights": {"RELIANCE": 100.0}}).encode("utf-8")},
         },
         reviewer_attested=True,
+        reviewer_approval_envelope=envelope,
+        reviewer_trust_registry=registry,
     )
     assert report_valid.status == "PROMOTABLE"
     assert all(g.passed for g in report_valid.gates)
@@ -172,3 +207,83 @@ def test_evaluate_portfolio_aware_lumpsum_tier6_override(tmp_path):
     assert result.stp_allocation_inr == Decimal("320000.00")
     assert result.parking_ratio_pct == 20.0
     assert result.stp_ratio_pct == 80.0
+
+
+def test_engine_bootstrap_pipeline_promotion_atomic_and_rollback(tmp_path):
+    # Tests atomic promotion and rollback preserving last-known-good
+    pipeline = EngineBootstrapPipeline()
+    staging_dir = tmp_path / "staging"
+    staging_dir.mkdir(parents=True)
+    (staging_dir / "manifest.json").write_text(json.dumps({"schema_version": 1, "test": "data"}), encoding="utf-8")
+    (staging_dir / "scheme_master.json").write_text(json.dumps({"schemes": []}), encoding="utf-8")
+
+    target_dir = tmp_path / "promoted_bundle"
+    target_dir.mkdir(parents=True)
+    (target_dir / "manifest.json").write_text(json.dumps({"schema_version": 1, "version": "v1_original"}), encoding="utf-8")
+
+    envelope, registry = _make_test_approval()
+
+    # 1. Successful promotion
+    result = pipeline.promote(
+        staging_dir,
+        target_dir,
+        reviewer_approval_envelope=envelope,
+        reviewer_trust_registry=registry,
+    )
+    assert result["status"] == "PROMOTED"
+    assert result["bundle_digest"] is not None
+    assert (target_dir / "scheme_master.json").is_file()
+
+    # 2. Failed promotion preserves prior target state
+    invalid_staging = tmp_path / "staging_corrupt"
+    invalid_staging.mkdir(parents=True)
+    # Missing manifest.json in staging
+    with pytest.raises(ValueError, match="missing manifest.json"):
+        pipeline.promote(
+            invalid_staging,
+            target_dir,
+            reviewer_approval_envelope=envelope,
+            reviewer_trust_registry=registry,
+        )
+    # Target directory remains intact
+    assert (target_dir / "manifest.json").is_file()
+    assert (target_dir / "scheme_master.json").is_file()
+
+
+def test_clean_install_bootstrap_to_advisor_workflow(tmp_path, monkeypatch):
+    # Test clean-install bootstrap-to-advisor workflow: no client-authored JSON required
+    from advisor import get_engine_data_paths
+    from services.engine_fund_data import EngineRuntimeConfig, refresh_engine_fund_data
+
+    store_dir = tmp_path / "engine-store"
+    monkeypatch.setenv("MF_ENGINE_DATA_DIR", str(store_dir))
+    monkeypatch.delenv("MF_CLIENT_DATA_DIR", raising=False)
+
+    # Clean install: not acquired yet
+    paths_before = get_engine_data_paths()
+    assert paths_before["status"] == "NOT_ACQUIRED"
+    assert paths_before["is_acquired"] is False
+
+    # Refresh builds engine snapshot
+    cfg = EngineRuntimeConfig(data_dir=store_dir)
+    sample_nav = (
+        "Scheme Code|ISIN Div Payout/ISIN Growth|ISIN Div Reinvestment|Scheme Name|Net Asset Value|Date\n"
+        "100001|INF000000001|INF000000002|Example Equity Fund - Direct Plan - Growth|123.45|04-Nov-2026\n"
+    ).encode()
+
+    class _MockResponse:
+        content = sample_nav
+        def raise_for_status(self): pass
+    class _MockSession:
+        def get(self, *args, **kwargs): return _MockResponse()
+
+    from datetime import datetime, timezone
+    refresh_engine_fund_data(cfg, session=_MockSession(), now=datetime(2026, 11, 5, tzinfo=timezone.utc))
+
+    # Advisor now resolves engine-owned dataset paths from manifest.json
+    paths_after = get_engine_data_paths()
+    assert paths_after["status"] == "ACQUIRED_UNVERIFIED"
+    assert paths_after["is_acquired"] is True
+    assert paths_after["scheme_master"].is_file()
+    assert paths_after["fund_metrics"].is_file()
+    assert paths_after["fund_aliases"].is_file()

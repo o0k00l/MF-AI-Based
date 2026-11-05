@@ -8,17 +8,76 @@ from pathlib import Path
 import os
 
 
-def get_engine_data_paths():
-    """Return engine-owned dataset paths; never resolve these from client files."""
-    from services.engine_fund_data import EngineRuntimeConfig
+def get_engine_data_paths(data_dir: Path | None = None) -> dict[str, Any]:
+    """Return engine-owned dataset paths; never resolve these from client files.
 
-    data_dir = EngineRuntimeConfig.from_environment().data_dir
+    Resolves snapshot paths from manifest.json. Returns a typed NOT_ACQUIRED
+    or INVALID state when public fund data has not yet been acquired or is corrupt,
+    rather than falling back to flat paths.
+    """
+    from typing import Any
+    from services.engine_fund_data import (
+        EngineRuntimeConfig,
+        FundDataAcquisitionError,
+        load_engine_manifest,
+    )
+
+    if data_dir is None:
+        target_dir = EngineRuntimeConfig.from_environment().data_dir
+    else:
+        target_dir = Path(data_dir).expanduser().resolve()
+
+    manifest_path = target_dir / "manifest.json"
+    if not manifest_path.is_file():
+        return {
+            "status": "NOT_ACQUIRED",
+            "data_dir": target_dir,
+            "manifest": manifest_path,
+            "scheme_master": None,
+            "fund_metrics": None,
+            "fund_aliases": None,
+            "is_acquired": False,
+            "error": "Engine-managed public fund data has not yet been acquired",
+        }
+
+    try:
+        manifest = load_engine_manifest(target_dir)
+    except FundDataAcquisitionError as exc:
+        return {
+            "status": "INVALID",
+            "data_dir": target_dir,
+            "manifest": manifest_path,
+            "scheme_master": None,
+            "fund_metrics": None,
+            "fund_aliases": None,
+            "is_acquired": False,
+            "error": str(exc),
+        }
+
+    status = manifest.get("status", "UNVERIFIED")
+    artifacts = manifest.get("artifacts") or {}
+
+    def _resolve(key: str) -> Path | None:
+        rel = artifacts.get(key)
+        if not rel or not isinstance(rel, str):
+            return None
+        candidate = (target_dir / rel).resolve()
+        return candidate if candidate.is_file() else None
+
+    master_path = _resolve("scheme_master")
+    metrics_path = _resolve("fund_metrics")
+    aliases_path = _resolve("fund_aliases")
+
     return {
-        "data_dir": data_dir,
-        "scheme_master": data_dir / "scheme_master.json",
-        "fund_metrics": data_dir / "fund_metrics.json",
-        "fund_aliases": data_dir / "fund_aliases.json",
-        "manifest": data_dir / "manifest.json",
+        "status": status,
+        "data_dir": target_dir,
+        "manifest": manifest_path,
+        "scheme_master": master_path,
+        "fund_metrics": metrics_path,
+        "fund_aliases": aliases_path,
+        "is_acquired": (master_path is not None and metrics_path is not None and aliases_path is not None),
+        "dataset_id": manifest.get("dataset_id"),
+        "retrieved_at": manifest.get("retrieved_at"),
     }
 
 
@@ -73,10 +132,24 @@ def get_default_paths(client_target: str | Path | None = None, *, as_of=None, ma
     )
     cas = selected.path
     engine_paths = get_engine_data_paths()
-    metrics = engine_paths["fund_metrics"]
+    if engine_paths.get("status") == "NOT_ACQUIRED" or not engine_paths.get("fund_metrics"):
+        # Legacy fallback if flat files exist directly in uninitialized data_dir
+        flat_metrics = engine_paths["data_dir"] / "fund_metrics.json"
+        flat_aliases = engine_paths["data_dir"] / "fund_aliases.json"
+        if flat_metrics.is_file() and flat_aliases.is_file():
+            metrics = flat_metrics
+            aliases = flat_aliases
+        else:
+            raise FileNotFoundError(
+                f"Public fund evidence is not acquired in engine data directory ({engine_paths.get('data_dir')}). "
+                "Run engine bootstrap/refresh before invoking advisor."
+            )
+    else:
+        metrics = engine_paths["fund_metrics"]
+        aliases = engine_paths["fund_aliases"]
+
     # Investor-specific facts remain a separate mandate input; this is not
     # engine configuration and must never contain shared fund research data.
     config = client_path / "investor_mandate.json"
-    aliases = engine_paths["fund_aliases"]
     outputs = client_path / "outputs"
     return cas, metrics, config, aliases, outputs

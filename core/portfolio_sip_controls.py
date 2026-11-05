@@ -225,6 +225,24 @@ def route_incremental_sip(
             unallocated_by_sleeve[final_sleeve] += difference
         else:
             unallocated_by_sleeve["rounding_unallocated"] = difference
+
+    # Calculate post-contribution exposure mathematically using post-SIP total denominator
+    port_total_dec = _decimal(portfolio_total_inr, "portfolio_total_inr")
+    post_contribution_total = port_total_dec + budget
+    post_contribution_values: dict[str, str] = {}
+    post_contribution_weights_pct: dict[str, str] = {}
+    post_contribution_drift_pct: dict[str, str] = {}
+    for sleeve in target_weights_pct:
+        cur_v = Decimal(str(current_values_inr.get(sleeve, "0")))
+        alloc_v = allocations.get(sleeve, Decimal("0"))
+        post_v = cur_v + alloc_v
+        post_contribution_values[sleeve] = str(post_v)
+        if post_contribution_total > 0:
+            post_w = (post_v / post_contribution_total) * Decimal("100")
+            post_contribution_weights_pct[sleeve] = str(post_w.quantize(Decimal("0.01")))
+            tgt_w = _decimal(target_weights_pct[sleeve], sleeve)
+            post_contribution_drift_pct[sleeve] = str((post_w - tgt_w).quantize(Decimal("0.01")))
+
     return {
         "status": "ROUTED" if allocated > 0 else "HOLD",
         "allocations_inr": {k: str(v) for k, v in sorted(allocations.items()) if v > 0},
@@ -232,6 +250,10 @@ def route_incremental_sip(
         "allocated_budget_inr": str(allocated),
         "unallocated_budget_inr": str(unallocated),
         "unallocated_by_sleeve_inr": {k: str(v) for k, v in sorted(unallocated_by_sleeve.items())},
+        "post_contribution_total_inr": str(post_contribution_total),
+        "post_contribution_values_inr": post_contribution_values,
+        "post_contribution_weights_pct": post_contribution_weights_pct,
+        "post_contribution_drift_pct": post_contribution_drift_pct,
         "reconciliation_ok": allocated + unallocated == budget,
         "basis": "PRO_RATA_TO_ALL_APPROVED_SAA_UNDERWEIGHT_GAPS_NO_REDISTRIBUTION",
     }

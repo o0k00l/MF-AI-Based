@@ -22,6 +22,38 @@ from services.acquisition.bundle_builder import EvidenceBundleBuilder
 from services.acquisition.pipeline import FinancialDataRefreshPipeline
 from services.sip_evidence_bundle import build_sip_evidence_provider
 from services.sip_evidence_contract import validate_evidence_provider_payload
+from services.sip_reviewer_approval import (
+    create_sip_reviewer_approval_envelope,
+    create_sip_trust_registry,
+)
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from cryptography.hazmat.primitives import serialization
+import base64
+
+def _make_test_approval(scope="SIP_EVIDENCE_RELEASE"):
+    priv = Ed25519PrivateKey.generate()
+    pub_bytes = priv.public_key().public_bytes(
+        serialization.Encoding.Raw, serialization.PublicFormat.Raw
+    )
+    b64_pub = base64.urlsafe_b64encode(pub_bytes).decode("ascii").rstrip("=")
+    key_dict = {
+        "key_id": "test-key-1",
+        "reviewer_id": "test-reviewer-1",
+        "reviewer_role": "independent",
+        "public_key": b64_pub,
+        "valid_from": "2025-01-01T00:00:00Z",
+        "valid_until": "2027-01-01T00:00:00Z",
+    }
+    registry = create_sip_trust_registry([key_dict])
+    envelope = create_sip_reviewer_approval_envelope(
+        priv,
+        key_id="test-key-1",
+        reviewer_id="test-reviewer-1",
+        scope=scope,
+        source_bytes=b"test_source_bytes",
+        structured_records={"verified": True},
+    )
+    return envelope, registry
 
 
 def _sample_amfi_nav_bytes(as_of: date) -> bytes:
@@ -411,6 +443,7 @@ def test_financial_data_refresh_pipeline_hermetic_success(tmp_path):
         },
     ]
 
+    envelope, registry = _make_test_approval()
     pipeline = FinancialDataRefreshPipeline()
     result = pipeline.refresh(
         bundle_target,
@@ -429,8 +462,16 @@ def test_financial_data_refresh_pipeline_hermetic_success(tmp_path):
                 "scheme-1": b"%PDF-1.4 factsheet 1",
                 "scheme-2": b"%PDF-1.4 factsheet 2",
             },
+            "direct_evidence_urls": {
+                "scheme-1": "https://amfiindia.com/factsheets/scheme-1.pdf",
+                "scheme-2": "https://amfiindia.com/factsheets/scheme-2.pdf",
+            },
         },
+        metrics_source_url="https://amfiindia.com/metrics",
+        universe_source_url="https://amfiindia.com/universe",
         reviewer_attested=True,
+        reviewer_approval_envelope=envelope,
+        reviewer_trust_registry=registry,
     )
 
     assert result.status == "SUCCESS"
@@ -665,6 +706,7 @@ def test_builder_fails_closed_on_missing_disclosure_source_bytes(tmp_path):
 
 def test_builder_fails_closed_on_missing_disclosure_source_url(tmp_path):
     as_of = date.today()
+    envelope, registry = _make_test_approval()
     builder = EvidenceBundleBuilder(tmp_path / "bundle")
     master = _sample_scheme_master_dict(as_of)
     with pytest.raises(ValueError, match="Missing portfolio disclosure source URL"):
@@ -697,6 +739,8 @@ def test_builder_fails_closed_on_missing_disclosure_source_url(tmp_path):
             metrics_source_url="https://amfiindia.com/metrics",
             universe_source_url="https://amfiindia.com/universe",
             reviewer_attested=True,
+            reviewer_approval_envelope=envelope,
+            reviewer_trust_registry=registry,
         )
 
 

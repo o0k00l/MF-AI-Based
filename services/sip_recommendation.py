@@ -132,6 +132,7 @@ def _build_cas_portfolio_assessment(holdings: list[Any], risk_profile: str) -> d
         return {
             "status": "DIAGNOSTIC_ONLY",
             "scope": "CAS_MUTUAL_FUND_HOLDINGS_ONLY",
+            "is_total_portfolio_lookthrough": False,
             "portfolio_perimeter_complete": False,
             "valuation_date_verified": False,
             "total_value_inr": round(total, 2),
@@ -233,6 +234,8 @@ def _assess_complete_portfolio_context(
             raise PortfolioInputError("SAA sleeve values do not reconcile to total portfolio")
         policy_path = Path(__file__).resolve().parents[1] / "data" / "policy" / "asset_allocation.json"
         policy = json.loads(policy_path.read_text(encoding="utf-8"))
+        if risk_profile not in _SAA_POLICY_PROFILE_BY_RISK:
+            raise PortfolioInputError(f"Unsupported risk profile '{risk_profile}'; custom SAA requires an approved custom policy contract.")
         profile_key = _SAA_POLICY_PROFILE_BY_RISK[risk_profile]
         profile = policy["behavioral_risk_profiles"][profile_key]
         ips = context["ips"]

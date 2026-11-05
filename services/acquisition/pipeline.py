@@ -54,7 +54,7 @@ class FinancialDataRefreshPipeline:
         master_source_url: Optional[str] = None,
         metrics_source_url: Optional[str] = None,
         universe_source_url: Optional[str] = None,
-        require_reviewer_signature: bool = False,
+        require_reviewer_signature: bool = True,
     ) -> RefreshResult:
         """
         Execute an end-to-end financial data acquisition and bundle refresh.
@@ -89,9 +89,13 @@ class FinancialDataRefreshPipeline:
 
         inputs = hermetic_inputs or {}
 
-        # Issue #112: Fail closed if required source evidence is missing or self-attested
-        if reviewer_attested is not True:
-            errors.append("Explicit reviewer attestation is required; default approval is prohibited.")
+        # Issue #112: Promotion requires valid detached Ed25519 reviewer approval envelope and trust registry.
+        # Boolean caller attestation alone without cryptographic verification cannot promote evidence.
+        if reviewer_approval_envelope is None or reviewer_trust_registry is None:
+            errors.append(
+                "Promotion blocked: independent reviewer approval envelope and trust registry are required; "
+                "caller-attested booleans cannot satisfy evidence release gates."
+            )
             return RefreshResult(
                 status="FAILED",
                 bundle_dir=None,
@@ -102,8 +106,14 @@ class FinancialDataRefreshPipeline:
                 is_atomic_rollback=True,
             )
 
-        if require_reviewer_signature and (reviewer_approval_envelope is None or reviewer_trust_registry is None):
-            errors.append("Independent reviewer approval envelope and trust registry are required for promotion.")
+        from services.sip_reviewer_approval import verify_sip_reviewer_approval
+        v_res = verify_sip_reviewer_approval(
+            envelope=reviewer_approval_envelope,
+            trust_registry=reviewer_trust_registry,
+            expected_scope="SIP_EVIDENCE_RELEASE",
+        )
+        if not v_res.ok:
+            errors.extend(v_res.errors)
             return RefreshResult(
                 status="FAILED",
                 bundle_dir=None,
@@ -113,36 +123,6 @@ class FinancialDataRefreshPipeline:
                 completed_at=start_time,
                 is_atomic_rollback=True,
             )
-
-        if reviewer_approval_envelope is not None:
-            if reviewer_trust_registry is None:
-                errors.append("Reviewer trust registry is required when reviewer approval envelope is supplied.")
-                return RefreshResult(
-                    status="FAILED",
-                    bundle_dir=None,
-                    sources_acquired=[],
-                    records_count_by_source={},
-                    errors=errors,
-                    completed_at=start_time,
-                    is_atomic_rollback=True,
-                )
-            from services.sip_reviewer_approval import verify_sip_reviewer_approval
-            v_res = verify_sip_reviewer_approval(
-                envelope=reviewer_approval_envelope,
-                trust_registry=reviewer_trust_registry,
-                expected_scope="SIP_EVIDENCE_RELEASE",
-            )
-            if not v_res.ok:
-                errors.extend(v_res.errors)
-                return RefreshResult(
-                    status="FAILED",
-                    bundle_dir=None,
-                    sources_acquired=[],
-                    records_count_by_source={},
-                    errors=errors,
-                    completed_at=start_time,
-                    is_atomic_rollback=True,
-                )
 
         required_keys = ("metrics", "metrics_json", "candidate_universe_source", "disclosures", "direct_evidence")
         missing_keys = [k for k in required_keys if not inputs.get(k)]
@@ -288,6 +268,22 @@ class FinancialDataRefreshPipeline:
                 )
             direct_evidence_bytes[scheme_id] = pdf_bytes
 
+            direct_urls = inputs.get("direct_evidence_urls") or {}
+            cand_url = (
+                direct_urls.get(scheme_id)
+                or (scheme.get("direct_plan_evidence") or {}).get("source_url")
+            )
+            if not cand_url or not str(cand_url).strip():
+                errors.append(f"Direct plan factsheet source URL missing for candidate {scheme_id}; synthetic URLs are prohibited.")
+                return RefreshResult(
+                    status="FAILED",
+                    bundle_dir=None,
+                    sources_acquired=sources_acquired,
+                    records_count_by_source=counts_by_source,
+                    errors=errors,
+                    completed_at=datetime.now(timezone.utc).isoformat(),
+                    is_atomic_rollback=True,
+                )
             candidate_record = {
                 "fund_id": f"fund-{idx}",
                 "fund_name": scheme["scheme_name"],
@@ -302,7 +298,7 @@ class FinancialDataRefreshPipeline:
                 "riskometer_score": scheme["riskometer_score"],
                 "is_direct": True,
                 "direct_plan_evidence": {
-                    "source_url": f"https://www.amfiindia.com/factsheets/{scheme_id}.pdf",
+                    "source_url": str(cand_url).strip(),
                 },
             }
             candidate_universe.append(candidate_record)
@@ -359,8 +355,8 @@ class FinancialDataRefreshPipeline:
                 portfolio_disclosure_source_bytes=portfolio_disclosure_source_bytes,
                 direct_plan_evidence_bytes=direct_evidence_bytes,
                 master_source_url=master_source_url or master_record.source_url,
-                metrics_source_url=metrics_source_url or "https://www.amfiindia.com/research-information/other-data/fund-metrics",
-                universe_source_url=universe_source_url or "https://www.amfiindia.com/research-information/other-data/candidate-universe",
+                metrics_source_url=metrics_source_url or metrics_payload.get("source_url"),
+                universe_source_url=universe_source_url or inputs.get("candidate_universe_source_url"),
                 reviewer_attested=reviewer_attested,
                 reviewer_approval_envelope=reviewer_approval_envelope,
                 reviewer_trust_registry=reviewer_trust_registry,
