@@ -19,7 +19,6 @@ def get_engine_data_paths():
         "fund_metrics": data_dir / "fund_metrics.json",
         "fund_aliases": data_dir / "fund_aliases.json",
         "manifest": data_dir / "manifest.json",
-        "runtime_config": data_dir / "runtime_config.json",
     }
 
 
