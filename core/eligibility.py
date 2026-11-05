@@ -351,6 +351,7 @@ def check_eligibility_gates(
     min_sharpe: Optional[float] = None,
     min_manager_tenure_years: Optional[float] = None,
     min_confidence_score: Optional[float] = None,
+    allow_threshold_overrides: bool = False,
 ) -> EligibilityGateResult:
     """
     Evaluates all 10 Hard Binary Selection Gates for a candidate fund:
@@ -396,6 +397,24 @@ def check_eligibility_gates(
             policy_version=policy.get("version"),
             policy_digest=policy.get("_policy_digest"),
         )
+
+    # Constrain per-call threshold overrides through explicit authorization
+    overrides = {
+        "amc_max_limit_pct": amc_max_limit_pct,
+        "min_aum_crore": min_aum_crore,
+        "max_top10_concentration_pct": max_top10_concentration_pct,
+        "max_sector_concentration_pct": max_sector_concentration_pct,
+        "min_sharpe": min_sharpe,
+        "min_manager_tenure_years": min_manager_tenure_years,
+        "min_confidence_score": min_confidence_score,
+    }
+    for k, val in overrides.items():
+        if val is not None and not allow_threshold_overrides:
+            raise ValueError(
+                f"Unauthorized per-call threshold override for '{k}'. "
+                f"Gate thresholds are governed strictly by central policy; "
+                f"overrides require explicit authorization (allow_threshold_overrides=True)."
+            )
 
     cat_caps = _load_category_aum_caps(policy)
     if amc_max_limit_pct is None:

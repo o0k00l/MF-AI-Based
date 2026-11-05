@@ -390,3 +390,52 @@ def test_validated_ips_numeric_inputs_returns_exact_decimals():
     assert sip == Decimal("50000.50")
     assert lump == Decimal("1500000.75")
     assert em == 6.0
+
+
+
+def test_check_eligibility_gates_rejects_unauthorized_threshold_overrides():
+    fund = {
+        "fund_id": "TEST_SCHEME_1",
+        "fund_name": "Test Scheme Direct Growth",
+        "category": "Flexi Cap",
+        "amc_name": "HDFC Mutual Fund",
+        "aum_crore": 5000.0,
+    }
+    with pytest.raises(ValueError, match="Unauthorized per-call threshold override for 'min_sharpe'"):
+        check_eligibility_gates(
+            fund_data=fund,
+            portfolio_holdings=[],
+            min_sharpe=0.55,  # Override without authorization
+            allow_threshold_overrides=False,
+        )
+
+
+def test_check_eligibility_gates_allows_authorized_threshold_overrides():
+    fund = {
+        "fund_id": "TEST_SCHEME_1",
+        "fund_name": "Test Scheme Direct Growth",
+        "category": "Flexi Cap",
+        "amc_name": "HDFC Mutual Fund",
+        "aum_crore": 5000.0,
+        "top10_concentration_pct": 30.0,
+        "sector_concentration_pct": 20.0,
+        "sharpe": 0.8,
+        "alpha": 2.5,
+        "downside_capture_ratio": 75.0,
+        "upside_capture_ratio": 95.0,
+        "manager_tenure_years": 4.5,
+        "confidence_score": 0.95,
+        "benchmark_type": "TRI",
+        "is_direct": True,
+        "expense_ratio": 0.75,
+        "riskometer_score": 4,
+    }
+    holdings = [{"amc_name": "ICICI Mutual Fund", "current_value_inr": 100000.0}]
+    # With explicit authorization, override passes through
+    res = check_eligibility_gates(
+        fund_data=fund,
+        portfolio_holdings=holdings,
+        min_sharpe=0.55,
+        allow_threshold_overrides=True,
+    )
+    assert res.passed is True

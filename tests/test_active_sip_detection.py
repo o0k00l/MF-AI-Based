@@ -27,9 +27,9 @@ def test_detect_active_sips_rejects_future_dated_transactions():
 
 def test_detect_active_sips_identifies_valid_recurring_sip():
     transactions = [
-        {"folio": "F1", "scheme": "Scheme A", "date": "2026-08-05", "type": "SIP", "description": "Systematic Investment Plan", "amount": 5000.0},
-        {"folio": "F1", "scheme": "Scheme A", "date": "2026-09-05", "type": "SIP", "description": "Systematic Investment Plan", "amount": 5000.0},
-        {"folio": "F1", "scheme": "Scheme A", "date": "2026-10-05", "type": "SIP", "description": "Systematic Investment Plan", "amount": 5000.0},
+        {"folio": "F1", "scheme": "Scheme A", "date": "2026-08-05", "type": "SIP", "description": "Systematic Investment Plan", "amount": 5000.0, "mandate_id": "MND101", "mandate_status": "ACTIVE"},
+        {"folio": "F1", "scheme": "Scheme A", "date": "2026-09-05", "type": "SIP", "description": "Systematic Investment Plan", "amount": 5000.0, "mandate_id": "MND101", "mandate_status": "ACTIVE"},
+        {"folio": "F1", "scheme": "Scheme A", "date": "2026-10-05", "type": "SIP", "description": "Systematic Investment Plan", "amount": 5000.0, "mandate_id": "MND101", "mandate_status": "ACTIVE"},
     ]
     res = detect_active_sips_from_cas(transactions, as_of="2026-10-15")
     assert res["active_sip_count"] == 1
@@ -61,8 +61,8 @@ def test_detect_active_sips_requires_continuous_mandate_classification():
 
 def test_detect_active_sips_requires_explicit_as_of():
     transactions = [
-        {"folio": "F1", "scheme": "Scheme A", "date": "2026-09-05", "type": "SIP", "description": "SIP installment", "amount": 5000.0},
-        {"folio": "F1", "scheme": "Scheme A", "date": "2026-10-05", "type": "SIP", "description": "SIP installment", "amount": 5000.0},
+        {"folio": "F1", "scheme": "Scheme A", "date": "2026-09-05", "type": "SIP", "description": "SIP installment", "amount": 5000.0, "mandate_id": "MND102", "mandate_status": "ACTIVE"},
+        {"folio": "F1", "scheme": "Scheme A", "date": "2026-10-05", "type": "SIP", "description": "SIP installment", "amount": 5000.0, "mandate_id": "MND102", "mandate_status": "ACTIVE"},
     ]
     with pytest.raises(ValueError, match="Explicit 'as_of' date is required"):
         detect_active_sips_from_cas(transactions, as_of=None, require_explicit_as_of=True)
@@ -102,10 +102,10 @@ def test_detect_active_sips_exhaustive_rejection_accounting():
 
 def test_detect_active_sips_mixed_step_up_streak_consistency():
     transactions = [
-        {"folio": "F1", "scheme": "Scheme A", "date": "2026-07-05", "type": "SIP", "description": "SIP installment", "amount": 5000.0},
-        {"folio": "F1", "scheme": "Scheme A", "date": "2026-08-05", "type": "SIP", "description": "SIP installment", "amount": 5000.0},
-        {"folio": "F1", "scheme": "Scheme A", "date": "2026-09-05", "type": "SIP", "description": "SIP step up", "amount": 6000.0},
-        {"folio": "F1", "scheme": "Scheme A", "date": "2026-10-05", "type": "SIP", "description": "SIP installment", "amount": 6000.0},
+        {"folio": "F1", "scheme": "Scheme A", "date": "2026-07-05", "type": "SIP", "description": "SIP installment", "amount": 5000.0, "mandate_id": "MND103", "mandate_status": "ACTIVE"},
+        {"folio": "F1", "scheme": "Scheme A", "date": "2026-08-05", "type": "SIP", "description": "SIP installment", "amount": 5000.0, "mandate_id": "MND103", "mandate_status": "ACTIVE"},
+        {"folio": "F1", "scheme": "Scheme A", "date": "2026-09-05", "type": "SIP", "description": "SIP step up", "amount": 6000.0, "mandate_id": "MND103", "mandate_status": "ACTIVE"},
+        {"folio": "F1", "scheme": "Scheme A", "date": "2026-10-05", "type": "SIP", "description": "SIP installment", "amount": 6000.0, "mandate_id": "MND103", "mandate_status": "ACTIVE"},
     ]
     res = detect_active_sips_from_cas(transactions, as_of="2026-10-15")
     assert res["active_sip_count"] == 1
@@ -127,11 +127,16 @@ def test_detect_active_sips_mandate_verified_vs_transaction_text_verified():
     assert res1["active_sips"][0]["evidence_level"] == "MANDATE"
 
     # Transaction text verified: keyword in description, no explicit mandate ID
+    # Must NOT be reported as active mandate; goes to recurring_transaction_patterns with 0 active monthly sip
     text_verified_txs = [
         {"folio": "F2", "scheme": "Scheme B", "date": "2026-09-05", "type": "SIP", "description": "NACH SIP Debit", "amount": 3000.0},
         {"folio": "F2", "scheme": "Scheme B", "date": "2026-10-05", "type": "SIP", "description": "NACH SIP Debit", "amount": 3000.0},
     ]
     res2 = detect_active_sips_from_cas(text_verified_txs, as_of="2026-10-15")
-    assert res2["active_sip_count"] == 1
-    assert res2["active_sips"][0]["confidence"] == "TRANSACTION_TEXT_VERIFIED"
-    assert res2["active_sips"][0]["evidence_level"] == "TRANSACTION_TEXT"
+    assert res2["active_sip_count"] == 0
+    assert res2["total_monthly_sip"] == 0.0
+    assert res2["recurring_transaction_pattern_count"] == 1
+    pattern = res2["recurring_transaction_patterns"][0]
+    assert pattern["confidence"] == "TRANSACTION_TEXT_VERIFIED"
+    assert pattern["evidence_level"] == "TRANSACTION_TEXT"
+    assert pattern["is_active_mandate"] is False

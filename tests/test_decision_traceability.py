@@ -38,6 +38,7 @@ def test_decision_rejects_missing_policy_version():
             rationale="test",
             policy_version="",  # Empty
             code_version="1.0",
+            policy_digest="a" * 64,
         )
 
 
@@ -51,6 +52,7 @@ def test_decision_rejects_missing_code_version():
             rationale="test",
             policy_version="1.0",
             code_version="",  # Empty
+            policy_digest="a" * 64,
         )
 
 
@@ -102,3 +104,47 @@ def test_decision_serializes_utc_and_computes_reproducible_jcs_hash():
     assert d_dict["policy_version"] == "2026.10"
     assert d_dict["code_version"] == "2.0.0"
     assert d_dict["policy_digest"] == "a" * 64
+
+
+def test_decision_rejects_missing_policy_digest():
+    with pytest.raises(ValueError, match="policy_digest"):
+        Decision(
+            decision_id="dec-1",
+            decision_type=DecisionType.SIP_ALLOCATION,
+            timestamp=datetime(2026, 11, 5, 10, 0, tzinfo=timezone.utc),
+            recommendation="HOLD",
+            rationale="test",
+            policy_version="1.0",
+            code_version="1.0",
+            policy_digest="",  # Empty
+        )
+
+
+def test_evidence_rejects_non_utc_timezone():
+    from datetime import timezone, timedelta
+    ist = timezone(timedelta(hours=5, minutes=30))
+    with pytest.raises(ValueError, match="explicit UTC timezone"):
+        Evidence(
+            evidence_id="ev-1",
+            evidence_type=EvidenceType.GATE_EVALUATION,
+            source="test",
+            description="test",
+            data={},
+            timestamp=datetime(2026, 11, 5, 10, 0, tzinfo=ist),  # Non-UTC
+        )
+
+
+def test_decision_rejects_non_utc_timezone():
+    from datetime import timezone, timedelta
+    ist = timezone(timedelta(hours=5, minutes=30))
+    with pytest.raises(ValueError, match="explicit UTC timezone"):
+        Decision(
+            decision_id="dec-1",
+            decision_type=DecisionType.SIP_ALLOCATION,
+            timestamp=datetime(2026, 11, 5, 10, 0, tzinfo=ist),  # Non-UTC
+            recommendation="HOLD",
+            rationale="test",
+            policy_version="1.0",
+            code_version="1.0",
+            policy_digest="a" * 64,
+        )
