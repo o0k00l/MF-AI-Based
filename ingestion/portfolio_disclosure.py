@@ -21,6 +21,8 @@ def validate_portfolio_disclosure(
     max_age_days: int,
     trust_registry: Optional[Dict[str, Any]] = None,
     require_reviewer_signature: bool = False,
+    security_master: Optional[Dict[str, Any]] = None,
+    require_security_master: bool = False,
 ) -> Dict[str, Any]:
     """Return VERIFIED only when provenance, freshness and weight coverage pass."""
     def missing(reason: str) -> Dict[str, Any]:
@@ -77,14 +79,15 @@ def validate_portfolio_disclosure(
     ):
         return missing("Constituent identifiers, weights or coverage are malformed.")
 
-    normalized_keys = [key.strip().upper() for key in raw_weights]
-    if len(normalized_keys) != len(set(normalized_keys)):
-        return missing("Constituent identifiers are duplicated after normalization.")
+    from core.security_master import normalize_constituent_weights
+    try:
+        weights, original_labels = normalize_constituent_weights(
+            raw_weights, security_master=security_master, strict=require_security_master
+        )
+    except ValueError as exc:
+        return missing(f"Constituent security identification failed: {exc}")
+
     coverage = float(coverage_raw)
-    weights = {
-        key.strip().upper(): float(value)
-        for key, value in raw_weights.items()
-    }
     if (not math.isfinite(coverage) or not 99.5 <= coverage <= 100.0
             or any(not key or not math.isfinite(value) or value < 0 or value > 100
                    for key, value in weights.items())

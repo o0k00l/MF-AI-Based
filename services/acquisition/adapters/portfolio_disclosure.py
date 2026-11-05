@@ -108,3 +108,4 @@ class PortfolioDisclosureAdapter(BaseSourceAdapter):
                 "coverage_pct": coverage_pct,
             },
         )
+

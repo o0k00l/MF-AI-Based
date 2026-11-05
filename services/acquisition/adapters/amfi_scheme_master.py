@@ -164,3 +164,4 @@ class AmfiSchemeMasterAdapter(BaseSourceAdapter):
                 "source_type": "OFFICIAL_SCHEME_MASTER",
             },
         )
+

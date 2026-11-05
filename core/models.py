@@ -507,6 +507,8 @@ class EligibilityGateResult(BaseModel):
     manager_tenure_gate: Optional[bool] = None
     thematic_satellite_gate: Optional[bool] = None
     direct_plan_gate: Optional[bool] = None
+    policy_version: Optional[str] = None
+    policy_digest: Optional[str] = None
     details: Dict[str, Any] = Field(default_factory=dict)
 
     @model_validator(mode="after")

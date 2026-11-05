@@ -240,6 +240,8 @@ def load_fund_screening_policy(policy_path: Optional[Path] = None) -> Dict[str, 
                 "must be REVIEW_REQUIRED per fiduciary non-automatic liquidation policy"
             )
 
+    import hashlib
+    data["_policy_digest"] = hashlib.sha256(policy_path.read_bytes()).hexdigest()
     return data
 
 
@@ -293,13 +295,14 @@ def check_eligibility_gates(
     client_risk_tier_num: Optional[int] = None,
     is_starter: bool = False,
     as_of_date: Optional[date] = None,
-    amc_max_limit_pct: float = 30.0,
-    min_aum_crore: float = 1000.0,
-    max_top10_concentration_pct: float = 55.0,
-    max_sector_concentration_pct: float = 35.0,
-    min_sharpe: float = 0.40,
-    min_manager_tenure_years: float = 2.0,
-    min_confidence_score: float = 0.80,
+    policy: Optional[Dict[str, Any]] = None,
+    amc_max_limit_pct: Optional[float] = None,
+    min_aum_crore: Optional[float] = None,
+    max_top10_concentration_pct: Optional[float] = None,
+    max_sector_concentration_pct: Optional[float] = None,
+    min_sharpe: Optional[float] = None,
+    min_manager_tenure_years: Optional[float] = None,
+    min_confidence_score: Optional[float] = None,
 ) -> EligibilityGateResult:
     """
     Evaluates all 10 Hard Binary Selection Gates for a candidate fund:
@@ -320,6 +323,35 @@ def check_eligibility_gates(
     fund_id = fund_data.get("fund_id", fund_data.get("id", ""))
     fund_name = str(fund_data.get("fund_name", fund_data.get("name", fund_id)) or "")
     category = str(fund_data.get("category", fund_data.get("cat", "")) or "")
+
+    # Issue #50: Load and bind authoritative screening policy
+    if policy is None:
+        try:
+            policy = load_fund_screening_policy()
+        except Exception as exc:
+            return EligibilityGateResult(
+                fund_id=str(fund_id),
+                fund_name=str(fund_name),
+                passed=False,
+                failed_gates=[f"Gate 0 [Policy Validation]: Central screening policy failed load ({exc}) — fail-closed"],
+                details={"policy_error": str(exc)},
+            )
+
+    cat_caps = _load_category_aum_caps(policy)
+    if amc_max_limit_pct is None:
+        amc_max_limit_pct = 30.0
+    if min_aum_crore is None:
+        min_aum_crore = 1000.0
+    if max_top10_concentration_pct is None:
+        max_top10_concentration_pct = 55.0
+    if max_sector_concentration_pct is None:
+        max_sector_concentration_pct = 35.0
+    if min_sharpe is None:
+        min_sharpe = 0.40
+    if min_manager_tenure_years is None:
+        min_manager_tenure_years = 2.0
+    if min_confidence_score is None:
+        min_confidence_score = 0.80
 
     # --- Gate 1: AMC Concentration Gate ---
     # Never infer an AMC from the first token of a scheme name: many AMCs have
@@ -371,7 +403,7 @@ def check_eligibility_gates(
     if not aum_min_ok:
         failed.append(f"Gate 2 [Liquidity/AUM]: AUM ₹{aum:,.0f} Cr < ₹{min_aum_crore:,.0f} Cr minimum")
 
-    cat_cap = CATEGORY_AUM_CAPS.get(category)
+    cat_cap = cat_caps.get(category)
     aum_cap_ok = True
     if cat_cap and aum > cat_cap:
         aum_cap_ok = False
@@ -701,6 +733,10 @@ def check_eligibility_gates(
 
     passed = (len(failed) == 0)
 
+    details["policy_version"] = policy.get("version")
+    details["policy_as_of"] = policy.get("as_of")
+    details["policy_digest"] = policy.get("_policy_digest")
+
     return EligibilityGateResult(
         fund_id=str(fund_id),
         fund_name=str(fund_name),
@@ -716,6 +752,8 @@ def check_eligibility_gates(
         manager_tenure_gate=tenure_ok,
         thematic_satellite_gate=thematic_ok,
         direct_plan_gate=is_direct,
+        policy_version=policy.get("version"),
+        policy_digest=policy.get("_policy_digest"),
         details=details
     )
 

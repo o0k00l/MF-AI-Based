@@ -391,3 +391,4 @@ def test_financial_data_refresh_pipeline_future_date_fails_closed(tmp_path):
     assert any("future" in err.lower() for err in result.errors)
     assert result.is_atomic_rollback is True
     assert not bundle_target.exists()
+

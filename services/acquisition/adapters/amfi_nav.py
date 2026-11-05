@@ -154,3 +154,4 @@ class AmfiNavAdapter(BaseSourceAdapter):
                 "source_type": "OFFICIAL_AMFI_DAILY_NAV",
             },
         )
+
