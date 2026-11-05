@@ -161,3 +161,46 @@ def test_detect_active_sips_rejects_duplicate_transactions():
     res = detect_active_sips_from_cas(txs, as_of="2026-10-15")
     assert res["active_sip_count"] == 1
     assert res["rejection_stats"]["rejected_duplicate"] == 1
+
+def test_detect_active_sips_rejects_reversals_and_cancellations():
+    txs = [
+        {"folio": "F1", "scheme": "Scheme A", "date": "2026-09-05", "type": "SIP", "description": "SIP installment", "amount": 5000.0, "mandate_id": "MND101", "mandate_status": "ACTIVE"},
+        {"folio": "F1", "scheme": "Scheme A", "date": "2026-10-05", "type": "SIP", "description": "REVERSAL OF SIP DEBIT", "amount": 5000.0, "mandate_id": "MND101", "mandate_status": "ACTIVE"},
+    ]
+    res = detect_active_sips_from_cas(txs, as_of="2026-10-15")
+    assert res["active_sip_count"] == 0
+    assert res["total_monthly_sip"] == 0.0
+    assert res["rejection_stats"]["rejected_reversals_or_conflicts"] == 1
+
+
+def test_detect_active_sips_rejects_conflicting_transaction_types():
+    txs = [
+        {"folio": "F1", "scheme": "Scheme A", "date": "2026-09-05", "type": "REDEMPTION", "description": "SIP Redemption", "amount": 5000.0, "mandate_id": "MND101", "mandate_status": "ACTIVE"},
+        {"folio": "F1", "scheme": "Scheme A", "date": "2026-10-05", "type": "SWITCH", "description": "Switch-out SIP", "amount": 5000.0, "mandate_id": "MND101", "mandate_status": "ACTIVE"},
+    ]
+    res = detect_active_sips_from_cas(txs, as_of="2026-10-15")
+    assert res["active_sip_count"] == 0
+    assert res["rejection_stats"]["rejected_reversals_or_conflicts"] == 2
+
+
+def test_detect_active_sips_supports_registrar_descriptors():
+    # CAMS and KFintech ACH descriptors
+    txs = [
+        {"folio": "F1", "scheme": "Scheme A", "date": "2026-09-05", "type": "SIP", "description": "CAMS SIP DEBIT", "amount": 5000.0, "mandate_id": "MND_CAMS", "mandate_status": "ACTIVE"},
+        {"folio": "F1", "scheme": "Scheme A", "date": "2026-10-05", "type": "SIP", "description": "ACH DR - KFINTECH", "amount": 5000.0, "mandate_id": "MND_CAMS", "mandate_status": "ACTIVE"},
+    ]
+    res = detect_active_sips_from_cas(txs, as_of="2026-10-15")
+    assert res["active_sip_count"] == 1
+    assert res["total_monthly_sip"] == 5000.0
+
+
+def test_detect_active_sips_multi_step_up_streak_consistency():
+    txs = [
+        {"folio": "F1", "scheme": "Scheme A", "date": "2026-07-05", "type": "SIP", "description": "SIP installment", "amount": 4000.0, "mandate_id": "MND_STP", "mandate_status": "ACTIVE"},
+        {"folio": "F1", "scheme": "Scheme A", "date": "2026-08-05", "type": "SIP", "description": "SIP installment", "amount": 5000.0, "mandate_id": "MND_STP", "mandate_status": "ACTIVE"},
+        {"folio": "F1", "scheme": "Scheme A", "date": "2026-09-05", "type": "SIP", "description": "SIP step up", "amount": 6000.0, "mandate_id": "MND_STP", "mandate_status": "ACTIVE"},
+        {"folio": "F1", "scheme": "Scheme A", "date": "2026-10-05", "type": "SIP", "description": "SIP installment", "amount": 6000.0, "mandate_id": "MND_STP", "mandate_status": "ACTIVE"},
+    ]
+    res = detect_active_sips_from_cas(txs, as_of="2026-10-15")
+    assert res["active_sip_count"] == 1
+    assert res["active_sips"][0]["streak_months"] == 4
