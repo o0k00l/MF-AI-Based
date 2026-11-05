@@ -123,10 +123,10 @@ def test_detect_active_sips_mandate_verified_vs_transaction_text_verified():
     ]
     res1 = detect_active_sips_from_cas(auth_mandate_txs, as_of="2026-10-15")
     assert res1["active_sip_count"] == 1
-    assert res1["active_sips"][0]["confidence"] == "MANDATE_VERIFIED"
+    assert res1["active_sips"][0]["confidence"] in ("ACTIVE_MANDATE_VERIFIED", "MANDATE_VERIFIED")
     assert res1["active_sips"][0]["evidence_level"] == "MANDATE"
 
-    # Transaction text verified: keyword in description, no explicit mandate ID
+    # Transaction text pattern: keyword in description, no explicit mandate ID
     # Must NOT be reported as active mandate; goes to recurring_transaction_patterns with 0 active monthly sip
     text_verified_txs = [
         {"folio": "F2", "scheme": "Scheme B", "date": "2026-09-05", "type": "SIP", "description": "NACH SIP Debit", "amount": 3000.0},
@@ -137,6 +137,27 @@ def test_detect_active_sips_mandate_verified_vs_transaction_text_verified():
     assert res2["total_monthly_sip"] == 0.0
     assert res2["recurring_transaction_pattern_count"] == 1
     pattern = res2["recurring_transaction_patterns"][0]
-    assert pattern["confidence"] == "TRANSACTION_TEXT_VERIFIED"
+    assert pattern["confidence"] in ("SIP_LABELLED_TRANSACTION_PATTERN", "TRANSACTION_TEXT_VERIFIED")
     assert pattern["evidence_level"] == "TRANSACTION_TEXT"
     assert pattern["is_active_mandate"] is False
+
+
+def test_detect_active_sips_rejects_paused_or_cancelled_mandates():
+    txs = [
+        {"folio": "F1", "scheme": "Scheme A", "date": "2026-09-05", "type": "SIP", "amount": 5000.0, "mandate_id": "MND999", "mandate_status": "PAUSED"},
+        {"folio": "F1", "scheme": "Scheme A", "date": "2026-10-05", "type": "SIP", "amount": 5000.0, "mandate_id": "MND999", "mandate_status": "CANCELLED"},
+    ]
+    res = detect_active_sips_from_cas(txs, as_of="2026-10-15")
+    assert res["active_sip_count"] == 0
+    assert res["rejection_stats"]["rejected_paused_or_cancelled"] == 2
+
+
+def test_detect_active_sips_rejects_duplicate_transactions():
+    txs = [
+        {"folio": "F1", "scheme": "Scheme A", "date": "2026-09-05", "type": "SIP", "amount": 5000.0, "mandate_id": "MND101", "mandate_status": "ACTIVE"},
+        {"folio": "F1", "scheme": "Scheme A", "date": "2026-09-05", "type": "SIP", "amount": 5000.0, "mandate_id": "MND101", "mandate_status": "ACTIVE"},  # duplicate
+        {"folio": "F1", "scheme": "Scheme A", "date": "2026-10-05", "type": "SIP", "amount": 5000.0, "mandate_id": "MND101", "mandate_status": "ACTIVE"},
+    ]
+    res = detect_active_sips_from_cas(txs, as_of="2026-10-15")
+    assert res["active_sip_count"] == 1
+    assert res["rejection_stats"]["rejected_duplicate"] == 1

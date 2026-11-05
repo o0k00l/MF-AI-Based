@@ -962,6 +962,7 @@ def filter_candidates(
     client_risk_tier_num: Optional[int] = None,
     is_starter: bool = False,
     policy: Optional[Dict[str, Any]] = None,
+    allow_threshold_overrides: bool = False,
 ) -> List[str]:
     """
     Apply the binary eligibility gates and a portfolio-weighted look-through
@@ -972,6 +973,21 @@ def filter_candidates(
     gt = policy.get("gate_thresholds")
     if not isinstance(gt, dict):
         raise ValueError("Screening policy missing 'gate_thresholds'")
+
+    # Check for unauthorized per-call overrides
+    if amc_max_limit_pct is not None and not allow_threshold_overrides:
+        raise ValueError(
+            "Unauthorized per-call threshold override for 'amc_max_limit_pct'. "
+            "Gate thresholds are governed strictly by central policy; "
+            "overrides require explicit authorization (allow_threshold_overrides=True)."
+        )
+    if max_overlap_limit_pct is not None and not allow_threshold_overrides:
+        raise ValueError(
+            "Unauthorized per-call threshold override for 'max_overlap_limit_pct'. "
+            "Gate thresholds are governed strictly by central policy; "
+            "overrides require explicit authorization (allow_threshold_overrides=True)."
+        )
+
     if amc_max_limit_pct is None:
         if "amc_max_limit_pct" not in gt:
             raise ValueError("Screening policy missing 'amc_max_limit_pct'")
@@ -980,12 +996,7 @@ def filter_candidates(
         if "max_overlap_candidate_pct" not in gt:
             raise ValueError("Screening policy missing 'max_overlap_candidate_pct'")
         max_overlap_limit_pct = float(gt["max_overlap_candidate_pct"])
-    """
-    Apply the binary eligibility gates and a portfolio-weighted look-through
-    overlap ceiling. The overlap limit is enforced only when it can be measured
-    from verified, sufficiently complete constituent disclosures; otherwise
-    the candidate is withheld rather than assuming zero overlap.
-    """
+
     if isinstance(max_overlap_limit_pct, bool):
         raise ValueError("max_overlap_limit_pct must be numeric")
     try:
@@ -1007,7 +1018,8 @@ def filter_candidates(
             client_risk_tier_num=client_risk_tier_num,
             is_starter=is_starter,
             policy=policy,
-            amc_max_limit_pct=amc_max_limit_pct,
+            amc_max_limit_pct=amc_max_limit_pct if allow_threshold_overrides else None,
+            allow_threshold_overrides=allow_threshold_overrides,
         )
         if not gate_result.passed:
             continue

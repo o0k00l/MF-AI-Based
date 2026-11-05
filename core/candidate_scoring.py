@@ -295,6 +295,12 @@ def calculate_candidate_6_pillar_score(
     if not isinstance(weights, ScoringWeights):
         raise ValueError("Explicit approved scoring weights are required; no default composite is permitted.")
 
+    # Issue #25: Mandatory eligibility gates must pass before scoring
+    if cand.get("eligibility_status") not in (None, "PASS", "ELIGIBLE", "PASSED"):
+        raise ValueError(f"Candidate '{cand.get('fund_id', 'unknown')}' failed or has unknown eligibility gates ({cand.get('eligibility_status')}); scoring before eligibility is prohibited.")
+    if cand.get("is_eligible") is False:
+        raise ValueError(f"Candidate '{cand.get('fund_id', 'unknown')}' is not eligible; scoring before eligibility is prohibited.")
+
     approved_bounds: Optional[Dict[str, Tuple[float, float]]] = None
     verified_overlap_pct: Optional[float] = None
     if portfolio_aware:

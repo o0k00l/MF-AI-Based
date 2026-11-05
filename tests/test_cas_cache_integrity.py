@@ -194,3 +194,30 @@ def test_stage_portfolio_rejects_unbound_spoofed_envelope(tmp_path):
     assert res.get("staging_failed") is True
     assert "reconciliation envelope" in res.get("error", "").lower()
     assert "mismatch" in res.get("error", "").lower()
+
+
+def test_stage_portfolio_rejects_tampered_holdings_against_envelope(tmp_path):
+    holdings = [
+        {"scheme": "Scheme Good", "current_value": 2500.0, "units": 25.0, "invested_value": 2000.0, "folio": "F1", "isin": "INF1", "nav": 100.0}
+    ]
+    parsed = {
+        "holdings": holdings,
+        "as_of": "2026-10-01",
+        "stated_total": 2500.0,
+        "source_digest": "c" * 64,
+    }
+    valid_envelope = validate_statement_reconciliation_envelope(parsed)
+    assert valid_envelope["holdings_digest"] is not None
+
+    # Tamper with holdings units/value while preserving count and stated total
+    tampered_parsed = {
+        "holdings": [
+            {"scheme": "Scheme Tampered", "current_value": 2500.0, "units": 25.0, "invested_value": 2000.0, "folio": "F1", "isin": "INF1", "nav": 100.0}
+        ],
+        "as_of": "2026-10-01",
+        "stated_total": 2500.0,
+        "source_digest": "c" * 64,
+    }
+    res = stage_portfolio(tampered_parsed, tmp_path, slug="Test_Tampered", envelope=valid_envelope)
+    assert res.get("staging_failed") is True
+    assert "mismatch" in res.get("error", "").lower()

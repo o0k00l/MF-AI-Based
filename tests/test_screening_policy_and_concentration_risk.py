@@ -226,3 +226,101 @@ def test_evaluate_candidate_portfolio_concentration_controls():
     assert res_good["passed"] is True
     assert res_good["status"] == "PASSED"
     assert res_good["overlap_pct"] == 0.0
+
+
+def test_filter_candidates_rejects_unauthorized_threshold_overrides():
+    policy = load_fund_screening_policy()
+    with pytest.raises(ValueError, match="Unauthorized per-call threshold override for 'amc_max_limit_pct'"):
+        filter_candidates(
+            candidate_universe=[],
+            current_portfolio=[],
+            policy=policy,
+            amc_max_limit_pct=25.0,
+            allow_threshold_overrides=False,
+        )
+
+    with pytest.raises(ValueError, match="Unauthorized per-call threshold override for 'max_overlap_limit_pct'"):
+        filter_candidates(
+            candidate_universe=[],
+            current_portfolio=[],
+            policy=policy,
+            max_overlap_limit_pct=35.0,
+            allow_threshold_overrides=False,
+        )
+
+
+def test_evaluate_candidate_portfolio_concentration_multi_dimensional_breaches():
+    sec_master = {
+        "_schema": "fiduciary.security_master.v1",
+        "securities": {
+            "TCS": {"isin": "INE467B01029", "canonical_name": "Tata Consultancy Services Limited"},
+            "INFY": {"isin": "INE009A01021", "canonical_name": "Infosys Limited"},
+            "HDFCBANK": {"isin": "INE040A01034", "canonical_name": "HDFC Bank Limited"},
+        }
+    }
+    classifications = {
+        "INE467B01029": {"sector": "Technology", "market_cap_bucket": "Large Cap", "themes": ["Digital", "Export"]},
+        "INE009A01021": {"sector": "Technology", "market_cap_bucket": "Large Cap", "themes": ["Digital", "Export"]},
+        "INE040A01034": {"sector": "Financial Services", "market_cap_bucket": "Large Cap", "themes": ["Financialization"]},
+    }
+
+    holding = HoldingItem(
+        fund_id="fund-tech",
+        scheme_id="scheme-tech",
+        scheme_name="Existing Tech Scheme",
+        current_value_inr=100000.0,
+        invested_value_inr=90000.0,
+        units=1000.0,
+        nav=100.0,
+        equity_pct=100.0,
+        debt_pct=0.0,
+        cash_pct=0.0,
+        constituent_weights={"TCS": 60.0, "INFY": 40.0},
+        constituent_weights_coverage_pct=100.0,
+    )
+
+    # Candidate adding more Technology / Digital theme exposure, exceeding max_sector_pct of 35%
+    tech_heavy_cand = {
+        "fund_id": "cand-more-tech",
+        "category": "Flexi Cap",
+        "constituent_weights": {"TCS": 50.0, "INFY": 50.0},
+        "constituent_weights_coverage_pct": 100.0,
+        "allocation_inr": 20000.0,
+    }
+
+    res_sector = evaluate_candidate_portfolio_concentration_controls(
+        tech_heavy_cand,
+        holdings=[holding],
+        security_master=sec_master,
+        classifications=classifications,
+        max_overlap_pct=80.0,
+        max_sector_pct=35.0,
+    )
+    assert res_sector["passed"] is False
+    assert res_sector["status"] == "REJECT"
+    assert "SECTOR_CONCENTRATION_BREACH" in res_sector["reason"]
+
+    # Candidate exceeding theme concentration cap of 15%
+    res_theme = evaluate_candidate_portfolio_concentration_controls(
+        tech_heavy_cand,
+        holdings=[holding],
+        security_master=sec_master,
+        classifications=classifications,
+        max_overlap_pct=80.0,
+        max_sector_pct=100.0,
+        max_theme_pct=15.0,
+    )
+    assert res_theme["passed"] is False
+    assert res_theme["status"] == "REJECT"
+    assert "THEME_CONCENTRATION_BREACH" in res_theme["reason"]
+
+    # Missing security master when required returns HOLD
+    res_no_master = evaluate_candidate_portfolio_concentration_controls(
+        tech_heavy_cand,
+        holdings=[holding],
+        security_master=None,
+        require_security_master=True,
+    )
+    assert res_no_master["passed"] is False
+    assert res_no_master["status"] == "HOLD"
+    assert res_no_master["reason"] == "SECURITY_MASTER_REQUIRED"

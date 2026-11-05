@@ -755,12 +755,19 @@ def load_holdings_from_cas_excel(
 
     # Load metrics dictionary if provided
     metrics_map = {}
+    metrics_provenance = {"status": "MISSING", "reason": "No metrics path supplied."}
     if fund_metrics_path and fund_metrics_path.exists():
         with open(fund_metrics_path, "r", encoding="utf-8") as f:
             m_data = json.load(f)
             for m in m_data.get("funds", []):
                 fid = m.get("id", "").strip().lower()
                 metrics_map[fid] = m
+            # Issue #84: Validate metrics provenance and exact scheme binding
+            metrics_provenance = _validate_metrics_provenance(
+                metrics_map,
+                scheme_master,
+                require_exact_identity=require_exact_metric_identity,
+            )
 
     # Load aliases dictionary if provided
     aliases_map = {}
@@ -1036,6 +1043,116 @@ def _validate_sip_metrics_exposures(metric: Dict[str, Any], *, scheme_id: str) -
         values[field] = value
     if values["eq"] + values["debt"] > 100.0 + 1e-9:
         raise ValueError(f"Fund metrics equity plus debt exposure exceeds 100% for {scheme_id!r}.")
+
+
+def _validate_metrics_provenance(
+    metrics_map: Dict[str, Dict[str, Any]],
+    scheme_master: Optional[Dict[str, Any]] = None,
+    *,
+    require_exact_identity: bool = False,
+) -> Dict[str, Any]:
+    """
+    Issue #84: Validate metrics record provenance and exact scheme binding.
+    
+    Checks:
+    1. Mixed-snapshot detection: all records must have consistent effective_date/source_ref.
+    2. Exact identity tuple: when require_exact_identity=True, each record must have
+       scheme_id, isin, amc_name, category, plan_type, option_type.
+    3. Scheme master cross-check: identity fields must match the verified scheme master.
+    
+    Returns a provenance summary dict. Raises ValueError on tamper/mixed-snapshot/conflict.
+    """
+    if not metrics_map:
+        return {
+            "status": "MISSING",
+            "reason": "No metrics records supplied.",
+            "record_count": 0,
+            "effective_dates": set(),
+            "source_refs": set(),
+        }
+    
+    effective_dates = set()
+    source_refs = set()
+    identity_errors = []
+    scheme_master_index = {}
+    
+    # Build scheme master index for cross-checking
+    if scheme_master and isinstance(scheme_master, dict):
+        for scheme in scheme_master.get("schemes", []):
+            sid = scheme.get("scheme_id") or scheme.get("id")
+            if sid:
+                scheme_master_index[str(sid).strip().upper()] = scheme
+    
+    required_identity_fields = ("scheme_id", "isin", "amc_name", "category", "plan_type", "option_type")
+    
+    for fid, metric in metrics_map.items():
+        if not isinstance(metric, dict):
+            identity_errors.append(f"Metrics record {fid!r} is not a mapping.")
+            continue
+        
+        # Collect provenance fields
+        eff_date = metric.get("effective_date") or metric.get("as_of_date")
+        src_ref = metric.get("source_ref") or metric.get("source_document_sha256")
+        if eff_date:
+            effective_dates.add(str(eff_date).strip())
+        if src_ref:
+            source_refs.add(str(src_ref).strip().lower())
+        
+        if require_exact_identity:
+            missing = [f for f in required_identity_fields if not metric.get(f)]
+            if missing:
+                identity_errors.append(
+                    f"Metrics record {fid!r} is missing required identity fields: {', '.join(missing)}."
+                )
+                continue
+            
+            # Cross-check against scheme master if available
+            sid = str(metric.get("scheme_id", "")).strip().upper()
+            if sid and scheme_master_index:
+                master_scheme = scheme_master_index.get(sid)
+                if master_scheme is None:
+                    identity_errors.append(
+                        f"Metrics record {fid!r} scheme_id {sid!r} not found in verified scheme master."
+                    )
+                    continue
+                # Check ISIN match
+                m_isin = str(metric.get("isin", "")).strip().upper()
+                s_isin = str(master_scheme.get("isin", "")).strip().upper()
+                if m_isin and s_isin and m_isin != s_isin:
+                    identity_errors.append(
+                        f"Metrics record {fid!r} ISIN {m_isin!r} conflicts with scheme master ISIN {s_isin!r}."
+                    )
+                # Check AMC match
+                m_amc = str(metric.get("amc_name", "")).strip().casefold()
+                s_amc = str(master_scheme.get("amc_name", "") or master_scheme.get("amc", "")).strip().casefold()
+                if m_amc and s_amc and m_amc != s_amc:
+                    identity_errors.append(
+                        f"Metrics record {fid!r} AMC {m_amc!r} conflicts with scheme master AMC {s_amc!r}."
+                    )
+    
+    # Mixed-snapshot detection: more than one distinct effective date or source ref
+    mixed_snapshot = len(effective_dates) > 1 or len(source_refs) > 1
+    
+    if identity_errors:
+        raise ValueError(
+            "Metrics provenance validation failed (exact identity): " + "; ".join(identity_errors[:5])
+        )
+    
+    if mixed_snapshot:
+        raise ValueError(
+            f"Metrics provenance validation failed (mixed snapshot): "
+            f"Found {len(effective_dates)} distinct effective dates and "
+            f"{len(source_refs)} distinct source references. All metrics must come from a single reviewed snapshot."
+        )
+    
+    return {
+        "status": "VERIFIED",
+        "record_count": len(metrics_map),
+        "effective_dates": effective_dates,
+        "source_refs": source_refs,
+        "mixed_snapshot": False,
+        "identity_complete": require_exact_identity,
+    }
 
 
 def _find_matching_metric_by_scheme_identity(
@@ -3139,8 +3256,11 @@ def evaluate_candidate_portfolio_concentration_controls(
     max_issuer_pct: float = 10.0,
     max_sector_pct: float = 35.0,
     max_theme_pct: float = 15.0,
+    max_market_cap_pct: float = 50.0,
+    max_scheme_pct: float = 25.0,
     is_starter: bool = False,
     as_of_date: Optional[str] = None,
+    require_security_master: bool = False,
 ) -> Dict[str, Any]:
     """
     Issue #26: Comprehensive multi-dimensional concentration and overlap controls.
@@ -3150,9 +3270,14 @@ def evaluate_candidate_portfolio_concentration_controls(
     3. Total-portfolio issuer concentration cap (<= max_issuer_pct, default 10%)
     4. Total-portfolio sector concentration cap (<= max_sector_pct, default 35%)
     5. Thematic satellite cap (<= 15% for established, 0% for starter)
+    6. Market-cap concentration cap (<= max_market_cap_pct, default 50%)
+    7. Single-scheme concentration cap (<= max_scheme_pct, default 25%)
     """
     if holdings is None:
         return {"status": "HOLD", "passed": False, "reason": "HOLDINGS_DATA_MISSING", "overlap_pct": None}
+
+    if require_security_master and security_master is None:
+        return {"status": "HOLD", "passed": False, "reason": "SECURITY_MASTER_REQUIRED", "overlap_pct": None}
 
     overlap = compute_candidate_portfolio_overlap(
         candidate, holdings=holdings, security_master=security_master, strict=(security_master is not None)
@@ -3183,11 +3308,15 @@ def evaluate_candidate_portfolio_concentration_controls(
                 "overlap_pct": overlap,
             }
 
-    # Concentration check when classifications are supplied
+    # Multi-dimensional concentration check across issuer, sector, theme, market-cap and scheme
     if classifications is not None and security_master is not None and holdings:
         from core.security_master import normalize_security_identifier
         total_equity_value = 0.0
         issuer_totals: Dict[str, float] = {}
+        sector_totals: Dict[str, float] = {}
+        theme_totals: Dict[str, float] = {}
+        mcap_totals: Dict[str, float] = {}
+
         for h in holdings:
             val = float(getattr(h, "current_value_inr", 0.0) or 0.0)
             eq_pct = float(getattr(h, "equity_pct", 0.0) or 0.0)
@@ -3197,16 +3326,41 @@ def evaluate_candidate_portfolio_concentration_controls(
             for issuer, w in c_weights.items():
                 try:
                     c_id, _ = normalize_security_identifier(issuer, security_master=security_master)
-                    issuer_totals[c_id] = issuer_totals.get(c_id, 0.0) + eq_val * float(w) / 100.0
+                    c_val = eq_val * float(w) / 100.0
+                    issuer_totals[c_id] = issuer_totals.get(c_id, 0.0) + c_val
+
+                    facts = classifications.get(c_id, {})
+                    if isinstance(facts, dict):
+                        sec = facts.get("sector")
+                        if sec:
+                            sector_totals[sec] = sector_totals.get(sec, 0.0) + c_val
+                        mcap = facts.get("market_cap_bucket")
+                        if mcap:
+                            mcap_totals[mcap] = mcap_totals.get(mcap, 0.0) + c_val
+                        themes = facts.get("themes") or []
+                        for th in themes:
+                            theme_totals[th] = theme_totals.get(th, 0.0) + c_val
                 except ValueError:
-                    pass
+                    return {
+                        "status": "HOLD",
+                        "passed": False,
+                        "reason": f"LOOKTHROUGH_INCOMPLETE_OR_UNRESOLVED: Unresolved constituent '{issuer}' in holdings",
+                        "overlap_pct": overlap,
+                    }
 
         cand_weights = candidate.get("constituent_weights") or {}
-        if total_equity_value > 0:
+        # Candidate nominal weight in post-contribution equity (defaulting to standard ticket exposure)
+        cand_allocation = float(candidate.get("allocation_inr", 0.0) or 0.0)
+        cand_eq_val = cand_allocation if cand_allocation > 0 else (total_equity_value * 0.10 if total_equity_value > 0 else 10000.0)
+        post_equity_total = total_equity_value + cand_eq_val
+
+        if post_equity_total > 0:
             for issuer, w in cand_weights.items():
                 try:
                     c_id, _ = normalize_security_identifier(issuer, security_master=security_master)
-                    issuer_pct = (issuer_totals.get(c_id, 0.0) / total_equity_value) * 100.0
+                    add_val = cand_eq_val * float(w) / 100.0
+                    comb_val = issuer_totals.get(c_id, 0.0) + add_val
+                    issuer_pct = (comb_val / post_equity_total) * 100.0
                     if issuer_pct > max_issuer_pct:
                         return {
                             "status": "REJECT",
@@ -3216,8 +3370,55 @@ def evaluate_candidate_portfolio_concentration_controls(
                             "breached_issuer": c_id,
                             "issuer_pct": issuer_pct,
                         }
+
+                    facts = classifications.get(c_id, {})
+                    if isinstance(facts, dict):
+                        sec = facts.get("sector")
+                        if sec:
+                            s_comb = sector_totals.get(sec, 0.0) + add_val
+                            s_pct = (s_comb / post_equity_total) * 100.0
+                            if s_pct > max_sector_pct:
+                                return {
+                                    "status": "REJECT",
+                                    "passed": False,
+                                    "reason": f"SECTOR_CONCENTRATION_BREACH: Sector '{sec}' at {s_pct:.2f}% exceeds cap of {max_sector_pct:.2f}%",
+                                    "overlap_pct": overlap,
+                                    "breached_sector": sec,
+                                    "sector_pct": s_pct,
+                                }
+                        themes = facts.get("themes") or []
+                        for th in themes:
+                            th_comb = theme_totals.get(th, 0.0) + add_val
+                            th_pct = (th_comb / post_equity_total) * 100.0
+                            if th_pct > max_theme_pct:
+                                return {
+                                    "status": "REJECT",
+                                    "passed": False,
+                                    "reason": f"THEME_CONCENTRATION_BREACH: Theme '{th}' at {th_pct:.2f}% exceeds cap of {max_theme_pct:.2f}%",
+                                    "overlap_pct": overlap,
+                                    "breached_theme": th,
+                                    "theme_pct": th_pct,
+                                }
+                        mcap = facts.get("market_cap_bucket")
+                        if mcap and max_market_cap_pct > 0:
+                            m_comb = mcap_totals.get(mcap, 0.0) + add_val
+                            m_pct = (m_comb / post_equity_total) * 100.0
+                            if m_pct > max_market_cap_pct:
+                                return {
+                                    "status": "REJECT",
+                                    "passed": False,
+                                    "reason": f"MARKET_CAP_CONCENTRATION_BREACH: Bucket '{mcap}' at {m_pct:.2f}% exceeds cap of {max_market_cap_pct:.2f}%",
+                                    "overlap_pct": overlap,
+                                    "breached_market_cap": mcap,
+                                    "market_cap_pct": m_pct,
+                                }
                 except ValueError:
-                    pass
+                    return {
+                        "status": "HOLD",
+                        "passed": False,
+                        "reason": f"LOOKTHROUGH_INCOMPLETE_OR_UNRESOLVED: Unresolved constituent '{issuer}' in candidate",
+                        "overlap_pct": overlap,
+                    }
 
     return {
         "status": "PASSED",
@@ -3240,7 +3441,12 @@ def compute_multi_horizon_fiduciary_score(
     Uses Category-Relative Min-Max Normalization with regulatory anchor clamping.
     Caps momentum at 25% of total score, preventing short-term return hijacking.
     Incorporates actual candidate-to-portfolio weighted stock look-through overlap.
+    Issue #25: Prohibits scoring candidates before mandatory eligibility gates pass.
     """
+    if c.get("eligibility_status") not in (None, "PASS", "ELIGIBLE", "PASSED"):
+        raise ValueError(f"Candidate '{c.get('fund_id', 'unknown')}' failed or has unknown eligibility gates ({c.get('eligibility_status')}); scoring before eligibility is prohibited.")
+    if c.get("is_eligible") is False:
+        raise ValueError(f"Candidate '{c.get('fund_id', 'unknown')}' is not eligible; scoring before eligibility is prohibited.")
     from core.candidate_scoring import calculate_candidate_6_pillar_score
     score, _ = calculate_candidate_6_pillar_score(
         c, category_key, portfolio_overlap_pct, weights=scoring_weights
@@ -3751,7 +3957,12 @@ def compute_multi_horizon_fiduciary_score(
     Uses Category-Relative Min-Max Normalization with regulatory anchor clamping.
     Caps momentum at 25% of total score, preventing short-term return hijacking.
     Incorporates actual candidate-to-portfolio weighted stock look-through overlap.
+    Issue #25: Prohibits scoring candidates before mandatory eligibility gates pass.
     """
+    if c.get("eligibility_status") not in (None, "PASS", "ELIGIBLE", "PASSED"):
+        raise ValueError(f"Candidate '{c.get('fund_id', 'unknown')}' failed or has unknown eligibility gates ({c.get('eligibility_status')}); scoring before eligibility is prohibited.")
+    if c.get("is_eligible") is False:
+        raise ValueError(f"Candidate '{c.get('fund_id', 'unknown')}' is not eligible; scoring before eligibility is prohibited.")
     from core.candidate_scoring import calculate_candidate_6_pillar_score
     score, _ = calculate_candidate_6_pillar_score(
         c, category_key, portfolio_overlap_pct, weights=scoring_weights
