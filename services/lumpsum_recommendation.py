@@ -85,26 +85,32 @@ def evaluate_portfolio_aware_lumpsum(
     lookthrough_coverage = 0.0
 
     if cas_path.exists() and cas_path.is_file():
-        metrics_p = bundle_evidence.get("metrics_path") or Path("data/fund_metrics.json")
+        metrics_p = bundle_evidence.get("metrics_path")
         aliases_p = bundle_evidence.get("aliases_path")
-        try:
-            holdings = load_holdings_from_cas_excel(
-                cas_path,
-                metrics_path=metrics_p,
-                aliases_path=aliases_p,
-                scheme_master=bundle_evidence.get("scheme_master"),
-                scheme_master_source_bytes=bundle_evidence.get("scheme_master_source_bytes"),
-                portfolio_disclosures_by_scheme_id=bundle_evidence.get("portfolio_disclosures_by_scheme_id"),
-                portfolio_disclosure_source_bytes_by_scheme_id=bundle_evidence.get("portfolio_disclosure_source_bytes_by_scheme_id"),
-                disclosure_as_of_date=mandate.as_of_date,
+        if not metrics_p or not Path(metrics_p).is_file():
+            missing_evidence.append(
+                "HOLD_INCOMPLETE_EVIDENCE: Verified fund metrics evidence path is missing or unreadable; "
+                "repository-relative fallbacks are strictly prohibited."
             )
-            for h in holdings:
-                val = Decimal(str(h.current_value_inr))
-                total_existing_val += val
-                if h.constituent_weights_coverage_pct is not None:
-                    lookthrough_coverage = max(lookthrough_coverage, float(h.constituent_weights_coverage_pct))
-        except Exception as exc:
-            missing_evidence.append(f"CAS holdings reconciliation error: {exc}")
+        else:
+            try:
+                holdings = load_holdings_from_cas_excel(
+                    cas_path,
+                    metrics_path=metrics_p,
+                    aliases_path=aliases_p,
+                    scheme_master=bundle_evidence.get("scheme_master"),
+                    scheme_master_source_bytes=bundle_evidence.get("scheme_master_source_bytes"),
+                    portfolio_disclosures_by_scheme_id=bundle_evidence.get("portfolio_disclosures_by_scheme_id"),
+                    portfolio_disclosure_source_bytes_by_scheme_id=bundle_evidence.get("portfolio_disclosure_source_bytes_by_scheme_id"),
+                    disclosure_as_of_date=mandate.as_of_date,
+                )
+                for h in holdings:
+                    val = Decimal(str(h.current_value_inr))
+                    total_existing_val += val
+                    if h.constituent_weights_coverage_pct is not None:
+                        lookthrough_coverage = max(lookthrough_coverage, float(h.constituent_weights_coverage_pct))
+            except Exception as exc:
+                missing_evidence.append(f"CAS holdings reconciliation error: {exc}")
     else:
         missing_evidence.append("CAS statement file is missing or unreadable.")
 

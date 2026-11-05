@@ -123,8 +123,24 @@ def test_manifest_rejects_tampered_or_mixed_snapshot(tmp_path):
 
 def test_engine_paths_are_independent_of_client_data_directory(tmp_path, monkeypatch):
     from advisor import get_engine_data_paths
-    monkeypatch.setenv("MF_ENGINE_DATA_DIR", str(tmp_path / "engine-store"))
+    store_dir = tmp_path / "engine-store"
+    monkeypatch.setenv("MF_ENGINE_DATA_DIR", str(store_dir))
     monkeypatch.delenv("MF_CLIENT_DATA_DIR", raising=False)
+
+    # 1. Before refresh: returns typed NOT_ACQUIRED state
+    unrefreshed = get_engine_data_paths()
+    assert unrefreshed["status"] == "NOT_ACQUIRED"
+    assert unrefreshed["is_acquired"] is False
+    assert unrefreshed["data_dir"] == store_dir
+
+    # 2. After refresh: resolves exact snapshot paths from manifest.json
+    cfg = EngineRuntimeConfig(data_dir=store_dir)
+    refresh_engine_fund_data(cfg, session=FakeSession(), now=datetime(2026, 11, 5, tzinfo=timezone.utc))
+
     paths = get_engine_data_paths()
-    assert paths["fund_metrics"].parent == tmp_path / "engine-store"
-    assert paths["fund_aliases"].parent == tmp_path / "engine-store"
+    assert paths["status"] == "ACQUIRED_UNVERIFIED"
+    assert paths["is_acquired"] is True
+    assert paths["fund_metrics"].is_file()
+    assert paths["fund_aliases"].is_file()
+    assert paths["scheme_master"].is_file()
+    assert store_dir in paths["fund_metrics"].parents
