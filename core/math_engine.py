@@ -882,7 +882,7 @@ def load_holdings_from_cas_excel(
         # classification or substitute default exposures when metrics are absent.
         if require_exact_metric_identity:
             matched_metric = _find_matching_metric_by_scheme_identity(
-                identity.get("scheme_id"), identity.get("isin"), metrics_map
+                identity.get("scheme_id"), identity.get("isin"), metrics_map, identity=identity
             )
             if matched_metric is not None:
                 _validate_sip_metrics_exposures(
@@ -1029,13 +1029,17 @@ def _validate_sip_metrics_exposures(metric: Dict[str, Any], *, scheme_id: str) -
 
 
 def _find_matching_metric_by_scheme_identity(
-    scheme_id: Any, isin: Any, metrics: Dict[str, Any]
+    scheme_id: Any,
+    isin: Any,
+    metrics: Dict[str, Any],
+    identity: Optional[Dict[str, Any]] = None,
 ) -> Optional[Dict[str, Any]]:
     """Resolve SIP metrics only by the exact verified scheme ID and ISIN.
 
     Display names and aliases are intentionally excluded: they cannot bind
     performance/exposure facts to a CAS holding. A conflicting ISIN for an
     otherwise matching scheme ID is an evidence error, not a missing match.
+    Enforces exact identity tuple binding (AMC, category, plan, option) when identity is provided.
     """
     if not isinstance(scheme_id, str) or not scheme_id.strip():
         return None
@@ -1054,6 +1058,31 @@ def _find_matching_metric_by_scheme_identity(
         raise ValueError(
             f"Fund metrics ISIN conflicts with verified scheme identity for {scheme_id!r}."
         )
+    if identity:
+        expected_amc = identity.get("amc_name")
+        metric_amc = metric.get("amc_name", metric.get("amc"))
+        if expected_amc and metric_amc and expected_amc.strip().casefold() != metric_amc.strip().casefold():
+            raise ValueError(
+                f"Fund metrics AMC '{metric_amc}' conflicts with verified scheme AMC '{expected_amc}' for {scheme_id!r}."
+            )
+        expected_cat = identity.get("category")
+        metric_cat = metric.get("category", metric.get("cat"))
+        if expected_cat and metric_cat and expected_cat.strip().casefold() != metric_cat.strip().casefold():
+            raise ValueError(
+                f"Fund metrics category '{metric_cat}' conflicts with verified scheme category '{expected_cat}' for {scheme_id!r}."
+            )
+        expected_plan = identity.get("plan_type")
+        metric_plan = metric.get("plan_type", metric.get("plan", metric.get("ter_plan")))
+        if expected_plan and metric_plan and str(expected_plan).strip().casefold() != str(metric_plan).strip().casefold():
+            raise ValueError(
+                f"Fund metrics plan '{metric_plan}' conflicts with verified scheme plan '{expected_plan}' for {scheme_id!r}."
+            )
+        expected_opt = identity.get("option_type")
+        metric_opt = metric.get("option_type", metric.get("option"))
+        if expected_opt and metric_opt and str(expected_opt).strip().casefold() != str(metric_opt).strip().casefold():
+            raise ValueError(
+                f"Fund metrics option '{metric_opt}' conflicts with verified scheme option '{expected_opt}' for {scheme_id!r}."
+            )
     return metric
 
 

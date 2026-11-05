@@ -13,7 +13,7 @@ from typing import Any, Callable
 
 from services.sip_reviewer_approval import load_sip_reviewer_trust_registry
 
-from fastapi import FastAPI, File, Form, UploadFile
+from fastapi import FastAPI, File, Form, Header, UploadFile
 from fastapi.responses import JSONResponse
 
 from services.sip_evidence_contract import validate_evidence_provider_payload
@@ -25,6 +25,8 @@ MAX_CAS_BYTES = 20 * 1024 * 1024
 
 def create_sip_app(
     evidence_provider: Callable[..., dict[str, Any]] | None = None,
+    api_key_registry: dict[str, dict[str, Any]] | None = None,
+    require_auth: bool | None = None,
 ) -> FastAPI:
     """Create an isolated SIP API; provider supplies reviewed source evidence."""
     import os
@@ -37,6 +39,12 @@ def create_sip_app(
         reviewer_trust_registry = load_sip_reviewer_trust_registry() if evidence_provider is not None else None
     except (OSError, ValueError):
         reviewer_trust_registry = None
+
+    import os
+    if require_auth is None:
+        auth_enabled = bool(api_key_registry) or os.environ.get("MF_API_REQUIRE_AUTH", "").lower() in ("1", "true", "yes")
+    else:
+        auth_enabled = require_auth
 
     app = FastAPI(
         title="Mutual Fund SIP Decision Support API",
@@ -98,7 +106,39 @@ def create_sip_app(
         monthly_budget_inr: float = Form(...),
         risk_profile: str = Form(...),
         portfolio_context_json: str | None = Form(None),
+        x_api_key: str | None = Header(None, alias="X-API-Key"),
+        authorization: str | None = Header(None, alias="Authorization"),
+        x_client_id: str | None = Header(None, alias="X-Client-Id"),
     ):
+        if auth_enabled:
+            token = None
+            if x_api_key:
+                token = x_api_key.strip()
+            elif authorization and authorization.lower().startswith("bearer "):
+                token = authorization[7:].strip()
+
+            if not token:
+                return JSONResponse(status_code=401, content={
+                    "status": "HOLD",
+                    "decision": "NO_ACTION",
+                    "reasons": ["Authentication required: Valid X-API-Key or Authorization Bearer token must be provided."],
+                })
+
+            if api_key_registry is not None:
+                if token not in api_key_registry:
+                    return JSONResponse(status_code=401, content={
+                        "status": "HOLD",
+                        "decision": "NO_ACTION",
+                        "reasons": ["Invalid or revoked API key."],
+                    })
+                key_info = api_key_registry[token]
+                allowed_clients = key_info.get("authorized_client_ids", [])
+                if x_client_id and allowed_clients and x_client_id not in allowed_clients:
+                    return JSONResponse(status_code=403, content={
+                        "status": "HOLD",
+                        "decision": "NO_ACTION",
+                        "reasons": [f"Forbidden: Client ID '{x_client_id}' is not within the authorized scope of this credential."],
+                    })
         if not math.isfinite(monthly_budget_inr) or monthly_budget_inr <= 0:
             return JSONResponse(status_code=422, content={
                 "status": "HOLD",
