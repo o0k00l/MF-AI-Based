@@ -35,6 +35,11 @@ class EvidenceType(str, Enum):
     POLICY_RULE = "POLICY_RULE"
     MARKET_DATA = "MARKET_DATA"
 
+from datetime import timezone
+
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
 @dataclass
 class Evidence:
     evidence_id: str
@@ -42,18 +47,32 @@ class Evidence:
     source: str
     description: str
     data: Dict[str, Any]
-    timestamp: datetime = field(default_factory=datetime.now)
-    confidence: float = 1.0
+    timestamp: datetime = field(default_factory=_utc_now)
+    confidence: Optional[float] = None
+    verification_status: str = "UNVERIFIED"
+
+    def __post_init__(self):
+        if not isinstance(self.timestamp, datetime):
+            raise ValueError("Evidence timestamp must be a datetime object")
+        if self.timestamp.tzinfo is None:
+            raise ValueError("Evidence timestamp must be timezone-aware (UTC required)")
+        if self.confidence is not None:
+            if isinstance(self.confidence, bool) or not isinstance(self.confidence, (int, float)):
+                raise ValueError("Evidence confidence must be numeric")
+            if not 0.0 <= float(self.confidence) <= 1.0:
+                raise ValueError("Evidence confidence must be bounded in [0.0, 1.0]")
 
     def to_dict(self) -> Dict[str, Any]:
+        ts_utc = self.timestamp.astimezone(timezone.utc).isoformat()
         return _canonical_json_value({
             "evidence_id": self.evidence_id,
             "evidence_type": self.evidence_type.value,
             "source": self.source,
             "description": self.description,
             "data": self.data,
-            "timestamp": self.timestamp.isoformat(),
+            "timestamp": ts_utc,
             "confidence": self.confidence,
+            "verification_status": self.verification_status,
         })
 
 @dataclass
@@ -63,21 +82,33 @@ class Decision:
     timestamp: datetime
     recommendation: str
     rationale: str
+    policy_version: str
+    code_version: str
     evidence: List["Evidence"] = field(default_factory=list)
     inputs: Dict[str, Any] = field(default_factory=dict)
     outputs: Dict[str, Any] = field(default_factory=dict)
-    policy_version: str = "2.5"
-    code_version: str = "1.0"
+    policy_digest: Optional[str] = None
     mandate_state: str = "HOLD_PENDING_TRI_VALIDATION"
     is_actionable: bool = False
     hash: str = ""
 
+    def __post_init__(self):
+        if not isinstance(self.timestamp, datetime):
+            raise ValueError("Decision timestamp must be a datetime object")
+        if self.timestamp.tzinfo is None:
+            raise ValueError("Decision timestamp must be timezone-aware (UTC required)")
+        if not isinstance(self.policy_version, str) or not self.policy_version.strip():
+            raise ValueError("Explicit running policy_version is required; hardcoded defaults prohibited")
+        if not isinstance(self.code_version, str) or not self.code_version.strip():
+            raise ValueError("Explicit running code_version is required; hardcoded defaults prohibited")
+
     def _hash_payload(self) -> Dict[str, Any]:
         """Return every decision field covered by the integrity digest."""
-        return {
+        ts_utc = self.timestamp.astimezone(timezone.utc).isoformat()
+        payload = {
             "decision_id": self.decision_id,
             "decision_type": self.decision_type.value,
-            "timestamp": self.timestamp.isoformat(),
+            "timestamp": ts_utc,
             "recommendation": self.recommendation,
             "rationale": self.rationale,
             "evidence": [ev.to_dict() for ev in self.evidence],
@@ -89,6 +120,9 @@ class Decision:
             "is_actionable": self.is_actionable,
             "hash_version": "RFC8785-JCS-SHA256-v1",
         }
+        if self.policy_digest:
+            payload["policy_digest"] = self.policy_digest
+        return payload
 
     def compute_hash(self) -> str:
         """Return SHA-256 over RFC 8785/JCS canonical UTF-8 bytes.
