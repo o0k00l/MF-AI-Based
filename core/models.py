@@ -378,12 +378,19 @@ class DeterministicSIPRecommendation(BaseModel):
     allocation_pct: float
     rational_code: str        # 'CORE_COMPOUNDER', 'ALPHA_ENGINE', 'SATELLITE_THEME'
     fiduciary_rationale: str
+    scheme_status: Optional[str] = "ACTIVE"
+    subscription_status: Optional[str] = "OPEN"
+    scheme_min_sip_inr: Optional[Decimal] = None
+    lock_in_days: Optional[int] = 0
 
     @model_validator(mode="before")
     @classmethod
     def _coerce_monthly_inr(cls, data: Any) -> Any:
-        if isinstance(data, dict) and "monthly_inr" in data and data["monthly_inr"] is not None:
-            data["monthly_inr"] = quantize_inr(data["monthly_inr"])
+        if isinstance(data, dict):
+            if "monthly_inr" in data and data["monthly_inr"] is not None:
+                data["monthly_inr"] = quantize_inr(data["monthly_inr"])
+            if "scheme_min_sip_inr" in data and data["scheme_min_sip_inr"] is not None:
+                data["scheme_min_sip_inr"] = quantize_inr(data["scheme_min_sip_inr"])
         return data
 
 

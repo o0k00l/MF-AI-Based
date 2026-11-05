@@ -116,3 +116,26 @@ def test_missing_introduction_history_fails_closed():
         [item], policy, portfolio_introduction_history=history
     )
     assert any("Missing 12-month scheme introduction history" in v for v in violations)
+
+def test_operational_feasibility_rejects_inactive_or_merged_scheme():
+    policy = _sip_policy()
+    item = _sip_item()
+    item.scheme_status = "MERGED"
+    violations = _sip_operational_constraint_violations([item], policy)
+    assert any("not confirmed active" in v for v in violations)
+
+
+def test_operational_feasibility_rejects_restricted_subscription():
+    policy = _sip_policy()
+    item = _sip_item()
+    item.subscription_status = "CLOSED_FOR_FRESH_SIP"
+    violations = _sip_operational_constraint_violations([item], policy)
+    assert any("subscription is restricted or closed" in v for v in violations)
+
+
+def test_operational_feasibility_enforces_scheme_minimum_ticket():
+    policy = _sip_policy()
+    item = _sip_item(amount=1000.0)
+    item.scheme_min_sip_inr = 2500.0  # Scheme requires min 2500
+    violations = _sip_operational_constraint_violations([item], policy)
+    assert any("below scheme-specific minimum ticket" in v for v in violations)

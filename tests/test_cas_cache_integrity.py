@@ -4,6 +4,8 @@ from ingestion.cas_parser import (
     to_cache_csv,
     stage_portfolio,
     validate_statement_reconciliation_envelope,
+    parse_cache_csv,
+    load_cache_csv,
 )
 
 
@@ -221,3 +223,58 @@ def test_stage_portfolio_rejects_tampered_holdings_against_envelope(tmp_path):
     res = stage_portfolio(tampered_parsed, tmp_path, slug="Test_Tampered", envelope=valid_envelope)
     assert res.get("staging_failed") is True
     assert "mismatch" in res.get("error", "").lower()
+
+def test_to_cache_csv_strict_rejects_boolean_values():
+    # Boolean True/False must never be coerced into 1.0/0.0
+    with pytest.raises(ValueError, match="Boolean value not allowed"):
+        to_cache_csv({"holdings": [{"scheme": "Scheme A", "current_value": True, "units": 10.0, "invested_value": 1000.0}]}, enriched=True, strict=True)
+
+    with pytest.raises(ValueError, match="Boolean value not allowed"):
+        to_cache_csv({"holdings": [{"scheme": "Scheme A", "current_value": 1000.0, "units": False, "invested_value": 1000.0}]}, enriched=True, strict=True)
+
+    with pytest.raises(ValueError, match="Boolean value not allowed"):
+        to_cache_csv({"holdings": [{"scheme": "Scheme A", "current_value": 1000.0, "units": 10.0, "invested_value": 1000.0, "nav": True}]}, enriched=True, strict=True)
+
+
+def test_to_cache_csv_strict_rejects_empty_string_and_none():
+    with pytest.raises(ValueError, match="Missing required field"):
+        to_cache_csv({"holdings": [{"scheme": "Scheme A", "current_value": "", "units": 10.0, "invested_value": 1000.0}]}, enriched=True, strict=True)
+
+    with pytest.raises(ValueError, match="Missing required field"):
+        to_cache_csv({"holdings": [{"scheme": "Scheme A", "current_value": None, "units": 10.0, "invested_value": 1000.0}]}, enriched=True, strict=True)
+
+
+def test_parse_cache_csv_preserves_unavailable_as_none():
+    csv_text = (
+        '"Scheme Name",CurrentValue,Units,Invested,"Folio Number",ISIN,NAV,NAV_Source\n'
+        '"Scheme Incomplete",UNAVAILABLE,UNAVAILABLE,1000.00,"F1","INF1",UNAVAILABLE,NONE\n'
+        '"Scheme Complete",1500.00,10.000,1000.00,"F2","INF2",150.0000,SOURCE\n'
+    )
+    rows = parse_cache_csv(csv_text)
+    assert len(rows) == 2
+    inc = rows[0]
+    assert inc["scheme"] == "Scheme Incomplete"
+    assert inc["current_value"] is None
+    assert inc["units"] is None
+    assert inc["invested"] == 1000.00
+    assert inc["nav"] is None
+
+    comp = rows[1]
+    assert comp["scheme"] == "Scheme Complete"
+    assert comp["current_value"] == 1500.00
+    assert comp["units"] == 10.000
+    assert comp["invested"] == 1000.00
+    assert comp["nav"] == 150.0000
+
+
+def test_load_cache_csv_from_file_preserves_none(tmp_path):
+    p = tmp_path / "cache.csv"
+    p.write_text(
+        '"Scheme Name",CurrentValue,Units,Invested,"Folio Number",ISIN,NAV,NAV_Source\n'
+        '"Scheme A",UNAVAILABLE,5.000,500.00,"F1","INF1",UNAVAILABLE,NONE\n',
+        encoding="utf-8"
+    )
+    rows = load_cache_csv(p)
+    assert len(rows) == 1
+    assert rows[0]["current_value"] is None
+    assert rows[0]["units"] == 5.000
