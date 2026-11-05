@@ -150,13 +150,20 @@ def extract_mandate_evidence_from_transaction(
                 mandate_id = extracted_id
                 mandate_source = "REGISTRAR_CAS_REGN"
 
-    # 4. Check for mandate cancellation / pause / failure markers
+    # 4. Check for explicit active status vs cancellation / pause / failure markers
     PAUSE_CANCEL_PATTERNS = re.compile(
         r'\b(PAUSED|PAUSE|CANCELLED|CANCELED|CANCEL|EXPIRED|SUSPENDED|STOPPED|TERMINATED|INACTIVE|FAILED|BOUNCE|BOUNCED|REJECTED)\b',
         re.IGNORECASE
     )
+    ACTIVE_STATUS_PATTERNS = re.compile(
+        r'\b(?:STATUS[:\s]*)?(ACTIVE|ACT|LIVE|CONFIRMED)\b',
+        re.IGNORECASE
+    )
     is_cancelled_or_paused = bool(PAUSE_CANCEL_PATTERNS.search(desc)) or mandate_status in (
         "PAUSED", "CANCELLED", "EXPIRED", "SUSPENDED", "INACTIVE", "FAILED"
+    )
+    has_explicit_active = bool(ACTIVE_STATUS_PATTERNS.search(desc)) or mandate_status in (
+        "ACTIVE", "LIVE", "ACT", "CONFIRMED"
     )
 
     if is_cancelled_or_paused:
@@ -170,20 +177,31 @@ def extract_mandate_evidence_from_transaction(
             mandate_status = "FAILED"
         else:
             mandate_status = "CANCELLED"
+        mandate_evidence_level = "CANCELLED_OR_INACTIVE"
     elif mandate_id:
-        if not mandate_status or mandate_status == "UNKNOWN":
+        if has_explicit_active:
             mandate_status = "ACTIVE"
+            mandate_evidence_level = "ACTIVE_MANDATE_CONFIRMED"
+        else:
+            # Mandate identifier found, but NO explicit active confirmation.
+            # An identifier establishes identity, not necessarily current active status.
+            mandate_status = "UNCONFIRMED"
+            mandate_evidence_level = "MANDATE_ID_FOUND"
     else:
         mandate_status = "UNKNOWN"
+        mandate_evidence_level = "NONE"
         mandate_source = "NONE"
+
+    has_auth_mandate = bool(mandate_id) and (mandate_status == "ACTIVE") and (mandate_evidence_level == "ACTIVE_MANDATE_CONFIRMED")
 
     return {
         "mandate_id": mandate_id or None,
         "registrar_mandate_id": mandate_id or None,
         "umrn": umrn or None,
         "mandate_status": mandate_status,
+        "mandate_evidence_level": mandate_evidence_level,
         "mandate_source": mandate_source or "NONE",
-        "has_auth_mandate": bool(mandate_id) and (mandate_status == "ACTIVE"),
+        "has_auth_mandate": has_auth_mandate,
     }
 
 
@@ -411,7 +429,7 @@ def parse_cas_xlsx(source, scheme_master=None, scheme_master_source_bytes=None) 
                 fol_val = str(r[m_fol_col] or "").strip() if m_fol_col is not None and m_fol_col < len(r) else ""
                 mid_val = str(r[m_id_col] or "").strip() if m_id_col is not None and m_id_col < len(r) else ""
                 amt_val = _num(r[m_amt_col]) if m_amt_col is not None and m_amt_col < len(r) else None
-                st_val = str(r[m_st_col] or "ACTIVE").strip().upper() if m_st_col is not None and m_st_col < len(r) else "ACTIVE"
+                st_val = str(r[m_st_col] or "").strip().upper() if m_st_col is not None and m_st_col < len(r) and r[m_st_col] is not None else "UNKNOWN"
                 if sch_val or mid_val:
                     out["active_mandates"].append({
                         "scheme": sch_val,
@@ -560,9 +578,15 @@ def parse_cas_xlsx(source, scheme_master=None, scheme_master_source_bytes=None) 
                                 ):
                                     mandate_info["mandate_id"] = am["mandate_id"]
                                     mandate_info["registrar_mandate_id"] = am["mandate_id"]
-                                    mandate_info["mandate_status"] = am.get("status", "ACTIVE")
+                                    am_st = str(am.get("status", "UNKNOWN")).strip().upper()
+                                    mandate_info["mandate_status"] = am_st
                                     mandate_info["mandate_source"] = "REGISTRAR_CAS_MANDATE_TABLE"
-                                    mandate_info["has_auth_mandate"] = (mandate_info["mandate_status"] == "ACTIVE")
+                                    if am_st in ("ACTIVE", "LIVE", "ACT", "CONFIRMED"):
+                                        mandate_info["mandate_evidence_level"] = "ACTIVE_MANDATE_CONFIRMED"
+                                        mandate_info["has_auth_mandate"] = True
+                                    else:
+                                        mandate_info["mandate_evidence_level"] = "MANDATE_ID_FOUND"
+                                        mandate_info["has_auth_mandate"] = False
                                     break
 
                         record = {
@@ -1687,11 +1711,12 @@ def detect_active_sips_from_cas(
                     (t_sch and str(am.get("scheme", "")).strip().casefold() == t_sch)
                 ):
                     mandate_id = str(am["mandate_id"]).strip()
-                    mandate_status = str(am.get("status", "ACTIVE")).strip().upper()
+                    mandate_status = str(am.get("status", "UNKNOWN")).strip().upper()
                     break
 
-        # Authenticated mandate requires BOTH stable mandate reference AND active status
-        has_auth_mandate = bool(mandate_id) and (mandate_status == "ACTIVE")
+        has_explicit_active = (mandate_status in ("ACTIVE", "LIVE", "ACT", "CONFIRMED"))
+        # Authenticated mandate requires BOTH stable mandate reference AND confirmed active status
+        has_auth_mandate = bool(mandate_id) and has_explicit_active
         is_paused_or_cancelled = mandate_status in ("PAUSED", "CANCELLED", "EXPIRED", "SUSPENDED", "INACTIVE", "FAILED")
 
         if is_paused_or_cancelled:
@@ -1813,7 +1838,7 @@ def detect_active_sips_from_cas(
             })
             continue
 
-        by_scheme[(folio, scheme)].append((d, amt, desc, has_sip_evidence, has_auth_mandate, mandate_status or "UNKNOWN"))
+        by_scheme[(folio, scheme)].append((d, amt, desc, has_sip_evidence, has_auth_mandate, mandate_status or "UNKNOWN", mandate_id or ""))
 
     if not parsed_dates:
         return {
@@ -1866,7 +1891,7 @@ def detect_active_sips_from_cas(
         items.sort(key=lambda x: x[0])
         # Enforce both as_of upper bound and max_history_days bounded history window
         valid_items = []
-        for d, amt, desc, has_sip, has_mandate, m_status in items:
+        for d, amt, desc, has_sip, has_mandate, m_status, m_id in items:
             if d > ref_date:
                 continue
             age_days = (ref_date - d).days
@@ -1878,11 +1903,11 @@ def detect_active_sips_from_cas(
                     "description": desc,
                 })
                 continue
-            valid_items.append((d, amt, desc, has_sip, has_mandate, m_status))
+            valid_items.append((d, amt, desc, has_sip, has_mandate, m_status, m_id))
             usable_dates.append(d)
 
         if len(valid_items) < 2:
-            for d, amt, desc, has_sip, has_mandate, m_status in valid_items:
+            for d, amt, desc, has_sip, has_mandate, m_status, m_id in valid_items:
                 rejected_transactions.append({
                     "date": d.isoformat(),
                     "reason": "insufficient_scheme_history",
@@ -1891,8 +1916,8 @@ def detect_active_sips_from_cas(
                 })
             continue
 
-        last_d, last_amt, last_desc, last_has_sip, last_has_mandate, last_status = valid_items[-1]
-        prev_d, prev_amt, prev_desc, prev_has_sip, prev_has_mandate, prev_status = valid_items[-2]
+        last_d, last_amt, last_desc, last_has_sip, last_has_mandate, last_status, last_mid = valid_items[-1]
+        prev_d, prev_amt, prev_desc, prev_has_sip, prev_has_mandate, prev_status, prev_mid = valid_items[-2]
 
         delta = (last_d - prev_d).days
         days_since = (ref_date - last_d).days
@@ -1912,8 +1937,8 @@ def detect_active_sips_from_cas(
         if _is_valid_cadence_pair(prev_amt, last_amt, delta) and 0 <= days_since <= tolerance_days:
             streak = 2
             for i in range(len(valid_items) - 2, 0, -1):
-                cur_d, cur_amt, cur_desc, cur_has_sip, cur_has_mandate, _ = valid_items[i]
-                p_d, p_amt, p_desc, p_has_sip, p_has_mandate, _ = valid_items[i - 1]
+                cur_d, cur_amt, cur_desc, cur_has_sip, cur_has_mandate, _, _ = valid_items[i]
+                p_d, p_amt, p_desc, p_has_sip, p_has_mandate, _, _ = valid_items[i - 1]
                 pair_delta = (cur_d - p_d).days
                 if _is_valid_cadence_pair(p_amt, cur_amt, pair_delta):
                     streak += 1
@@ -1924,12 +1949,19 @@ def detect_active_sips_from_cas(
             if both_have_mandate:
                 confidence = "ACTIVE_MANDATE_VERIFIED"
                 confidence_note = "Authenticated mandate evidence and recurring debit confirmed across qualifying installments"
+                evidence_lvl = "ACTIVE_MANDATE_CONFIRMED"
+            elif bool(last_mid or prev_mid):
+                confidence = "UNVERIFIED"
+                confidence_note = "Mandate identifier found but lacking explicit active-status confirmation; excluded from active monthly SIP total"
+                evidence_lvl = "MANDATE_ID_FOUND"
             elif both_have_sip_evidence:
                 confidence = "SIP_LABELLED_TRANSACTION_PATTERN"
                 confidence_note = "Explicit SIP transaction-text classification confirmed across qualifying installments (transaction pattern only; not authenticated registrar mandate)"
+                evidence_lvl = "TRANSACTION_TEXT"
             else:
                 confidence = "UNVERIFIED"
                 confidence_note = "Recurring payment pattern detected without continuous explicit mandate or transaction-text evidence"
+                evidence_lvl = "NONE"
 
             sip_entry = {
                 "scheme": scheme,
@@ -1941,7 +1973,7 @@ def detect_active_sips_from_cas(
                 "days_since_last": days_since,
                 "confidence": confidence,
                 "confidence_note": confidence_note,
-                "evidence_level": "MANDATE" if both_have_mandate else ("TRANSACTION_TEXT" if both_have_sip_evidence else "NONE"),
+                "evidence_level": evidence_lvl,
                 "mandate_status": "ACTIVE" if both_have_mandate else "UNKNOWN",
                 "is_active_mandate": is_mandate,
                 "is_verified": is_mandate,
@@ -1957,16 +1989,16 @@ def detect_active_sips_from_cas(
 
         # Case 2: One-off lump sum arrived recently
         elif not active_sips and not unverified_patterns and len(valid_items) >= 3:
-            prev_d, prev_amt, prev_desc, prev_has_sip, prev_has_mandate, prev_status = valid_items[-2]
-            p_prev_d, p_prev_amt, p_prev_desc, p_prev_has_sip, p_prev_has_mandate, p_prev_status = valid_items[-3]
+            prev_d, prev_amt, prev_desc, prev_has_sip, prev_has_mandate, prev_status, prev_mid = valid_items[-2]
+            p_prev_d, p_prev_amt, p_prev_desc, p_prev_has_sip, p_prev_has_mandate, p_prev_status, p_prev_mid = valid_items[-3]
             d_delta = (prev_d - p_prev_d).days
             d_days_since = (ref_date - prev_d).days
 
             if d_days_since >= 0 and _is_valid_cadence_pair(p_prev_amt, prev_amt, d_delta) and 0 <= d_days_since <= tolerance_days:
                 streak = 2
                 for i in range(len(valid_items) - 3, 0, -1):
-                    cur_d, cur_amt, cur_desc, cur_has_sip, cur_has_mandate, _ = valid_items[i]
-                    p_d, p_amt, p_desc, p_has_sip, p_has_mandate, _ = valid_items[i - 1]
+                    cur_d, cur_amt, cur_desc, cur_has_sip, cur_has_mandate, _, _ = valid_items[i]
+                    p_d, p_amt, p_desc, p_has_sip, p_has_mandate, _, _ = valid_items[i - 1]
                     pair_delta = (cur_d - p_d).days
                     if _is_valid_cadence_pair(p_amt, cur_amt, pair_delta):
                         streak += 1
@@ -1978,12 +2010,19 @@ def detect_active_sips_from_cas(
                 if case2_both_have_mandate:
                     confidence = "ACTIVE_MANDATE_VERIFIED"
                     confidence_note = "Authenticated mandate evidence and recurring debit confirmed across qualifying installments"
+                    case2_evidence_lvl = "ACTIVE_MANDATE_CONFIRMED"
+                elif bool(prev_mid or p_prev_mid):
+                    confidence = "UNVERIFIED"
+                    confidence_note = "Mandate identifier found but lacking explicit active-status confirmation; excluded from active monthly SIP total"
+                    case2_evidence_lvl = "MANDATE_ID_FOUND"
                 elif case2_both_have_sip:
                     confidence = "SIP_LABELLED_TRANSACTION_PATTERN"
                     confidence_note = "Explicit SIP transaction-text classification confirmed across qualifying installments (transaction pattern only; not authenticated registrar mandate)"
+                    case2_evidence_lvl = "TRANSACTION_TEXT"
                 else:
                     confidence = "UNVERIFIED"
                     confidence_note = "Recurring payment pattern detected without continuous explicit mandate or transaction-text evidence"
+                    case2_evidence_lvl = "NONE"
 
                 sip_entry = {
                     "scheme": scheme,
@@ -1995,7 +2034,7 @@ def detect_active_sips_from_cas(
                     "days_since_last": d_days_since,
                     "confidence": confidence,
                     "confidence_note": confidence_note,
-                    "evidence_level": "MANDATE" if case2_both_have_mandate else ("TRANSACTION_TEXT" if case2_both_have_sip else "NONE"),
+                    "evidence_level": case2_evidence_lvl,
                     "mandate_status": "ACTIVE" if case2_both_have_mandate else "UNKNOWN",
                     "is_active_mandate": case2_both_have_mandate,
                     "is_verified": case2_both_have_mandate,
