@@ -156,3 +156,41 @@ def test_stage_portfolio_preserves_existing_cache_on_failed_replacement(tmp_path
     # Step 3: Verify existing active cache was NOT deleted and is preserved
     assert cache_path.is_file()
     assert cache_path.read_text(encoding="utf-8") == original_cache_content
+
+
+def test_validate_reconciliation_envelope_requires_source_digest_by_default():
+    holdings = [
+        {"scheme": "Scheme A", "current_value": 1000.0, "units": 10.0, "invested_value": 900.0}
+    ]
+    with pytest.raises(ValueError, match="Valid 64-character SHA-256 source digest is required"):
+        validate_statement_reconciliation_envelope({
+            "holdings": holdings,
+            "as_of": "2026-10-15",
+            "stated_total": 1000.0,
+            # missing source_digest
+        })
+
+
+def test_stage_portfolio_rejects_unbound_spoofed_envelope(tmp_path):
+    holdings = [
+        {"scheme": "Scheme Good", "current_value": 2500.0, "units": 25.0, "invested_value": 2000.0, "folio": "F1", "isin": "INF1", "nav": 100.0}
+    ]
+    parsed = {
+        "holdings": holdings,
+        "as_of": "2026-10-01",
+        "stated_total": 2500.0,
+        "source_digest": "c" * 64,
+    }
+    # Spoofed envelope with mismatched totals / digest
+    spoofed_envelope = {
+        "status": "VERIFIED_RECONCILED",
+        "statement_date": "2026-10-01",
+        "source_digest": "d" * 64,  # mismatched digest
+        "holdings_count": 1,
+        "parsed_total": 2500.0,
+        "validation_token": "fake_token",
+    }
+    res = stage_portfolio(parsed, tmp_path, slug="Test_Spoofed_Env", envelope=spoofed_envelope)
+    assert res.get("staging_failed") is True
+    assert "reconciliation envelope" in res.get("error", "").lower()
+    assert "mismatch" in res.get("error", "").lower()

@@ -638,21 +638,24 @@ def validate_evidence_provider_payload(
             raise EvidenceProviderContractError("aliases_path must be a regular, non-symlink file.")
         if aliases_path.stat().st_size <= 0 or aliases_path.stat().st_size > 10 * 1024 * 1024:
             raise EvidenceProviderContractError("aliases_path is empty or exceeds the 10 MiB limit.")
-        if aliases_source_present:
-            _validate_source_document(
-                payload["aliases_source_metadata"],
-                payload["aliases_source_bytes"],
-                label="Fund aliases",
-                as_of=as_of,
+        if not aliases_source_present:
+            raise EvidenceProviderContractError(
+                "Fund aliases path requires both aliases_source_metadata and aliases_source_bytes; Path-like files alone are prohibited."
             )
-            norm_hash = payload["aliases_source_metadata"].get("normalized_aliases_sha256")
-            if not isinstance(norm_hash, str) or not re.fullmatch(r"[0-9a-fA-F]{64}", norm_hash):
-                raise EvidenceProviderContractError("Fund aliases metadata requires normalized_aliases_sha256.")
-            actual_norm = hashlib.sha256(aliases_path.read_bytes()).hexdigest()
-            if actual_norm.lower() != norm_hash.lower():
-                raise EvidenceProviderContractError(
-                    "Fund aliases normalized file SHA-256 does not match reviewed metadata."
-                )
+        _validate_source_document(
+            payload["aliases_source_metadata"],
+            payload["aliases_source_bytes"],
+            label="Fund aliases",
+            as_of=as_of,
+        )
+        norm_hash = payload["aliases_source_metadata"].get("normalized_aliases_sha256")
+        if not isinstance(norm_hash, str) or not re.fullmatch(r"[0-9a-fA-F]{64}", norm_hash):
+            raise EvidenceProviderContractError("Fund aliases metadata requires normalized_aliases_sha256.")
+        actual_norm = hashlib.sha256(aliases_path.read_bytes()).hexdigest()
+        if actual_norm.lower() != norm_hash.lower():
+            raise EvidenceProviderContractError(
+                "Fund aliases normalized file SHA-256 does not match reviewed metadata."
+            )
         try:
             with open(aliases_path, "r", encoding="utf-8") as f:
                 alias_data = json.load(f)

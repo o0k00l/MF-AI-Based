@@ -19,7 +19,9 @@ from dataclasses import dataclass
 import math
 
 # Import various model classes for type annotations
-from core.models import TriProvenanceError, HoldingItem, FeeBleedAnalysis, PlanType, AssetClass
+import decimal
+from decimal import Decimal, ROUND_HALF_UP
+from core.models import TriProvenanceError, HoldingItem, FeeBleedAnalysis, PlanType, AssetClass, quantize_inr
 
 # ─────────────────────────────────────────────────────────────────────────────
 # DATE-AWARE STATUTORY TAX LAYER (1961 Act vs 2025 Act)
@@ -820,29 +822,37 @@ def load_holdings_from_cas_excel(
         try:
             if i_val is None or c_val is None or u_val is None:
                 raise ValueError("blank financial cell")
-            c_float = float(c_val)
-            i_float = float(i_val)
-            u_float = float(u_val)
-        except (ValueError, TypeError) as exc:
+            c_dec = Decimal(str(c_val).strip())
+            i_dec = Decimal(str(i_val).strip())
+            u_dec = Decimal(str(u_val).strip())
+        except (ValueError, TypeError, decimal.InvalidOperation) as exc:
             raise ValueError(
                 f"Invalid CAS workbook: malformed financial values for scheme {str(s_name).strip()!r}."
             ) from exc
-        if not all(math.isfinite(value) for value in (i_float, c_float, u_float)):
+        if not c_dec.is_finite() or not i_dec.is_finite() or not u_dec.is_finite():
             raise ValueError(
                 f"Invalid CAS workbook: non-finite financial values for scheme {str(s_name).strip()!r}."
             )
-        if i_float < 0 or c_float < 0 or u_float < 0:
+        if i_dec < Decimal("0") or c_dec < Decimal("0") or u_dec < Decimal("0"):
             raise ValueError(
                 f"Invalid CAS workbook: negative financial values for scheme {str(s_name).strip()!r}."
             )
-        if c_float > 0.0:
-            if u_float <= 0.0:
+        if c_dec > Decimal("0"):
+            if u_dec <= Decimal("0"):
                 raise ValueError(
                     f"Invalid CAS workbook: positive current value requires positive units for scheme {str(s_name).strip()!r}."
                 )
-            nav_float = round(c_float / u_float, 4)
+            nav_dec = (c_dec / u_dec).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
             amc_value = row[col_amc] if col_amc is not None and len(row) > col_amc else ""
-            raw_items.append((str(s_name).strip(), str(f_no).strip() if f_no else "", i_float, c_float, u_float, nav_float, str(amc_value or "").strip()))
+            raw_items.append((
+                str(s_name).strip(),
+                str(f_no).strip() if f_no else "",
+                quantize_inr(i_dec),
+                quantize_inr(c_dec),
+                u_dec.quantize(Decimal("0.001"), rounding=ROUND_HALF_UP),
+                nav_dec,
+                str(amc_value or "").strip(),
+            ))
 
     for scheme_str, folio_str, invested, current, units_val, nav_val, amc_name in raw_items:
         # Plan and option are separate instrument attributes. Display-name
@@ -1059,30 +1069,27 @@ def _find_matching_metric_by_scheme_identity(
             f"Fund metrics ISIN conflicts with verified scheme identity for {scheme_id!r}."
         )
     if identity:
-        expected_amc = identity.get("amc_name")
-        metric_amc = metric.get("amc_name", metric.get("amc"))
-        if expected_amc and metric_amc and expected_amc.strip().casefold() != metric_amc.strip().casefold():
-            raise ValueError(
-                f"Fund metrics AMC '{metric_amc}' conflicts with verified scheme AMC '{expected_amc}' for {scheme_id!r}."
-            )
-        expected_cat = identity.get("category")
-        metric_cat = metric.get("category", metric.get("cat"))
-        if expected_cat and metric_cat and expected_cat.strip().casefold() != metric_cat.strip().casefold():
-            raise ValueError(
-                f"Fund metrics category '{metric_cat}' conflicts with verified scheme category '{expected_cat}' for {scheme_id!r}."
-            )
-        expected_plan = identity.get("plan_type")
-        metric_plan = metric.get("plan_type", metric.get("plan", metric.get("ter_plan")))
-        if expected_plan and metric_plan and str(expected_plan).strip().casefold() != str(metric_plan).strip().casefold():
-            raise ValueError(
-                f"Fund metrics plan '{metric_plan}' conflicts with verified scheme plan '{expected_plan}' for {scheme_id!r}."
-            )
-        expected_opt = identity.get("option_type")
-        metric_opt = metric.get("option_type", metric.get("option"))
-        if expected_opt and metric_opt and str(expected_opt).strip().casefold() != str(metric_opt).strip().casefold():
-            raise ValueError(
-                f"Fund metrics option '{metric_opt}' conflicts with verified scheme option '{expected_opt}' for {scheme_id!r}."
-            )
+        tuple_checks = [
+            ("AMC", "amc_name", ["amc_name", "amc"]),
+            ("Category", "category", ["category", "cat"]),
+            ("Plan", "plan_type", ["plan_type", "plan", "ter_plan"]),
+            ("Option", "option_type", ["option_type", "option"]),
+        ]
+        for tuple_name, id_key, metric_keys in tuple_checks:
+            expected_val = identity.get(id_key)
+            metric_val = next((metric[k] for k in metric_keys if k in metric and metric[k] is not None), None)
+            if not expected_val:
+                raise ValueError(
+                    f"Verified scheme identity for {scheme_id!r} is missing required {tuple_name}."
+                )
+            if not metric_val:
+                raise ValueError(
+                    f"Fund metrics for {scheme_id!r} is missing required {tuple_name} identity field."
+                )
+            if str(expected_val).strip().casefold() != str(metric_val).strip().casefold():
+                raise ValueError(
+                    f"Fund metrics {tuple_name} '{metric_val}' conflicts with verified scheme {tuple_name} '{expected_val}' for {scheme_id!r}."
+                )
     return metric
 
 
@@ -1919,7 +1926,7 @@ def compute_fifo_tax_lots(
     }
 
 
-def _validated_ips_numeric_inputs(ips: Dict[str, Any]) -> Tuple[float, float, float]:
+def _validated_ips_numeric_inputs(ips: Dict[str, Any]) -> Tuple[Decimal, Decimal, float]:
     """Validate investor-entered SIP/lumpsum/reserve inputs without bool coercion or default months."""
     if not isinstance(ips, dict):
         raise ValueError("IPS inputs must be an object")
@@ -1929,19 +1936,19 @@ def _validated_ips_numeric_inputs(ips: Dict[str, Any]) -> Tuple[float, float, fl
     if any(isinstance(ips.get(key), bool) for key in keys if key in ips):
         raise ValueError("IPS monetary and emergency-month inputs must not be booleans")
     try:
-        monthly_sip = float(ips["monthly_sip_budget"])
-    except (TypeError, ValueError) as exc:
+        monthly_sip = quantize_inr(ips["monthly_sip_budget"])
+    except (TypeError, ValueError, decimal.InvalidOperation) as exc:
         raise ValueError("IPS monthly_sip_budget must be numeric") from exc
-    if not math.isfinite(monthly_sip) or monthly_sip <= 0.0:
+    if not monthly_sip.is_finite() or monthly_sip <= Decimal("0.00"):
         raise ValueError("IPS monthly_sip_budget must be finite and greater than zero")
     if "emergency_months" not in ips:
         raise ValueError("Explicit ips.emergency_months is required; no hardcoded default reserve horizon (e.g. 6.0 months) is permitted")
     try:
-        lumpsum_budget = float(ips.get("lumpsum_budget", 0.0))
+        lumpsum_budget = quantize_inr(ips.get("lumpsum_budget", "0.00"))
         emergency_months = float(ips["emergency_months"])
-    except (TypeError, ValueError) as exc:
+    except (TypeError, ValueError, decimal.InvalidOperation) as exc:
         raise ValueError("IPS SIP, lumpsum and emergency-month inputs must be numeric") from exc
-    if not math.isfinite(lumpsum_budget) or lumpsum_budget < 0.0:
+    if not lumpsum_budget.is_finite() or lumpsum_budget < Decimal("0.00"):
         raise ValueError("IPS lumpsum_budget must be finite and non-negative")
     if not math.isfinite(emergency_months) or emergency_months < 0.0:
         raise ValueError("IPS emergency_months must be finite and non-negative")
@@ -2033,10 +2040,10 @@ def aggregate_fiduciary_facts(
 
     if not holdings:
         raise ValueError("Portfolio diagnostics unavailable: CAS contains no verified active holdings; no zero-drift report can be produced")
-    tot_cur = sum(h.current_value_inr for h in holdings)
-    if not math.isfinite(tot_cur) or tot_cur <= 0.0:
+    tot_cur = sum((Decimal(str(h.current_value_inr)) for h in holdings), Decimal("0.00"))
+    if not tot_cur.is_finite() or tot_cur <= Decimal("0.00"):
         raise ValueError("Portfolio diagnostics unavailable: total verified holding value must be positive")
-    tot_inv = sum(h.invested_value_inr for h in holdings)
+    tot_inv = sum((Decimal(str(h.invested_value_inr)) for h in holdings), Decimal("0.00"))
     tot_gain = tot_cur - tot_inv
 
     # Module 2: Portfolio Diagnostics - with architectural corrections
@@ -2305,18 +2312,24 @@ def aggregate_fiduciary_facts(
     current_portfolio_summary = _build_portfolio_gate_summary(holdings)
     tier_num = _parse_sebi_risk_tier(client_risk_tier)
 
+    from core.eligibility import load_fund_screening_policy
+    screening_policy = load_fund_screening_policy()
+
     eligible_candidates = []
     for cand in candidate_universe:
         gate_result = check_eligibility_gates(
             fund_data=cand,
             portfolio_holdings=current_portfolio_summary,
             client_risk_tier_num=tier_num,
-            is_starter=(tot_cur > 0 and tot_cur < 500000.0)
+            is_starter=(tot_cur > 0 and tot_cur < Decimal("500000.00")),
+            policy=screening_policy,
         )
         cand["eligibility"] = {
             "passed": gate_result.passed,
             "failed_gates": gate_result.failed_gates,
-            "details": gate_result.details
+            "details": gate_result.details,
+            "policy_version": gate_result.policy_version,
+            "policy_digest": gate_result.policy_digest,
         }
         if gate_result.passed:
             eligible_candidates.append(cand)
@@ -2324,7 +2337,7 @@ def aggregate_fiduciary_facts(
     # Mandatory NO ACTION Fiduciary Branch receives the same validated
     # investor suitability profile used by the candidate eligibility gates.
     no_action_decision = evaluate_no_action(
-        holdings, eligible_candidates, client_risk_tier_num=tier_num
+        holdings, eligible_candidates, client_risk_tier_num=tier_num, policy=screening_policy
     )
     
     # Identify weak or redundant funds
@@ -3036,6 +3049,15 @@ def compute_candidate_portfolio_overlap(
     if not holdings:
         return 0.0
 
+    if security_master is None:
+        try:
+            from core.security_master import load_security_master
+            security_master = load_security_master()
+        except Exception:
+            security_master = None
+    if strict and security_master is None:
+        return None
+
     def validated_weights(raw: Any, coverage_raw: Any, label: str) -> Optional[Dict[str, float]]:
         if not isinstance(raw, dict) or not raw:
             return None
@@ -3044,8 +3066,7 @@ def compute_candidate_portfolio_overlap(
         try:
             coverage = float(coverage_raw)
             from core.security_master import normalize_constituent_weights
-            use_strict = strict if security_master is not None else False
-            weights, _ = normalize_constituent_weights(raw, security_master=security_master, strict=use_strict)
+            weights, _ = normalize_constituent_weights(raw, security_master=security_master, strict=strict)
         except (TypeError, ValueError):
             return None
         if not math.isfinite(coverage) or coverage < 99.5 or coverage > 100.0:
@@ -4329,6 +4350,14 @@ def select_autonomous_blueprint_funds(
             "rationale": f"NO_ACTION: {reason}",
         }
 
+    from core.eligibility import load_fund_screening_policy
+    screening_policy = load_fund_screening_policy()
+    try:
+        from core.security_master import load_security_master
+        security_master = load_security_master()
+    except Exception:
+        security_master = None
+
     def choose_candidate(
         slot_name: str,
         target_pct: float,
@@ -4362,6 +4391,7 @@ def select_autonomous_blueprint_funds(
                 holdings or [],
                 client_risk_tier_num=tier_int,
                 as_of_date=disclosure_as_of_date,
+                policy=screening_policy,
             )
             if getattr(gate_result, "passed", False) is not True:
                 continue
@@ -4393,10 +4423,17 @@ def select_autonomous_blueprint_funds(
                     for holding in holdings
                 ):
                     continue
-            portfolio_overlap = compute_candidate_portfolio_overlap(
+            overlap_eval = evaluate_candidate_portfolio_concentration_controls(
                 candidate,
                 holdings=holdings,
+                security_master=security_master,
+                max_overlap_pct=40.0,
+                is_starter=is_starter,
+                as_of_date=str(disclosure_as_of_date) if disclosure_as_of_date else None,
             )
+            if not overlap_eval.get("passed", False):
+                continue
+            portfolio_overlap = overlap_eval.get("overlap_pct")
             if portfolio_overlap is None:
                 continue
             try:
@@ -4895,14 +4932,14 @@ def compute_deterministic_sip_blueprint(
     if not isinstance(client_aum_verified, bool):
         raise ValueError("client_aum_verified must be an explicit boolean")
     try:
-        b = float(monthly_budget)
-        aum_value = float(client_aum)
+        b = quantize_inr(monthly_budget)
+        aum_value = quantize_inr(client_aum)
         stability_value = None if stability_buffer_pct is None else float(stability_buffer_pct)
-    except (TypeError, ValueError) as exc:
+    except (TypeError, ValueError, decimal.InvalidOperation) as exc:
         raise ValueError("SIP budget, client AUM and stability buffer must be numeric") from exc
-    if not math.isfinite(b) or b < 0:
+    if not b.is_finite() or b < Decimal("0.00"):
         raise ValueError("Monthly SIP budget must be finite and non-negative")
-    if not math.isfinite(aum_value) or aum_value < 0:
+    if not aum_value.is_finite() or aum_value < Decimal("0.00"):
         raise ValueError("Client AUM must be finite and non-negative")
     if stability_value is not None and (
         not math.isfinite(stability_value) or not 0.0 <= stability_value <= 100.0
@@ -5062,7 +5099,7 @@ def compute_deterministic_sip_blueprint(
                 category_role="Core Flexi-Cap Compounder",
                 scheme_name=flexi_scheme,
                 folio_target=flexi_target_folio,
-                monthly_inr=round(b * (alloc_pct / 100.0), 2),
+                monthly_inr=quantize_inr(b * Decimal(str(alloc_pct)) / Decimal("100.0")),
                 allocation_pct=alloc_pct,
                 rational_code="CORE_COMPOUNDER",
                 fiduciary_rationale=flexi_default_rat,
@@ -5100,7 +5137,7 @@ def compute_deterministic_sip_blueprint(
                         category_role="Mid-Cap Alpha Engine",
                         scheme_name=mid_scheme,
                         folio_target=mid_target_folio,
-                        monthly_inr=round(b * (mid_pct / 100.0), 2),
+                        monthly_inr=quantize_inr(b * Decimal(str(mid_pct)) / Decimal("100.0")),
                         allocation_pct=mid_pct,
                         rational_code="ALPHA_ENGINE",
                         fiduciary_rationale=mid_default_rat,
@@ -5113,7 +5150,7 @@ def compute_deterministic_sip_blueprint(
                         category_role="Small-Cap Growth Engine",
                         scheme_name=small_scheme,
                         folio_target=small_target_folio,
-                        monthly_inr=round(b * (small_pct / 100.0), 2),
+                        monthly_inr=quantize_inr(b * Decimal(str(small_pct)) / Decimal("100.0")),
                         allocation_pct=small_pct,
                         rational_code="SMALL_CAP_GROWTH",
                         fiduciary_rationale=small_default_rat,
@@ -5126,7 +5163,7 @@ def compute_deterministic_sip_blueprint(
                         category_role="Large-Cap Bluechip Anchor",
                         scheme_name=large_scheme,
                         folio_target=large_target_folio,
-                        monthly_inr=round(b * (large_pct / 100.0), 2),
+                        monthly_inr=quantize_inr(b * Decimal(str(large_pct)) / Decimal("100.0")),
                         allocation_pct=large_pct,
                         rational_code="BLUECHIP_ANCHOR",
                         fiduciary_rationale=large_default_rat,
@@ -5139,7 +5176,7 @@ def compute_deterministic_sip_blueprint(
                         category_role="Tactical Thematic Satellite",
                         scheme_name=pharma_scheme,
                         folio_target=direct_pharma_folio,
-                        monthly_inr=round(b * (thematic_pct / 100.0), 2),
+                        monthly_inr=quantize_inr(b * Decimal(str(thematic_pct)) / Decimal("100.0")),
                         allocation_pct=thematic_pct,
                         rational_code="TACTICAL_SATELLITE",
                         fiduciary_rationale=pharma_rat,
@@ -5152,7 +5189,7 @@ def compute_deterministic_sip_blueprint(
                     category_role="High-Grade Debt Anchor",
                     scheme_name=debt_scheme,
                     folio_target=direct_debt_folio,
-                    monthly_inr=round(b * (target_debt / 100.0), 2),
+                    monthly_inr=quantize_inr(b * Decimal(str(target_debt)) / Decimal("100.0")),
                     allocation_pct=target_debt,
                     rational_code="DEBT_ANCHOR",
                     fiduciary_rationale="Preserves capital stability and fulfills SAA fixed income target.",
@@ -5218,7 +5255,7 @@ def compute_deterministic_sip_blueprint(
                     category_role="Mid-Cap Alpha Engine",
                     scheme_name=mid_scheme,
                     folio_target=mid_target_folio,
-                    monthly_inr=round(b * (mid_pct / 100.0), 2),
+                    monthly_inr=quantize_inr(b * Decimal(str(mid_pct)) / Decimal("100.0")),
                     allocation_pct=mid_pct,
                     rational_code="ALPHA_ENGINE",
                     fiduciary_rationale=mid_default_rat
@@ -5231,7 +5268,7 @@ def compute_deterministic_sip_blueprint(
                     category_role="Small-Cap Growth Engine",
                     scheme_name=small_scheme,
                     folio_target=small_target_folio,
-                    monthly_inr=round(b * (small_pct / 100.0), 2),
+                    monthly_inr=quantize_inr(b * Decimal(str(small_pct)) / Decimal("100.0")),
                     allocation_pct=small_pct,
                     rational_code="SMALL_CAP_GROWTH",
                     fiduciary_rationale=small_default_rat,
@@ -5245,7 +5282,7 @@ def compute_deterministic_sip_blueprint(
                     category_role="Large-Cap Bluechip Anchor",
                     scheme_name=large_scheme,
                     folio_target=large_target_folio,
-                    monthly_inr=round(b * (large_pct / 100.0), 2),
+                    monthly_inr=quantize_inr(b * Decimal(str(large_pct)) / Decimal("100.0")),
                     allocation_pct=large_pct,
                     rational_code="CORE_ANCHOR",
                     fiduciary_rationale=large_default_rat,
@@ -5259,7 +5296,7 @@ def compute_deterministic_sip_blueprint(
                     category_role="Tactical Thematic Satellite",
                     scheme_name=pharma_scheme,
                     folio_target=direct_pharma_folio,
-                    monthly_inr=round(b * (thematic_pct / 100.0), 2),
+                    monthly_inr=quantize_inr(b * Decimal(str(thematic_pct)) / Decimal("100.0")),
                     allocation_pct=thematic_pct,
                     rational_code="SATELLITE_THEME",
                     fiduciary_rationale=pharma_rat,
@@ -5273,7 +5310,7 @@ def compute_deterministic_sip_blueprint(
                     category_role="High-Grade Debt Cushion" if target_eq > 0 else "Capital Preservation Debt",
                     scheme_name=debt_scheme,
                     folio_target=direct_debt_folio,
-                    monthly_inr=round(b * (target_debt / 100.0), 2),
+                    monthly_inr=quantize_inr(b * Decimal(str(target_debt)) / Decimal("100.0")),
                     allocation_pct=target_debt,
                     rational_code="DEBT_CUSHION" if target_eq > 0 else "DEBT_ANCHOR",
                     fiduciary_rationale=f"Fulfills {target_debt:.0f}% high-grade debt target under SAA mandate without credit risk.",
@@ -5301,10 +5338,10 @@ def compute_deterministic_sip_blueprint(
                 + item.fiduciary_rationale
             )
     else:
-        total_allocated = sum(item.monthly_inr for item in items)
-        diff = round(b - total_allocated, 2)
-        if abs(diff) > 0.0 and items:
-            items[0].monthly_inr = round(items[0].monthly_inr + diff, 2)
+        total_allocated = sum(quantize_inr(item.monthly_inr) for item in items)
+        diff = b - total_allocated
+        if diff != Decimal("0.00") and items:
+            items[0].monthly_inr = quantize_inr(Decimal(str(items[0].monthly_inr)) + diff)
 
     # Operational policy constraints are hard gates. If any active line
     # breaches a cap/ticket/increment/count rule, withhold the whole budget;
@@ -5323,7 +5360,7 @@ def compute_deterministic_sip_blueprint(
     if operational_violations:
         unallocated_budget = b
         for item in items:
-            item.monthly_inr = 0.0
+            item.monthly_inr = Decimal("0.00")
             item.fiduciary_rationale = (
                 "NO ACTION — entire SIP budget withheld because operational policy "
                 "constraints are not satisfied. No redistribution is permitted. "

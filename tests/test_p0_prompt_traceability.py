@@ -29,6 +29,7 @@ def _decision():
         outputs={"allocated_inr": 0, "unallocated_inr": 10000},
         policy_version="test-policy-1",
         code_version="test-code-1",
+        policy_digest="a" * 64,
         mandate_state="HOLD_PENDING_TRI_VALIDATION",
         is_actionable=False,
     )

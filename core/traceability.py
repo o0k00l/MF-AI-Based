@@ -47,15 +47,15 @@ class Evidence:
     source: str
     description: str
     data: Dict[str, Any]
-    timestamp: datetime = field(default_factory=_utc_now)
+    timestamp: datetime
     confidence: Optional[float] = None
     verification_status: str = "UNVERIFIED"
 
     def __post_init__(self):
         if not isinstance(self.timestamp, datetime):
-            raise ValueError("Evidence timestamp must be a datetime object")
-        if self.timestamp.tzinfo is None:
-            raise ValueError("Evidence timestamp must be timezone-aware (UTC required)")
+            raise ValueError("Evidence timestamp must be an explicit datetime object representing source observation time")
+        if self.timestamp.tzinfo != timezone.utc:
+            raise ValueError("Evidence timestamp must have explicit UTC timezone (timezone.utc required; implicit conversion prohibited)")
         if self.confidence is not None:
             if isinstance(self.confidence, bool) or not isinstance(self.confidence, (int, float)):
                 raise ValueError("Evidence confidence must be numeric")
@@ -84,10 +84,10 @@ class Decision:
     rationale: str
     policy_version: str
     code_version: str
+    policy_digest: str
     evidence: List["Evidence"] = field(default_factory=list)
     inputs: Dict[str, Any] = field(default_factory=dict)
     outputs: Dict[str, Any] = field(default_factory=dict)
-    policy_digest: Optional[str] = None
     mandate_state: str = "HOLD_PENDING_TRI_VALIDATION"
     is_actionable: bool = False
     hash: str = ""
@@ -95,12 +95,14 @@ class Decision:
     def __post_init__(self):
         if not isinstance(self.timestamp, datetime):
             raise ValueError("Decision timestamp must be a datetime object")
-        if self.timestamp.tzinfo is None:
-            raise ValueError("Decision timestamp must be timezone-aware (UTC required)")
+        if self.timestamp.tzinfo != timezone.utc:
+            raise ValueError("Decision timestamp must have explicit UTC timezone (timezone.utc required; implicit conversion prohibited)")
         if not isinstance(self.policy_version, str) or not self.policy_version.strip():
             raise ValueError("Explicit running policy_version is required; hardcoded defaults prohibited")
         if not isinstance(self.code_version, str) or not self.code_version.strip():
             raise ValueError("Explicit running code_version is required; hardcoded defaults prohibited")
+        if not isinstance(self.policy_digest, str) or not re.fullmatch(r"[0-9a-fA-F]{64}", self.policy_digest):
+            raise ValueError("Decision requires an explicit 64-character SHA-256 policy_digest")
 
     def _hash_payload(self) -> Dict[str, Any]:
         """Return every decision field covered by the integrity digest."""
@@ -118,10 +120,9 @@ class Decision:
             "code_version": self.code_version,
             "mandate_state": self.mandate_state,
             "is_actionable": self.is_actionable,
+            "policy_digest": self.policy_digest,
             "hash_version": "RFC8785-JCS-SHA256-v1",
         }
-        if self.policy_digest:
-            payload["policy_digest"] = self.policy_digest
         return payload
 
     def compute_hash(self) -> str:

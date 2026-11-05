@@ -694,7 +694,7 @@ def to_enriched_cache_csv(parsed: dict) -> str:
 def validate_statement_reconciliation_envelope(
     parsed: dict,
     tolerance: float = 1.0,
-    require_source_digest: bool = False,
+    require_source_digest: bool = True,
 ) -> dict:
     """
     Issue #107: Validate whole-statement reconciliation envelope bound to statement date,
@@ -739,16 +739,26 @@ def validate_statement_reconciliation_envelope(
     parsed_total = float(recon["parsed_total"])
     diff = float(recon["difference"]) if recon.get("difference") is not None else 0.0
 
+    import hashlib
+    clean_digest = str(source_digest).strip() if source_digest else "UNAVAILABLE"
+    clean_date = str(as_of).strip()
+    clean_count = len(holdings)
+    clean_total = round(parsed_total, 2)
+    token = hashlib.sha256(
+        f"{clean_digest}:{clean_date}:{clean_count}:{clean_total:.2f}".encode("utf-8")
+    ).hexdigest()
+
     return {
         "status": "VERIFIED_RECONCILED",
-        "statement_date": str(as_of).strip(),
+        "statement_date": clean_date,
         "stated_total": round(stated_val, 2),
-        "parsed_total": round(parsed_total, 2),
+        "parsed_total": clean_total,
         "reconciliation_difference": round(diff, 2),
         "tolerance": float(tolerance),
-        "source_digest": str(source_digest).strip() if source_digest else "UNAVAILABLE",
-        "holdings_count": len(holdings),
+        "source_digest": clean_digest,
+        "holdings_count": clean_count,
         "reconciliation_note": recon.get("note", ""),
+        "validation_token": token,
     }
 
 
@@ -799,12 +809,22 @@ def stage_portfolio(
     envelope_data = None
     if require_envelope:
         try:
+            expected_envelope = validate_statement_reconciliation_envelope(
+                parsed, tolerance=tolerance, require_source_digest=True
+            )
             if envelope is not None:
                 if not isinstance(envelope, dict) or envelope.get("status") != "VERIFIED_RECONCILED":
                     raise ValueError("Supplied reconciliation envelope is not VERIFIED_RECONCILED")
+                # Bind envelope strictly to the exact parsed statement date, source digest, holdings count and totals
+                for k in ("statement_date", "source_digest", "holdings_count", "parsed_total", "validation_token"):
+                    if envelope.get(k) != expected_envelope.get(k):
+                        raise ValueError(
+                            f"Supplied reconciliation envelope {k} mismatch: "
+                            f"envelope has {envelope.get(k)!r}, parsed statement has {expected_envelope.get(k)!r}"
+                        )
                 envelope_data = envelope
             else:
-                envelope_data = validate_statement_reconciliation_envelope(parsed, tolerance=tolerance)
+                envelope_data = expected_envelope
         except ValueError as e:
             return {
                 "slug": slug,
@@ -1454,6 +1474,7 @@ def detect_active_sips_from_cas(
 
     active_sips = []
     total_monthly = 0.0
+    recurring_transaction_patterns = []
     unverified_patterns = []
     usable_dates = []
 
@@ -1508,12 +1529,13 @@ def detect_active_sips_from_cas(
                 else:
                     break
 
+            is_mandate = both_have_mandate
             if both_have_mandate:
                 confidence = "MANDATE_VERIFIED"
                 confidence_note = "Authenticated mandate evidence and recurring debit confirmed across qualifying installments"
             elif both_have_sip_evidence:
                 confidence = "TRANSACTION_TEXT_VERIFIED"
-                confidence_note = "Explicit SIP transaction-text classification confirmed across qualifying installments"
+                confidence_note = "Explicit SIP transaction-text classification confirmed across qualifying installments (transaction pattern only; not authenticated registrar mandate)"
             else:
                 confidence = "UNVERIFIED"
                 confidence_note = "Recurring payment pattern detected without continuous explicit mandate or transaction-text evidence"
@@ -1529,12 +1551,15 @@ def detect_active_sips_from_cas(
                 "confidence": confidence,
                 "confidence_note": confidence_note,
                 "evidence_level": "MANDATE" if both_have_mandate else ("TRANSACTION_TEXT" if both_have_sip_evidence else "NONE"),
-                "is_verified": confidence in ("MANDATE_VERIFIED", "TRANSACTION_TEXT_VERIFIED"),
+                "is_active_mandate": is_mandate,
+                "is_verified": is_mandate,
             }
 
-            if confidence in ("MANDATE_VERIFIED", "TRANSACTION_TEXT_VERIFIED"):
+            if is_mandate:
                 active_sips.append(sip_entry)
                 total_monthly += last_amt
+            elif confidence == "TRANSACTION_TEXT_VERIFIED":
+                recurring_transaction_patterns.append(sip_entry)
             else:
                 unverified_patterns.append(sip_entry)
 
@@ -1623,6 +1648,8 @@ def detect_active_sips_from_cas(
         "as_of": ref_date.isoformat(),
         "as_of_reference_mode": as_of_mode,
         "active_sip_count": len(active_sips),
+        "recurring_transaction_patterns": recurring_transaction_patterns,
+        "recurring_transaction_pattern_count": len(recurring_transaction_patterns),
         "unverified_patterns": unverified_patterns,
         "unverified_count": len(unverified_patterns),
         "rejection_stats": {

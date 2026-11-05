@@ -351,6 +351,7 @@ def check_eligibility_gates(
     min_sharpe: Optional[float] = None,
     min_manager_tenure_years: Optional[float] = None,
     min_confidence_score: Optional[float] = None,
+    allow_threshold_overrides: bool = False,
 ) -> EligibilityGateResult:
     """
     Evaluates all 10 Hard Binary Selection Gates for a candidate fund:
@@ -397,23 +398,57 @@ def check_eligibility_gates(
             policy_digest=policy.get("_policy_digest"),
         )
 
+    # Constrain per-call threshold overrides through explicit authorization
+    overrides = {
+        "amc_max_limit_pct": amc_max_limit_pct,
+        "min_aum_crore": min_aum_crore,
+        "max_top10_concentration_pct": max_top10_concentration_pct,
+        "max_sector_concentration_pct": max_sector_concentration_pct,
+        "min_sharpe": min_sharpe,
+        "min_manager_tenure_years": min_manager_tenure_years,
+        "min_confidence_score": min_confidence_score,
+    }
+    for k, val in overrides.items():
+        if val is not None and not allow_threshold_overrides:
+            raise ValueError(
+                f"Unauthorized per-call threshold override for '{k}'. "
+                f"Gate thresholds are governed strictly by central policy; "
+                f"overrides require explicit authorization (allow_threshold_overrides=True)."
+            )
+
     cat_caps = _load_category_aum_caps(policy)
     if amc_max_limit_pct is None:
+        if "amc_max_limit_pct" not in gt:
+            raise ValueError("Screening policy missing 'amc_max_limit_pct' gate threshold")
         amc_max_limit_pct = float(gt["amc_max_limit_pct"])
     if min_aum_crore is None:
+        if "min_aum_crore" not in gt:
+            raise ValueError("Screening policy missing 'min_aum_crore' gate threshold")
         min_aum_crore = float(gt["min_aum_crore"])
     if max_top10_concentration_pct is None:
+        if "max_top10_concentration_pct" not in gt:
+            raise ValueError("Screening policy missing 'max_top10_concentration_pct' gate threshold")
         max_top10_concentration_pct = float(gt["max_top10_concentration_pct"])
     if max_sector_concentration_pct is None:
+        if "max_sector_concentration_pct" not in gt:
+            raise ValueError("Screening policy missing 'max_sector_concentration_pct' gate threshold")
         max_sector_concentration_pct = float(gt["max_sector_concentration_pct"])
     if min_sharpe is None:
+        if "min_sharpe" not in gt:
+            raise ValueError("Screening policy missing 'min_sharpe' gate threshold")
         min_sharpe = float(gt["min_sharpe"])
     if min_manager_tenure_years is None:
+        if "min_manager_tenure_years" not in gt:
+            raise ValueError("Screening policy missing 'min_manager_tenure_years' gate threshold")
         min_manager_tenure_years = float(gt["min_manager_tenure_years"])
     if min_confidence_score is None:
+        if "min_confidence_score" not in gt:
+            raise ValueError("Screening policy missing 'min_confidence_score' gate threshold")
         min_confidence_score = float(gt["min_confidence_score"])
     if client_risk_tier_num is None:
-        client_risk_tier_num = int(gt.get("client_default_risk_tier", 6))
+        if "client_default_risk_tier" not in gt:
+            raise ValueError("Screening policy missing 'client_default_risk_tier' gate threshold")
+        client_risk_tier_num = int(gt["client_default_risk_tier"])
 
     # --- Gate 1: AMC Concentration Gate ---
     # Never infer an AMC from the first token of a scheme name: many AMCs have
@@ -934,11 +969,17 @@ def filter_candidates(
     """
     if policy is None:
         policy = load_fund_screening_policy()
-    gt = policy.get("gate_thresholds", {})
+    gt = policy.get("gate_thresholds")
+    if not isinstance(gt, dict):
+        raise ValueError("Screening policy missing 'gate_thresholds'")
     if amc_max_limit_pct is None:
-        amc_max_limit_pct = float(gt.get("amc_max_limit_pct", 30.0))
+        if "amc_max_limit_pct" not in gt:
+            raise ValueError("Screening policy missing 'amc_max_limit_pct'")
+        amc_max_limit_pct = float(gt["amc_max_limit_pct"])
     if max_overlap_limit_pct is None:
-        max_overlap_limit_pct = float(gt.get("max_overlap_candidate_pct", 40.0))
+        if "max_overlap_candidate_pct" not in gt:
+            raise ValueError("Screening policy missing 'max_overlap_candidate_pct'")
+        max_overlap_limit_pct = float(gt["max_overlap_candidate_pct"])
     """
     Apply the binary eligibility gates and a portfolio-weighted look-through
     overlap ceiling. The overlap limit is enforced only when it can be measured
@@ -985,6 +1026,7 @@ def evaluate_no_action(
     candidate_funds: List[Dict[str, Any]],
     min_improvement_threshold: float = 5.0,
     client_risk_tier_num: Optional[int] = None,
+    policy: Optional[Dict[str, Any]] = None,
 ) -> NOActionResult:
     """
     Mandatory Fiduciary NO ACTION decision branch:
@@ -1018,7 +1060,7 @@ def evaluate_no_action(
         is_passed = fund.get("eligibility", {}).get("passed", False)
         if not is_passed and "eligibility" not in fund:
             # Evaluate on the fly if not pre-evaluated
-            gate_res = check_eligibility_gates(fund, client_risk_tier_num=client_risk_tier_num)
+            gate_res = check_eligibility_gates(fund, client_risk_tier_num=client_risk_tier_num, policy=policy)
             is_passed = gate_res.passed
 
         if not is_passed:
