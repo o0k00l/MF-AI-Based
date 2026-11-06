@@ -15,12 +15,12 @@ from core.candidate_scoring import (
 
 def _weights() -> ScoringWeights:
     return ScoringWeights(
-        alpha_momentum=0.25,
-        risk_adjusted=0.20,
-        consistency_downside=0.15,
-        cost_efficiency=0.15,
-        mandate_purity_aum=0.15,
-        manager_conviction=0.10,
+        w_alpha=0.25,
+        w_sharpe=0.20,
+        w_ter=0.15,
+        w_downside_buffer=0.15,
+        w_international=0.15,
+        w_mpb_overlap=0.10,
     )
 
 
@@ -59,6 +59,7 @@ def test_small_cap_category_anchors_are_approved_and_scoreable():
         "ter_direct_pct": 0.70,
         "cash_debt_buffer_pct": 5.0,
         "international_equity_pct": 0.0,
+        "overlap_pct": 5.0,
         "eligibility_status": "PASS",
         "is_eligible": True,
     }

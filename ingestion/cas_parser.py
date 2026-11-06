@@ -953,7 +953,7 @@ def parse_cache_csv(csv_text: str) -> list[dict]:
 
 def load_cache_csv(cache_path) -> list[dict]:
     """Issue #107: Load portfolio cache CSV from disk, preserving UNAVAILABLE as None."""
-    p = Path(cache_path).expanduser().resolve()
+    p = pathlib.Path(cache_path).expanduser().resolve()
     if not p.is_file():
         raise FileNotFoundError(f"Cache CSV not found: {p}")
     return parse_cache_csv(p.read_text(encoding="utf-8"))

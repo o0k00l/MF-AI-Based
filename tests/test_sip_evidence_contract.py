@@ -25,6 +25,7 @@ def valid_payload(tmp_path):
     master_bytes = b"source master"
     universe_bytes = b"source candidate universe"
     direct_bytes = b"direct plan factsheet"
+    disclosure_bytes = b"source disclosure"
     (tmp_path / "direct.pdf").write_bytes(direct_bytes)
     metrics_bytes = b'{"funds":[]}'
     metrics_path = tmp_path / "metrics.json"
@@ -51,8 +52,17 @@ def valid_payload(tmp_path):
             }],
         },
         "scheme_master_source_bytes": master_bytes,
-        "portfolio_disclosures_by_scheme_id": {"scheme-1": {"scheme_id": "scheme-1"}},
-        "portfolio_disclosure_source_bytes_by_scheme_id": {"scheme-1": b"source disclosure"},
+        "portfolio_disclosures_by_scheme_id": {"scheme-1": {
+            "scheme_id": "scheme-1",
+            "constituent_weights": {"Reliance Industries Limited": 100.0},
+            "constituent_weights_coverage_pct": 100.0,
+            "source_url": "https://amfiindia.com/disclosure.pdf",
+            "source_document_sha256": hashlib.sha256(disclosure_bytes).hexdigest(),
+            "reviewer_attested": True,
+            "effective_date": "2026-11-04",
+            "source_type": "AMFI_DISCLOSURE",
+        }},
+        "portfolio_disclosure_source_bytes_by_scheme_id": {"scheme-1": disclosure_bytes},
         "disclosure_as_of_date": date(2026, 11, 4),
         "candidate_universe": [{
             "fund_id": "fund-1", "fund_name": "Example Direct Growth",
@@ -74,7 +84,7 @@ def valid_payload(tmp_path):
                 "scheme_id": "scheme-1",
                 "isin": "INF000000001",
                 "amc_name": "Example AMC",
-                "reviewed_at": date.today().isoformat(),
+                "reviewed_at": "2026-11-01",
             },
         }],
         "candidate_universe_source": {**_source_metadata(universe_bytes), "universe_complete": True, "coverage_scope": "All eligible open-ended equity and debt schemes"},
@@ -459,7 +469,7 @@ def test_signed_source_validation_uses_utc_aware_review_time(tmp_path, monkeypat
     captured = {}
 
     def verify(envelope, trust_registry, *, expected_scope, expected_source_sha256,
-               structured_records, now):
+               structured_records, expected_scheme_id=None, repository="o0k00l/MF-AI-Based", now):
         captured["now"] = now
         captured["scope"] = expected_scope
         return SimpleNamespace(ok=True, errors=[])

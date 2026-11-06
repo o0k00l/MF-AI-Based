@@ -25,6 +25,7 @@ def test_decision_rejects_naive_timestamp():
             rationale="test",
             policy_version="1.0",
             code_version="1.0",
+            policy_digest="a" * 64,  # Required
         )
 
 

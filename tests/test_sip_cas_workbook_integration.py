@@ -65,6 +65,7 @@ def _scheme_master():
             "plan_type": "Direct",
             "option_type": "Growth",
             "riskometer_score": 5,
+            "category": "Flexi Cap",
         }],
     }, source_bytes)
 
@@ -133,8 +134,8 @@ def test_missing_disclosure_from_real_cas_workbook_keeps_entire_budget_unallocat
     assert result["status"] == "HOLD"
     assert result["decision"] == "NO_ACTION"
     assert result["plan"]["items"] == []
-    assert result["plan"]["total_monthly_budget_inr"] == 25000.0
-    assert result["plan"]["unallocated_budget_inr"] == 25000.0
+    assert result["plan"]["total_monthly_budget_inr"] == "25000.00"
+    assert result["plan"]["unallocated_budget_inr"] == "25000.00"
     assert any("constituent disclosure is MISSING" in reason for reason in result["reasons"])
 
 
@@ -151,7 +152,7 @@ def test_conflicting_disclosure_identity_from_real_cas_workbook_keeps_budget_una
     assert result["status"] == "HOLD"
     assert result["decision"] == "NO_ACTION"
     assert result["plan"]["items"] == []
-    assert result["plan"]["unallocated_budget_inr"] == 25000.0
+    assert result["plan"]["unallocated_budget_inr"] == "25000.00"
     assert any("constituent disclosure is CONFLICTING" in reason for reason in result["reasons"])
 
 
@@ -280,8 +281,8 @@ def test_recommendation_surfaces_invalid_cas_as_hold_with_full_budget(tmp_path):
     assert result["status"] == "HOLD"
     assert result["decision"] == "NO_ACTION"
     assert result["plan"]["items"] == []
-    assert result["plan"]["total_monthly_budget_inr"] == 25000.0
-    assert result["plan"]["unallocated_budget_inr"] == 25000.0
+    assert result["plan"]["total_monthly_budget_inr"] == "25000.00"
+    assert result["plan"]["unallocated_budget_inr"] == "25000.00"
     assert any(
         "CAS valuation-date validation failed closed (ValueError)" in reason
         for reason in result["reasons"]

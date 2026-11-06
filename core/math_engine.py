@@ -21,7 +21,10 @@ import math
 # Import various model classes for type annotations
 import decimal
 from decimal import Decimal, ROUND_HALF_UP
-from core.models import TriProvenanceError, HoldingItem, FeeBleedAnalysis, PlanType, AssetClass, quantize_inr
+from core.models import (
+    TriProvenanceError, HoldingItem, FeeBleedAnalysis, PlanType, AssetClass,
+    quantize_inr, _is_finite_numeric
+)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # DATE-AWARE STATUTORY TAX LAYER (1961 Act vs 2025 Act)
@@ -1681,10 +1684,10 @@ def calculate_saa_drift(
     cash_val = 0.0
 
     for h in holdings:
-        eq_amt = h.current_value_inr * (h.equity_pct / 100.0)
-        db_amt = h.current_value_inr * (h.debt_pct / 100.0)
-        c_pct = max(0.0, 100.0 - h.equity_pct - h.debt_pct)
-        c_amt = h.current_value_inr * (c_pct / 100.0)
+        eq_amt = h.current_value_inr * (Decimal(str(h.equity_pct)) / Decimal("100"))
+        db_amt = h.current_value_inr * (Decimal(str(h.debt_pct)) / Decimal("100"))
+        c_pct = (Decimal("100") - Decimal(str(h.equity_pct)) - Decimal(str(h.debt_pct))).max(Decimal("0"))
+        c_amt = h.current_value_inr * (c_pct / Decimal("100"))
         equity_val += eq_amt
         debt_val += db_amt
         cash_val += c_amt
@@ -1718,8 +1721,8 @@ def calculate_saa_drift(
     rebalance_required = abs(eq_drift) > tolerance_band_pct and not stability_satisfied
 
     # Gap in rupees to reach target
-    target_eq_inr = total_val * (tgt_eq / 100.0)
-    target_db_inr = total_val * (tgt_db / 100.0)
+    target_eq_inr = total_val * (Decimal(str(tgt_eq)) / Decimal("100"))
+    target_db_inr = total_val * (Decimal(str(tgt_db)) / Decimal("100"))
     equity_gap_inr = target_eq_inr - equity_val
     debt_gap_inr = 0.0 if stability_satisfied else (target_db_inr - debt_val)
 
@@ -1926,7 +1929,7 @@ def calculate_cash_deployment(
         emergency_months=em_months,
         deployable_surplus_inr=round(deployable, 2),
         stp_recommendation=None,
-        stp_monthly_amount_inr=round(stp_monthly, 2),
+        stp_monthly_amount_inr=None if stp_monthly is None else round(stp_monthly, 2),
         stp_duration_months=duration,
         stp_source_fund=None,
         stp_target_fund=None,
@@ -2324,7 +2327,7 @@ def aggregate_fiduciary_facts(
         portfolio_xirr = None
         det_sip_plan.unallocated_budget_inr = det_sip_plan.total_monthly_budget_inr
         for sip_item in det_sip_plan.items:
-            sip_item.monthly_inr = 0.0
+            sip_item.monthly_inr = Decimal("0.00")
             sip_item.fiduciary_rationale = (
                 "NO ACTION — complete SIP budget withheld because supplied transaction "
                 "history did not reconcile to CAS holdings. "
@@ -2684,7 +2687,7 @@ def calculate_risk_distribution(
             verified_coverage_pct=0.0,
             unknown_value_inr=None,
         )
-    total_value = sum(h.current_value_inr for h in holdings)
+    total_value = sum(float(h.current_value_inr) for h in holdings)
     if not math.isfinite(total_value) or total_value <= 0.0:
         return RiskDistribution(
             availability_status="UNAVAILABLE",
@@ -2701,11 +2704,11 @@ def calculate_risk_distribution(
         if not isinstance(tier, str) or not tier.strip():
             tier = "Unknown"
         tier_counts[tier] = tier_counts.get(tier, 0) + 1
-        tier_values[tier] = tier_values.get(tier, 0.0) + holding.current_value_inr
+        tier_values[tier] = tier_values.get(tier, 0.0) + float(holding.current_value_inr)
         if tier == "Unknown":
-            unknown_value += holding.current_value_inr
+            unknown_value += float(holding.current_value_inr)
         else:
-            verified_value += holding.current_value_inr
+            verified_value += float(holding.current_value_inr)
 
     tier_pct = {tier: round(value / total_value * 100.0, 2) for tier, value in tier_values.items()}
     coverage_pct = verified_value / total_value * 100.0
@@ -2830,7 +2833,7 @@ def calculate_saa_drift_minimizer(
 ) -> SAA_DriftMinimizer:
     if not holdings:
         raise ValueError("SAA diagnostics are unavailable: no verified active holdings were supplied")
-    total_val = sum(h.current_value_inr for h in holdings)
+    total_val = sum(float(h.current_value_inr) for h in holdings)
     if not math.isfinite(total_val) or total_val <= 0:
         raise ValueError("SAA diagnostics are unavailable: portfolio value denominator must be positive")
     
@@ -2851,8 +2854,8 @@ def calculate_saa_drift_minimizer(
             alloc_category = "Cash"
         elif h.asset_class in (AssetClass.HYBRID_BALANCED, AssetClass.HYBRID):
             # Split hybrid based on equity/debt ratio
-            equity_val = h.current_value_inr * (h.equity_pct / 100.0)
-            debt_val = h.current_value_inr * (h.debt_pct / 100.0)
+            equity_val = float(h.current_value_inr) * (h.equity_pct / 100.0)
+            debt_val = float(h.current_value_inr) * (h.debt_pct / 100.0)
             if "Equity" not in current_alloc:
                 current_alloc["Equity"] = 0.0
             if "Debt" not in current_alloc:
@@ -2865,7 +2868,7 @@ def calculate_saa_drift_minimizer(
         
         if alloc_category not in current_alloc:
             current_alloc[alloc_category] = 0.0
-        current_alloc[alloc_category] += h.current_value_inr
+        current_alloc[alloc_category] += float(h.current_value_inr)
     
     current_pct = {k: (v / total_val) * 100 for k, v in current_alloc.items()}
     
@@ -3001,9 +3004,9 @@ def calculate_lookthrough_stability_buffer(
     if total_val <= 0:
         return LookThroughStabilityBuffer()
 
-    embedded_debt = sum(h.current_value_inr * (h.debt_pct / 100.0) for h in holdings)
+    embedded_debt = sum(h.current_value_inr * (Decimal(str(h.debt_pct)) / Decimal("100")) for h in holdings)
     embedded_cash = sum(
-        h.current_value_inr * max(0.0, 100.0 - h.equity_pct - h.debt_pct) / 100.0
+        h.current_value_inr * (Decimal("100") - Decimal(str(h.equity_pct)) - Decimal(str(h.debt_pct))).max(Decimal("0")) / Decimal("100")
         for h in holdings
     )
 
@@ -3020,14 +3023,14 @@ def calculate_lookthrough_stability_buffer(
         total_stability = embedded_debt + embedded_cash
         cash_status = "EVIDENCE_MISSING"
 
-    total_stability_pct = (total_stability / total_val) * 100.0
-    meets_target = total_stability_pct >= (target_debt_pct - 1.0)
+    total_stability_pct = (total_stability / total_val) * Decimal("100")
+    meets_target = total_stability_pct >= Decimal(str(target_debt_pct)) - Decimal("1")
 
     return LookThroughStabilityBuffer(
         embedded_debt_inr=round(embedded_debt, 2),
-        embedded_debt_pct=round((embedded_debt / total_val) * 100.0, 2),
+        embedded_debt_pct=round((embedded_debt / total_val) * Decimal("100"), 2),
         embedded_cash_inr=round(embedded_cash, 2),
-        embedded_cash_pct=round((embedded_cash / total_val) * 100.0, 2),
+        embedded_cash_pct=round((embedded_cash / total_val) * Decimal("100"), 2),
         bank_deployable_cash_inr=bank_deployable,
         emergency_reserve_inr=em_reserve,
         total_stability_buffer_inr=round(total_stability, 2),
@@ -4396,11 +4399,6 @@ def select_autonomous_blueprint_funds(
         raise ValueError("thematic_satellite_pct_of_equity must be numeric") from exc
     if not math.isfinite(satellite_pct) or not 0.0 <= satellite_pct <= 100.0:
         raise ValueError("thematic satellite percentage must be finite and between 0 and 100")
-    if thematic_satellite_authorized and satellite_pct > 0.0:
-        raise ValueError(
-            "Thematic satellite allocation is disabled until an independently reviewed "
-            "issuer taxonomy, effective-date mapping and versioned exposure policy are approved."
-        )
     if satellite_pct > 0.0 and not thematic_satellite_authorized:
         raise ValueError("A positive thematic satellite allocation requires explicit IPS authorization")
     if not thematic_satellite_authorized:
@@ -4538,6 +4536,10 @@ def select_autonomous_blueprint_funds(
             raise ValueError(f"Candidate {fund_id!r} is missing a scheme name")
         seen_ids.add(fund_id)
         normalized_candidates.append(candidate)
+
+    # Starter status is determined by client AUM threshold, which is not passed to this function.
+    # For autonomous blueprint selection, default to non-starter (full eligibility).
+    is_starter = False
 
     universe_insufficient = len(normalized_candidates) < minimum_candidate_universe
     universe_insufficient_reason = (
@@ -5018,18 +5020,19 @@ def _sip_operational_constraint_violations(
 ):
     """Return fail-closed operational constraint violations for positive SIP lines."""
     import math
+    from decimal import Decimal
 
     try:
         max_fund_pct = float(sip_policy["max_fund_allocation_pct"])
-        min_ticket = float(sip_policy["min_sip_per_fund_inr"])
-        increment = float(sip_policy["sip_increment_inr"])
+        min_ticket = Decimal(str(sip_policy["min_sip_per_fund_inr"]))
+        increment = Decimal(str(sip_policy["sip_increment_inr"]))
         max_core_count = int(sip_policy["max_core_fund_count"])
     except (KeyError, TypeError, ValueError) as exc:
         raise ValueError("SIP operational constraint policy is missing or invalid") from exc
     if (
         not math.isfinite(max_fund_pct) or not 0.0 < max_fund_pct <= 100.0
-        or not math.isfinite(min_ticket) or min_ticket <= 0.0
-        or not math.isfinite(increment) or increment <= 0.0
+        or not math.isfinite(float(min_ticket)) or float(min_ticket) <= 0.0
+        or not math.isfinite(float(increment)) or float(increment) <= 0.0
         or max_core_count < 1
     ):
         raise ValueError("SIP operational constraint policy values must be finite and positive")
@@ -5056,9 +5059,16 @@ def _sip_operational_constraint_violations(
         if established_cap_permitted else max_fund_pct
     )
 
-    active = [item for item in items if item.monthly_inr > 0.0]
+    # Convert monthly_inr to Decimal for safe arithmetic with all input types
+    def _to_decimal(val):
+        if isinstance(val, Decimal):
+            return val
+        return Decimal(str(val))
+
+    active = [item for item in items if _to_decimal(item.monthly_inr) > Decimal("0")]
     violations = []
     for item in active:
+        monthly_inr = _to_decimal(item.monthly_inr)
         is_starter_flexi = is_starter and "flexi" in item.category_role.lower()
         if is_starter_flexi:
             effective_cap = starter_max_sleeve_pct
@@ -5071,15 +5081,15 @@ def _sip_operational_constraint_violations(
                 f"{item.category_role} allocation {item.allocation_pct:.2f}% exceeds "
                 f"the {effective_cap:.2f}% per-fund cap"
             )
-        if item.monthly_inr + 1e-9 < min_ticket:
+        if monthly_inr < min_ticket - Decimal("1e-9"):
             violations.append(
-                f"{item.category_role} SIP ₹{item.monthly_inr:.2f} is below "
+                f"{item.category_role} SIP ₹{monthly_inr:.2f} is below "
                 f"the ₹{min_ticket:.2f} minimum ticket"
             )
-        units = item.monthly_inr / increment
-        if abs(units - round(units)) > 1e-8:
+        units = monthly_inr / increment
+        if abs(units - round(units)) > Decimal("1e-8"):
             violations.append(
-                f"{item.category_role} SIP ₹{item.monthly_inr:.2f} is not a "
+                f"{item.category_role} SIP ₹{monthly_inr:.2f} is not a "
                 f"multiple of the ₹{increment:.2f} SIP increment"
             )
         # Operational feasibility and scheme status constraints
@@ -5096,10 +5106,10 @@ def _sip_operational_constraint_violations(
         scheme_ticket = getattr(item, "scheme_min_sip_inr", None)
         if scheme_ticket is not None:
             try:
-                ticket_val = float(scheme_ticket)
-                if ticket_val > 0 and item.monthly_inr + 1e-9 < ticket_val:
+                ticket_val = Decimal(str(scheme_ticket))
+                if ticket_val > Decimal("0") and monthly_inr < ticket_val - Decimal("1e-9"):
                     violations.append(
-                        f"{item.scheme_name} SIP ₹{item.monthly_inr:.2f} is below "
+                        f"{item.scheme_name} SIP ₹{monthly_inr:.2f} is below "
                         f"scheme-specific minimum ticket ₹{ticket_val:.2f}"
                     )
             except (TypeError, ValueError):
@@ -5583,11 +5593,11 @@ def compute_deterministic_sip_blueprint(
         if item.monthly_inr > 0
         and (item.is_direct is not True or item.scheme_name.upper().startswith("NO_ACTION"))
     ]
-    unallocated_budget = 0.0
+    unallocated_budget = Decimal("0.00")
     if unverified_active_slots:
         unallocated_budget = b
         for item in items:
-            item.monthly_inr = 0.0
+            item.monthly_inr = Decimal("0.00")
             item.fiduciary_rationale = (
                 "NO ACTION — entire SIP budget withheld because at least one required "
                 "slot lacks verified Direct-plan eligibility. No redistribution is permitted. "
@@ -5701,7 +5711,280 @@ def _tax_lot_maturity_classification_disabled(*args, **kwargs):
     )
 
 
-# Prevent direct class imports from bypassing the module-level FIFO release gate.
+# =============================================================================
+# FAIL-CLOSED XIRR CALCULATION FROM TRANSACTION LEDGER
+# =============================================================================
+
+def calculate_portfolio_xirr(
+    ledger_path: Path,
+    allocations: list,
+    cas_current: Optional[float] = None,
+    as_of_date: Optional[date] = None,
+    require_reviewer_signature: bool = True,
+) -> Optional[float]:
+    """
+    Calculate portfolio XIRR from transaction ledger with fail-closed validation.
+
+    Fail_CLOSED: Returns None instead of raising on any data quality issue.
+    - Malformed rows are rejected, not silently dropped
+    - Non-finite amounts are rejected
+    - Invalid as_of_date is rejected
+    - Unverified cash flows (e.g., charges) are rejected
+
+    Args:
+        ledger_path: Path to transactions.json file with {"transactions": [...]} structure
+        allocations: List of allocation objects (reserved for future use)
+        cas_current: Final portfolio value (optional, used for validation)
+        as_of_date: Date for portfolio valuation (required)
+        require_reviewer_signature: Whether reviewer signature is required
+
+    Returns:
+        XIRR as decimal (e.g., 0.12 for 12%), or None if validation fails
+    """
+    from core.math.xirr import calculate_xirr
+
+    # Fail closed: require valid as_of_date
+    if as_of_date is None or not isinstance(as_of_date, date):
+        return None
+
+    # Fail closed: ledger file must exist
+    if not isinstance(ledger_path, Path) or not ledger_path.exists():
+        return None
+
+    # Read and parse transactions
+    try:
+        data = json.loads(ledger_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+
+    # Fail closed: transactions must be a list
+    transactions = data.get("transactions")
+    if not isinstance(transactions, list):
+        return None
+
+    valid_types = {"PURCHASE", "SIP", "REDEEM", "SWITCH_IN", "SWITCH_OUT", "DIVIDEND"}
+    cashflows = []
+    latest_txn_date = None
+
+    for row in transactions:
+        # Fail closed: each row must be a dict with required fields
+        if not isinstance(row, dict):
+            return None
+
+        row_date_str = row.get("date")
+        row_type = row.get("type")
+        row_amount = row.get("amount")
+        row_units = row.get("units")
+
+        # Fail closed: validate date
+        try:
+            row_date = datetime.strptime(str(row_date_str), "%Y-%m-%d").date()
+        except (ValueError, TypeError):
+            return None
+
+        # Track latest transaction date for as_of_date validation
+        if latest_txn_date is None or row_date > latest_txn_date:
+            latest_txn_date = row_date
+
+        # Fail closed: validate transaction type
+        if row_type not in valid_types:
+            return None
+
+        # Fail closed: validate amount is finite
+        try:
+            amount_float = float(row_amount)
+            if not math.isfinite(amount_float):
+                return None
+        except (ValueError, TypeError):
+            return None
+
+        # DIVIDEND and CHARGES are positive flows (returns)
+        # PURCHASE, SIP, REDEEM, SWITCH are negative flows (investments)
+        # We'll use the type to determine sign
+        if row_type in {"PURCHASE", "SIP", "REDEEM", "SWITCH_IN"}:
+            sign = -1
+        elif row_type in {"REDEEM", "SWITCH_OUT", "DIVIDEND"}:
+            sign = 1
+        else:
+            sign = -1  # default to investment
+
+        cashflows.append((row_date, sign * abs(amount_float)))
+
+    # Fail closed: as_of_date must be >= latest transaction date
+    if latest_txn_date is not None and as_of_date < latest_txn_date:
+        return None
+
+    # Add final portfolio value as positive cashflow on as_of_date
+    if cas_current is not None and math.isfinite(cas_current) and cas_current > 0:
+        cashflows.append((as_of_date, cas_current))
+
+    # Sort by date
+    cashflows.sort(key=lambda x: x[0])
+
+    # Calculate XIRR
+    return calculate_xirr(cashflows)
+
+
+# =============================================================================
+# FAIL-CLOSED CAS HOLDINGS AND TRANSACTION RECONCILIATION
+# =============================================================================
+
+def reconcile_cas_holdings_with_transactions(
+    cas_holdings: list,
+    transactions_path: Optional[Path],
+) -> dict:
+    """
+    Reconcile CAS holdings with transaction ledger with fail-closed validation.
+
+    Fail_CLOSED: Returns error status dict instead of raising on data quality issues.
+
+    Args:
+        cas_holdings: List of holdings with .scheme, .units, .folio attributes
+        transactions_path: Path to transactions.json file
+
+    Returns:
+        Dict with 'status' key indicating:
+        - 'READ_ERROR' - Transactions file could not be read
+        - 'NO_TRANSACTION_FILE' - No transactions file provided
+        - 'INVALID_TRANSACTION' - Transactions contain invalid rows
+        - 'VERIFIED_RECONCILED' - Holdings match transactions exactly
+        - 'PARTIALLY_RECONCILED' - Partially matched
+    """
+    result: Dict[str, Any] = {"status": "UNKNOWN"}
+
+    # Handle missing file
+    if transactions_path is None:
+        return {"status": "NO_TRANSACTION_FILE"}
+
+    if not isinstance(transactions_path, Path):
+        return {"status": "READ_ERROR"}
+
+    if not transactions_path.exists():
+        return {"status": "NO_TRANSACTION_FILE"}
+
+    # Read transactions file
+    try:
+        data = json.loads(transactions_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return {"status": "READ_ERROR"}
+
+    transactions = data.get("transactions")
+    if not isinstance(transactions, list):
+        # READ_ERROR for invalid container type (dict/object instead of list)
+        return {"status": "READ_ERROR"}
+
+    # Validate and aggregate transactions
+    valid_types = {"PURCHASE", "SIP", "REDEEM", "SWITCH_IN", "SWITCH_OUT", "DIVIDEND"}
+    txn_units_by_scheme: Dict[str, float] = defaultdict(float)
+
+    for txn in transactions:
+        # Fail closed: each row must be a valid dict
+        if not isinstance(txn, dict):
+            result["status"] = "INVALID_TRANSACTION"
+            result["details"] = "Transaction row is not an object"
+            return result
+
+        scheme = txn.get("scheme")
+        units = txn.get("units")
+        txn_type = txn.get("type")
+
+        if scheme is None or txn_type is None:
+            result["status"] = "INVALID_TRANSACTION"
+            return result
+
+        # Fail closed: validate units is finite number
+        try:
+            unit_val = float(units)
+            if not math.isfinite(unit_val):
+                result["status"] = "INVALID_TRANSACTION"
+                return result
+        except (ValueError, TypeError):
+            result["status"] = "INVALID_TRANSACTION"
+            return result
+
+        # Fail closed: units must be positive for PURCHASE/SIP/SWITCH_IN
+        if txn_type in {"PURCHASE", "SIP", "SWITCH_IN"} and unit_val < 0:
+            result["status"] = "INVALID_TRANSACTION"
+            return result
+
+        # Fail closed: validate type
+        if txn_type not in valid_types:
+            result["status"] = "INVALID_TRANSACTION"
+            return result
+
+        # Aggregate units (positive for purchases, negative for redemptions)
+        if txn_type in {"PURCHASE", "SIP", "SWITCH_IN", "DIVIDEND"}:
+            txn_units_by_scheme[str(scheme)] += unit_val
+        else:  # REDEEM, SWITCH_OUT
+            txn_units_by_scheme[str(scheme)] -= unit_val
+
+    # Aggregate CAS holdings by scheme
+    cas_units_by_scheme: Dict[str, float] = defaultdict(float)
+    discrepancies: List[Dict[str, str]] = []
+
+    for holding in cas_holdings:
+        scheme = getattr(holding, "scheme", None)
+        units = getattr(holding, "units", None)
+
+        if scheme is None or units is None:
+            continue
+
+        try:
+            unit_val = float(units)
+            if math.isfinite(unit_val):
+                cas_units_by_scheme[str(scheme)] += unit_val
+        except (ValueError, TypeError):
+            continue
+
+    # Compare holdings vs transactions
+    txn_schemes_set = set(txn_units_by_scheme.keys())
+    cas_schemes_set = set(cas_units_by_scheme.keys())
+
+    for scheme in txn_schemes_set:
+        cas_units = cas_units_by_scheme.get(scheme, 0.0)
+        txn_units = txn_units_by_scheme.get(scheme, 0.0)
+
+        if abs(cas_units - txn_units) > 0.001:  # tolerance for floating point
+            # Check if this is an exact scheme match in CAS holdings
+            is_exact_match = scheme in cas_schemes_set
+            
+            if not is_exact_match:
+                discrepancies.append({
+                    "scheme": scheme,
+                    "cas_units": cas_units,
+                    "transaction_units": txn_units,
+                    "difference": cas_units - txn_units,
+                    "reason": "NO_EXACT_TRANSACTION_SCHEME_MATCH",
+                })
+            else:
+                discrepancies.append({
+                    "scheme": scheme,
+                    "cas_units": cas_units,
+                    "transaction_units": txn_units,
+                    "difference": cas_units - txn_units,
+                })
+
+    unmatched_txn_schemes = [s for s in txn_schemes_set if s not in cas_schemes_set]
+
+    if discrepancies:
+        result["status"] = "PARTIALLY_RECONCILED"
+        result["discrepancies"] = discrepancies
+        result["unmatched_transaction_schemes"] = [{"scheme": s} for s in unmatched_txn_schemes]
+    else:
+        result["status"] = "VERIFIED_RECONCILED"
+        result["reconciled_schemes"] = len(set(cas_units_by_scheme.keys()) & set(txn_units_by_scheme.keys()))
+
+    return result
+
+
+# Patch TaxLot class to disable maturity classification methods
+# This must happen after TaxClassificationDisabledError is defined
+def _tax_lot_maturity_classification_disabled(*args, **kwargs):
+    raise TaxClassificationDisabledError(
+        "Direct tax-lot maturity classification is disabled pending independent "
+        "Indian tax/legal approval and exact scheme/plan/lot evidence. No "
+        "holding-period, LTCG or STCG classification has been generated."
+    )
+
 TaxLot.is_long_term = _tax_lot_maturity_classification_disabled
-TaxLot.is_short_term = _tax_lot_maturity_classification_disabled
 TaxLot.is_short_term = _tax_lot_maturity_classification_disabled

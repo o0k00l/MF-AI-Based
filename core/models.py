@@ -55,6 +55,18 @@ def _validate_mandate_flags(state: MandateExecutionState, authorized: bool, acti
         raise ValueError("Execution authorization is valid only in CLIENT_APPROVED_EXECUTION_READY state")
 
 
+def _is_finite_numeric(value: Any) -> bool:
+    """Check if value is a finite number (not NaN or Inf)."""
+    import math
+    if value is None:
+        return False
+    if isinstance(value, (int, Decimal)):
+        return True
+    if isinstance(value, float):
+        return math.isfinite(value)
+    return False
+
+
 # New simplified 3+1 risk tier system
 class RiskTier(str, Enum):
     CONSERVATIVE = "Conservative"
@@ -491,7 +503,7 @@ class DeterministicLumpsumPlan(BaseModel):
         total_dec = quantize_inr(self.total_lumpsum_inr)
         unallocated_dec = quantize_inr(self.unallocated_amount_inr)
         allocated_dec = sum(quantize_inr(item.amount_inr) for item in self.tranches)
-        if abs((allocated_dec + unallocated_dec) - total_dec) > Decimal("0.01"):
+        if abs((allocated_dec + unallocated_dec) - total_dec) >= Decimal("0.01"):
             raise ValueError(
                 f"Allocated lumpsum amounts ({allocated_dec}) plus unallocated amount ({unallocated_dec}) "
                 f"must equal total lumpsum ({total_dec})"

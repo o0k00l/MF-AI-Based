@@ -6,6 +6,7 @@ reviewer attestations do not independently authenticate a publisher.
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 from pathlib import Path
 from decimal import Decimal, InvalidOperation
@@ -28,7 +29,13 @@ REQUIRED_EVIDENCE_FIELDS = frozenset({
     "candidate_universe_source_bytes",
 })
 REQUEST_BOUND_FIELDS = frozenset({"cas_path", "monthly_budget_inr", "risk_profile"})
-OPTIONAL_EVIDENCE_FIELDS = frozenset({"portfolio_context", "portfolio_context_source_metadata", "portfolio_context_source_bytes", "candidate_score_source_metadata", "candidate_score_source_bytes", "category_anchor_source_metadata", "category_anchor_source_bytes", "aliases_source_metadata", "aliases_source_bytes"})
+OPTIONAL_EVIDENCE_FIELDS = frozenset({
+    "portfolio_context", "portfolio_context_source_metadata", "portfolio_context_source_bytes",
+    "candidate_score_source_metadata", "candidate_score_source_bytes",
+    "category_anchor_source_metadata", "category_anchor_source_bytes",
+    "aliases_source_metadata", "aliases_source_bytes",
+    "reviewer_approval_envelope", "reviewer_trust_registry",
+})
 
 
 class EvidenceProviderContractError(ValueError):

@@ -41,6 +41,12 @@ def _reviewed_direct_plan_evidence_status(
                 target_as_of = date.fromisoformat(raw_as_of.strip())
             except ValueError:
                 return "INVALID"
+    elif isinstance(target_as_of, str) and target_as_of.strip():
+        # Also parse string as_of_date when passed directly as parameter
+        try:
+            target_as_of = date.fromisoformat(target_as_of.strip())
+        except ValueError:
+            return "INVALID"
     if target_as_of is None or not isinstance(target_as_of, date) or isinstance(target_as_of, datetime):
         return "MISSING_AS_OF_DATE"
 
@@ -1182,8 +1188,9 @@ def load_candidate_universe(
         fund_name = m.get("name", m.get("scheme_name", m.get("id", "")))
         scheme_id = m.get("scheme_id")
         # Eligibility replay must be bound to the caller's decision date.
+        # If not provided externally, use the fund record's as_of_date for backward compatibility.
         # Never substitute the process wall clock for missing as-of evidence.
-        effective_as_of = disclosure_as_of_date
+        effective_as_of = disclosure_as_of_date or m.get("as_of_date")
 
         evidence_context = {
             "direct_plan_evidence": m.get("direct_plan_evidence"),

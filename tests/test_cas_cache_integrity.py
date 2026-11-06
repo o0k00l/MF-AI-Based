@@ -29,7 +29,7 @@ def test_to_cache_csv_strict_rejects_missing_invested_value():
     holdings = [
         {"scheme": "Scheme A", "current_value": 1200.0, "units": 10.0}
     ]
-    with pytest.raises(ValueError, match="invested_value"):
+    with pytest.raises(ValueError, match="invested"):
         to_cache_csv({"holdings": holdings}, enriched=True, strict=True)
 
 

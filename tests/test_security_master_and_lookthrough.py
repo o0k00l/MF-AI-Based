@@ -123,6 +123,9 @@ def test_compute_candidate_portfolio_overlap_resolves_aliases():
     # Holding reports "Reliance Ind"
     holding = HoldingItem(
         fund_id="fund-1",
+        scheme="Existing Scheme",
+        fund_name="Existing Scheme",
+        folio="TEST-FOLIO",
         scheme_id="scheme-1",
         scheme_name="Existing Scheme",
         current_value_inr=100000.0,
@@ -131,7 +134,10 @@ def test_compute_candidate_portfolio_overlap_resolves_aliases():
         nav=100.0,
         equity_pct=100.0,
         debt_pct=0.0,
+        hybrid_pct=0.0,
+        international_pct=0.0,
         cash_pct=0.0,
+        asset_class="Equity",
         constituent_weights={"Reliance Ind": 50.0, "TCS": 50.0},
         constituent_weights_coverage_pct=100.0,
     )

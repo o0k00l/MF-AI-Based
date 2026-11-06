@@ -52,6 +52,12 @@ def test_category_aum_caps_matches_policy_limits():
 def test_policy_loader_rejects_duplicate_rule_ids(tmp_path):
     bad_policy = {
         "_schema": "fiduciary.screening_criteria.v1",
+        "version": "1.0.0",
+        "gate_thresholds": {
+            "amc_max_limit_pct": 25, "min_aum_crore": 5, "max_top10_concentration_pct": 30,
+            "max_sector_concentration_pct": 25, "min_sharpe": 0.5, "min_manager_tenure_years": 5,
+            "min_confidence_score": 0.8, "max_overlap_candidate_pct": 30,
+        },
         "flag_rules": [
             {"id": "DUP_RULE", "test": "x > 1"},
             {"id": "DUP_RULE", "test": "x > 2"},
@@ -70,6 +76,12 @@ def test_policy_loader_rejects_duplicate_rule_ids(tmp_path):
 def test_policy_loader_rejects_contradictory_thematic_action(tmp_path):
     bad_policy = {
         "_schema": "fiduciary.screening_criteria.v1",
+        "version": "1.0.0",
+        "gate_thresholds": {
+            "amc_max_limit_pct": 25, "min_aum_crore": 5, "max_top10_concentration_pct": 30,
+            "max_sector_concentration_pct": 25, "min_sharpe": 0.5, "min_manager_tenure_years": 5,
+            "min_confidence_score": 0.8, "max_overlap_candidate_pct": 30,
+        },
         "flag_rules": [],
         "category_rules": {
             "thematic_sectoral_liquidation": {"action": "IMMEDIATE_EXIT"}
@@ -123,6 +135,12 @@ def test_screening_policy_rejects_unknown_schema_version(tmp_path):
     path = tmp_path / "unsupported-screening-policy.json"
     path.write_text(json.dumps({
         "_schema": "fiduciary.screening_criteria.v999",
+        "version": "999.000",
+        "gate_thresholds": {
+            "amc_max_limit_pct": 25, "min_aum_crore": 5, "max_top10_concentration_pct": 30,
+            "max_sector_concentration_pct": 25, "min_sharpe": 0.5, "min_manager_tenure_years": 5,
+            "min_confidence_score": 0.8, "max_overlap_candidate_pct": 30,
+        },
         "flag_rules": [],
     }), encoding="utf-8")
     with pytest.raises(ValueError, match="schema must be fiduciary.screening_criteria.v1"):

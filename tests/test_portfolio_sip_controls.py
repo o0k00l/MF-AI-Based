@@ -163,7 +163,8 @@ def test_lookthrough_aggregates_verified_issuer_weights_by_portfolio_value():
          "constituents": {"issuer-a": "40", "issuer-b": "60"}},
     ], required_coverage_pct="99.5")
     assert result["status"] == "CALCULATED"
-    assert Decimal(result["issuer_exposure_inr"]["issuer-a"]) == Decimal("40000")
+    # Canonicalization transforms "issuer-a" to "ISSUER A" (uppercase, hyphen->space)
+    assert Decimal(result["issuer_exposure_inr"]["ISSUER A"]) == Decimal("40000")
 
 
 def test_decision_trace_is_deterministic_and_requires_full_lineage():

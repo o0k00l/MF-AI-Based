@@ -115,6 +115,16 @@ def normalize_security_identifier(
         canonical_id = resolved.get("canonical_id", canon_base) if isinstance(resolved, dict) else str(resolved)
         return canonical_id, True
 
+    # 4. Alias resolution: scan all securities for aliases matching the identifier
+    if isinstance(master_dict, Mapping):
+        for security_id, security_info in master_dict.items():
+            if isinstance(security_info, dict):
+                aliases = security_info.get("aliases", [])
+                if isinstance(aliases, list):
+                    if raw_upper in [str(a).strip().upper() for a in aliases]:
+                        canonical_id = security_info.get("canonical_id", security_id)
+                        return canonical_id, True
+
     if strict:
         raise ValueError(f"Unresolved security identifier: {raw!r}")
 

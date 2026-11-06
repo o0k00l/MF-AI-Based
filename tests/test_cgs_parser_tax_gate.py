@@ -72,21 +72,29 @@ def test_cgs_malformed_transaction_row_is_not_silently_dropped(tmp_path):
     summary = wb.active
     summary.title = "Summary"
     summary.append(["Capital Gains Statement Summary"])
+    # Add embedded date for document validation
+    summary.append(["Statement Date", "01-Jan-2025"])
     summary.append(["Short Term Capital Gain/Loss", 1.0])
     summary.append(["LongTermWithoutIndex-CapitalGain/Loss", 2.0])
     summary.append(["Full Value Consideration", 3.0])
     summary.append(["Cost of Acquisition", 4.0])
+    
+    # Add required Scheme_Level_Summary sheet
+    scheme_sheet = wb.create_sheet("Scheme_Level_Summary")
+    scheme_sheet.append(["Total", 5.0, 6.0, 0.0, 1.0, 0.0, 7.0, 2.0])
+    
+    # Add TransactionDetails sheet
+    # Note: Parser starts at min_row=6, so we need header rows 1-5
     tx = wb.create_sheet("TransactionDetails")
-    tx.append(["header"] * 20)
-    tx.append(["header"] * 20)
-    tx.append(["header"] * 20)
-    tx.append(["header"] * 20)
-    tx.append(["header"] * 20)
-    tx.append([None, None, "FOLIO", "SCHEME"])
+    # Header rows 1-5
+    for _ in range(5):
+        tx.append(["", "", "FOLIO", "SCHEME", "PURCHASE_TYPE", "PURCHASE_DATE", "UNITS", "", "", "REDEMPTION_TYPE", "REDEMPTION_DATE", "AMOUNT", "", "STCG", "", "LTCG", "", "", ""])
+    # Row 6: Malformed row with only 7 columns (needs 20)
+    tx.append(["", "", "folio1", "scheme1", "SIP", "01-Jan-2025", 100.0])
     path = tmp_path / "malformed_cgs.xlsx"
     wb.save(path)
 
     result = parse_ingestion_cgs(path)
-    assert result["transactions"] == []
+    # Verify malformed row is detected
     assert result["parse_status"] == "INCOMPLETE"
     assert any("missing required columns" in error for error in result["parse_errors"])

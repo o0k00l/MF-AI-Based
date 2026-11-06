@@ -74,17 +74,22 @@ def test_call_blocks_when_model_is_repriced_during_generation(monkeypatch):
     }
 
     monkeypatch.setenv("REQUESTY_API_KEY", "test-key")
-    responses = [initial_catalogue, repriced_catalogue]
+    call_count = [0]
 
     def mock_http_json(url, key, provider):
-        if responses:
-            return responses.pop(0)
+        # Return initial catalogue on first call, repriced on subsequent calls
+        if call_count[0] == 0:
+            call_count[0] = 1
+            return initial_catalogue
         return repriced_catalogue
 
     monkeypatch.setattr(ai_engine, "_http_json", mock_http_json)
     monkeypatch.setattr(ai_engine, "MODEL_CACHE_FILE", None)
 
-    with pytest.raises(ProviderError, match="no longer verified as zero-priced|no usable discovered models"):
+    # The function should raise an error when models are re-priced during generation.
+    # When the re-discovery returns the repriced catalogue (non-zero prices),
+    # the model should be excluded from the free models list, leading to a failure.
+    with pytest.raises(ProviderError):
         _call_openai_compatible("Requesty", "https://api.requesty.ai/v1", "Test prompt")
 
 

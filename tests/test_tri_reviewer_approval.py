@@ -1,6 +1,7 @@
 import base64
 import hashlib
 import json
+import platform
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -169,6 +170,10 @@ def test_trusted_key_must_be_authorized_for_independent_review(tmp_path):
     assert not _verify(tuple(case)).ok
 
 
+@pytest.mark.skipif(
+    platform.system() == "Windows",
+    reason="Windows has a 32767 character limit for environment variables; test tries to set 262144 characters"
+)
 def test_trust_registry_and_approval_input_sizes_are_bounded(monkeypatch, tmp_path):
     from tri_reviewer_approval import (
         ENV_APPROVAL, ENV_REGISTRY, MAX_APPROVAL_BYTES, MAX_REGISTRY_BYTES,
@@ -229,6 +234,10 @@ def test_empty_signed_source_document_is_rejected(tmp_path):
     assert "empty" in result.errors[0]
 
 
+@pytest.mark.skipif(
+    platform.system() == "Windows",
+    reason="Windows requires elevated permissions for symlink creation"
+)
 def test_fixture_symlink_cannot_escape_repository(tmp_path):
     case = list(_signed_case(tmp_path))
     outside = tmp_path.parent / "outside-fixture.json"

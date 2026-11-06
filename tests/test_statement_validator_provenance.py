@@ -17,12 +17,20 @@ from ingestion.statement_validator import (
 )
 
 
+def _make_valid_cas_fund_rows(ws, base_scheme="Generic Fund"):
+    """Add 3 fund rows to make a valid CAS Excel with 5+ total rows."""
+    ws.append(["Scheme Name", "Folio No.", "Invested Value", "Current Value", "Units"])
+    ws.append([f"{base_scheme} Direct Growth", "123456", 10000, 12000, 100])
+    ws.append([f"{base_scheme} Hybrid Equity", "234567", 15000, 16000, 150])
+    ws.append([f"{base_scheme} Debt Fund", "345678", 8000, 8500, 80])
+    ws.append([f"{base_scheme} Liquid Fund", "456789", 5000, 5100, 50])
+
+
 def test_cas_excel_without_registrar_evidence_reports_unknown():
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Portfolio Details"
-    ws.append(["Scheme Name", "Folio No.", "Invested Value", "Current Value", "Units"])
-    ws.append(["Generic Fund Direct Growth", "123456", 10000, 12000, 100])
+    _make_valid_cas_fund_rows(ws)
 
     buf = io.BytesIO()
     wb.save(buf)
@@ -48,8 +56,7 @@ def test_cas_excel_with_cams_text_marker_is_unauthenticated_content():
     ws = wb.active
     ws.title = "Portfolio Details"
     ws.append(["CAMS Consolidated Account Statement"])
-    ws.append(["Scheme Name", "Folio No.", "Invested Value", "Current Value", "Units"])
-    ws.append(["Generic Fund Direct Growth", "123456", 10000, 12000, 100])
+    _make_valid_cas_fund_rows(ws)
 
     buf = io.BytesIO()
     wb.save(buf)
@@ -125,8 +132,7 @@ def test_adversarial_spoofed_text_and_mixed_registrar_labels():
     ws = wb.active
     ws.title = "Portfolio Details"
     ws.append(["Conflicting CAMS and KFintech and MFCentral headers"])
-    ws.append(["Scheme Name", "Folio No.", "Invested Value", "Current Value", "Units"])
-    ws.append(["Spoofed Scheme", "999999", 5000, 6000, 50])
+    _make_valid_cas_fund_rows(ws, base_scheme="Spoofed Scheme")
 
     buf = io.BytesIO()
     wb.save(buf)
@@ -146,8 +152,7 @@ def test_authentic_statement_provenance_verification():
     ws = wb.active
     ws.title = "Portfolio Details"
     ws.append(["CAMS Consolidated Account Statement"])
-    ws.append(["Scheme Name", "Folio No.", "Invested Value", "Current Value", "Units"])
-    ws.append(["Verified Scheme Direct", "111222", 10000, 15000, 100])
+    _make_valid_cas_fund_rows(ws, base_scheme="Verified Scheme")
 
     buf = io.BytesIO()
     wb.save(buf)
@@ -179,8 +184,7 @@ def test_tampered_or_invalid_evidence_fails_closed():
     ws = wb.active
     ws.title = "Portfolio Details"
     ws.append(["CAMS Consolidated Account Statement"])
-    ws.append(["Scheme Name", "Folio No.", "Invested Value", "Current Value", "Units"])
-    ws.append(["Verified Scheme Direct", "111222", 10000, 15000, 100])
+    _make_valid_cas_fund_rows(ws, base_scheme="Verified Scheme")
 
     buf = io.BytesIO()
     wb.save(buf)

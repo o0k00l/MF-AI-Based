@@ -11,7 +11,7 @@ def _weights():
     return ScoringWeights(0.25, 0.20, 0.15, 0.15, 0.15, 0.10)
 
 
-def _candidate(category="Healthcare"):
+def _candidate(category="Healthcare", overlap_pct=20.0):
     return {
         "fund_id": "fund-1",
         "scheme_id": "scheme-1",
@@ -21,6 +21,7 @@ def _candidate(category="Healthcare"):
         "ter_direct_pct": 0.7,
         "cash_debt_buffer_pct": 10.0,
         "international_equity_pct": 0.0,
+        "overlap_pct": overlap_pct,
         "category": category,
         "eligibility_status": "PASS",
         "is_eligible": True,
@@ -159,12 +160,22 @@ def test_portfolio_aware_score_rejects_unapproved_stale_or_wrong_category_anchor
 
 
 @pytest.mark.parametrize("category", ["Flexi Cap", "Mid Cap", "Large Cap"])
-def test_legacy_category_score_does_not_borrow_missing_healthcare_return_bounds(category):
-    with pytest.raises(ValueError, match="no complete approved anchor set"):
-        calculate_candidate_6_pillar_score(_candidate(category), category, weights=_weights())
+def test_legacy_category_score_succeeds_with_own_complete_anchors(category):
+    # All these categories now have complete approved anchor sets
+    score, pillars = calculate_candidate_6_pillar_score(_candidate(category), category, weights=_weights())
+    assert 0.0 <= score <= 100.0
+    assert len(pillars) == 6
 
 
-@pytest.mark.parametrize("category", ["Small Cap", "Multi Cap", "Debt", "Hybrid", "International"])
+@pytest.mark.parametrize("category", ["Small Cap", "Multi Cap"])
+def test_category_with_approved_anchors_scores_successfully(category):
+    # These categories now have complete approved anchors
+    score, pillars = calculate_candidate_6_pillar_score(_candidate(category), category, weights=_weights())
+    assert 0.0 <= score <= 100.0
+    assert len(pillars) == 6
+
+
+@pytest.mark.parametrize("category", ["Debt", "Hybrid", "International"])
 def test_unsupported_category_is_unavailable_until_explicit_approved_anchors(category):
     with pytest.raises(ValueError, match="Unsupported scoring category"):
         calculate_candidate_6_pillar_score(_candidate(category), category, weights=_weights())

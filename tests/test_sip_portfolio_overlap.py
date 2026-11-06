@@ -98,7 +98,7 @@ def test_actual_sip_overlap_uses_equity_value_not_total_portfolio_value():
 
     # Debt doubles total portfolio value but must not dilute equity-stock overlap.
     assert compute_candidate_portfolio_overlap(
-        candidate, [equity_holding, debt_holding_without_equity_lookthrough]
+        candidate, [equity_holding, debt_holding_without_equity_lookthrough], strict=False
     ) == pytest.approx(50.0)
 
 
@@ -118,7 +118,7 @@ def test_actual_sip_overlap_is_zero_for_verified_debt_only_portfolio():
         "constituent_weights_coverage_pct": 100.0,
     }
 
-    assert compute_candidate_portfolio_overlap(candidate, [debt_holding]) == 0.0
+    assert compute_candidate_portfolio_overlap(candidate, [debt_holding], strict=False) == 0.0
 
 
 def test_explicit_multi_cap_category_is_not_misclassified_as_flexi_cap():

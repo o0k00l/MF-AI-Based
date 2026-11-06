@@ -63,7 +63,7 @@ def test_find_matching_metric_rejects_conflicting_category():
         "plan_type": "DIRECT",
         "option_type": "GROWTH",
     }
-    with pytest.raises(ValueError, match="conflicts with verified scheme category"):
+    with pytest.raises(ValueError, match="conflicts with verified scheme.*Category"):
         _find_matching_metric_by_scheme_identity("SCH-100", "INF123456789", metrics, identity=identity)
 
 
@@ -77,5 +77,5 @@ def test_find_matching_metric_rejects_conflicting_plan():
         "plan_type": "REGULAR",
         "option_type": "GROWTH",
     }
-    with pytest.raises(ValueError, match="conflicts with verified scheme plan"):
+    with pytest.raises(ValueError, match="conflicts with verified scheme.*Plan"):
         _find_matching_metric_by_scheme_identity("SCH-100", "INF123456789", metrics, identity=identity)

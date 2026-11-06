@@ -80,6 +80,8 @@ def test_cross_consumer_consistency_sip_calculation(tmp_path):
 
     candidates = [
         {
+            "fund_id": "test-flexi-direct",
+            "fund_name": "Test Flexi Direct",
             "scheme_name": "Test Flexi Direct",
             "category": "Flexi Cap",
             "is_direct": True,
@@ -88,6 +90,8 @@ def test_cross_consumer_consistency_sip_calculation(tmp_path):
             "debt_holding": 2.0,
         },
         {
+            "fund_id": "test-mid-direct",
+            "fund_name": "Test Mid Direct",
             "scheme_name": "Test Mid Direct",
             "category": "Mid Cap",
             "is_direct": True,
@@ -96,6 +100,8 @@ def test_cross_consumer_consistency_sip_calculation(tmp_path):
             "debt_holding": 3.0,
         },
         {
+            "fund_id": "test-small-direct",
+            "fund_name": "Test Small Direct",
             "scheme_name": "Test Small Direct",
             "category": "Small Cap",
             "is_direct": True,
@@ -104,6 +110,8 @@ def test_cross_consumer_consistency_sip_calculation(tmp_path):
             "debt_holding": 5.0,
         },
         {
+            "fund_id": "test-large-direct",
+            "fund_name": "Test Large Direct",
             "scheme_name": "Test Large Direct",
             "category": "Large Cap",
             "is_direct": True,
@@ -154,7 +162,7 @@ def test_cross_consumer_consistency_saa_drift_diagnostics(tmp_path):
         nav=1000.0,
     )
 
-    target_map = {"Equity": 75.0, "Debt": 25.0, "Cash": 0.0}
+    target_map = {"equity_pct": 75.0, "debt_pct": 25.0, "cash_pct": 0.0}
     drift = calculate_saa_drift_minimizer(
         holdings=[holding],
         target_allocation=target_map,

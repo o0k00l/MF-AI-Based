@@ -72,7 +72,7 @@ def validate_portfolio_disclosure(
         isinstance(coverage_raw, bool)
         or not isinstance(coverage_raw, (int, float))
         or any(
-            not isinstance(key, str) or not key.strip()
+            not isinstance(key, str) or not key.strip() or key.strip() != key
             or isinstance(value, bool) or not isinstance(value, (int, float))
             for key, value in raw_weights.items()
         )

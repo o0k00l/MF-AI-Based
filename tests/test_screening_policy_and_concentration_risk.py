@@ -48,27 +48,53 @@ def test_load_fund_screening_policy_fails_on_missing_threshold(tmp_path):
 def test_changing_policy_threshold_changes_effective_gate_behavior():
     policy = load_fund_screening_policy()
 
-    # Fund with Sharpe 0.50
+    # Fund with Sharpe 0.50 - all required fields to pass all gates except Sharpe
     fund = {
         "fund_id": "F1",
         "fund_name": "Test Alpha Fund",
         "category": "Flexi Cap",
         "amc_name": "Test AMC",
+        "scheme_id": "TEST_SCHEME_1",
+        "isin": "INF000000001",
         "aum_crore": 5000.0,
-        "top10_concentration_pct": 40.0,
-        "single_sector_max_pct": 20.0,
+        "aum_stable": True,
+        "top10_concentration_pct": 20.0,
+        "max_sector_concentration_pct": 15.0,
         "sharpe_3y": 0.50,
         "alpha_3y": 2.0,
         "downside_capture_ratio": 80.0,
         "upside_capture_ratio": 100.0,
-        "riskometer": "Very High",
-        "benchmark_tri_available": True,
+        "riskometer_score": 5,
+        "mandate_suitable": True,
+        "data_complete": True,
         "confidence_score": 0.95,
+        "track_record_years": 10.0,
         "manager_tenure_years": 4.0,
-        "plan_type": "Direct",
+        "is_direct": True,
+        "plan": "Direct Growth",
         "expense_ratio": 0.60,
+        "as_of_date": "2026-10-05",
+        "_evidence_root": "tests/test_evidence",
+        "direct_plan_evidence": {
+            "scheme_id": "TEST_SCHEME_1",
+            "isin": "INF000000001",
+            "amc_name": "Test AMC",
+            "scheme_name": "Test Alpha Fund",
+            "plan": "Direct",
+            "source_url": "https://example.com/factsheet.pdf",
+            "source_type": "AMC_FACTSHEET",
+            "source_file": "factsheet.txt",
+            "source_document_sha256": "5dc1d1dd8d0be46c5d40fb957d61f0a241723aa27cdf73f9512d351a23edba4b",
+            "reviewer_attested": True,
+            "reviewed_at": "2026-10-01"
+        },
     }
-    holdings = [{"amc_name": "Test AMC", "current_value_inr": 10000.0, "total_portfolio_inr": 100000.0}]
+    # Diverse portfolio with AMC concentration below 30% threshold
+    holdings = [
+        {"amc_name": "Test AMC", "current_value_inr": 20000.0, "total_portfolio_inr": 100000.0},
+        {"amc_name": "Other AMC 1", "current_value_inr": 40000.0, "total_portfolio_inr": 100000.0},
+        {"amc_name": "Other AMC 2", "current_value_inr": 40000.0, "total_portfolio_inr": 100000.0},
+    ]
 
     # Policy A: min_sharpe = 0.40 -> passes
     res_a = check_eligibility_gates(fund, portfolio_holdings=holdings, policy=policy)
@@ -76,7 +102,7 @@ def test_changing_policy_threshold_changes_effective_gate_behavior():
     assert res_a.policy_version == policy["version"]
     assert res_a.policy_digest == policy["_policy_digest"]
 
-    # Policy B: min_sharpe modified to 0.70 -> fails Gate 4
+    # Policy B: min_sharpe modified to 0.70 -> fails Gate 4 (Sharpe below threshold)
     policy_strict = dict(policy)
     policy_strict["gate_thresholds"] = dict(policy["gate_thresholds"], min_sharpe=0.70)
     res_b = check_eligibility_gates(fund, portfolio_holdings=holdings, policy=policy_strict)
@@ -115,23 +141,26 @@ def test_strict_candidate_portfolio_overlap_rejects_unresolved_constituents():
 
     holding = HoldingItem(
         fund_id="fund-1",
-        scheme_id="scheme-1",
-        scheme_name="Existing Scheme",
+        scheme="Existing Scheme",
+        fund_name="Existing Scheme",
+        folio="TEST-FOLIO",
+        asset_class="Equity",
+        equity_pct=100.0,
+        debt_pct=0.0,
+        hybrid_pct=0.0,
+        international_pct=0.0,
         current_value_inr=100000.0,
         invested_value_inr=90000.0,
         units=1000.0,
         nav=100.0,
-        equity_pct=100.0,
-        debt_pct=0.0,
-        cash_pct=0.0,
-        constituent_weights={"Reliance Industries Limited": 60.0, "Infosys Limited": 40.0},
+        constituent_weights={"Reliance": 60.0, "Infosys Limited": 40.0},
         constituent_weights_coverage_pct=100.0,
     )
 
     # Candidate with unresolvable security identifier
     candidate_unresolved = {
         "fund_id": "cand-unknown",
-        "constituent_weights": {"UNKNOWN CORRUPT EQUITY": 50.0, "Infosys Limited": 50.0},
+        "constituent_weights": {"UNKNOWN CORRUPT EQUITY": 50.0, "INFY": 50.0},
         "constituent_weights_coverage_pct": 100.0,
     }
 
@@ -158,16 +187,19 @@ def test_evaluate_candidate_portfolio_concentration_controls():
 
     holding = HoldingItem(
         fund_id="fund-1",
-        scheme_id="scheme-1",
-        scheme_name="Existing Scheme",
+        scheme="Existing Scheme",
+        fund_name="Existing Scheme",
+        folio="TEST-FOLIO",
+        asset_class="Equity",
+        equity_pct=100.0,
+        debt_pct=0.0,
+        hybrid_pct=0.0,
+        international_pct=0.0,
         current_value_inr=100000.0,
         invested_value_inr=90000.0,
         units=1000.0,
         nav=100.0,
-        equity_pct=100.0,
-        debt_pct=0.0,
-        cash_pct=0.0,
-        constituent_weights={"Reliance Industries Limited": 50.0, "Infosys Limited": 50.0},
+        constituent_weights={"Reliance": 50.0, "Infosys Limited": 50.0},
         constituent_weights_coverage_pct=100.0,
     )
 
@@ -175,7 +207,7 @@ def test_evaluate_candidate_portfolio_concentration_controls():
     dup_candidate = {
         "fund_id": "cand-dup",
         "category": "Flexi Cap",
-        "constituent_weights": {"Reliance Industries Limited": 45.0, "Infosys Limited": 55.0},
+        "constituent_weights": {"Reliance": 45.0, "Infosys Limited": 55.0},
         "constituent_weights_coverage_pct": 100.0,
     }
     res_dup = evaluate_candidate_portfolio_concentration_controls(
@@ -259,22 +291,25 @@ def test_evaluate_candidate_portfolio_concentration_multi_dimensional_breaches()
         }
     }
     classifications = {
-        "INE467B01029": {"sector": "Technology", "market_cap_bucket": "Large Cap", "themes": ["Digital", "Export"]},
-        "INE009A01021": {"sector": "Technology", "market_cap_bucket": "Large Cap", "themes": ["Digital", "Export"]},
-        "INE040A01034": {"sector": "Financial Services", "market_cap_bucket": "Large Cap", "themes": ["Financialization"]},
+        "TCS": {"sector": "Technology", "market_cap_bucket": "Large Cap", "themes": ["Digital", "Export"]},
+        "INFY": {"sector": "Technology", "market_cap_bucket": "Large Cap", "themes": ["Digital", "Export"]},
+        "HDFCBANK": {"sector": "Financial Services", "market_cap_bucket": "Large Cap", "themes": ["Financialization"]},
     }
 
     holding = HoldingItem(
         fund_id="fund-tech",
-        scheme_id="scheme-tech",
-        scheme_name="Existing Tech Scheme",
+        scheme="Existing Tech Scheme",
+        fund_name="Existing Tech Scheme",
+        folio="TECH-FOLIO",
+        asset_class="Equity",
+        equity_pct=100.0,
+        debt_pct=0.0,
+        hybrid_pct=0.0,
+        international_pct=0.0,
         current_value_inr=100000.0,
         invested_value_inr=90000.0,
         units=1000.0,
         nav=100.0,
-        equity_pct=100.0,
-        debt_pct=0.0,
-        cash_pct=0.0,
         constituent_weights={"TCS": 60.0, "INFY": 40.0},
         constituent_weights_coverage_pct=100.0,
     )
@@ -293,8 +328,9 @@ def test_evaluate_candidate_portfolio_concentration_multi_dimensional_breaches()
         holdings=[holding],
         security_master=sec_master,
         classifications=classifications,
-        max_overlap_pct=80.0,
+        max_overlap_pct=100.0,  # Allow overlap check to pass, test sector breach
         max_sector_pct=35.0,
+        max_issuer_pct=100.0,
     )
     assert res_sector["passed"] is False
     assert res_sector["status"] == "REJECT"
@@ -306,9 +342,10 @@ def test_evaluate_candidate_portfolio_concentration_multi_dimensional_breaches()
         holdings=[holding],
         security_master=sec_master,
         classifications=classifications,
-        max_overlap_pct=80.0,
+        max_overlap_pct=100.0,  # Allow overlap/sector checks to pass, test theme breach
         max_sector_pct=100.0,
         max_theme_pct=15.0,
+        max_issuer_pct=100.0,
     )
     assert res_theme["passed"] is False
     assert res_theme["status"] == "REJECT"

@@ -198,6 +198,8 @@ def test_portfolio_aware_score_blocks_missing_defensive_and_international_eviden
         "fund_id": "candidate-1", "alpha_3y": 2.0, "return_1y": 5.0,
         "sharpe_3y": 0.8, "ter_direct_pct": 0.8,
         "cash_debt_buffer_pct": 10.0, "international_equity_pct": 0.0,
+        "eligibility_status": "PASS",
+        "is_eligible": True,
     }
     candidate.pop(missing_field)
     evidence = _portfolio_score_evidence()
@@ -227,6 +229,8 @@ def test_standalone_candidate_score_blocks_missing_explanatory_evidence(field, m
         "cash_debt_buffer_pct": 10.0,
         "international_equity_pct": 0.0,
         "overlap_pct": 5.0,
+        "eligibility_status": "PASS",
+        "is_eligible": True,
     }
     candidate.pop(field)
 
@@ -238,24 +242,43 @@ def test_standalone_candidate_score_blocks_missing_explanatory_evidence(field, m
 
 
 @pytest.mark.parametrize(
-    ("field", "value"),
+    ("field", "value", "message"),
     [
-        ("cash_debt_buffer_pct", -0.1),
-        ("international_equity_pct", 100.1),
-        ("overlap_pct", float("nan")),
+        ("cash_debt_buffer_pct", -0.1, "cash/debt buffer percentage must be between 0 and 100"),
+        ("international_equity_pct", 100.1, "international exposure percentage must be between 0 and 100"),
     ],
 )
-def test_candidate_score_rejects_invalid_percentage_evidence(field, value):
+def test_candidate_score_rejects_invalid_percentage_evidence(field, value, message):
     candidate = {
         "alpha_3y": 2.0, "return_1y": 5.0,
         "sharpe_3y": 0.8, "ter_direct_pct": 0.8,
         "cash_debt_buffer_pct": 10.0,
         "international_equity_pct": 0.0,
         "overlap_pct": 5.0,
+        "eligibility_status": "PASS",
+        "is_eligible": True,
     }
     candidate[field] = value
 
-    with pytest.raises(ValueError, match="percentage|Non-finite"):
+    with pytest.raises(ValueError, match=message):
+        calculate_candidate_6_pillar_score(
+            candidate, "Healthcare",
+            weights=ScoringWeights(0.25, 0.20, 0.15, 0.15, 0.15, 0.10),
+        )
+
+
+def test_candidate_score_rejects_nan_overlap():
+    candidate = {
+        "alpha_3y": 2.0, "return_1y": 5.0,
+        "sharpe_3y": 0.8, "ter_direct_pct": 0.8,
+        "cash_debt_buffer_pct": 10.0,
+        "international_equity_pct": 0.0,
+        "overlap_pct": float("nan"),
+        "eligibility_status": "PASS",
+        "is_eligible": True,
+    }
+
+    with pytest.raises(ValueError, match="Non-finite optional scoring metric: overlap_pct"):
         calculate_candidate_6_pillar_score(
             candidate, "Healthcare",
             weights=ScoringWeights(0.25, 0.20, 0.15, 0.15, 0.15, 0.10),
@@ -267,6 +290,8 @@ def test_portfolio_aware_score_preserves_verified_zero_exposure_values():
         "fund_id": "candidate-1", "alpha_3y": 2.0, "return_1y": 5.0,
         "sharpe_3y": 0.8, "ter_direct_pct": 0.8,
         "cash_debt_buffer_pct": 0.0, "international_equity_pct": 0.0,
+        "eligibility_status": "PASS",
+        "is_eligible": True,
     }
     evidence = _portfolio_score_evidence()
     _, pillars = calculate_candidate_6_pillar_score(

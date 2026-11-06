@@ -69,11 +69,11 @@ class PortfolioDisclosureAdapter(BaseSourceAdapter):
                 raise ValueError(f"Portfolio disclosure for {self._scheme_id} has invalid asset identifier.")
             try:
                 w_val = float(weight)
-                if w_val < 0:
-                    raise ValueError(f"Negative constituent weight for {asset} in {self._scheme_id}.")
-                clean_weights[asset.strip().upper()] = w_val
-            except (ValueError, TypeError) as exc:
-                raise ValueError(f"Malformed weight value for {asset} in {self._scheme_id}.") from exc
+            except (ValueError, TypeError):
+                raise ValueError(f"Malformed weight value for {asset} in {self._scheme_id}.")
+            if w_val < 0:
+                raise ValueError(f"Negative constituent weight for {asset} in {self._scheme_id}.")
+            clean_weights[asset.strip().upper()] = w_val
 
         coverage_raw = payload.get("constituent_weights_coverage_pct", 100.0)
         try:

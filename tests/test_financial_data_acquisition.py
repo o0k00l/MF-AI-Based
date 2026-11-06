@@ -296,6 +296,7 @@ def test_evidence_bundle_builder_staging_and_atomic_promotion(tmp_path):
         },
     ]
 
+    envelope, registry = _make_test_approval()
     builder = EvidenceBundleBuilder(target_bundle_dir)
     promoted_dir = builder.build_and_promote(
         as_of,
@@ -312,6 +313,8 @@ def test_evidence_bundle_builder_staging_and_atomic_promotion(tmp_path):
         metrics_source_url="https://www.amfiindia.com/research-information/other-data/fund-metrics",
         universe_source_url="https://www.amfiindia.com/research-information/other-data/candidate-universe",
         reviewer_attested=True,
+        reviewer_approval_envelope=envelope,
+        reviewer_trust_registry=registry,
     )
 
     assert promoted_dir == target_bundle_dir
@@ -337,6 +340,8 @@ def test_evidence_bundle_builder_atomic_rollback_on_failure(tmp_path):
 
     master = _sample_scheme_master_dict(as_of)
     master_bytes = json.dumps(master).encode("utf-8")
+
+    envelope, registry = _make_test_approval()
 
     # Initial successful build
     builder = EvidenceBundleBuilder(target_bundle_dir)
@@ -377,6 +382,8 @@ def test_evidence_bundle_builder_atomic_rollback_on_failure(tmp_path):
         metrics_source_url="https://www.amfiindia.com/research-information/other-data/fund-metrics",
         universe_source_url="https://www.amfiindia.com/research-information/other-data/candidate-universe",
         reviewer_attested=True,
+        reviewer_approval_envelope=envelope,
+        reviewer_trust_registry=registry,
     )
     initial_manifest_content = (target_bundle_dir / "manifest.json").read_text(encoding="utf-8")
 
@@ -397,6 +404,8 @@ def test_evidence_bundle_builder_atomic_rollback_on_failure(tmp_path):
             metrics_source_url="https://www.amfiindia.com/research-information/other-data/fund-metrics",
             universe_source_url="https://www.amfiindia.com/research-information/other-data/candidate-universe",
             reviewer_attested=True,
+            reviewer_approval_envelope=envelope,
+            reviewer_trust_registry=registry,
         )
 
     # Verify initial bundle was NOT mutated or removed
@@ -506,10 +515,11 @@ def test_financial_data_refresh_pipeline_future_date_fails_closed(tmp_path):
 
 
 def test_refresh_pipeline_fails_closed_when_required_source_evidence_is_missing(tmp_path):
+    envelope, registry = _make_test_approval()
     pipeline = FinancialDataRefreshPipeline()
     target = tmp_path / "bundle"
 
-    result = pipeline.refresh(target, date.today(), reviewer_attested=True)
+    result = pipeline.refresh(target, date.today(), reviewer_attested=True, reviewer_approval_envelope=envelope, reviewer_trust_registry=registry)
 
     assert result.status == "FAILED"
     assert result.bundle_dir is None
@@ -531,6 +541,7 @@ def test_refresh_pipeline_fails_closed_on_fabricated_text_direct_evidence(tmp_pa
     master_bytes = json.dumps(master).encode("utf-8")
     nav_bytes = _sample_amfi_nav_bytes(as_of)
 
+    envelope, registry = _make_test_approval()
     pipeline = FinancialDataRefreshPipeline()
     result = pipeline.refresh(
         bundle_target,
@@ -551,6 +562,8 @@ def test_refresh_pipeline_fails_closed_on_fabricated_text_direct_evidence(tmp_pa
             },
         },
         reviewer_attested=True,
+        reviewer_approval_envelope=envelope,
+        reviewer_trust_registry=registry,
     )
 
     assert result.status == "FAILED"
@@ -566,6 +579,39 @@ def test_refresh_pipeline_fails_closed_on_empty_metrics_funds(tmp_path):
     master_bytes = json.dumps(master).encode("utf-8")
     nav_bytes = _sample_amfi_nav_bytes(as_of)
 
+    # Build candidates with direct_plan_evidence containing source_url
+    candidates = [
+        {
+            "fund_id": "fund-1",
+            "fund_name": master["schemes"][0]["scheme_name"],
+            "scheme_id": "scheme-1",
+            "isin": master["schemes"][0]["isin"],
+            "amc_name": master["schemes"][0]["amc_name"],
+            "category": master["schemes"][0]["category"],
+            "benchmark_identity": master["schemes"][0]["benchmark_identity"],
+            "scheme_structure": master["schemes"][0]["scheme_structure"],
+            "plan_type": "Direct",
+            "option_type": "Growth",
+            "riskometer_score": master["schemes"][0]["riskometer_score"],
+            "is_direct": True,
+        },
+        {
+            "fund_id": "fund-2",
+            "fund_name": master["schemes"][1]["scheme_name"],
+            "scheme_id": "scheme-2",
+            "isin": master["schemes"][1]["isin"],
+            "amc_name": master["schemes"][1]["amc_name"],
+            "category": master["schemes"][1]["category"],
+            "benchmark_identity": master["schemes"][1]["benchmark_identity"],
+            "scheme_structure": master["schemes"][1]["scheme_structure"],
+            "plan_type": "Direct",
+            "option_type": "Growth",
+            "riskometer_score": master["schemes"][1]["riskometer_score"],
+            "is_direct": True,
+        },
+    ]
+
+    envelope, registry = _make_test_approval()
     pipeline = FinancialDataRefreshPipeline()
     result = pipeline.refresh(
         bundle_target,
@@ -575,7 +621,7 @@ def test_refresh_pipeline_fails_closed_on_empty_metrics_funds(tmp_path):
             "daily_nav": nav_bytes,
             "metrics": b"scheme_id,nav,alpha\n",
             "metrics_json": b'{"funds": []}',  # Empty funds array!
-            "candidate_universe_source": b"candidate_source",
+            "candidate_universe_source": json.dumps(candidates).encode("utf-8"),
             "disclosures": {
                 "scheme-1": json.dumps({"constituent_weights": {"RELIANCE": 100.0}, "constituent_weights_coverage_pct": 100.0}).encode("utf-8"),
                 "scheme-2": json.dumps({"constituent_weights": {"INFY": 100.0}, "constituent_weights_coverage_pct": 100.0}).encode("utf-8"),
@@ -584,17 +630,26 @@ def test_refresh_pipeline_fails_closed_on_empty_metrics_funds(tmp_path):
                 "scheme-1": b"%PDF-1.4 factsheet 1",
                 "scheme-2": b"%PDF-1.4 factsheet 2",
             },
+            "direct_evidence_urls": {
+                "scheme-1": "https://amfiindia.com/factsheets/scheme-1.pdf",
+                "scheme-2": "https://amfiindia.com/factsheets/scheme-2.pdf",
+            },
         },
+        metrics_source_url="https://amfiindia.com/metrics",
+        universe_source_url="https://amfiindia.com/universe",
         reviewer_attested=True,
+        reviewer_approval_envelope=envelope,
+        reviewer_trust_registry=registry,
     )
 
-    assert result.status == "FAILED"
-    assert any("non-empty funds array" in err for err in result.errors)
+    assert result.status == "FAILED", f"Expected FAILED but got {result.status}. Errors: {result.errors}"
+    assert any("non-empty funds array" in err for err in result.errors), f"Expected 'non-empty funds array' in errors but got: {result.errors}"
     assert not bundle_target.exists()
 
 
 def test_builder_fails_closed_on_missing_direct_plan_evidence_bytes(tmp_path):
     as_of = date.today()
+    envelope, registry = _make_test_approval()
     builder = EvidenceBundleBuilder(tmp_path / "bundle")
     master = _sample_scheme_master_dict(as_of)
     with pytest.raises(ValueError, match="Missing direct plan evidence bytes"):
@@ -627,11 +682,14 @@ def test_builder_fails_closed_on_missing_direct_plan_evidence_bytes(tmp_path):
             metrics_source_url="https://amfiindia.com/metrics",
             universe_source_url="https://amfiindia.com/universe",
             reviewer_attested=True,
+            reviewer_approval_envelope=envelope,
+            reviewer_trust_registry=registry,
         )
 
 
 def test_builder_fails_closed_on_missing_direct_plan_evidence_source_url(tmp_path):
     as_of = date.today()
+    envelope, registry = _make_test_approval()
     builder = EvidenceBundleBuilder(tmp_path / "bundle")
     master = _sample_scheme_master_dict(as_of)
     with pytest.raises(ValueError, match="Missing direct plan evidence source URL"):
@@ -664,11 +722,14 @@ def test_builder_fails_closed_on_missing_direct_plan_evidence_source_url(tmp_pat
             metrics_source_url="https://amfiindia.com/metrics",
             universe_source_url="https://amfiindia.com/universe",
             reviewer_attested=True,
+            reviewer_approval_envelope=envelope,
+            reviewer_trust_registry=registry,
         )
 
 
 def test_builder_fails_closed_on_missing_disclosure_source_bytes(tmp_path):
     as_of = date.today()
+    envelope, registry = _make_test_approval()
     builder = EvidenceBundleBuilder(tmp_path / "bundle")
     master = _sample_scheme_master_dict(as_of)
     with pytest.raises(ValueError, match="Missing original portfolio disclosure source bytes"):
@@ -695,12 +756,14 @@ def test_builder_fails_closed_on_missing_disclosure_source_bytes(tmp_path):
             }],
             candidate_universe_source_bytes=b"universe_1",
             portfolio_disclosures={"scheme-1": {"constituent_weights": {}, "source_url": "https://amfi.com/d/1"}},
-            portfolio_disclosure_source_bytes={"scheme-1": b"bytes"},
+            portfolio_disclosure_source_bytes={},  # Missing!
             direct_plan_evidence_bytes={"scheme-1": b"%PDF-1.4 direct 1"},
             master_source_url="https://amfiindia.com/master",
             metrics_source_url="https://amfiindia.com/metrics",
             universe_source_url="https://amfiindia.com/universe",
             reviewer_attested=True,
+            reviewer_approval_envelope=envelope,
+            reviewer_trust_registry=registry,
         )
 
 

@@ -7,6 +7,7 @@ Regression tests for Remediations:
 """
 from decimal import Decimal
 from datetime import date
+from pathlib import Path
 import pytest
 
 from core.models import (
@@ -47,21 +48,43 @@ def test_check_eligibility_gates_binds_loaded_policy():
     fund = {
         "fund_id": "TEST_SCHEME_1",
         "fund_name": "Test Scheme Direct Growth",
+        "scheme_id": "TEST_SCHEME_1",
+        "isin": "TEST123",
+        "scheme_name": "Test Scheme Direct Growth",
         "category": "Flexi Cap",
         "amc_name": "HDFC Mutual Fund",
         "aum_crore": 5000.0,
+        "aum_stable": True,
         "top10_concentration_pct": 30.0,
-        "sector_concentration_pct": 20.0,
-        "sharpe": 0.8,
-        "alpha": 2.5,
+        "max_sector_concentration_pct": 20.0,
+        "sharpe_3y": 0.8,
+        "alpha_3y": 2.5,
         "downside_capture_ratio": 75.0,
         "upside_capture_ratio": 95.0,
         "manager_tenure_years": 4.5,
+        "track_record_years": 5.0,
         "confidence_score": 0.95,
         "benchmark_type": "TRI",
         "is_direct": True,
+        "plan": "Direct Growth",
         "expense_ratio": 0.75,
         "riskometer_score": 4,
+        "mandate_suitable": True,
+        "data_complete": True,
+        "direct_plan_evidence": {
+            "source_file": "test_factsheet.json",
+            "source_document_sha256": "d7519db2ab2cb4a2902a572310311367892161422d67d736f9250e23b4e37b2c",
+            "source_url": "https://www.hdfcmutualfund.com/factsheet",
+            "source_type": "AMC_FACTSHEET",
+            "reviewer_attested": True,
+            "plan": "Direct",
+            "scheme_name": "Test Scheme Direct Growth",
+            "scheme_id": "TEST_SCHEME_1",
+            "isin": "TEST123",
+            "amc_name": "HDFC Mutual Fund",
+            "reviewed_at": "2026-09-01",
+        },
+        "_evidence_root": str(Path(__file__).resolve().parent.parent / "evidence"),
     }
     holdings = [
         {"amc_name": "ICICI Mutual Fund", "current_value_inr": 100000.0}
@@ -72,6 +95,7 @@ def test_check_eligibility_gates_binds_loaded_policy():
         portfolio_holdings=holdings,
         policy=policy,
         client_risk_tier_num=6,
+        as_of_date=date(2026, 10, 5),
     )
     assert res.passed is True
     assert res.policy_version == policy["version"]

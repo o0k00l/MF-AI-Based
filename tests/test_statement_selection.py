@@ -16,6 +16,9 @@ def _cas(path: Path, embedded_date, current=1000.0):
     ws.append(["To Date", embedded_date])
     ws.append(["Scheme Name", "Folio No.", "Invested Value", "Current Value", "Units"])
     ws.append(["Fund A", "123", 900.0, current, 100.0])
+    ws.append(["Fund B", "456", 2000.0, 2100.0, 200.0])
+    ws.append(["Fund C", "789", 1500.0, 1600.0, 150.0])
+    ws.append(["Fund D", "101", 800.0, 850.0, 80.0])
     wb.save(path)
     return path
 
@@ -97,11 +100,24 @@ def test_advisor_never_selects_first_cas_without_as_of_policy(tmp_path):
 
 def test_advisor_returns_only_embedded_date_selected_cas(tmp_path):
     from advisor import get_default_paths
+    from unittest.mock import patch
 
     older = _cas(tmp_path / "cas_z_name.xlsx", "01-Jan-2026")
     newer = _cas(tmp_path / "cas_a_name.xlsx", "01-Oct-2026")
-    selected, *_ = get_default_paths(
-        tmp_path, as_of=date(2026, 10, 10), max_statement_age_days=45
-    )
-    assert selected == newer.resolve()
-    assert selected != older.resolve()
+
+    # Mock the engine data paths to return acquired data (required for this test)
+    mock_paths = {
+        "status": "ACQUIRED",
+        "data_dir": Path("/tmp/fake-data"),
+        "manifest": {"dataset_id": "test-dataset", "retrieved_at": "2026-11-01"},
+        "scheme_master": None,
+        "fund_metrics": Path("/tmp/fake-data/fund_metrics.json"),
+        "fund_aliases": Path("/tmp/fake-data/fund_aliases.json"),
+        "is_acquired": True,
+    }
+    with patch("advisor.get_engine_data_paths", return_value=mock_paths):
+        selected, *_ = get_default_paths(
+            tmp_path, as_of=date(2026, 10, 10), max_statement_age_days=45
+        )
+        assert selected == newer.resolve()
+        assert selected != older.resolve()

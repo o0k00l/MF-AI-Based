@@ -130,7 +130,7 @@ def test_detect_active_sips_mandate_verified_vs_transaction_text_verified():
     res1 = detect_active_sips_from_cas(auth_mandate_txs, as_of="2026-10-15")
     assert res1["active_sip_count"] == 1
     assert res1["active_sips"][0]["confidence"] in ("ACTIVE_MANDATE_VERIFIED", "MANDATE_VERIFIED")
-    assert res1["active_sips"][0]["evidence_level"] == "MANDATE"
+    assert res1["active_sips"][0]["evidence_level"] == "ACTIVE_MANDATE_CONFIRMED"
 
     # Transaction text pattern: keyword in description, no explicit mandate ID
     # Must NOT be reported as active mandate; goes to recurring_transaction_patterns with 0 active monthly sip
