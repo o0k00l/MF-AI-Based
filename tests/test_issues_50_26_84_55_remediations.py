@@ -73,7 +73,7 @@ def test_check_eligibility_gates_binds_loaded_policy():
         "data_complete": True,
         "direct_plan_evidence": {
             "source_file": "test_factsheet.json",
-            "source_document_sha256": "d7519db2ab2cb4a2902a572310311367892161422d67d736f9250e23b4e37b2c",
+            "source_document_sha256": "82f90ed538237ab9bda27b384ca87b1685da532fb3a748074fa3a6dd4eec3932",
             "source_url": "https://www.hdfcmutualfund.com/factsheet",
             "source_type": "AMC_FACTSHEET",
             "reviewer_attested": True,

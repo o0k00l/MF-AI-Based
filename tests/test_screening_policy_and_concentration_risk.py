@@ -84,7 +84,7 @@ def test_changing_policy_threshold_changes_effective_gate_behavior():
             "source_url": "https://example.com/factsheet.pdf",
             "source_type": "AMC_FACTSHEET",
             "source_file": "factsheet.txt",
-            "source_document_sha256": "5dc1d1dd8d0be46c5d40fb957d61f0a241723aa27cdf73f9512d351a23edba4b",
+            "source_document_sha256": "82f90ed538237ab9bda27b384ca87b1685da532fb3a748074fa3a6dd4eec3932",
             "reviewer_attested": True,
             "reviewed_at": "2026-10-01"
         },
