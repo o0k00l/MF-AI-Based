@@ -202,7 +202,46 @@ with col_up2:
         key="main_cgs_uploader",
     )
 
-if uploaded_file is None or cgs_file is None:
+has_session_data = bool(st.session_state.get("user_portfolio") and st.session_state.get("cgs_data"))
+
+if uploaded_file is not None and cgs_file is not None:
+    # --- Parse uploaded statements ---
+    with st.spinner("Parsing your CAS file..."):
+        funds = parse_cas_file(uploaded_file)
+
+    if not funds:
+        st.error("Could not parse any funds from the uploaded CAS file. Please check the file format.")
+        st.stop()
+
+    # Parse mandatory CGS file
+    with st.spinner("Auditing Capital Gains Statement (CGS)..."):
+        try:
+            cgs_res = parse_cgs_file(cgs_file)
+            if not cgs_res or not cgs_res.get("summary"):
+                st.error("Could not parse valid capital gains summary from the uploaded CGS file. Please upload an official CAMS/KFintech CGS statement.")
+                st.stop()
+            st.session_state["cgs_data"] = cgs_res
+        except Exception as exc:
+            st.error(f"❌ Failed to parse CGS: {exc}")
+            st.stop()
+
+    # Store raw bytes for API client reuse
+    raw_b = uploaded_file.getvalue() if hasattr(uploaded_file, "getvalue") else uploaded_file.read()
+    st.session_state["cas_raw_bytes"] = raw_b
+    st.session_state["user_portfolio"] = funds
+    st.session_state["portfolio_metadata"] = {
+        "upload_time": "uploaded_session",
+        "upload_source": getattr(uploaded_file, "name", "uploaded_cas.xlsx"),
+        "fund_count": len(funds),
+        "total_value": sum(f.get("current_value", 0) for f in funds),
+        "validation_status": "parsed",
+    }
+    st.success(f"✅ **Both Statements Verified:** Parsed **{len(funds)}** active funds from your CAS and verified statutory CGS tax evidence.")
+elif has_session_data:
+    funds = st.session_state["user_portfolio"]
+    src_name = st.session_state.get("portfolio_metadata", {}).get("upload_source", "uploaded CAS")
+    st.info(f"📂 **Active Session Statements Loaded:** Retaining **{len(funds)}** active funds from `{src_name}`. (Upload new statements above anytime to replace)")
+else:
     if uploaded_file is None and cgs_file is None:
         st.info("⬆️ **Both CAS and CGS Statements Required:** Please upload both your CAS statement on the left and your Capital Gains Statement (CGS) on the right to begin.")
     elif uploaded_file is None:
@@ -210,38 +249,6 @@ if uploaded_file is None or cgs_file is None:
     else:
         st.warning("⚠️ **CGS Statement Missing:** Please upload your Capital Gains Statement (CGS) on the right to complete intake.")
     st.stop()
-
-# --- Parse uploaded statements ---
-with st.spinner("Parsing your CAS file..."):
-    funds = parse_cas_file(uploaded_file)
-
-if not funds:
-    st.error("Could not parse any funds from the uploaded CAS file. Please check the file format.")
-    st.stop()
-
-# Parse mandatory CGS file
-with st.spinner("Auditing Capital Gains Statement (CGS)..."):
-    try:
-        cgs_res = parse_cgs_file(cgs_file)
-        if not cgs_res or not cgs_res.get("summary"):
-            st.error("Could not parse valid capital gains summary from the uploaded CGS file. Please upload an official CAMS/KFintech CGS statement.")
-            st.stop()
-        st.session_state["cgs_data"] = cgs_res
-    except Exception as exc:
-        st.error(f"❌ Failed to parse CGS: {exc}")
-        st.stop()
-
-st.success(f"✅ **Both Statements Verified:** Parsed **{len(funds)}** active funds from your CAS and verified statutory CGS tax evidence.")
-
-# Store portfolio in session state for other pages
-st.session_state["user_portfolio"] = funds
-st.session_state["portfolio_metadata"] = {
-    "upload_time": "uploaded_session",
-    "upload_source": getattr(uploaded_file, "name", "uploaded_cas.xlsx"),
-    "fund_count": len(funds),
-    "total_value": sum(f.get("current_value", 0) for f in funds),
-    "validation_status": "parsed",
-}
 
 # --- Portfolio Metrics (computed dynamically) ---
 total_value = sum(f.get("current_value", 0) for f in funds)
@@ -534,13 +541,17 @@ if st.button("🚀 Run Fiduciary Engine & Generate SIP Blueprint", type="primary
         st.session_state["sip_budget"] = float(sip_budget)
 
         # 2. Also query backend API
-        uploaded_file.seek(0)
-        cas_raw_bytes = uploaded_file.read()
+        cas_raw_bytes = st.session_state.get("cas_raw_bytes")
+        if not cas_raw_bytes and uploaded_file is not None:
+            if hasattr(uploaded_file, "seek"):
+                uploaded_file.seek(0)
+            cas_raw_bytes = uploaded_file.read()
+        filename_used = getattr(uploaded_file, "name", None) or st.session_state.get("portfolio_metadata", {}).get("upload_source", "portfolio.xlsx")
         api_result = request_sip_recommendations(
-            cas_bytes=cas_raw_bytes,
+            cas_bytes=cas_raw_bytes or b"",
             monthly_budget_inr=float(sip_budget),
             risk_profile=risk_choice,
-            filename=getattr(uploaded_file, "name", "portfolio.xlsx"),
+            filename=filename_used,
         )
         st.session_state["api_recommendation_result"] = api_result
 

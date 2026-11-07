@@ -53,6 +53,9 @@ def parse_cas_file(file_obj: BinaryIO) -> list[dict]:
     Looks for a sheet containing 'portfolio' or 'details' in its name.
     Aggregates multiple folios belonging to the same scheme name.
     """
+    if hasattr(file_obj, "seek"):
+        file_obj.seek(0)
+
     try:
         wb = load_workbook(file_obj, data_only=True, read_only=True)
     except Exception:
@@ -65,6 +68,9 @@ def parse_cas_file(file_obj: BinaryIO) -> list[dict]:
         if any(kw in name.lower() for kw in _KEYWORDS):
             sheet_name = name
             break
+    if not sheet_name:
+        wb.close()
+        return []
     if not sheet_name:
         wb.close()
         return []
@@ -97,12 +103,33 @@ def parse_cas_file(file_obj: BinaryIO) -> list[dict]:
     nav_col_idx: int | None = None
     folio_col_idx: int | None = None
 
-    _SCHEME_HEADERS = ("scheme", "scheme name", "fund", "fund name", "name", "scheme description", "scheme / plan")
-    _VALUE_HEADERS = ("current value", "value", "market value", "closing value", "valuation", "total value")
-    _INVESTED_HEADERS = ("invested value", "invested", "cost value", "cost", "purchase value", "invested amount")
-    _UNITS_HEADERS = ("units", "closing units", "balance units", "unit balance", "total units")
-    _NAV_HEADERS = ("nav", "latest nav", "nav on date", "price", "nav/price", "nav (rs.)", "nav (inr)")
-    _FOLIO_HEADERS = ("folio no.", "folio no", "folio number", "folio")
+    _SCHEME_HEADERS = (
+        "scheme", "scheme name", "fund", "fund name", "name",
+        "scheme description", "scheme / plan", "scheme/plan", "fund/scheme"
+    )
+    _VALUE_HEADERS = (
+        "current value", "value", "market value", "closing value",
+        "valuation", "total value", "current", "current value (inr)",
+        "current value (rs.)", "valuation (inr)", "valuation (rs.)",
+        "market value (inr)", "market value (rs.)"
+    )
+    _INVESTED_HEADERS = (
+        "invested value", "invested", "cost value", "cost",
+        "purchase value", "invested amount", "cost basis",
+        "cost (inr)", "cost (rs.)", "invested (inr)", "invested (rs.)"
+    )
+    _UNITS_HEADERS = (
+        "units", "closing units", "balance units", "unit balance",
+        "total units", "unit", "cumulative units"
+    )
+    _NAV_HEADERS = (
+        "nav", "latest nav", "nav on date", "price",
+        "nav/price", "nav (rs.)", "nav (inr)"
+    )
+    _FOLIO_HEADERS = (
+        "folio no.", "folio no", "folio number", "folio",
+        "account no.", "account no", "folio/account"
+    )
 
     for row in sheet.iter_rows(values_only=True):
         if not row:

@@ -11,6 +11,52 @@ st.set_page_config(
     layout="wide",
 )
 
+# --- Render Advisory Flow Sidebar ---
+with st.sidebar:
+    st.markdown("### 🧭 Advisory Workflow")
+    
+    _user_portfolio = st.session_state.get("user_portfolio", [])
+    _has_cas = len(_user_portfolio) > 0
+    _has_cgs = bool(st.session_state.get("cgs_data"))
+    _has_statements = _has_cas and _has_cgs
+    _has_risk = bool(st.session_state.get("user_risk_score") or st.session_state.get("risk_tier"))
+    _has_goals = bool(st.session_state.get("goals_allocation"))
+    
+    st.markdown(
+        f"**1. 📤 Upload CAS & CGS Statements** {'✅' if _has_statements else '⏳'}<br>"
+        f"<span style='color: #64748b; font-size: 0.8rem;'>Portfolio Ingestion & Tax Audit</span>",
+        unsafe_allow_html=True
+    )
+    st.markdown(
+        f"**2. 📋 SEBI Risk Profiling** {'✅' if _has_risk else '⏳'}<br>"
+        f"<span style='color: #64748b; font-size: 0.8rem;'>Binding Constraint SAA</span>",
+        unsafe_allow_html=True
+    )
+    st.markdown(
+        f"**3. 🎯 Goals & Step-Up SIP** {'✅' if _has_goals else '⏳'}<br>"
+        f"<span style='color: #64748b; font-size: 0.8rem;'>Compounding & Step-Up SIP</span>",
+        unsafe_allow_html=True
+    )
+    st.markdown(
+        f"**4. 📈 True Debt Allocation** {'✅' if _has_cas else '⏳'}<br>"
+        f"<span style='color: #64748b; font-size: 0.8rem;'>Unbundle Hybrid Internal Debt</span>",
+        unsafe_allow_html=True
+    )
+    st.markdown(
+        f"**5. 📄 Fiduciary Review Report** {'✅' if (_has_cas and _has_risk and _has_goals) else '⏳'}<br>"
+        f"<span style='color: #64748b; font-size: 0.8rem;'>Actionable Client Report</span>",
+        unsafe_allow_html=True
+    )
+    
+    if _has_cas:
+        _total_val = sum(f.get("current_value", 0) for f in _user_portfolio)
+        st.markdown("---")
+        st.markdown(f"💼 **Active Portfolio:** ₹{_total_val/100000:.2f}L ({len(_user_portfolio)} funds)")
+    
+    st.markdown("---")
+    st.caption("🛡️ **Fiduciary Standard:** SEBI (Investment Advisers) Regulations, 2013 | Non-execution authority | Zero distributor commission bias.")
+
+
 st.title("📄 Executive Fiduciary Report & Action Plan")
 st.markdown("Your formal, comprehensive portfolio diagnostic and investment advisory report.")
 
@@ -19,6 +65,37 @@ portfolio = st.session_state.get("user_portfolio", [])
 cgs_data = st.session_state.get("cgs_data")
 goals_alloc = st.session_state.get("goals_allocation")
 risk_tier = st.session_state.get("risk_tier") or st.session_state.get("risk_bucket")
+
+# Synthesize goal allocation if user generated SIP blueprint from dashboard
+if not goals_alloc and st.session_state.get("deterministic_sip_plan"):
+    bp = st.session_state["deterministic_sip_plan"]
+    lc_val = float(next((a["amount_inr"] for a in bp.get("allocations", []) if "Large" in a.get("sleeve", "")), 0.0))
+    ms_val = float(next((a["amount_inr"] for a in bp.get("allocations", []) if "Mid" in a.get("sleeve", "")), 0.0))
+    db_val = float(next((a["amount_inr"] for a in bp.get("allocations", []) if "Debt" in a.get("sleeve", "")), 0.0))
+    goals_alloc = {
+        "goals": {
+            "sip_plan": {
+                "goal_name": "Long-Term Wealth Accumulation and SAA Compounding",
+                "priority": 1,
+                "required_monthly": float(bp["monthly_budget_inr"]),
+                "allocated_monthly": float(bp["allocated_budget_inr"]),
+                "gap_monthly": float(bp["unallocated_budget_inr"]),
+                "target_corpus": 0.0,
+                "horizon_years": 10,
+            }
+        },
+        "total_required": float(bp["monthly_budget_inr"]),
+        "total_allocated": float(bp["allocated_budget_inr"]),
+        "total_gap": float(bp["unallocated_budget_inr"]),
+        "surplus": 0.0,
+        "use_step_up": False,
+        "asset_sleeves": {
+            "large_cap_inr": lc_val,
+            "mid_small_cap_inr": ms_val,
+            "debt_inr": db_val,
+        },
+    }
+    st.session_state["goals_allocation"] = goals_alloc
 
 missing = []
 if not portfolio:

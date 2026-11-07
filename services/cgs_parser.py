@@ -24,7 +24,11 @@ def parse_cgs_file(file_obj: BinaryIO | bytes | Path) -> dict[str, Any]:
 
     # If BytesIO or raw bytes, write safely to temporary file
     if hasattr(file_obj, "read"):
+        if hasattr(file_obj, "seek"):
+            file_obj.seek(0)
         content = file_obj.read()
+        if hasattr(file_obj, "seek"):
+            file_obj.seek(0)
     elif isinstance(file_obj, bytes):
         content = file_obj
     else:
