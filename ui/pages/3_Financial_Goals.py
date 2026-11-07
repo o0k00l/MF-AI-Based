@@ -5,6 +5,12 @@ and applies realistic horizon-adjusted compounding instead of blunt shortfalls.
 """
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+_REPO_ROOT = str(Path(__file__).resolve().parents[2])
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
+
 import streamlit as st
 from services.goal_planner import plan_goal, compute_expected_cagr, decompose_sip_to_asset_sleeves
 

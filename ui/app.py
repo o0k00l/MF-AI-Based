@@ -9,6 +9,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+_sys = __import__("sys")
+_REPO_ROOT = str(Path(__file__).resolve().parents[1])
+if _REPO_ROOT not in _sys.path:
+    _sys.path.insert(0, _REPO_ROOT)
+
 import streamlit as st
 
 from services.cas_parser import parse_cas_file
