@@ -696,14 +696,6 @@ with ls_col3:
     st.markdown("<br>", unsafe_allow_html=True)
     calc_lumpsum = st.button("📈 Generate Staged STP Plan", use_container_width=True)
 
-with st.expander("🛡️ Optional: Emergency Reserve Cushion & Living Expenses Check", expanded=False):
-    st.caption("Optional personal check: Verify your living expense emergency buffer outside mutual funds.")
-    er_c1, er_c2 = st.columns(2)
-    with er_c1:
-        opt_monthly_exp = st.number_input("Monthly Living Expenses (₹)", min_value=0.0, value=50000.0, step=5000.0, key="opt_monthly_exp")
-    with er_c2:
-        st.metric("Suggested 6-Month Emergency Cushion", f"₹{opt_monthly_exp * 6:,.0f}")
-
 if calc_lumpsum or st.session_state.get("deterministic_lumpsum_plan"):
     if calc_lumpsum:
         target_saa = st.session_state.get("saa_target")

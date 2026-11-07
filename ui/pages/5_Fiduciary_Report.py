@@ -308,10 +308,9 @@ else:
         report_lines.extend([
             "",
             "### Lump-Sum Capital Staging & STP Plan",
-            f"* **Total Bank Cash:** ₹{float(ls_plan['bank_cash_inr']):,.2f}",
-            f"* **6-Month Emergency Reserve:** ₹{float(ls_plan['emergency_reserve_inr']):,.2f}",
-            f"* **Deployable Surplus:** ₹{float(ls_plan['deployable_surplus_inr']):,.2f}",
-            f"* **Effective Staged Deployment:** ₹{float(ls_plan['effective_lumpsum_inr']):,.2f}",
+            f"* **Total Staged Lump-Sum Capital:** ₹{float(ls_plan['effective_lumpsum_inr']):,.2f}",
+            f"* **Equity Staging (STP):** ₹{float(ls_plan['target_equity_capital_inr']):,.2f}",
+            f"* **Debt / Liquid Retention:** ₹{float(ls_plan['target_debt_capital_inr']):,.2f}",
             f"* **Liquid Parking Vehicle:** {ls_plan['parking_scheme']}",
             f"* **STP Duration:** {ls_plan['stp_duration_months']} months @ ₹{float(ls_plan['monthly_stp_tranche_inr']):,.2f} / month",
         ])
