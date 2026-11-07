@@ -368,7 +368,16 @@ with col4:
     st.markdown('<div class="metric-card">', unsafe_allow_html=True)
     st.markdown('<span class="metric-label">True Debt & Cash Buffer</span>', unsafe_allow_html=True)
     st.markdown(f'<span class="metric-value">{debt_pct:.1f}%</span>', unsafe_allow_html=True)
-    st.caption(f"₹{total_debt/100000:.2f}L unbundled liquidity (3 Hybrid + 6 Eq schemes)")
+    # Unbundled liquidity source counts
+    debt_sources = [f for f in funds if f.get("debt", 0) > 0]
+    hybrid_count = sum(1 for f in debt_sources if f.get("category") == "Hybrid")
+    pure_debt_count = sum(1 for f in debt_sources if f.get("category") == "Debt")
+    eq_buffer_count = sum(1 for f in debt_sources if f.get("category") == "Equity")
+    if debt_sources:
+        liquidity_caption = f"₹{total_debt/100000:.2f}L unbundled liquidity ({hybrid_count} Hybrid + {pure_debt_count} Debt + {eq_buffer_count} Eq cash buffers)"
+    else:
+        liquidity_caption = "₹0.00L unbundled liquidity (0 debt components)"
+    st.caption(liquidity_caption)
     st.markdown('</div>', unsafe_allow_html=True)
 
 # --- Segment Allocation ---
@@ -401,19 +410,75 @@ with seg4:
 
 # Comprehensive Mathematical Audit & Verification Expander
 with st.expander("🔍 Audit & Mathematical Reconciliation (Scheme-by-Scheme Facts)", expanded=False):
+    # Dynamic debt unbundling breakdown
+    debt_contributors = []
+    for f in funds:
+        d_pct = f.get("debt", 0)
+        c_val = f.get("current_value", 0)
+        if d_pct > 0 and c_val > 0:
+            d_val = c_val * (d_pct / 100.0)
+            c_sch = f.get("canonical_scheme") or f.get("scheme", "Scheme")
+            debt_contributors.append((c_sch, d_val, d_pct))
+
+    debt_contributors.sort(key=lambda x: x[1], reverse=True)
+    if debt_contributors:
+        top_debt_str = ", ".join(f"{name}: ₹{val/100000:.2f}L ({pct:.1f}% buffer)" for name, val, pct in debt_contributors[:4])
+        debt_audit_line = f"* **True Debt & Liquid Cash:** **₹{total_debt/100000:.2f}L** ({debt_pct:.1f}%) unbundled from portfolio schemes ({top_debt_str})"
+    else:
+        debt_audit_line = f"* **True Debt & Liquid Cash:** **₹{total_debt/100000:.2f}L** ({debt_pct:.1f}%) - No debt or cash buffer detected in portfolio"
+
+    # Dynamic international equity breakdown
+    intl_contributors = []
+    for f in funds:
+        i_pct = f.get("intl", 0)
+        c_val = f.get("current_value", 0)
+        if i_pct > 0 and c_val > 0:
+            i_val = c_val * (i_pct / 100.0)
+            c_sch = f.get("canonical_scheme") or f.get("scheme", "Scheme")
+            intl_contributors.append((c_sch, i_val, i_pct))
+
+    if intl_contributors:
+        intl_str = ", ".join(f"{name}: ₹{val/100000:.2f}L ({pct:.1f}%)" for name, val, pct in intl_contributors)
+        intl_audit_line = f"* **International Equity:** **₹{total_intl/100000:.2f}L** ({(total_intl/total_value*100):.1f}%) direct foreign equity held inside {intl_str}"
+    else:
+        intl_audit_line = f"* **International Equity:** **₹0.00L** (0.0%) - No international equity allocation in uploaded portfolio"
+
+    # Dynamic gold breakdown
+    gold_contributors = []
+    for f in funds:
+        g_pct = f.get("gold", 0)
+        c_val = f.get("current_value", 0)
+        if g_pct > 0 and c_val > 0:
+            g_val = c_val * (g_pct / 100.0)
+            c_sch = f.get("canonical_scheme") or f.get("scheme", "Scheme")
+            gold_contributors.append((c_sch, g_val, g_pct))
+
+    if gold_contributors:
+        gold_str = ", ".join(f"{name}: ₹{val/100000:.2f}L ({pct:.1f}%)" for name, val, pct in gold_contributors)
+        gold_audit_line = f"* **Domestic Sovereign Gold:** **₹{total_gold/100000:.2f}L** ({(total_gold/total_value*100):.1f}%) physical gold / sovereign gold bullion held inside {gold_str}"
+    else:
+        gold_audit_line = f"* **Domestic Sovereign Gold:** **₹0.00L** (0.0%) - No gold/commodity allocation in uploaded portfolio"
+
     st.markdown("""
     **Zero Assumptions / Zero Fabrication Standard:**
     Every figure above is mathematically reconciled from your uploaded Consolidated Account Statement (CAS) 
     and verified against official Asset Management Company (AMC) monthly factsheet portfolio disclosures.
     
-    * **Net Domestic Equity:** **₹{total_eq/100000:.2f}L** ({eq_pct:.1f}%) = Large Cap (₹{total_lc/100000:.2f}L) + Mid Cap (₹{total_mc/100000:.2f}L) + Small Cap (₹{total_sc/100000:.2f}L)
-    * **True Debt & Liquid Cash:** **₹{total_debt/100000:.2f}L** ({debt_pct:.1f}%) unbundled from hybrid dynamic asset staging (HDFC BAF: ₹1.14L, Edelweiss BAF: ₹0.32L, Canara Robeco: ₹0.24L) and equity cash buffers
-    * **International Equity:** **₹{total_intl/100000:.2f}L** ({(total_intl/total_value*100):.1f}%) direct US equity held inside Parag Parikh Flexi Cap Fund
-    * **Domestic Sovereign Gold:** **₹{total_gold/100000:.2f}L** ({(total_gold/total_value*100):.1f}%) physical gold bullion held inside Canara Robeco Multi Asset Allocation Fund
-    * **Reconciled Total Portfolio Valuation:** **₹{total_value/100000:.2f} Lakhs** (100.0%)
+    * **Net Domestic Equity:** **₹{total_eq_l:.2f}L** ({eq_pct:.1f}%) = Large Cap (₹{total_lc_l:.2f}L) + Mid Cap (₹{total_mc_l:.2f}L) + Small Cap (₹{total_sc_l:.2f}L)
+    {debt_line}
+    {intl_line}
+    {gold_line}
+    * **Reconciled Total Portfolio Valuation:** **₹{total_val_l:.2f} Lakhs** (100.0%)
     """.format(
-        total_eq=total_eq, eq_pct=eq_pct, total_lc=total_lc, total_mc=total_mc, total_sc=total_sc,
-        total_debt=total_debt, debt_pct=debt_pct, total_intl=total_intl, total_gold=total_gold, total_value=total_value
+        total_eq_l=total_eq/100000.0,
+        eq_pct=eq_pct,
+        total_lc_l=total_lc/100000.0,
+        total_mc_l=total_mc/100000.0,
+        total_sc_l=total_sc/100000.0,
+        debt_line=debt_audit_line,
+        intl_line=intl_audit_line,
+        gold_line=gold_audit_line,
+        total_val_l=total_value/100000.0
     ))
 
     audit_table_rows = [

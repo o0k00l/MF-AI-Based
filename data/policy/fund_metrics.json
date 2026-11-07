@@ -68,7 +68,16 @@
         "anomalies": [],
         "source": "Gemini 2.5 Google Search Grounding",
         "engine_version": "1.1.0"
-      }
+      },
+      "aliases": [
+        "hdfc balanced advantage",
+        "hdfc balanced advantage fund",
+        "hdfc baf"
+      ],
+      "gold": 0.0,
+      "intl": 0.0,
+      "ter_regular_pct": 1.7,
+      "trail_commission_pct": 0.92
     },
     {
       "id": "HDFC Flexi Cap",
@@ -119,7 +128,16 @@
         "anomalies": [],
         "source": "Gemini 2.5 Google Search Grounding",
         "engine_version": "1.1.0"
-      }
+      },
+      "aliases": [
+        "hdfc flexi cap",
+        "hdfc flexi cap fund",
+        "hdfc flexicap"
+      ],
+      "gold": 0.0,
+      "intl": 0.0,
+      "ter_regular_pct": 1.65,
+      "trail_commission_pct": 0.88
     },
     {
       "id": "HDFC Mid Cap",
@@ -170,7 +188,17 @@
         "anomalies": [],
         "source": "Gemini 2.5 Google Search Grounding",
         "engine_version": "1.1.0"
-      }
+      },
+      "aliases": [
+        "hdfc mid cap",
+        "hdfc mid cap opportunities",
+        "hdfc mid-cap opportunities fund",
+        "hdfc mid cap fund"
+      ],
+      "gold": 0.0,
+      "intl": 0.0,
+      "ter_regular_pct": 1.65,
+      "trail_commission_pct": 0.89
     },
     {
       "id": "HDFC Defence",
@@ -220,7 +248,15 @@
         "anomalies": [],
         "source": "Gemini 2.5 Google Search Grounding",
         "engine_version": "1.1.0"
-      }
+      },
+      "aliases": [
+        "hdfc defence",
+        "hdfc defence fund"
+      ],
+      "gold": 0.0,
+      "intl": 0.0,
+      "ter_regular_pct": 1.95,
+      "trail_commission_pct": 1.06
     },
     {
       "id": "SBI Energy Opps",
@@ -234,7 +270,7 @@
       "re": 0.0,
       "other": 2.51,
       "lc": 43.06,
-      "mc": 21.04,
+      "mc": 21.05,
       "sc": 33.32,
       "top10": 57.44,
       "sector": "Energy",
@@ -269,7 +305,16 @@
         "anomalies": [],
         "source": "Gemini 2.5 Google Search Grounding",
         "engine_version": "1.1.0"
-      }
+      },
+      "aliases": [
+        "sbi energy opps",
+        "sbi energy opportunities",
+        "sbi energy opportunities fund"
+      ],
+      "gold": 0.0,
+      "intl": 0.0,
+      "ter_regular_pct": 2.05,
+      "trail_commission_pct": 1.14
     },
     {
       "id": "ICICI Pru Large & Mid",
@@ -320,7 +365,17 @@
         "anomalies": [],
         "source": "Gemini 2.5 Google Search Grounding",
         "engine_version": "1.1.0"
-      }
+      },
+      "aliases": [
+        "icici pru large & mid",
+        "icici prudential large & mid cap fund",
+        "icici prudential large & mid cap",
+        "icici pru large & mid cap"
+      ],
+      "gold": 0.0,
+      "intl": 0.0,
+      "ter_regular_pct": 1.85,
+      "trail_commission_pct": 0.57
     },
     {
       "id": "PPFAS Flexi Cap",
@@ -371,7 +426,18 @@
         "anomalies": [],
         "source": "Gemini 2.5 Google Search Grounding",
         "engine_version": "1.1.0"
-      }
+      },
+      "aliases": [
+        "ppfas flexi cap",
+        "parag parikh flexi cap",
+        "parag parikh flexi cap fund",
+        "ppfas flexi cap fund",
+        "parag parikh long term value fund"
+      ],
+      "gold": 0.0,
+      "intl": 14.5,
+      "ter_regular_pct": 1.7,
+      "trail_commission_pct": 1.01
     },
     {
       "id": "WhiteOak Special Opps",
@@ -420,7 +486,17 @@
         "anomalies": [],
         "source": "Gemini 2.5 Google Search Grounding",
         "engine_version": "1.1.0"
-      }
+      },
+      "aliases": [
+        "whiteoak special opps",
+        "whiteoak capital special opportunities",
+        "whiteoak capital special opportunities fund",
+        "whiteoak capital - special opportunities fund"
+      ],
+      "gold": 0.0,
+      "intl": 0.0,
+      "ter_regular_pct": 2.0,
+      "trail_commission_pct": 0.73
     },
     {
       "id": "Mirae Multicap",
@@ -471,7 +547,16 @@
         "anomalies": [],
         "source": "Gemini 2.5 Google Search Grounding",
         "engine_version": "1.1.0"
-      }
+      },
+      "aliases": [
+        "mirae multicap",
+        "mirae asset multi cap fund",
+        "mirae asset multicap"
+      ],
+      "gold": 0.0,
+      "intl": 0.0,
+      "ter_regular_pct": 1.85,
+      "trail_commission_pct": 0.99
     },
     {
       "id": "Canara Robeco Multi Cap",
@@ -522,7 +607,16 @@
         "anomalies": [],
         "source": "Gemini 2.5 Google Search Grounding",
         "engine_version": "1.1.0"
-      }
+      },
+      "aliases": [
+        "canara robeco multi cap",
+        "canara robeco multi cap fund",
+        "canara robeco multicap"
+      ],
+      "gold": 0.0,
+      "intl": 0.0,
+      "ter_regular_pct": 1.75,
+      "trail_commission_pct": 1.08
     },
     {
       "id": "Edelweiss BAF",
@@ -574,7 +668,16 @@
         "anomalies": [],
         "source": "Gemini 2.5 Google Search Grounding",
         "engine_version": "1.1.0"
-      }
+      },
+      "aliases": [
+        "edelweiss baf",
+        "edelweiss balanced advantage",
+        "edelweiss balanced advantage fund"
+      ],
+      "gold": 0.0,
+      "intl": 0.0,
+      "ter_regular_pct": 1.75,
+      "trail_commission_pct": 0.94
     },
     {
       "id": "Motilal Defence Index",
@@ -622,7 +725,15 @@
         "anomalies": [],
         "source": "Gemini 2.5 Google Search Grounding",
         "engine_version": "1.1.0"
-      }
+      },
+      "aliases": [
+        "motilal defence index",
+        "motilal oswal nifty india defence index fund"
+      ],
+      "gold": 0.0,
+      "intl": 0.0,
+      "ter_regular_pct": 1.0,
+      "trail_commission_pct": 0.44
     },
     {
       "id": "Motilal Midcap",
@@ -673,7 +784,17 @@
         "anomalies": [],
         "source": "Gemini 2.5 Google Search Grounding",
         "engine_version": "1.1.0"
-      }
+      },
+      "aliases": [
+        "motilal midcap",
+        "motilal oswal midcap",
+        "motilal oswal midcap fund",
+        "motilal oswal midcap 30 fund"
+      ],
+      "gold": 0.0,
+      "intl": 0.0,
+      "ter_regular_pct": 1.75,
+      "trail_commission_pct": 0.84
     },
     {
       "id": "Quant Multi Cap",
@@ -724,7 +845,16 @@
         "anomalies": [],
         "source": "Gemini 2.5 Google Search Grounding",
         "engine_version": "1.1.0"
-      }
+      },
+      "aliases": [
+        "quant multi cap",
+        "quant multi cap fund",
+        "quant multicap"
+      ],
+      "gold": 0.0,
+      "intl": 0.0,
+      "ter_regular_pct": 1.95,
+      "trail_commission_pct": 0.93
     },
     {
       "id": "Quant Large & Mid",
@@ -774,7 +904,15 @@
         "anomalies": [],
         "source": "Gemini 2.5 Google Search Grounding",
         "engine_version": "1.1.0"
-      }
+      },
+      "aliases": [
+        "quant large & mid",
+        "quant large and mid cap fund"
+      ],
+      "gold": 0.0,
+      "intl": 0.0,
+      "ter_regular_pct": 1.95,
+      "trail_commission_pct": 0.74
     },
     {
       "id": "Nippon Large Cap",
@@ -826,7 +964,16 @@
         "anomalies": [],
         "source": "Gemini 2.5 Google Search Grounding",
         "engine_version": "1.1.0"
-      }
+      },
+      "aliases": [
+        "nippon large cap",
+        "nippon india large cap fund",
+        "reliance large cap fund"
+      ],
+      "gold": 0.0,
+      "intl": 0.0,
+      "ter_regular_pct": 1.7,
+      "trail_commission_pct": 0.82
     },
     {
       "id": "Nippon Multi Cap",
@@ -877,7 +1024,15 @@
         "anomalies": [],
         "source": "Gemini 2.5 Google Search Grounding",
         "engine_version": "1.1.0"
-      }
+      },
+      "aliases": [
+        "nippon multi cap",
+        "nippon india multi cap fund"
+      ],
+      "gold": 0.0,
+      "intl": 0.0,
+      "ter_regular_pct": 1.75,
+      "trail_commission_pct": 0.87
     },
     {
       "id": "Kotak Multi Cap",
@@ -928,7 +1083,15 @@
         "anomalies": [],
         "source": "Gemini 2.5 Google Search Grounding",
         "engine_version": "1.1.0"
-      }
+      },
+      "aliases": [
+        "kotak multi cap",
+        "kotak multicap fund"
+      ],
+      "gold": 0.0,
+      "intl": 0.0,
+      "ter_regular_pct": 1.8,
+      "trail_commission_pct": 1.1
     },
     {
       "id": "Canara Robeco Multi Asset",
@@ -979,7 +1142,16 @@
         "anomalies": [],
         "source": "Gemini 2.5 Google Search Grounding",
         "engine_version": "1.1.0"
-      }
+      },
+      "aliases": [
+        "canara robeco multi asset",
+        "canara robeco multi asset allocation fund",
+        "canara robeco multi asset allocation"
+      ],
+      "gold": 9.5,
+      "intl": 0.0,
+      "ter_regular_pct": 1.85,
+      "trail_commission_pct": 1.27
     },
     {
       "id": "360 ONE QUANT FUND REGULAR GROWTH",
@@ -1019,7 +1191,7 @@
     },
     {
       "id": "JM Flexi Cap Fund",
-      "eq": 100.0,
+      "eq": 98.0,
       "_provenance": {
         "retrieved_at": "2026-10-09T10:21:07.466403Z",
         "confidence_score": 0.35,
@@ -1027,7 +1199,22 @@
         "anomalies": [],
         "source": "Gemini 2.5 Google Search Grounding",
         "engine_version": "1.1.0"
-      }
+      },
+      "aliases": [
+        "jm flexi cap",
+        "jm flexi cap fund",
+        "jm flexicap fund growth"
+      ],
+      "cat": "Flexi Cap",
+      "debt": 2.0,
+      "gold": 0.0,
+      "intl": 0.0,
+      "lc": 50.0,
+      "mc": 30.0,
+      "sc": 18.0,
+      "er": 0.7,
+      "ter_regular_pct": 1.8,
+      "trail_commission_pct": 1.1
     },
     {
       "id": "BANDHAN Nifty 50 Index Fund - Direct Plan - Growth",
@@ -1514,7 +1701,7 @@
       "sector": "Diversified",
       "fin": null,
       "single_sector_weight_pct": 0.0,
-      "lc": 100.0,
+      "lc": 99.8,
       "mc": 0.0,
       "sc": 0.0,
       "micro": 0.0,
@@ -1556,7 +1743,17 @@
         "confidence_score": 0.8,
         "confidence_level": "high",
         "engine_version": "2.1.0"
-      }
+      },
+      "aliases": [
+        "uti nifty 50 index",
+        "uti nifty 50 index fund"
+      ],
+      "eq": 99.8,
+      "debt": 0.2,
+      "gold": 0.0,
+      "intl": 0.0,
+      "ter_regular_pct": 0.35,
+      "trail_commission_pct": 0.15
     },
     {
       "id": "Edelweiss Mid Cap Fund - Direct Plan - Growth",

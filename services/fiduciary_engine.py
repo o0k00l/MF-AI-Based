@@ -221,7 +221,7 @@ def generate_fiduciary_sip_blueprint(
 
         # Mid/Small-Cap Sleeve
         if ms_target > Decimal("0.00"):
-            s_name = ms_fund.get("scheme") if ms_fund else "Motilal Oswal Midcap Fund - Direct Plan - Growth"
+            s_name = ms_fund.get("scheme") if ms_fund else "Active Quality Mid/Small Cap Fund (Direct - Growth)"
             f_num = ms_fund.get("folio_no", "Existing Direct Folio") if ms_fund else "New Direct Folio Mandate"
             allocations.append({
                 "sleeve": "Mid/Small-Cap Alpha",
@@ -235,7 +235,7 @@ def generate_fiduciary_sip_blueprint(
 
         # Debt Sleeve (Strict Fiduciary Separation: Pure Debt/Liquid only, NEVER route debt into hybrid equity)
         if db_target > Decimal("0.00"):
-            s_name = db_fund.get("scheme") if db_fund else "HDFC Liquid Fund - Direct Plan - Growth Option"
+            s_name = db_fund.get("scheme") if db_fund else "Liquid / Capital Preservation Fund (Direct - Growth)"
             f_num = db_fund.get("folio_no", "Existing Direct Folio") if db_fund else "New Direct Folio Mandate"
             allocations.append({
                 "sleeve": "Debt & Capital Preservation",
