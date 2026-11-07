@@ -129,6 +129,7 @@ st.markdown(f"""
     </div>
 </div>
 """, unsafe_allow_html=True)
+st.caption("👉 *Navigate to **5. Fiduciary Report** in the sidebar to generate and download your executive review.*")
 if not has_statements:
     st.caption("👉 *Navigate to **Portfolio Dashboard** in the sidebar to upload both your mandatory CAS and CGS statements.*")
 
@@ -150,7 +151,7 @@ if has_risk:
     tier = st.session_state.get("risk_tier", "Evaluated")
     st.caption(f"🎯 *Current Governing Profile: **{tier}***")
 else:
-    st.caption("👉 *Complete the Risk Profiler on the **Portfolio Dashboard** page.*")
+    st.caption("👉 *Navigate to **2. Risk Profiler** in the sidebar to take your SEBI fiduciary questionnaire.*")
 
 # --- Step 3 Card ---
 badge_step3 = '<span class="status-badge-done">✅ PLANNED</span>' if has_goals else '<span class="status-badge-pending">⏳ PENDING</span>'
@@ -166,7 +167,7 @@ st.markdown(f"""
     </div>
 </div>
 """, unsafe_allow_html=True)
-st.caption("👉 *Visit **Financial Goals** in the sidebar to model your goals.*")
+st.caption("👉 *Navigate to **3. Financial Goals** in the sidebar to model your goals and step-up SIP.*")
 
 # --- Step 4 Card ---
 badge_step4 = '<span class="status-badge-done">✅ READY</span>' if has_cas else '<span class="status-badge-pending">⏳ WAITING FOR CAS</span>'
@@ -181,7 +182,7 @@ st.markdown(f"""
     </div>
 </div>
 """, unsafe_allow_html=True)
-st.caption("👉 *Visit **Debt Allocation** in the sidebar to view unbundled fixed-income exposures.*")
+st.caption("👉 *Navigate to **4. Debt Allocation** in the sidebar to inspect unbundled fixed-income exposures.*")
 
 # --- Step 5 Card ---
 badge_step5 = '<span class="status-badge-done">✅ AVAILABLE</span>' if (has_cas and has_risk and has_goals) else '<span class="status-badge-pending">⏳ AWAITING PREREQUISITES</span>'

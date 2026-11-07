@@ -417,4 +417,4 @@ with col_act1:
     st.info("💡 **Next Step:** Review your unbundled debt allocation or generate your formal Executive Review Report.")
 with col_act2:
     if st.button("📄 Generate Executive Fiduciary Report", type="primary", use_container_width=True):
-        st.switch_page("pages/4_Fiduciary_Report.py")
+        st.switch_page("pages/5_Fiduciary_Report.py")

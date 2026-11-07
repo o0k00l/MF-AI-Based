@@ -223,3 +223,13 @@ before making investment decisions.
 </div>
 """, unsafe_allow_html=True)
 st.caption("All portfolio values parsed dynamically from your uploaded CAS. Reference metrics from AMFI factsheets.")
+
+
+# Navigation to next step
+st.markdown("---")
+col_nav1, col_nav2 = st.columns([2, 1])
+with col_nav1:
+    st.info("💡 **Next Step:** Debt allocation verified. Proceed to generate your comprehensive Fiduciary Review Report.")
+with col_nav2:
+    if st.button("📄 Generate Fiduciary Review Report", type="primary", use_container_width=True):
+        st.switch_page("pages/5_Fiduciary_Report.py")
