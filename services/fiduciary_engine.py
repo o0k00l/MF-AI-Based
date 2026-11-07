@@ -139,7 +139,11 @@ def generate_fiduciary_sip_blueprint(
     - Allocation amounts sum to exactly the monthly budget (within 1 paisa)
     - Directly routes capital to Large Cap, Mid/Small, and Debt sleeves per evaluated SAA
     """
-    budget_dec = quantize_inr(monthly_budget_inr)
+    try:
+        b_float = float(monthly_budget_inr) if monthly_budget_inr is not None else 0.0
+    except (ValueError, TypeError):
+        b_float = 0.0
+    budget_dec = quantize_inr(max(0.0, b_float))
     if budget_dec <= Decimal("0.00"):
         return {
             "status": "ZERO_BUDGET",
@@ -148,20 +152,29 @@ def generate_fiduciary_sip_blueprint(
             "allocations": [],
         }
 
-    # Extract target percentages
+    # Extract target percentages safely
+    lc_pct = Decimal("50.0")
+    ms_pct = Decimal("25.0")
+    db_pct = Decimal("25.0")
+
     if target_saa is not None:
-        if hasattr(target_saa, "large_cap_pct"):
-            lc_pct = Decimal(str(target_saa.large_cap_pct))
-            ms_pct = Decimal(str(target_saa.mid_small_cap_pct))
-            db_pct = Decimal(str(target_saa.debt_pct))
+        if hasattr(target_saa, "large_cap_pct") and hasattr(target_saa, "mid_small_cap_pct"):
+            try:
+                lc_pct = Decimal(str(getattr(target_saa, "large_cap_pct", 50.0) or 50.0))
+                ms_pct = Decimal(str(getattr(target_saa, "mid_small_cap_pct", 25.0) or 25.0))
+                db_pct = Decimal(str(getattr(target_saa, "debt_pct", 25.0) or 25.0))
+            except Exception:
+                lc_pct, ms_pct, db_pct = Decimal("50.0"), Decimal("25.0"), Decimal("25.0")
         elif isinstance(target_saa, dict):
-            lc_pct = Decimal(str(target_saa.get("large_cap_pct", 50.0)))
-            ms_pct = Decimal(str(target_saa.get("mid_small_cap_pct", 25.0)))
-            db_pct = Decimal(str(target_saa.get("debt_pct", 25.0)))
-        else:
-            lc_pct, ms_pct, db_pct = Decimal("50.0"), Decimal("25.0"), Decimal("25.0")
-    else:
-        lc_pct, ms_pct, db_pct = Decimal("50.0"), Decimal("25.0"), Decimal("25.0")
+            try:
+                lc_val = target_saa.get("large_cap_pct")
+                lc_pct = Decimal(str(lc_val if lc_val is not None else 50.0))
+                ms_val = target_saa.get("mid_small_cap_pct")
+                ms_pct = Decimal(str(ms_val if ms_val is not None else 25.0))
+                db_val = target_saa.get("debt_pct")
+                db_pct = Decimal(str(db_val if db_val is not None else 25.0))
+            except Exception:
+                lc_pct, ms_pct, db_pct = Decimal("50.0"), Decimal("25.0"), Decimal("25.0")
 
     # Quantized target sleeve allocations
     lc_target = (budget_dec * (lc_pct / Decimal("100.0"))).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
@@ -169,21 +182,28 @@ def generate_fiduciary_sip_blueprint(
     # Reconcile exact paisa difference onto debt/stability buffer
     db_target = (budget_dec - lc_target - ms_target).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
-    # Identify eligible Direct funds in client portfolio
-    direct_funds = [f for f in funds if str(f.get("plan_type", "Direct")).upper() == "DIRECT"]
+    # Identify eligible Direct funds in client portfolio safely
+    direct_funds = [
+        f for f in (funds or [])
+        if isinstance(f, dict) and str(f.get("plan_type") or "Direct").strip().upper() == "DIRECT"
+    ]
     allocations = []
+
+    def _match_kw(f_obj: Dict[str, Any], kws: List[str]) -> bool:
+        s_name = str(f_obj.get("scheme") or "").lower()
+        return any(k in s_name for k in kws)
 
     if direct_funds:
         # Match schemes to sleeves
-        lc_fund = next((f for f in direct_funds if "large" in f.get("scheme", "").lower() or "index" in f.get("scheme", "").lower() or "nifty" in f.get("scheme", "").lower()), None)
-        ms_fund = next((f for f in direct_funds if "mid" in f.get("scheme", "").lower() or "small" in f.get("scheme", "").lower()), None)
-        db_fund = next((f for f in direct_funds if f.get("category") == "Debt" or "liquid" in f.get("scheme", "").lower() or "arbitrage" in f.get("scheme", "").lower()), None)
+        lc_fund = next((f for f in direct_funds if _match_kw(f, ["large", "index", "nifty"])), None)
+        ms_fund = next((f for f in direct_funds if _match_kw(f, ["mid", "small"])), None)
+        db_fund = next((f for f in direct_funds if str(f.get("category") or "") == "Debt" or _match_kw(f, ["liquid", "arbitrage", "money market"])), None)
 
         # Fallbacks for equity sleeves if specific cap categories not held
         if not lc_fund:
-            lc_fund = next((f for f in direct_funds if f.get("category") == "Equity"), None)
+            lc_fund = next((f for f in direct_funds if str(f.get("category") or "") == "Equity"), None)
         if not ms_fund:
-            ms_fund = next((f for f in direct_funds if f != lc_fund and f.get("category") == "Equity"), None)
+            ms_fund = next((f for f in direct_funds if f != lc_fund and str(f.get("category") or "") == "Equity"), None)
 
         # Large-Cap Sleeve
         if lc_target > Decimal("0.00"):
@@ -273,7 +293,7 @@ def generate_fiduciary_sip_blueprint(
 
 
 def evaluate_fiduciary_lumpsum_blueprint(
-    lumpsum_amount_inr: float,
+    lumpsum_amount_inr: float = 0.0,
     bank_cash_inr: Optional[float] = None,
     monthly_expenses_inr: float = 0.0,
     emergency_reserve_inr: Optional[float] = None,
@@ -290,17 +310,30 @@ def evaluate_fiduciary_lumpsum_blueprint(
     4. When explicit bank cash and expenses are provided, guards emergency reserves;
        otherwise assumes deployable capital is the investor's designated allocation.
     """
-    lump_dec = quantize_inr(max(0.0, lumpsum_amount_inr))
+    try:
+        lump_float = float(lumpsum_amount_inr) if lumpsum_amount_inr is not None else 0.0
+    except (ValueError, TypeError):
+        lump_float = 0.0
+    lump_dec = quantize_inr(max(0.0, lump_float))
     reasons: List[str] = []
 
-    if emergency_reserve_inr is not None and emergency_reserve_inr > 0:
-        reserve_dec = quantize_inr(emergency_reserve_inr)
-    elif monthly_expenses_inr > 0:
-        reserve_dec = quantize_inr(monthly_expenses_inr * 6.0)
-    else:
-        reserve_dec = Decimal("0.00")
+    reserve_dec = Decimal("0.00")
+    if emergency_reserve_inr is not None:
+        try:
+            res_val = float(emergency_reserve_inr)
+            if res_val > 0.0:
+                reserve_dec = quantize_inr(res_val)
+        except (ValueError, TypeError):
+            pass
+    elif monthly_expenses_inr is not None:
+        try:
+            exp_val = float(monthly_expenses_inr)
+            if exp_val > 0.0:
+                reserve_dec = quantize_inr(exp_val * 6.0)
+        except (ValueError, TypeError):
+            pass
 
-    if bank_cash_inr is None or bank_cash_inr <= 0.0:
+    if bank_cash_inr is None:
         cash_dec = lump_dec
         deployable_surplus = lump_dec
         if lump_dec <= Decimal("0.00"):
@@ -314,66 +347,111 @@ def evaluate_fiduciary_lumpsum_blueprint(
                 f"Lump sum capital of ₹{lump_dec:,.2f} ready for staged fiduciary deployment into Direct plans."
             )
     else:
-        cash_dec = quantize_inr(max(0.0, bank_cash_inr))
-        deployable_surplus = max(Decimal("0.00"), cash_dec - reserve_dec)
-
-        if cash_dec < reserve_dec:
-            status = "RESERVE_DEFICIT"
-            effective_lumpsum = Decimal("0.00")
-            deficit = reserve_dec - cash_dec
-            reasons.append(
-                f"Bank cash (₹{cash_dec:,.2f}) is below the required 6-month emergency reserve (₹{reserve_dec:,.2f}) "
-                f"by ₹{deficit:,.2f}. Fiduciary policy mandates holding a complete liquid cushion before deploying equity lump sums."
-            )
-        elif deployable_surplus < lump_dec:
-            status = "CAPPED_AT_SURPLUS"
-            effective_lumpsum = deployable_surplus
-            reasons.append(
-                f"Requested lump sum (₹{lump_dec:,.2f}) exceeds deployable surplus (₹{deployable_surplus:,.2f}) "
-                f"after protecting ₹{reserve_dec:,.2f} for emergency reserves. Deployment is capped at deployable surplus."
-            )
-        elif lump_dec <= Decimal("0.00"):
-            status = "ZERO_AMOUNT"
-            effective_lumpsum = Decimal("0.00")
-            reasons.append("Lump-sum deployment amount must be greater than zero.")
+        try:
+            b_val = float(bank_cash_inr)
+        except (ValueError, TypeError):
+            b_val = 0.0
+        if b_val <= 0.0:
+            cash_dec = lump_dec
+            deployable_surplus = lump_dec
+            if lump_dec <= Decimal("0.00"):
+                status = "ZERO_AMOUNT"
+                effective_lumpsum = Decimal("0.00")
+                reasons.append("Lump-sum deployment amount must be greater than zero.")
+            else:
+                status = "ELIGIBLE"
+                effective_lumpsum = lump_dec
+                reasons.append(
+                    f"Lump sum capital of ₹{lump_dec:,.2f} ready for staged fiduciary deployment into Direct plans."
+                )
         else:
-            status = "ELIGIBLE"
-            effective_lumpsum = lump_dec
-            reasons.append(
-                f"Deployable surplus (₹{deployable_surplus:,.2f}) fully accommodates the requested lump sum of ₹{lump_dec:,.2f} "
-                f"while maintaining a full ₹{reserve_dec:,.2f} emergency reserve."
-            )
+            cash_dec = quantize_inr(max(0.0, b_val))
+            deployable_surplus = max(Decimal("0.00"), cash_dec - reserve_dec)
 
-    # Determine SAA target allocation percentages
+            if cash_dec < reserve_dec:
+                status = "RESERVE_DEFICIT"
+                effective_lumpsum = Decimal("0.00")
+                deficit = reserve_dec - cash_dec
+                reasons.append(
+                    f"Bank cash (₹{cash_dec:,.2f}) is below the required 6-month emergency reserve (₹{reserve_dec:,.2f}) "
+                    f"by ₹{deficit:,.2f}. Fiduciary policy mandates holding a complete liquid cushion before deploying equity lump sums."
+                )
+            elif deployable_surplus < lump_dec:
+                status = "CAPPED_AT_SURPLUS"
+                effective_lumpsum = deployable_surplus
+                reasons.append(
+                    f"Requested lump sum (₹{lump_dec:,.2f}) exceeds deployable surplus (₹{deployable_surplus:,.2f}) "
+                    f"after protecting ₹{reserve_dec:,.2f} for emergency reserves. Deployment is capped at deployable surplus."
+                )
+            elif lump_dec <= Decimal("0.00"):
+                status = "ZERO_AMOUNT"
+                effective_lumpsum = Decimal("0.00")
+                reasons.append("Lump-sum deployment amount must be greater than zero.")
+            else:
+                status = "ELIGIBLE"
+                effective_lumpsum = lump_dec
+                reasons.append(
+                    f"Deployable surplus (₹{deployable_surplus:,.2f}) fully accommodates the requested lump sum of ₹{lump_dec:,.2f} "
+                    f"while maintaining a full ₹{reserve_dec:,.2f} emergency reserve."
+                )
+
+    # Determine SAA target allocation percentages safely
+    db_pct = Decimal("25.0")
+    lc_pct = Decimal("50.0")
+    ms_pct = Decimal("25.0")
+    eq_pct = Decimal("75.0")
+
     if target_saa is not None:
-        if hasattr(target_saa, "debt_pct"):
-            db_pct = Decimal(str(target_saa.debt_pct))
-            eq_pct = Decimal(str(target_saa.total_equity_pct))
-            lc_pct = Decimal(str(target_saa.large_cap_pct))
-            ms_pct = Decimal(str(target_saa.mid_small_cap_pct))
+        if hasattr(target_saa, "debt_pct") and hasattr(target_saa, "large_cap_pct"):
+            try:
+                db_pct = Decimal(str(getattr(target_saa, "debt_pct", 25.0) or 25.0))
+                lc_pct = Decimal(str(getattr(target_saa, "large_cap_pct", 50.0) or 50.0))
+                ms_pct = Decimal(str(getattr(target_saa, "mid_small_cap_pct", 25.0) or 25.0))
+                eq_pct = Decimal(str(getattr(target_saa, "total_equity_pct", 75.0) or (lc_pct + ms_pct)))
+            except Exception:
+                db_pct, lc_pct, ms_pct, eq_pct = Decimal("25.0"), Decimal("50.0"), Decimal("25.0"), Decimal("75.0")
         elif isinstance(target_saa, dict):
-            db_pct = Decimal(str(target_saa.get("debt_pct", 25.0)))
-            eq_pct = Decimal(str(target_saa.get("equity_pct", 100.0 - float(db_pct))))
-            lc_pct = Decimal(str(target_saa.get("large_cap_pct", 50.0)))
-            ms_pct = Decimal(str(target_saa.get("mid_small_cap_pct", 25.0)))
-        else:
-            eq_pct, db_pct, lc_pct, ms_pct = Decimal("75.0"), Decimal("25.0"), Decimal("50.0"), Decimal("25.0")
-    else:
-        eq_pct, db_pct, lc_pct, ms_pct = Decimal("75.0"), Decimal("25.0"), Decimal("50.0"), Decimal("25.0")
+            try:
+                db_val = target_saa.get("debt_pct")
+                db_pct = Decimal(str(db_val if db_val is not None else 25.0))
+                lc_val = target_saa.get("large_cap_pct")
+                lc_pct = Decimal(str(lc_val if lc_val is not None else 50.0))
+                ms_val = target_saa.get("mid_small_cap_pct")
+                ms_pct = Decimal(str(ms_val if ms_val is not None else 25.0))
+                eq_val = target_saa.get("total_equity_pct") or target_saa.get("equity_pct")
+                eq_pct = Decimal(str(eq_val if eq_val is not None else (100.0 - float(db_pct))))
+            except Exception:
+                db_pct, lc_pct, ms_pct, eq_pct = Decimal("25.0"), Decimal("50.0"), Decimal("25.0"), Decimal("75.0")
 
     # Quantize equity deployment and debt retention
     target_equity_capital = (effective_lumpsum * (eq_pct / Decimal("100.0"))).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     target_debt_capital = (effective_lumpsum - target_equity_capital).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
-    # Resolve direct parking vehicle
-    direct_funds = [f for f in (funds or []) if str(f.get("plan_type", "Direct")).upper() == "DIRECT"]
-    parking_scheme = next(
-        (f.get("scheme") for f in direct_funds if f.get("category") == "Debt" or "liquid" in f.get("scheme", "").lower() or "arbitrage" in f.get("scheme", "").lower()),
-        "Direct Liquid / Money Market Fund",
-    )
+    # Resolve direct parking vehicle safely
+    direct_funds = []
+    if funds:
+        for f in funds:
+            if isinstance(f, dict):
+                p_type = str(f.get("plan_type") or "Direct").strip().upper()
+                if p_type == "DIRECT":
+                    direct_funds.append(f)
+
+    parking_scheme = "Direct Liquid / Money Market Fund"
+    for f in direct_funds:
+        cat_val = str(f.get("category") or "")
+        s_val = str(f.get("scheme") or "")
+        s_lower = s_val.lower()
+        if cat_val == "Debt" or "liquid" in s_lower or "arbitrage" in s_lower or "money market" in s_lower:
+            if s_val:
+                parking_scheme = s_val
+                break
 
     # Multi-month STP Staging Schedule for Equity Capital
-    stp_duration = max(1, min(stp_duration_months, 36))
+    try:
+        stp_dur_int = int(stp_duration_months) if stp_duration_months is not None else 6
+    except (ValueError, TypeError):
+        stp_dur_int = 6
+    stp_duration = max(1, min(stp_dur_int, 36))
     base_tranche = (target_equity_capital / Decimal(str(stp_duration))).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     
     stp_schedule: List[Dict[str, Any]] = []
@@ -421,5 +499,4 @@ def evaluate_fiduciary_lumpsum_blueprint(
         "reasons": reasons,
         "reconciliation_valid": cumulative_deployed == target_equity_capital,
     }
-
 

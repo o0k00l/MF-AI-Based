@@ -697,7 +697,7 @@ with api_col1:
         "Monthly SIP Budget (₹)",
         min_value=1000.0,
         max_value=10000000.0,
-        value=float(st.session_state.get("sip_budget", 25000.0)),
+        value=float(st.session_state.get("sip_budget", 25000.0) or 25000.0),
         step=1000.0,
         help="Target monthly capital deployment across direct mutual fund schemes."
     )
@@ -715,13 +715,17 @@ if st.button("🚀 Run Fiduciary Engine & Generate SIP Blueprint", type="primary
     with st.spinner("Executing mathematical fiduciary engine..."):
         # 1. Execute deterministic local fiduciary engine
         target_saa = st.session_state.get("saa_target")
+        try:
+            safe_sip_budget = float(sip_budget) if sip_budget is not None else 25000.0
+        except (ValueError, TypeError):
+            safe_sip_budget = 25000.0
         sip_blueprint = generate_fiduciary_sip_blueprint(
-            monthly_budget_inr=float(sip_budget),
+            monthly_budget_inr=safe_sip_budget,
             funds=funds,
             target_saa=target_saa,
         )
         st.session_state["deterministic_sip_plan"] = sip_blueprint
-        st.session_state["sip_budget"] = float(sip_budget)
+        st.session_state["sip_budget"] = safe_sip_budget
 
         # 2. Also query backend API
         cas_raw_bytes = st.session_state.get("cas_raw_bytes")
@@ -782,7 +786,7 @@ with ls_col1:
         "Available Lump Sum to Deploy (₹)",
         min_value=0.0,
         max_value=100000000.0,
-        value=float(st.session_state.get("lumpsum_amount", 500000.0)),
+        value=float(st.session_state.get("lumpsum_amount", 500000.0) or 500000.0),
         step=50000.0,
         help="Amount of idle capital you wish to allocate to mutual funds."
     )
@@ -791,7 +795,7 @@ with ls_col2:
         "STP Staging Duration (Months)",
         min_value=3,
         max_value=24,
-        value=int(st.session_state.get("stp_months", 6)),
+        value=int(st.session_state.get("stp_months", 6) or 6),
         help="Number of monthly tranches to average into equities."
     )
 with ls_col3:
@@ -801,15 +805,27 @@ with ls_col3:
 if calc_lumpsum or st.session_state.get("deterministic_lumpsum_plan"):
     if calc_lumpsum:
         target_saa = st.session_state.get("saa_target")
-        lumpsum_plan = evaluate_fiduciary_lumpsum_blueprint(
-            lumpsum_amount_inr=float(lumpsum_input),
-            stp_duration_months=int(stp_months),
-            target_saa=target_saa,
-            funds=funds,
-        )
-        st.session_state["deterministic_lumpsum_plan"] = lumpsum_plan
-        st.session_state["lumpsum_amount"] = float(lumpsum_input)
-        st.session_state["stp_months"] = int(stp_months)
+        try:
+            safe_lumpsum = float(lumpsum_input) if lumpsum_input is not None else 500000.0
+        except (ValueError, TypeError):
+            safe_lumpsum = 500000.0
+        try:
+            safe_stp_months = int(stp_months) if stp_months is not None else 6
+        except (ValueError, TypeError):
+            safe_stp_months = 6
+
+        try:
+            lumpsum_plan = evaluate_fiduciary_lumpsum_blueprint(
+                lumpsum_amount_inr=safe_lumpsum,
+                stp_duration_months=safe_stp_months,
+                target_saa=target_saa,
+                funds=funds,
+            )
+            st.session_state["deterministic_lumpsum_plan"] = lumpsum_plan
+            st.session_state["lumpsum_amount"] = safe_lumpsum
+            st.session_state["stp_months"] = safe_stp_months
+        except Exception as exc:
+            st.error(f"⚠️ Could not generate staged lump-sum plan: {exc}")
 
     ls_plan = st.session_state.get("deterministic_lumpsum_plan")
     if ls_plan:

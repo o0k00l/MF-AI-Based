@@ -133,7 +133,10 @@ risk_tier = st.session_state.get("risk_tier") or st.session_state.get("risk_buck
 if not goals_alloc:
     bp = st.session_state.get("deterministic_sip_plan")
     if not bp and portfolio:
-        budget = float(st.session_state.get("sip_budget", 25000.0))
+        try:
+            budget = float(st.session_state.get("sip_budget", 25000.0) or 25000.0)
+        except (ValueError, TypeError):
+            budget = 25000.0
         bp = generate_fiduciary_sip_blueprint(
             monthly_budget_inr=budget,
             funds=portfolio,

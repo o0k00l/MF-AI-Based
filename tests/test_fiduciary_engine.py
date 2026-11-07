@@ -135,3 +135,54 @@ def test_evaluate_fiduciary_lumpsum_blueprint():
     assert res_cap["reconciliation_valid"] is True
 
 
+def test_evaluate_fiduciary_lumpsum_blueprint_robustness_against_none_and_malformed_inputs():
+    """Verify evaluate_fiduciary_lumpsum_blueprint never raises TypeError on None or malformed inputs."""
+    # None inputs
+    res_none = evaluate_fiduciary_lumpsum_blueprint(
+        lumpsum_amount_inr=None,
+        stp_duration_months=None,
+        target_saa=None,
+        funds=None,
+    )
+    assert res_none["status"] == "ZERO_AMOUNT"
+    assert res_none["effective_lumpsum_inr"] == Decimal("0.00")
+
+    # String inputs
+    res_str = evaluate_fiduciary_lumpsum_blueprint(
+        lumpsum_amount_inr="500000.0",
+        stp_duration_months="12",
+        target_saa={"total_equity_pct": 70.0, "debt_pct": 30.0},
+        funds=[{"scheme": None, "plan_type": None, "category": None}],
+    )
+    assert res_str["status"] == "ELIGIBLE"
+    assert res_str["effective_lumpsum_inr"] == Decimal("500000.00")
+    assert res_str["stp_duration_months"] == 12
+
+    # Malformed dict target_saa with None values
+    res_none_dict = evaluate_fiduciary_lumpsum_blueprint(
+        lumpsum_amount_inr=100000.0,
+        target_saa={"large_cap_pct": None, "mid_small_cap_pct": None, "debt_pct": None},
+        funds=[{"scheme": "HDFC Liquid Direct", "plan_type": "Direct", "category": "Debt"}],
+    )
+    assert res_none_dict["status"] == "ELIGIBLE"
+    assert res_none_dict["parking_scheme"] == "HDFC Liquid Direct"
+
+
+def test_generate_fiduciary_sip_blueprint_robustness():
+    """Verify generate_fiduciary_sip_blueprint never raises TypeError on None or malformed inputs."""
+    res_none = generate_fiduciary_sip_blueprint(
+        monthly_budget_inr=None,
+        funds=None,
+        target_saa=None,
+    )
+    assert res_none["status"] == "ZERO_BUDGET"
+
+    res_malformed = generate_fiduciary_sip_blueprint(
+        monthly_budget_inr="25000",
+        funds=[{"scheme": None, "plan_type": "Direct"}],
+        target_saa={"large_cap_pct": None, "debt_pct": None},
+    )
+    assert res_malformed["status"] == "DETERMINISTIC_SIP_READY"
+    assert res_malformed["reconciliation_valid"] is True
+
+
