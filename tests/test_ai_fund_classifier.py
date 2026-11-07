@@ -94,3 +94,4 @@ def test_enrich_funds_with_ai():
     assert crma["category"] == "Hybrid"
     assert crma["gold"] == 9.50
     assert crma["debt"] == 22.00
+

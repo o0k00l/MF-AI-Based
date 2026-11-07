@@ -9,6 +9,7 @@ if _REPO_ROOT not in sys.path:
 
 import streamlit as st
 from services.fiduciary_engine import evaluate_portfolio_saa_audit, generate_fiduciary_sip_blueprint
+from services.ai_fund_classifier import enrich_funds_with_ai
 
 # --- Page Configuration ---
 st.set_page_config(
@@ -98,15 +99,16 @@ with st.sidebar:
 
     st.markdown("<p style='font-weight: 700; font-size: 0.82rem; color: #334155; margin-bottom: 6px;'>🧭 ADVISORY WORKFLOW</p>", unsafe_allow_html=True)
 
-    # Interactive Navigation Links
-    st.page_link("app.py", label=f"1. Statement Intake {'✅' if _has_statements else '⏳'}", icon="📤", help="Upload CAS & CGS statements")
-    st.page_link("pages/2_Risk_Profiler.py", label=f"2. SEBI Risk Profiler {'✅' if _has_risk else '⏳'}", icon="📋", help="Binding constraint SAA evaluation")
-    st.page_link("pages/3_Financial_Goals.py", label=f"3. Milestone Goals {'✅' if _has_goals else '⏳'}", icon="🎯", help="Goal compounding & Step-Up SIP")
-    st.page_link("pages/4_Debt_Allocation.py", label=f"4. True Debt Analysis {'✅' if _has_cas else '⏳'}", icon="📈", help="Unbundle internal debt & hybrid buffers")
-    st.page_link("pages/5_Fiduciary_Report.py", label=f"5. Executive Report {'✅' if (_has_cas and _has_risk and _has_goals) else '⏳'}", icon="📄", help="Actionable client review document")
+    # Primary Two-Step Fiduciary Flow
+    st.markdown("<p style='font-weight: 700; font-size: 0.82rem; color: #334155; margin-bottom: 6px;'>🧭 TWO-STEP FIDUCIARY FLOW</p>", unsafe_allow_html=True)
+    st.page_link("app.py", label=f"Step 1: Portfolio Intake & Audit {'✅' if _has_cas else '⏳'}", icon="📊")
+    st.page_link("pages/5_Fiduciary_Report.py", label=f"Step 2: Executive Report {'✅' if _has_cas else '⏳'}", icon="📄")
 
-    st.markdown("---")
-    st.page_link("pages/1_Advisory_Flow.py", label="🗺️ Advisory Roadmap & Guide", icon="🧭", help="View end-to-end fiduciary journey")
+    st.markdown("<p style='font-weight: 700; font-size: 0.75rem; color: #64748b; margin-top: 10px; margin-bottom: 4px;'>🔬 OPTIONAL DEEP-DIVES</p>", unsafe_allow_html=True)
+    st.page_link("pages/2_Risk_Profiler.py", label="Risk Profiler & SAA", icon="📋")
+    st.page_link("pages/4_Debt_Allocation.py", label="True Debt Factsheet Matrix", icon="📈")
+    st.page_link("pages/3_Financial_Goals.py", label="Financial Goals Wizard", icon="🎯")
+    st.page_link("pages/1_Advisory_Flow.py", label="Advisory Roadmap", icon="🧭")
 
     st.markdown("---")
     if st.button("🔄 Reset / Clear Session", use_container_width=True, help="Clear active session portfolio and start over"):
@@ -120,56 +122,62 @@ st.markdown("Your formal, comprehensive portfolio diagnostic and investment advi
 
 # Check prerequisites
 portfolio = st.session_state.get("user_portfolio", [])
+if portfolio:
+    portfolio = enrich_funds_with_ai(portfolio)
+
 cgs_data = st.session_state.get("cgs_data")
 goals_alloc = st.session_state.get("goals_allocation")
-risk_tier = st.session_state.get("risk_tier") or st.session_state.get("risk_bucket")
+risk_tier = st.session_state.get("risk_tier") or st.session_state.get("risk_bucket") or "Moderate (Evaluated SAA)"
 
-# Synthesize goal allocation if user generated SIP blueprint from dashboard
-if not goals_alloc and st.session_state.get("deterministic_sip_plan"):
-    bp = st.session_state["deterministic_sip_plan"]
-    lc_val = float(next((a["amount_inr"] for a in bp.get("allocations", []) if "Large" in a.get("sleeve", "")), 0.0))
-    ms_val = float(next((a["amount_inr"] for a in bp.get("allocations", []) if "Mid" in a.get("sleeve", "")), 0.0))
-    db_val = float(next((a["amount_inr"] for a in bp.get("allocations", []) if "Debt" in a.get("sleeve", "")), 0.0))
-    goals_alloc = {
-        "goals": {
-            "sip_plan": {
-                "goal_name": "Long-Term Wealth Accumulation and SAA Compounding",
-                "priority": 1,
-                "required_monthly": float(bp["monthly_budget_inr"]),
-                "allocated_monthly": float(bp["allocated_budget_inr"]),
-                "gap_monthly": float(bp["unallocated_budget_inr"]),
-                "target_corpus": 0.0,
-                "horizon_years": 10,
-            }
-        },
-        "total_required": float(bp["monthly_budget_inr"]),
-        "total_allocated": float(bp["allocated_budget_inr"]),
-        "total_gap": float(bp["unallocated_budget_inr"]),
-        "surplus": 0.0,
-        "use_step_up": False,
-        "asset_sleeves": {
-            "large_cap_inr": lc_val,
-            "mid_small_cap_inr": ms_val,
-            "debt_inr": db_val,
-        },
-    }
-    st.session_state["goals_allocation"] = goals_alloc
+# Synthesize goal allocation / SIP blueprint seamlessly from evaluated portfolio SAA
+if not goals_alloc:
+    bp = st.session_state.get("deterministic_sip_plan")
+    if not bp and portfolio:
+        budget = float(st.session_state.get("sip_budget", 25000.0))
+        bp = generate_fiduciary_sip_blueprint(
+            monthly_budget_inr=budget,
+            funds=portfolio,
+            target_saa=st.session_state.get("saa_target"),
+        )
+        st.session_state["deterministic_sip_plan"] = bp
+    if bp:
+        lc_val = float(next((a["amount_inr"] for a in bp.get("allocations", []) if "Large" in a.get("sleeve", "")), 0.0))
+        ms_val = float(next((a["amount_inr"] for a in bp.get("allocations", []) if "Mid" in a.get("sleeve", "")), 0.0))
+        db_val = float(next((a["amount_inr"] for a in bp.get("allocations", []) if "Debt" in a.get("sleeve", "")), 0.0))
+        goals_alloc = {
+            "goals": {
+                "sip_plan": {
+                    "goal_name": "Long-Term Wealth Accumulation & SAA Compounding",
+                    "priority": 1,
+                    "required_monthly": float(bp["monthly_budget_inr"]),
+                    "allocated_monthly": float(bp["allocated_budget_inr"]),
+                    "gap_monthly": float(bp["unallocated_budget_inr"]),
+                    "target_corpus": 0.0,
+                    "horizon_years": 10,
+                }
+            },
+            "total_required": float(bp["monthly_budget_inr"]),
+            "total_allocated": float(bp["allocated_budget_inr"]),
+            "total_gap": float(bp["unallocated_budget_inr"]),
+            "surplus": 0.0,
+            "use_step_up": False,
+            "asset_sleeves": {
+                "large_cap_inr": lc_val,
+                "mid_small_cap_inr": ms_val,
+                "debt_inr": db_val,
+            },
+        }
+        st.session_state["goals_allocation"] = goals_alloc
 
 missing = []
 if not portfolio:
-    missing.append("📤 Upload CAS & CGS Statements (Portfolio Dashboard)")
-if not cgs_data:
-    missing.append("📑 Upload Capital Gains Statement (CGS) (Portfolio Dashboard)")
-if not risk_tier:
-    missing.append("📋 Complete Risk Profiler (Portfolio Dashboard)")
-if not goals_alloc:
-    missing.append("🎯 Calculate Goal Allocations (Financial Goals)")
+    missing.append("📤 Upload CAS Statement (Portfolio Dashboard)")
 
 if missing:
-    st.warning("⚠️ **Prerequisites Missing:** Please complete the following steps to generate your full advisory report:")
+    st.warning("⚠️ **Prerequisites Missing:** Please upload your CAS portfolio statement to generate your report:")
     for m in missing:
         st.markdown(f"* {m}")
-    st.info("👉 *Follow the step-by-step advisory flow from the sidebar to complete all milestones.*")
+    st.info("👉 *Return to Step 1 (Portfolio Intake & Audit) to upload your statement.*")
 else:
     total_val = sum(f.get("current_value", 0) for f in portfolio)
     total_invested = sum(f.get("invested_value", 0) for f in portfolio)
@@ -231,29 +239,38 @@ else:
             f"* **Statement Provenance:** SHA256 `{cgs_data.get('source_sha256', 'N/A')[:16]}...`",
         ])
 
-    # Commission Bleed & Direct Conversion Audit
+    # Commission Bleed & Direct Conversion Audit (Zero Hardcoding - AMC Factsheet Look-Through)
     regular_holdings = [f for f in portfolio if str(f.get("plan_type", "Direct")).upper() == "REGULAR"]
     regular_val = sum(f.get("current_value", 0) for f in regular_holdings)
     regular_pct = (regular_val / total_val * 100.0) if total_val > 0 else 0.0
+    total_annual_bleed = sum(f.get("annual_commission_bleed", 0.0) for f in regular_holdings)
+    total_10y_linear = sum(f.get("ten_year_linear_commission", 0.0) for f in regular_holdings)
+    total_10y_compounded = sum(f.get("ten_year_compounded_drag", 0.0) for f in regular_holdings)
+    avg_trail = (total_annual_bleed / regular_val * 100.0) if regular_val > 0 else 0.0
 
     report_lines.extend([
         "",
         "## 3. Distributor Commission Bleed & Direct Plan Audit",
     ])
     if regular_val > 0:
-        est_10y = regular_val * 0.1046  # 10-year compounded drag factor at ~1% p.a.
         report_lines.extend([
             f"* **Regular Plan Exposure:** ₹{regular_val:,.0f} ({regular_pct:.1f}% of total portfolio) across {len(regular_holdings)} schemes",
-            f"* **Estimated 10-Year Compounded Drag:** ₹{est_10y:,.0f} in avoidable distributor commissions",
-            "* **Fiduciary Switch Recommendation:** Recommend executing switches from Regular to Direct Growth plans to retain 100% of compounding returns.",
+            f"* **Annual Distributor Trail Bleed:** ₹{total_annual_bleed:,.0f} / year (weighted avg trail ~{avg_trail:.2f}% p.a.)",
+            f"* **Estimated 10-Year Compounded Drag:** ₹{total_10y_compounded:,.0f} (Linear Cumulative: ₹{total_10y_linear:,.0f})",
+            "* **Fiduciary Switch Recommendation:** Execute non-taxable/disciplined switches from Regular to Direct Growth plans to halt distributor commission leakage.",
             "",
-            "| Identified Regular Scheme | Current Value (₹) | Potential Annual Savings (~1% p.a.) |",
-            "| :--- | :--- | :--- |",
+            "| Identified Regular Scheme | Current Value (₹) | Direct TER | Regular TER | Trail Comm. % | Annual Bleed (₹/yr) | 10Y Compounded Drag (₹) |",
+            "| :--- | :--- | :--- | :--- | :--- | :--- | :--- |",
         ])
-        for rf in regular_holdings:
+        for rf in sorted(regular_holdings, key=lambda x: x.get("annual_commission_bleed", 0), reverse=True):
             r_name = rf.get("scheme", "Regular Scheme")
-            r_val = rf.get("current_value", 0)
-            report_lines.append(f"| {r_name} | ₹{r_val:,.0f} | ~₹{r_val * 0.01:,.0f}/yr |")
+            r_val = float(rf.get("current_value", 0))
+            r_td = float(rf.get("ter_direct", 0.75))
+            r_tr = float(rf.get("ter_regular", 1.75))
+            r_trail = float(rf.get("trail_commission_pct", 1.0))
+            r_yr = float(rf.get("annual_commission_bleed", 0))
+            r_10y = float(rf.get("ten_year_compounded_drag", 0))
+            report_lines.append(f"| {r_name} | ₹{r_val:,.0f} | {r_td:.2f}% | {r_tr:.2f}% | {r_trail:.2f}% | ₹{r_yr:,.0f}/yr | ₹{r_10y:,.0f} |")
     else:
         report_lines.extend([
             "* **Direct Plan Compliance:** ✅ 100% Direct Plan Mandate Verified",

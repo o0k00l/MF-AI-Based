@@ -126,17 +126,17 @@ with st.sidebar:
         </div>
         """, unsafe_allow_html=True)
 
-    st.markdown("<p style='font-weight: 700; font-size: 0.82rem; color: #334155; margin-bottom: 6px;'>🧭 ADVISORY WORKFLOW</p>", unsafe_allow_html=True)
+    st.markdown("<p style='font-weight: 700; font-size: 0.82rem; color: #334155; margin-bottom: 6px;'>🧭 TWO-STEP FIDUCIARY FLOW</p>", unsafe_allow_html=True)
 
-    # Interactive Navigation Links
-    st.page_link("app.py", label=f"1. Statement Intake {'✅' if _has_statements else '⏳'}", icon="📤", help="Upload CAS & CGS statements")
-    st.page_link("pages/2_Risk_Profiler.py", label=f"2. SEBI Risk Profiler {'✅' if _has_risk else '⏳'}", icon="📋", help="Binding constraint SAA evaluation")
-    st.page_link("pages/3_Financial_Goals.py", label=f"3. Milestone Goals {'✅' if _has_goals else '⏳'}", icon="🎯", help="Goal compounding & Step-Up SIP")
-    st.page_link("pages/4_Debt_Allocation.py", label=f"4. True Debt Analysis {'✅' if _has_cas else '⏳'}", icon="📈", help="Unbundle internal debt & hybrid buffers")
-    st.page_link("pages/5_Fiduciary_Report.py", label=f"5. Executive Report {'✅' if (_has_cas and _has_risk and _has_goals) else '⏳'}", icon="📄", help="Actionable client review document")
+    # Two-Step Fiduciary Flow
+    st.page_link("app.py", label=f"Step 1: Portfolio Intake & Audit {'✅' if _has_cas else '⏳'}", icon="📊")
+    st.page_link("pages/5_Fiduciary_Report.py", label=f"Step 2: Executive Fiduciary Report {'✅' if _has_cas else '⏳'}", icon="📄")
 
-    st.markdown("---")
-    st.page_link("pages/1_Advisory_Flow.py", label="🗺️ Advisory Roadmap & Guide", icon="🧭", help="View end-to-end fiduciary journey")
+    st.markdown("<p style='font-weight: 700; font-size: 0.75rem; color: #64748b; margin-top: 10px; margin-bottom: 4px;'>🔬 OPTIONAL DEEP-DIVES</p>", unsafe_allow_html=True)
+    st.page_link("pages/2_Risk_Profiler.py", label="Risk Profiler & SAA", icon="📋")
+    st.page_link("pages/4_Debt_Allocation.py", label="True Debt Factsheet Matrix", icon="📈")
+    st.page_link("pages/3_Financial_Goals.py", label="Financial Goals Wizard", icon="🎯")
+    st.page_link("pages/1_Advisory_Flow.py", label="Advisory Roadmap", icon="🧭")
 
     st.markdown("---")
     if st.button("🔄 Reset / Clear Session", use_container_width=True, help="Clear active session portfolio and start over"):
@@ -392,21 +392,42 @@ regular_total = sum(f.get("current_value", 0) for f in regular_funds)
 direct_total = sum(f.get("current_value", 0) for f in direct_funds)
 regular_pct = (regular_total / total_value * 100) if total_value else 0
 
+total_annual_bleed = sum(f.get("annual_commission_bleed", 0.0) for f in regular_funds)
+total_10y_linear = sum(f.get("ten_year_linear_commission", 0.0) for f in regular_funds)
+total_10y_compounded = sum(f.get("ten_year_compounded_drag", 0.0) for f in regular_funds)
+avg_trail_pct = (total_annual_bleed / regular_total * 100.0) if regular_total > 0 else 0.0
+
 pcol1, pcol2, pcol3 = st.columns(3)
 with pcol1:
     st.metric("Direct Plan Holdings", f"₹{direct_total/100000:.2f} Lakhs", f"{100 - regular_pct:.1f}%")
 with pcol2:
     st.metric("Regular Plan Holdings", f"₹{regular_total/100000:.2f} Lakhs", f"{regular_pct:.1f}%", delta_color="inverse")
 with pcol3:
-    est_10y_commission = regular_total * 0.1046
-    st.metric("Est. 10Y Commission Drag", f"₹{est_10y_commission/100000:.2f} Lakhs")
+    st.metric("10Y Compounded Trail Drag", f"₹{total_10y_compounded/100000:.2f} Lakhs", f"-₹{total_annual_bleed:,.0f}/yr trail", delta_color="inverse")
 
 if regular_total > 0:
     st.warning(
         f"⚠️ **Distributor Commission Notice**: You hold **₹{regular_total/100000:.2f} Lakhs** ({regular_pct:.1f}%) "
-        f"in Regular mutual fund plans across {len(regular_funds)} schemes. Switching to Direct plans can save ~0.75% to 1.25% p.a. "
-        f"in perpetual distributor trail commissions without altering underlying stock/bond holdings."
+        f"in Regular mutual fund plans across {len(regular_funds)} schemes. Based on scheme-by-scheme AMC factsheet TER disclosures, "
+        f"your portfolio bleeds **₹{total_annual_bleed:,.0f} per year** (weighted avg trail ~{avg_trail_pct:.2f}% p.a.) in distributor commissions. "
+        f"Over 10 years at a normal 12% portfolio growth rate, this drag compounds to **₹{total_10y_compounded/100000:.2f} Lakhs** "
+        f"(Linear cumulative: ₹{total_10y_linear/100000:.2f} Lakhs) surrendered to intermediaries."
     )
+    with st.expander("🔍 Scheme-Wise Distributor Commission Bleed Audit (AMFI Factsheets)", expanded=False):
+        bleed_rows = [
+            "| Scheme Name | Value (₹) | Direct TER | Regular TER | Trail Comm. % | Annual Bleed | 10Y Compounded Drag |",
+            "| :--- | :--- | :--- | :--- | :--- | :--- | :--- |"
+        ]
+        for rf in sorted(regular_funds, key=lambda x: x.get("annual_commission_bleed", 0), reverse=True):
+            r_sch = rf.get("scheme", "Unknown")
+            r_val = float(rf.get("current_value", 0))
+            r_td = float(rf.get("ter_direct", 0.75))
+            r_tr = float(rf.get("ter_regular", 1.75))
+            r_trail = float(rf.get("trail_commission_pct", 1.0))
+            r_yr = float(rf.get("annual_commission_bleed", 0))
+            r_10y = float(rf.get("ten_year_compounded_drag", 0))
+            bleed_rows.append(f"| {r_sch} | ₹{r_val:,.0f} | {r_td:.2f}% | {r_tr:.2f}% | {r_trail:.2f}% | ₹{r_yr:,.0f}/yr | ₹{r_10y:,.0f} |")
+        st.markdown("\n".join(bleed_rows))
 else:
     st.success("✅ **Fiduciary Best Practice**: 100% of your holdings are in Direct plans. Zero intermediary commission bleed detected.")
 
@@ -873,6 +894,18 @@ with ecol2:
         mime="application/json",
         use_container_width=True,
     )
+
+# --- Step 2 Transition Banner ---
+st.markdown("---")
+st.markdown('''
+<div style="background: linear-gradient(135deg, #1e3a8a 0%, #0f172a 100%); padding: 22px; border-radius: 12px; color: white; margin-bottom: 20px; text-align: center;">
+    <h3 style="color: white; margin-bottom: 8px;">🚀 Ready to View Your Comprehensive Advisory Report?</h3>
+    <p style="color: #cbd5e1; font-size: 0.95rem; margin-bottom: 12px;">
+        Proceed directly to Step 2 to generate, inspect, and download your formal, SEBI-compliant Executive Fiduciary Report with personalized SIP mandates, tax audit, and direct-plan rebalancing.
+    </p>
+</div>
+''', unsafe_allow_html=True)
+st.page_link("pages/5_Fiduciary_Report.py", label="📄 Proceed to Step 2: Executive Fiduciary Report ➔", icon="📄")
 
 # --- Disclaimer ---
 st.markdown("---", unsafe_allow_html=True)

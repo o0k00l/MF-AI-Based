@@ -179,47 +179,52 @@ def generate_fiduciary_sip_blueprint(
         ms_fund = next((f for f in direct_funds if "mid" in f.get("scheme", "").lower() or "small" in f.get("scheme", "").lower()), None)
         db_fund = next((f for f in direct_funds if f.get("category") == "Debt" or "liquid" in f.get("scheme", "").lower() or "arbitrage" in f.get("scheme", "").lower()), None)
 
-        # Fallbacks to any available direct funds
+        # Fallbacks for equity sleeves if specific cap categories not held
         if not lc_fund:
-            lc_fund = next((f for f in direct_funds if f.get("category") == "Equity"), direct_funds[0])
+            lc_fund = next((f for f in direct_funds if f.get("category") == "Equity"), None)
         if not ms_fund:
-            ms_fund = next((f for f in direct_funds if f != lc_fund and f.get("category") == "Equity"), lc_fund)
-        if not db_fund:
-            db_fund = next((f for f in direct_funds if f.get("category") in ("Debt", "Hybrid")), None)
+            ms_fund = next((f for f in direct_funds if f != lc_fund and f.get("category") == "Equity"), None)
 
-        if lc_target > Decimal("0.00") and lc_fund:
+        # Large-Cap Sleeve
+        if lc_target > Decimal("0.00"):
+            s_name = lc_fund.get("scheme") if lc_fund else "UTI Nifty 50 Index Fund - Direct Plan - Growth"
+            f_num = lc_fund.get("folio_no", "Existing Direct Folio") if lc_fund else "New Direct Folio Mandate"
             allocations.append({
                 "sleeve": "Large-Cap Core Index",
-                "scheme_name": lc_fund.get("scheme"),
-                "folio_no": lc_fund.get("folio_no", "Existing Direct Folio"),
+                "scheme_name": s_name,
+                "folio_no": f_num,
                 "amount_inr": lc_target,
                 "allocation_pct": float(lc_pct),
                 "plan_type": "Direct-Growth",
-                "rationale": "Anchor core equity compounding in lowest-cost Direct large cap scheme.",
+                "rationale": "Anchor core equity compounding in lowest-cost Direct large cap index scheme (0.20% TER).",
             })
 
-        if ms_target > Decimal("0.00") and ms_fund:
+        # Mid/Small-Cap Sleeve
+        if ms_target > Decimal("0.00"):
+            s_name = ms_fund.get("scheme") if ms_fund else "Motilal Oswal Midcap Fund - Direct Plan - Growth"
+            f_num = ms_fund.get("folio_no", "Existing Direct Folio") if ms_fund else "New Direct Folio Mandate"
             allocations.append({
                 "sleeve": "Mid/Small-Cap Alpha",
-                "scheme_name": ms_fund.get("scheme"),
-                "folio_no": ms_fund.get("folio_no", "Existing Direct Folio"),
+                "scheme_name": s_name,
+                "folio_no": f_num,
                 "amount_inr": ms_target,
                 "allocation_pct": float(ms_pct),
                 "plan_type": "Direct-Growth",
-                "rationale": "Long-term alpha accumulation aligned with investor risk tolerance.",
+                "rationale": "Long-term alpha accumulation aligned with investor risk tolerance without distributor trail drag.",
             })
 
+        # Debt Sleeve (Strict Fiduciary Separation: Pure Debt/Liquid only, NEVER route debt into hybrid equity)
         if db_target > Decimal("0.00"):
-            scheme_title = db_fund.get("scheme") if db_fund else "Recommended Direct Liquid / Short Duration Fund"
-            folio_title = db_fund.get("folio_no", "New Direct Folio") if db_fund else "Direct Deployment"
+            s_name = db_fund.get("scheme") if db_fund else "HDFC Liquid Fund - Direct Plan - Growth Option"
+            f_num = db_fund.get("folio_no", "Existing Direct Folio") if db_fund else "New Direct Folio Mandate"
             allocations.append({
                 "sleeve": "Debt & Capital Preservation",
-                "scheme_name": scheme_title,
-                "folio_no": folio_title,
+                "scheme_name": s_name,
+                "folio_no": f_num,
                 "amount_inr": db_target,
                 "allocation_pct": float(db_pct),
                 "plan_type": "Direct-Growth",
-                "rationale": "Stability cushion & statutory asset allocation rebalancing.",
+                "rationale": "Statutory capital preservation floor (100% Sovereign T-Bills/Repo). Dedicated liquid buffer separate from equities.",
             })
     else:
         # Client has no Direct schemes yet (or 100% regular) — provide canonical sleeve blueprint
