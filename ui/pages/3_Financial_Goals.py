@@ -99,17 +99,17 @@ with st.sidebar:
         </div>
         """, unsafe_allow_html=True)
 
-    st.markdown("<p style='font-weight: 700; font-size: 0.82rem; color: #334155; margin-bottom: 6px;'>🧭 ADVISORY WORKFLOW</p>", unsafe_allow_html=True)
+    st.markdown("<p style='font-weight: 700; font-size: 0.82rem; color: #334155; margin-bottom: 6px;'>🧭 TWO-STEP FIDUCIARY FLOW</p>", unsafe_allow_html=True)
 
-    # Interactive Navigation Links
-    st.page_link("app.py", label=f"1. Statement Intake {'✅' if _has_statements else '⏳'}", icon="📤", help="Upload CAS & CGS statements")
-    st.page_link("pages/2_Risk_Profiler.py", label=f"2. SEBI Risk Profiler {'✅' if _has_risk else '⏳'}", icon="📋", help="Binding constraint SAA evaluation")
-    st.page_link("pages/3_Financial_Goals.py", label=f"3. Milestone Goals {'✅' if _has_goals else '⏳'}", icon="🎯", help="Goal compounding & Step-Up SIP")
-    st.page_link("pages/4_Debt_Allocation.py", label=f"4. True Debt Analysis {'✅' if _has_cas else '⏳'}", icon="📈", help="Unbundle internal debt & hybrid buffers")
-    st.page_link("pages/5_Fiduciary_Report.py", label=f"5. Executive Report {'✅' if (_has_cas and _has_risk and _has_goals) else '⏳'}", icon="📄", help="Actionable client review document")
+    # Two-Step Fiduciary Flow
+    st.page_link("app.py", label=f"Step 1: Portfolio Intake & Audit {'✅' if _has_cas else '⏳'}", icon="📊")
+    st.page_link("pages/5_Fiduciary_Report.py", label=f"Step 2: Executive Fiduciary Report {'✅' if _has_cas else '⏳'}", icon="📄")
 
-    st.markdown("---")
-    st.page_link("pages/1_Advisory_Flow.py", label="🗺️ Advisory Roadmap & Guide", icon="🧭", help="View end-to-end fiduciary journey")
+    st.markdown("<p style='font-weight: 700; font-size: 0.75rem; color: #64748b; margin-top: 10px; margin-bottom: 4px;'>🔬 OPTIONAL DEEP-DIVES</p>", unsafe_allow_html=True)
+    st.page_link("pages/2_Risk_Profiler.py", label="Risk Profiler & SAA", icon="📋")
+    st.page_link("pages/4_Debt_Allocation.py", label="True Debt Factsheet Matrix", icon="📈")
+    st.page_link("pages/3_Financial_Goals.py", label="Financial Goals Wizard", icon="🎯")
+    st.page_link("pages/1_Advisory_Flow.py", label="Advisory Roadmap", icon="🧭")
 
     st.markdown("---")
     if st.button("🔄 Reset / Clear Session", use_container_width=True, help="Clear active session portfolio and start over"):

@@ -146,3 +146,4 @@ def test_sip_blueprint_alerts_and_timing():
     assert "portfolio_completion_alerts" in bp
     assert len(bp["portfolio_completion_alerts"]) > 0
     assert "fiduciary_routing_rationale" in bp
+
