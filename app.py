@@ -8,9 +8,14 @@ import os
 import subprocess
 import sys
 
+# Ensure repository root is always on sys.path
+_ROOT = os.path.dirname(os.path.abspath(__file__))
+if _ROOT not in sys.path:
+    sys.path.insert(0, _ROOT)
+
 if "streamlit" in sys.modules:
-    # Running directly inside Streamlit (e.g. Streamlit Community Cloud)
-    _ui_path = os.path.join(os.path.dirname(__file__), "ui", "app.py")
+    # Running directly inside Streamlit (e.g. Streamlit Community Cloud with main file path `app.py`)
+    _ui_path = os.path.join(_ROOT, "ui", "app.py")
     with open(_ui_path, encoding="utf-8") as _f:
         exec(compile(_f.read(), _ui_path, "exec"), globals())
 elif __name__ == "__main__":
