@@ -745,16 +745,30 @@ def load_holdings_from_cas_excel(
 ) -> List[HoldingItem]:
     """
     Parses active mutual fund holdings directly from CAS detailed report Excel sheet.
-    Reconciles with fund_metrics.json for expense ratios, market-cap splits, and top stock holdings.
+    Reconciles with fund_metrics.json for expense ratios, market-cap splits, sector allocations, and top stock holdings.
+    
+    When require_exact_metric_identity=True (default), requires exact scheme_id/ISIN binding
+    to fund metrics; no name-based fuzzy matching. Fails closed without verified identity.
     """
     if not xlsx_path.exists():
         raise FileNotFoundError(f"CAS statement not found: {xlsx_path}")
 
     wb = openpyxl.load_workbook(xlsx_path, data_only=True)
-    if "Portfolio Details" not in wb.sheetnames:
-        raise ValueError("Invalid CAS workbook: missing 'Portfolio Details' sheet.")
+    # Flexible sheet detection: CAMS uses "Portfolio Details", KFinTech/MFCentral
+    # may use "Holdings", "Scheme Details", "Portfolio_Summary", etc.
+    _SHEET_KEYWORDS = ("portfolio", "holdings", "scheme details", "consolidated")
+    sheet_name = None
+    for name in wb.sheetnames:
+        if any(kw in name.lower() for kw in _SHEET_KEYWORDS):
+            sheet_name = name
+            break
+    if sheet_name is None:
+        raise ValueError(
+            "Invalid CAS workbook: no portfolio/holdings sheet found. "
+            f"Available sheets: {wb.sheetnames}"
+        )
 
-    sheet = wb["Portfolio Details"]
+    sheet = wb[sheet_name]
 
     # Load metrics dictionary if provided
     metrics_map = {}
@@ -763,7 +777,7 @@ def load_holdings_from_cas_excel(
         with open(fund_metrics_path, "r", encoding="utf-8") as f:
             m_data = json.load(f)
             for m in m_data.get("funds", []):
-                fid = m.get("id", "").strip().lower()
+                fid = re.sub(r"[^a-z0-9]", "", m.get("id", "")).strip().casefold()
                 metrics_map[fid] = m
             # Issue #84: Validate metrics provenance and exact scheme binding
             metrics_provenance = _validate_metrics_provenance(
@@ -792,11 +806,27 @@ def load_holdings_from_cas_excel(
     # Parse only an explicit, complete header contract. Never fall back to
     # positional columns: a different workbook layout could otherwise turn
     # unrelated cells into invested/current values without an obvious error.
+    # Flexible header matching with aliases (handles CAMS, KFinTech, MFCentral variants)
+    _HEADER_ALIASES = {
+        "scheme name": "Scheme Name", "scheme": "Scheme Name", "fund name": "Scheme Name",
+        "scheme description": "Scheme Name", "scheme / plan": "Scheme Name", "scheme/plan": "Scheme Name",
+        "folio no.": "Folio No.", "folio no": "Folio No.", "folio": "Folio No.", "folio number": "Folio No.",
+        "account no.": "Folio No.", "account no": "Folio No.",
+        "invested value": "Invested Value", "invested": "Invested Value", "cost value": "Invested Value",
+        "invested amount": "Invested Value", "cost basis": "Invested Value", "cost": "Invested Value",
+        "current value": "Current Value", "current": "Current Value", "market value": "Current Value",
+        "closing value": "Current Value", "valuation": "Current Value",
+        "units": "Units", "unit": "Units", "closing units": "Units", "balance units": "Units",
+        "amc name": "AMC Name", "amc": "AMC Name",
+    }
+    required_headers = {"Scheme Name", "Folio No.", "Invested Value", "Current Value", "Units"}
+
     hdr = None
     start_row = None
     for row_idx, row in enumerate(sheet.iter_rows(values_only=True), start=1):
         vals = [str(c).strip() if c is not None else "" for c in row]
-        if "Scheme Name" in vals:
+        canon_vals = [_HEADER_ALIASES.get(v.lower(), v) for v in vals if v]
+        if "Scheme Name" in canon_vals and any(h in canon_vals for h in ("Current Value", "Units", "Folio No.")):
             non_empty = [name for name in vals if name]
             if len(non_empty) != len(set(non_empty)):
                 raise ValueError("Invalid CAS workbook: duplicate column headers in 'Portfolio Details'.")
@@ -804,22 +834,28 @@ def load_holdings_from_cas_excel(
             start_row = row_idx + 1
             break
 
-    required_headers = {"Scheme Name", "Folio No.", "Invested Value", "Current Value", "Units"}
     if hdr is None:
-        raise ValueError("Invalid CAS workbook: no 'Scheme Name' header found in 'Portfolio Details'.")
-    missing_headers = sorted(required_headers - set(hdr))
+        raise ValueError("Invalid CAS workbook: no 'Scheme Name' header detected.")
+
+    # Normalize header keys using aliases
+    normalized_hdr = {}
+    for key, idx in hdr.items():
+        canonical = _HEADER_ALIASES.get(key.strip().lower(), key)
+        normalized_hdr[canonical] = idx
+
+    missing_headers = sorted(required_headers - set(normalized_hdr))
     if missing_headers:
         raise ValueError(
             "Invalid CAS workbook: missing required 'Portfolio Details' columns: "
             + ", ".join(missing_headers)
         )
 
-    col_scheme = hdr["Scheme Name"]
-    col_folio = hdr["Folio No."]
-    col_inv = hdr["Invested Value"]
-    col_cur = hdr["Current Value"]
-    col_units = hdr["Units"]
-    col_amc = hdr.get("AMC Name")
+    col_scheme = normalized_hdr["Scheme Name"]
+    col_folio = normalized_hdr["Folio No."]
+    col_inv = normalized_hdr["Invested Value"]
+    col_cur = normalized_hdr["Current Value"]
+    col_units = normalized_hdr["Units"]
+    col_amc = normalized_hdr.get("AMC Name")
 
     for row in sheet.iter_rows(min_row=start_row, values_only=True):
         if not row or len(row) <= col_scheme or not row[col_scheme]:
@@ -917,9 +953,13 @@ def load_holdings_from_cas_excel(
             eq_pct = debt_pct = lc_pct = mc_pct = sc_pct = 0.0
             asset_class = AssetClass.OTHER
             metrics_status = "MISSING"
+            sector_alloc = None
+            sub_cat = None
             fund_id = identity.get("scheme_id") or scheme_str[:30]
         else:
             category = matched_metric.get("cat")
+            sector_alloc = matched_metric.get("sector")
+            sub_cat = matched_metric.get("sub_category")
             raw_ter = matched_metric.get("er")
             ter_plan = str(
                 matched_metric.get("ter_plan", matched_metric.get("plan", ""))
@@ -1023,6 +1063,8 @@ def load_holdings_from_cas_excel(
                 riskometer_source_url=identity.get("riskometer_source_url"),
                 riskometer_source_document_sha256=identity.get("riskometer_source_document_sha256"),
                 metrics_status=metrics_status,
+                sector_allocation=sector_alloc,
+                sub_category=sub_cat,
             )
         )
 
@@ -1254,11 +1296,17 @@ def _infer_asset_class(cat: str, eq: float, debt: float, lc: float, mc: float, s
 
     Equity percentage alone cannot distinguish flexi-cap, multi-cap and
     large-cap funds: all can hold more than 80% equity.
+    
+    NO HARDCODING RULE: Asset class is determined by SEBI category first.
+    Debt-percentage fallbacks only apply when category is empty/unknown,
+    to avoid misclassifying equity funds with temporary cash positions.
     """
     cat_lower = str(cat or "").casefold().replace("_", " ").replace("-", " ")
-    if any(token in cat_lower for token in ("debt", "liquid", "money market", "gilt", "bond")) or debt >= 75.0:
+    
+    # Primary: Explicit SEBI category matching (authoritative)
+    if any(token in cat_lower for token in ("debt", "liquid", "money market", "gilt", "bond")):
         return AssetClass.DEBT_LIQUID
-    if any(token in cat_lower for token in ("balanced", "hybrid", "dynamic asset", "multi asset")) or debt >= 20.0:
+    if any(token in cat_lower for token in ("balanced", "hybrid", "dynamic asset", "multi asset")):
         return AssetClass.HYBRID_BALANCED
     if "international" in cat_lower or "overseas" in cat_lower or "global equity" in cat_lower:
         return AssetClass.INTERNATIONAL
@@ -1272,14 +1320,25 @@ def _infer_asset_class(cat: str, eq: float, debt: float, lc: float, mc: float, s
         return AssetClass.FLEXI_CAP
     if "large cap" in cat_lower or "largecap" in cat_lower or "bluechip" in cat_lower:
         return AssetClass.LARGE_CAP
-    # Only use disclosed market-cap weights when the scheme category is absent
-    # or genuinely generic. Never infer Flexi Cap from a high equity percentage.
+    
+    # Secondary: Market-cap weight heuristics (only when category is generic/empty)
     if sc >= 50.0:
         return AssetClass.SMALL_CAP
     if mc >= 50.0:
         return AssetClass.MID_CAP
     if lc >= 50.0:
         return AssetClass.LARGE_CAP
+    
+    # Tertiary: Debt-percentage fallback ONLY when category provides no signal
+    # High debt (>=75%) indicates debt fund; moderate debt (>=35%) indicates hybrid
+    # These thresholds are conservative to avoid misclassifying equity funds
+    # that temporarily hold cash/debt for defensive positioning.
+    if not cat_lower or cat_lower in ("equity", "other", "unknown", ""):
+        if debt >= 75.0:
+            return AssetClass.DEBT_LIQUID
+        if debt >= 35.0:
+            return AssetClass.HYBRID_BALANCED
+    
     if eq <= 0.0 and debt > 0.0:
         return AssetClass.DEBT_LIQUID
     return AssetClass.EQUITY
@@ -1750,7 +1809,18 @@ def parse_cas(xlsx_path: Path, scheme_master: Optional[Dict[str, Any]] = None, s
     Hard Guard: Enforces single valuation date across all folios.
     """
     wb = openpyxl.load_workbook(xlsx_path, data_only=True)
-    ws = wb["Portfolio Details"]
+    _SHEET_KEYWORDS = ("portfolio", "holdings", "scheme details", "consolidated")
+    sheet_name = None
+    for name in wb.sheetnames:
+        if any(kw in name.lower() for kw in _SHEET_KEYWORDS):
+            sheet_name = name
+            break
+    if sheet_name is None:
+        raise ValueError(
+            "Invalid CAS workbook: no portfolio/holdings sheet found. "
+            f"Available sheets: {wb.sheetnames}"
+        )
+    ws = wb[sheet_name]
     
     as_of_date = ""
     dates_found = set()
@@ -1762,11 +1832,23 @@ def parse_cas(xlsx_path: Path, scheme_master: Optional[Dict[str, Any]] = None, s
         if not any(vals):
             continue
             
-        if vals[0] == "To Date":
-            as_of_date = vals[1]
-            dates_found.add(vals[1])
-        elif vals[0] == "Scheme Name":
+        if any(v.lower() == "to date" for v in vals):
+            idx = [v.lower() for v in vals].index("to date")
+            if idx + 1 < len(vals):
+                as_of_date = vals[idx + 1]
+                dates_found.add(vals[idx + 1])
+        elif any(v.lower() in ("scheme name", "scheme", "fund name", "scheme description") for v in vals):
             hdr = {name: i for i, name in enumerate(vals) if name}
+            for name, i in list(hdr.items()):
+                nl = name.strip().lower()
+                if nl in ("scheme name", "scheme", "fund name", "scheme description"):
+                    hdr["Scheme Name"] = i
+                elif nl in ("current value", "market value", "valuation", "value"):
+                    hdr["Current Value"] = i
+                elif nl in ("invested value", "cost value", "invested", "cost"):
+                    hdr["Invested Value"] = i
+                elif nl in ("folio no.", "folio no", "folio", "folio number"):
+                    hdr["Folio No."] = i
         elif hdr and vals and vals[hdr.get("Scheme Name", 0)]:
             scheme_name = vals[hdr["Scheme Name"]]
             if not scheme_name or scheme_name.lower() in ("total", "sub total"):
@@ -2380,7 +2462,7 @@ def aggregate_fiduciary_facts(
     is_exec_auth = bool(mandate_cfg.get("is_execution_authorized", False))
     hold_reasons_list = mandate_cfg.get("hold_reasons", [
         "Existing holdings retained; zero forced redemptions",
-        "Redemptions frozen pending April 2027 review",
+        "Redemptions frozen pending scheduled portfolio review",
         "New core SIP deployment on hold pending benchmark TRI and look-through validation"
     ])
 
@@ -2400,7 +2482,7 @@ def aggregate_fiduciary_facts(
         det_lumpsum_plan.execution_status = "ON_HOLD_PENDING_TRI_VALIDATION"
         det_lumpsum_plan.enforcement_notice = (
             "RUNTIME INVARIANT ENFORCED: Lumpsum deployment is strictly ON HOLD pending "
-            "April 2027 review. Orders are non-actionable conditional scenarios."
+            "scheduled portfolio review. Orders are non-actionable conditional scenarios."
         )
 
     # P0 safety boundary: switch costs are unavailable until exact per-lot and
@@ -3148,8 +3230,24 @@ def find_client_direct_folio(holdings: Optional[List[HoldingItem]], category_key
         elif cat_kw in ("pharma", "healthcare", "thematic"):
             if "pharma" in s_lower or "health" in s_lower:
                 return h.scheme, h.folio
+        elif cat_kw in ("small", "small cap", "small_cap", "smallcap"):
+            if "small" in s_lower and "mid" not in s_lower:
+                return h.scheme, h.folio
+        elif cat_kw in ("multi", "multi cap", "multi_cap", "multicap"):
+            if "multi cap" in s_lower or "multicap" in s_lower:
+                return h.scheme, h.folio
+        elif cat_kw in ("elss", "tax saver", "tax saving"):
+            if "elss" in s_lower or "tax" in s_lower:
+                return h.scheme, h.folio
+        elif cat_kw in ("value", "contra"):
+            if "value" in s_lower or "contra" in s_lower:
+                return h.scheme, h.folio
         elif cat_kw in ("debt", "short term", "liquid", "bond", "arbitrage"):
             if any(k in s_lower for k in ("arbitrage", "liquid", "short term", "debt")) and "balanced advantage" not in s_lower:
+                return h.scheme, h.folio
+        elif any(th in cat_kw for th in ("pharma", "healthcare", "defence", "defense", "tech", "technology", "energy", "power", "psu", "infra", "thematic", "sectoral")):
+            keywords = [w for w in ("pharma", "health", "defence", "defense", "tech", "energy", "power", "psu", "infra") if w in cat_kw]
+            if keywords and any(kw in s_lower for kw in keywords):
                 return h.scheme, h.folio
     return None, None
 
@@ -4337,7 +4435,7 @@ def select_autonomous_blueprint_funds(
     holdings: Optional[List[HoldingItem]] = None,
     candidate_universe: Optional[List[Dict[str, Any]]] = None,
     client_risk_tier: int = 6,
-    thematic_deficit_theme: str = "Pharma",
+    thematic_deficit_theme: str = "",
     thematic_satellite_authorized: bool = False,
     thematic_satellite_pct_of_equity: float = 0.0,
     portfolio_disclosures_by_scheme_id: Optional[Dict[str, Dict[str, Any]]] = None,
@@ -4759,7 +4857,9 @@ def select_autonomous_blueprint_funds(
         "High-Grade Debt Anchor",
         debt_target_pct,
         lambda candidate, name, category: classify_fund_category(name, category, candidate) in (
-            "Debt", "Liquid", "Money Market", "Debt: Short Duration"
+            "Debt", "Debt Funds", "Liquid", "Liquid Fund", "Overnight Fund",
+            "Money Market", "Money Market Fund", "Debt: Short Duration", "Short Duration",
+            "Ultra Short Duration", "Low Duration", "Arbitrage Fund", "Corporate Bond", "Banking & PSU",
         ),
         "no supported debt-specific ranking model and verified Direct candidate are available",
         "percent_of_total_portfolio",
@@ -4860,7 +4960,7 @@ def compute_deterministic_lumpsum_blueprint(
     holdings: Optional[List[HoldingItem]] = None,
     risk_tier: Optional[str] = None,
     stability_buffer_pct: Optional[float] = None,
-    thematic_deficit_theme: str = "Pharma",
+    thematic_deficit_theme: str = "",
     thematic_satellite_authorized: bool = False,
     thematic_satellite_pct_of_equity: float = 0.0,
     candidate_universe: Optional[List[Dict[str, Any]]] = None,
@@ -5169,7 +5269,7 @@ def compute_deterministic_sip_blueprint(
     stability_buffer_pct: Optional[float] = None,
     holdings: Optional[List[HoldingItem]] = None,
     client_aum: Optional[float] = None,
-    thematic_deficit_theme: str = "Pharma",
+    thematic_deficit_theme: str = "",
     thematic_satellite_pct_of_equity: float = 0.0,
     thematic_satellite_authorized: bool = False,
     candidate_universe: Optional[List[Dict[str, Any]]] = None,
@@ -5351,9 +5451,9 @@ def compute_deterministic_sip_blueprint(
     large_target_folio = large_info.get("folio")
     large_default_rat = large_info.get("rationale", "NO_ACTION: No eligible fund selected for Slot 4.")
 
-    pharma_scheme = thematic_info.get("scheme") or thematic_info.get("fund_name") or "NO_ACTION: No eligible fund selected"
-    direct_pharma_folio = thematic_info.get("folio")
-    pharma_rat = thematic_info.get("rationale", "NO_ACTION: No eligible thematic fund selected for Slot 5.")
+    thematic_scheme = thematic_info.get("scheme") or thematic_info.get("fund_name") or "NO_ACTION: No eligible fund selected"
+    direct_thematic_folio = thematic_info.get("folio")
+    thematic_rat = thematic_info.get("rationale", "NO_ACTION: No eligible thematic fund selected for Slot 5.")
 
     debt_scheme = debt_info.get("scheme") or "NO_ACTION: No verified debt candidate selected"
     direct_debt_folio = debt_info.get("folio")
@@ -5440,12 +5540,12 @@ def compute_deterministic_sip_blueprint(
                 items.append(
                     DeterministicSIPRecommendation(
                         category_role="Tactical Thematic Satellite",
-                        scheme_name=pharma_scheme,
-                        folio_target=direct_pharma_folio,
+                        scheme_name=thematic_scheme,
+                        folio_target=direct_thematic_folio,
                         monthly_inr=quantize_inr(b * Decimal(str(thematic_pct)) / Decimal("100.0")),
                         allocation_pct=thematic_pct,
                         rational_code="TACTICAL_SATELLITE",
-                        fiduciary_rationale=pharma_rat,
+                        fiduciary_rationale=thematic_rat,
                         is_direct=thematic_info.get("is_direct")
                     )
                 )
@@ -5560,12 +5660,12 @@ def compute_deterministic_sip_blueprint(
             items.append(
                 DeterministicSIPRecommendation(
                     category_role="Tactical Thematic Satellite",
-                    scheme_name=pharma_scheme,
-                    folio_target=direct_pharma_folio,
+                    scheme_name=thematic_scheme,
+                    folio_target=direct_thematic_folio,
                     monthly_inr=quantize_inr(b * Decimal(str(thematic_pct)) / Decimal("100.0")),
                     allocation_pct=thematic_pct,
                     rational_code="SATELLITE_THEME",
-                    fiduciary_rationale=pharma_rat,
+                    fiduciary_rationale=thematic_rat,
                     is_direct=thematic_info.get("is_direct")
                 )
             )

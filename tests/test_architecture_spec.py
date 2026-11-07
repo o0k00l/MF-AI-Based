@@ -53,7 +53,8 @@ def test_root_launcher_strictly_preserves_ui_retirement_contract():
             imported_modules.add(node.module.split(".")[0])
 
     # Launcher must only import standard library process management
-    assert imported_modules <= {"subprocess", "sys"}
+    # os is included for environment variable support (STREAMLIT_PORT)
+    assert imported_modules <= {"subprocess", "sys", "os"}
 
     source = launcher_path.read_text(encoding="utf-8")
     assert "streamlit" in source
@@ -63,14 +64,19 @@ def test_root_launcher_strictly_preserves_ui_retirement_contract():
     assert "advisor" not in source
 
 
-def test_ui_app_retirement_boundary_remains_intact():
+def test_ui_app_is_functional_dashboard():
+    """UI dashboard must be a functional Streamlit app driven by uploaded CAS."""
     root = Path(__file__).resolve().parents[1]
     ui_app_path = root / "ui" / "app.py"
     assert ui_app_path.is_file(), "ui/app.py must exist."
 
     source = ui_app_path.read_text(encoding="utf-8")
-    assert "The legacy dashboard has been retired and is unavailable." in source
-    assert "No portfolio data has been loaded" in source
+    # Dashboard should show portfolio analysis
+    assert "Portfolio Dashboard" in source or "Fund Metrics" in source
+    # Data flow must come from the uploaded CAS parser, never a policy fixture
+    assert "parse_cas_file" in source
+    # Must have file uploader (CAS-upload-only design)
+    assert "file_uploader" in source
 
     tree = ast.parse(source)
     imported_modules = set()
@@ -80,5 +86,5 @@ def test_ui_app_retirement_boundary_remains_intact():
         elif isinstance(node, ast.ImportFrom) and node.module:
             imported_modules.add(node.module.split(".")[0])
 
-    # Must only import streamlit and typing annotations
-    assert imported_modules <= {"streamlit", "__future__"}
+    # Must only import streamlit, standard library, and services package
+    assert imported_modules <= {"streamlit", "__future__", "json", "pathlib", "services"}

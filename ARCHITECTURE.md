@@ -20,7 +20,18 @@ The system does not possess trade execution, portfolio transaction, or funds-tra
 - No direct connection to brokers, registrar/transfer agents (RTAs: CAMS/KFintech), AMCs, banks, or payment gateways exists or is permitted.
 - Output artifacts (JSON recommendation blueprints, PDF summaries) explicitly carry non-executable disclaimers.
 
-### 1.2 Supported Scope and Exclusions
+### 1.2 Data Handling — NO HARDCODING RULE (MANDATORY)
+
+**Hardcoding of fund names, scheme codes, NAV values, portfolio values, ISINs, or any user-specific data is STRICTLY PROHIBITED anywhere in the codebase.**
+
+- Every user uploads their own CAS (Consolidated Account Statement). Every CAS is different.
+- The application MUST dynamically parse whatever funds exist in the uploaded CAS.
+- There is NO demo data, NO fallback data, NO sample portfolios.
+- If no CAS is uploaded, the app shows a prompt to upload one. It does NOT fabricate data.
+- Fund classification (equity/debt/hybrid, cap allocation) is derived at runtime from scheme names in the CAS, never from a hardcoded list.
+- Any violation of this rule is a P0 defect.
+
+### 1.3 Supported Scope and Exclusions
 - **Supported Instruments:** Direct and Regular mutual fund schemes registered under SEBI regulations.
 - **Excluded Instruments:** Direct equities, derivatives, commodities, cryptocurrencies, unlisted securities, and foreign instruments without Indian domestic mutual fund structures.
 - **Excluded Capabilities (Blocked):** Tax liability computation, exit-load optimization, and alpha claims remain disabled and fail-closed pending independent regulatory and tax review.

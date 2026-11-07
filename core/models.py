@@ -44,7 +44,7 @@ class MandateExecutionState(str, Enum):
     ADVISORY_PROPOSAL = "ADVISORY_PROPOSAL_PENDING_WRITTEN_CLIENT_AUTHORIZATION"
     CLIENT_APPROVED = "CLIENT_APPROVED_EXECUTION_READY"
     HOLD_PENDING_TRI_VALIDATION = "HOLD_PENDING_TRI_VALIDATION"
-    FROZEN_PORTFOLIO_REVIEW = "FROZEN_PORTFOLIO_REVIEW_APRIL_2027" 
+    FROZEN_PORTFOLIO_REVIEW = "FROZEN_PORTFOLIO_REVIEW_SCHEDULED"
 
 def _validate_mandate_flags(state: MandateExecutionState, authorized: bool, actionable: bool = False) -> None:
     state_value = state.value if isinstance(state, MandateExecutionState) else str(state)
@@ -267,11 +267,13 @@ class HoldingItem(BaseModel):
     riskometer_as_of_date: Optional[str] = None
     riskometer_source_url: Optional[str] = None
     riskometer_source_document_sha256: Optional[str] = None
-    # Metrics are independent of scheme identity. MISSING/INCOMPLETE metrics
-    # must never be interpreted as zero exposure or used for SIP scoring.
     metrics_status: str = "MISSING"
     xirr_pct: Optional[float] = None
     expense_ratio_pct: Optional[float] = None
+    # Sector and industry allocation for look-through analysis
+    sector_allocation: Optional[Dict[str, float]] = None
+    # Asset sub-category for enhanced classification
+    sub_category: Optional[str] = None
 
 
 class FeeBleedAnalysis(BaseModel):
@@ -537,7 +539,7 @@ class DeterministicLumpsumPlan(BaseModel):
     execution_status: str = "ON_HOLD_PENDING_TRI_VALIDATION"
     enforcement_notice: str = (
         "MANDATE ENFORCEMENT: Lumpsum parking deployment is strictly ON HOLD pending "
-        "April 2027 review. Orders are non-actionable conditional scenarios."
+        "scheduled portfolio review. Orders are non-actionable conditional scenarios."
     )
 
 

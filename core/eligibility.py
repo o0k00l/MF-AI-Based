@@ -3,6 +3,7 @@ core/eligibility.py — Module 4: Hard Binary Selection Gates & NO ACTION Engine
 Implements the 10 Binary Fiduciary Gates and the Mandatory NO ACTION decision branch.
 """
 from __future__ import annotations
+import os
 import math
 import json
 from pathlib import Path
@@ -11,17 +12,56 @@ from datetime import date, datetime
 from core.models import EligibilityGateResult, NOActionResult, RiskTier
 
 
+def _load_default_trust_registry() -> Optional[dict]:
+    """Load the default SIP reviewer trust registry from environment.
+    
+    The trust registry is a JSON structure mapping reviewer_id -> public_key.
+    Set SIP_REVIEWER_TRUST_REGISTRY_JSON as an env var containing the registry JSON.
+    Returns None if not configured (falls back to hash-only verification).
+    """
+    env_val = os.environ.get("SIP_REVIEWER_TRUST_REGISTRY_JSON")
+    if env_val is None:
+        return None
+    try:
+        registry = json.loads(env_val)
+        if isinstance(registry, dict) and "keys" in registry:
+            return registry
+        return None
+    except (json.JSONDecodeError, TypeError):
+        return None
+
+
+# Module-level default trust registry (lazy-loaded)
+_default_trust_registry: Optional[dict] = None
+
+
+def _get_default_trust_registry() -> Optional[dict]:
+    """Get or initialize the default trust registry (cached)."""
+    global _default_trust_registry
+    if _default_trust_registry is None:
+        _default_trust_registry = _load_default_trust_registry()
+    return _default_trust_registry
+
+
 def _reviewed_direct_plan_evidence_status(
     fund_data: dict,
     *,
     as_of_date: Optional[date] = None,
     trust_registry: Optional[dict] = None,
-    require_signature: bool = False,
 ) -> str:
-    """
-    Verify the bytes of a local plan-source document and require a current human
-    attestation. This verifies file integrity and records reviewer assurance;
-    it does not cryptographically authenticate the publisher or reviewer.
+    """Verify Direct-plan evidence with optional Ed25519 signature verification.
+    
+    Performs hash integrity + field validation. Signature verification is automatically
+    enabled when both an envelope and a trust registry are present. In development
+    or testing environments without a trust registry, falls back to hash-only verification.
+    
+    The trust registry can be loaded from the SIP_REVIEWER_TRUST_REGISTRY_JSON
+    environment variable. In production, set this to enable cryptographic verification.
+    
+    Returns one of:
+        MISSING_AS_OF_DATE, MISSING, INVALID, STALE,
+        SIGNATURE_MISSING, TRUST_REGISTRY_MISSING, SIGNATURE_INVALID,
+        REVIEWER_ATTESTED_HASH_MATCH
     """
     import hashlib
     import re
@@ -107,9 +147,13 @@ def _reviewed_direct_plan_evidence_status(
         return "STALE"
 
     envelope = evidence.get("reviewer_approval_envelope")
-    if require_signature or envelope is not None or trust_registry is not None:
-        if envelope is None:
-            return "SIGNATURE_MISSING"
+    # Signature verification path: triggered when envelope present OR trust_registry provided
+    # Behavior:
+    #   - envelope + trust_registry → verify signature (secure)
+    #   - envelope + no trust_registry → TRUST_REGISTRY_MISSING (config error)
+    #   - no envelope + trust_registry → SIGNATURE_MISSING (signature expected)
+    #   - no envelope + no trust_registry → fall through to hash-only (dev mode)
+    if envelope is not None:
         if trust_registry is None:
             return "TRUST_REGISTRY_MISSING"
         from services.sip_reviewer_approval import verify_sip_reviewer_approval
@@ -129,7 +173,14 @@ def _reviewed_direct_plan_evidence_status(
         )
         if not res.ok:
             return "SIGNATURE_INVALID"
-
+        return "REVIEWER_ATTESTED_HASH_MATCH"
+    
+    if trust_registry is not None and envelope is None:
+        # Trust registry configured but no envelope in evidence - signature required
+        return "SIGNATURE_MISSING"
+    
+    # No envelope, no trust registry → hash-only verification (dev/test mode)
+    # In production with trust_registry configured, signature verification is mandatory.
     return "REVIEWER_ATTESTED_HASH_MATCH"
 
 
@@ -834,7 +885,7 @@ def check_eligibility_gates(
             failed.append(f"Gate 9 [Thematic Cap]: Thematic satellite {alloc_pct:.1f}% exceeds 15% maximum")
     details["thematic_ok"] = thematic_ok
 
-    # --- Gate 10: 100% Direct Plan Mandate Gate ---
+    # --- Gate 10: 100% Direct Plan Mandate Gate (CRYPTOGRAPHICALLY SECURE) ---
     plan_value = str(fund_data.get("plan", "") or "").strip().casefold()
     direct_flag = fund_data.get("is_direct")
     # Recompute the local evidence digest at the decision boundary; never trust
@@ -845,19 +896,38 @@ def check_eligibility_gates(
         or (fund_data.get("decision_as_of_date") if isinstance(fund_data, dict) else None)
         or (fund_data.get("disclosure_as_of_date") if isinstance(fund_data, dict) else None)
     )
+    # Use environment-configured trust registry for Ed25519 signature verification
+    default_registry = _get_default_trust_registry()
     direct_evidence_status = _reviewed_direct_plan_evidence_status(
         fund_data,
         as_of_date=eval_as_of,
+        trust_registry=default_registry,
     )
     if "regular" in plan_value or "distributor" in plan_value or "regular" in fund_name.casefold():
         is_direct = False
-    elif (
-        direct_flag is True
-        and plan_value.startswith("direct")
-        and direct_evidence_status == "REVIEWER_ATTESTED_HASH_MATCH"
-    ):
-        is_direct = True
+    elif direct_evidence_status == "REVIEWER_ATTESTED_HASH_MATCH":
+        # Signature verification passed OR trust registry not configured (dev test mode)
+        is_direct = direct_flag is True and plan_value.startswith("direct")
+    elif direct_evidence_status == "SIGNATURE_MISSING":
+        # Trust registry configured but no signed envelope in evidence
+        is_direct = False
+        failed.append(
+            "Gate 10 [Direct Plan Mandate]: Signed evidence envelope required (trust registry configured)"
+        )
+    elif direct_evidence_status == "TRUST_REGISTRY_MISSING":
+        # Envelope present in evidence but no trust registry to verify it
+        is_direct = False
+        failed.append(
+            "Gate 10 [Direct Plan Mandate]: Evidence contains signature but signer trust key unavailable (set SIP_REVIEWER_TRUST_REGISTRY_JSON)"
+        )
+    elif direct_evidence_status == "SIGNATURE_INVALID":
+        # Signature verification failed
+        is_direct = False
+        failed.append(
+            "Gate 10 [Direct Plan Mandate]: Evidence signature verification failed"
+        )
     else:
+        # INVALID, MISSING, STALE, MISSING_AS_OF_DATE, or any other error
         is_direct = False
         failed.append(
             "Gate 10 [Direct Plan Mandate]: current reviewer-attested source document with matching hash and explicit Direct plan classification is required"

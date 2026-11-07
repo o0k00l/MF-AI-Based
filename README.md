@@ -109,6 +109,55 @@ The checked-in TRI files are provisional test fixtures. Monthly or interpolated 
 
 A matching checksum verifies the integrity of a local file against its stated checksum. It does not authenticate the publisher, establish that the series is the correct TRI, or prove that the observations are complete.
 
+## Verified Flow: CAS Upload to Debt Allocation Report
+
+### Overview
+The dashboard supports a clean data flow from user-uploaded CAS files to portfolio analysis. All portfolio values are parsed dynamically from the user's CAS file — no hardcoded values are used.
+
+### Data Flow
+```
+User CAS Upload → ui/app.py → parse_cas_file() → st.session_state["user_portfolio"]
+                                 ↓
+                            ui/pages/2_Debt_Allocation.py ← reads session_state
+                                 ↓
+                      Fund metrics (category, eq/debt %) ← data/policy/fund_metrics.json
+                                 ↓
+                     Computed allocations: Equity, Debt, Large/Mid/Small Cap
+```
+
+### Key Pages
+
+#### 1. Portfolio Dashboard (`ui/app.py`)
+- **Purpose**: Main dashboard for CAS upload and portfolio overview
+- **Features**:
+  - CAS file upload (Excel .xlsx format)
+  - Dynamic fund parsing via `services/cas_parser.py`
+  - Portfolio metrics (Total Value, Equity %, Debt %)
+  - Segment allocation (Large/Mid/Small Cap)
+  - Fund-by-fund detail tabs (Equity, Hybrid, Debt)
+- **Session State**: Stores parsed portfolio in `st.session_state["user_portfolio"]`
+
+#### 2. Debt Allocation Verification (`ui/pages/2_Debt_Allocation.py`)
+- **Purpose**: Detailed debt allocation analysis including internal debt in equity funds
+- **Features**:
+  - True equity vs internal debt breakdown
+  - Large/Mid/Small cap segment analysis
+  - Fund-by-fund debt allocation percentages
+  - Visual bar charts for allocation comparison
+- **Data Source**: Reads portfolio from `session_state["user_portfolio"]` from dashboard
+
+### No-Hardcoding Rules
+- ✅ `fund_metrics.json` contains only reference metadata (scheme_id, category, EQ/debt %, expense ratio)
+- ✅ No `current_value`, `total_portfolio_value_inr`, or `portfolio_value_lakhs` in policy files
+- ✅ All portfolio values computed from user-uploaded CAS data
+- ✅ All fund details expanded dynamically
+
+### Market Standard Metrics
+- **Equity vs Debt**: Shows true allocation including internal debt in equity funds
+- **Large Cap**: ~5% debt allocation in Large Cap funds
+- **Flexi/Multi Cap**: ~2% debt allocation
+- **Mid/Small Cap**: ~2% debt allocation
+
 ## Production release gates
 
 The detailed, auditable release criteria are maintained in [PRODUCTION_RELEASE_CHECKLIST.md](PRODUCTION_RELEASE_CHECKLIST.md). Client-data exposure and GitHub branch-control remediation are documented in [SECURITY_DATA_HANDLING.md](SECURITY_DATA_HANDLING.md).

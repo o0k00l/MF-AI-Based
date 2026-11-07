@@ -1270,7 +1270,7 @@ def _parse_cas_pdf_pypdf(source, password: str = "") -> dict:
 
                 # Closing balance, NAV, Valuation
                 val_m = re.search(
-                    r'Closing Unit Balance:\s*([0-9,]+\.[0-9]+)\s+Nav as on\s*([0-9]{2}-[A-Za-z]{3}-[0-9]{4}):\s*INR\s*([0-9,]+\.[0-9]+)\s+Valuation on\s*([0-9]{2}-[A-Za-z]{3}-[0-9]{4})\s*:\s*INR\s*([0-9,]+\.[0-9]{2})',
+                    r'Closing Unit Balance:\s*([0-9,]+\.[0-9]+)[\s\S]*?Nav as on\s*([0-9]{2}-[A-Za-z]{3}-[0-9]{4}):\s*INR\s*([0-9,]+\.[0-9]+)[\s\S]*?Valuation on\s*([0-9]{2}-[A-Za-z]{3}-[0-9]{4})\s*:\s*INR\s*([0-9,]+\.[0-9]{2})',
                     sec
                 )
                 if val_m:
@@ -1399,7 +1399,8 @@ def _parse_cas_pdf_pypdf(source, password: str = "") -> dict:
         skip_phrases = (
             "Consolidated Account", "MFCentral", "SoA Holdings", "Demat Holdings",
             "Page ", "Invested Value", "Units NAV", "Gain/Loss", "Balance", "PAN :",
-            "S/O ", "ROAD,", "HOSPITAL,", "Allocation by", "EQUITY FUND"
+            "S/O ", "D/O ", "W/O ", "ROAD,", "STREET,", "LANE,", "HOSPITAL,", "NAGAR,",
+            "Allocation by", "EQUITY FUND"
         )
 
         for l in lines:

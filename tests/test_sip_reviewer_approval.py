@@ -414,9 +414,9 @@ def test_direct_plan_evidence_requires_signature_when_configured(tmp_path):
         },
     }
 
-    # Plain evidence missing envelope when signature required
+    # Plain evidence missing envelope when trust registry configured
     status_missing = _reviewed_direct_plan_evidence_status(
-        fund_data, trust_registry=registry, require_signature=True
+        fund_data, trust_registry=registry
     )
     assert status_missing == "SIGNATURE_MISSING"
 
@@ -439,7 +439,7 @@ def test_direct_plan_evidence_requires_signature_when_configured(tmp_path):
     fund_data["direct_plan_evidence"]["reviewer_approval_envelope"] = envelope
 
     status_verified = _reviewed_direct_plan_evidence_status(
-        fund_data, trust_registry=registry, require_signature=True
+        fund_data, trust_registry=registry
     )
     assert status_verified == "REVIEWER_ATTESTED_HASH_MATCH"
 

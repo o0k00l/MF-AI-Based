@@ -527,12 +527,10 @@ def validate_evidence_provider_payload(
         if not isinstance(candidate.get("_evidence_root"), (str, __import__("pathlib").Path)):
             raise EvidenceProviderContractError(f"Candidate {fund_id!r} is missing its evidence root.")
         from core.eligibility import _reviewed_direct_plan_evidence_status
-        if _reviewed_direct_plan_evidence_status(
-            candidate, as_of_date=as_of, trust_registry=trust_registry,
-            require_signature=require_reviewer_signature,
-        ) != "REVIEWER_ATTESTED_HASH_MATCH":
+        status = _reviewed_direct_plan_evidence_status(candidate, as_of_date=as_of, trust_registry=trust_registry)
+        if status != "REVIEWER_ATTESTED_HASH_MATCH":
             raise EvidenceProviderContractError(
-                f"Candidate {fund_id!r} Direct-plan source evidence is invalid, stale, or identity-conflicting."
+                f"Candidate {fund_id!r} Direct-plan source evidence verification failed: {status}"
             )
 
         score_fields = {

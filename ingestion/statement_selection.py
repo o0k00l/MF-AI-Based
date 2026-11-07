@@ -87,17 +87,37 @@ def _validate_document(path: Path, document_type: str) -> tuple[date, str]:
     try:
         names = set(workbook.sheetnames)
         if document_type == "CAS":
-            if "Portfolio Details" not in names:
+            # Flexible sheet detection: CAMS, KFinTech, MFCentral variants
+            _SHEET_KEYWORDS = ("portfolio", "holdings", "scheme details", "consolidated")
+            sheet_name = None
+            for name in names:
+                if any(kw in name.lower() for kw in _SHEET_KEYWORDS):
+                    sheet_name = name
+                    break
+            if sheet_name is None:
                 raise ValueError(f"Not a supported CAS workbook: {path.name}")
-            sheet = workbook["Portfolio Details"]
+            sheet = workbook[sheet_name]
             headers = {
-                str(cell.value).strip()
+                str(cell.value).strip().lower()
                 for row in sheet.iter_rows(values_only=False)
                 for cell in row
                 if cell.value is not None
             }
-            required = {"Scheme Name", "Current Value", "Invested Value", "Units", "Folio No."}
-            if not required.issubset(headers):
+            # Flexible header matching with aliases
+            _HEADER_ALIASES = {
+                "scheme name", "scheme", "fund name",
+                "current value", "current", "market value", "closing value",
+                "invested value", "invested", "cost value", "invested amount",
+                "units", "unit", "closing units", "balance units",
+                "folio no.", "folio no", "folio", "folio number",
+            }
+            # Check that at least the core concepts are present
+            has_scheme = any(h in ("scheme name", "scheme", "fund name") for h in headers)
+            has_value = any(h in ("current value", "current", "market value", "closing value") for h in headers)
+            has_invested = any(h in ("invested value", "invested", "cost value", "invested amount") for h in headers)
+            has_units = any(h in ("units", "unit", "closing units", "balance units") for h in headers)
+            has_folio = any(h in ("folio no.", "folio no", "folio", "folio number") for h in headers)
+            if not (has_scheme and has_value and has_invested and has_units and has_folio):
                 raise ValueError(f"CAS workbook lacks required identity/holding headers: {path.name}")
         elif document_type == "CGS":
             if not ({"Summary", "Scheme_Level_Summary", "TransactionDetails"} & names):
