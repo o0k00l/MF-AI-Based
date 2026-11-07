@@ -58,3 +58,4 @@ novaai_interacton
 dist/
 build/
 *.egg-info/
+logs/

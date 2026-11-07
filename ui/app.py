@@ -37,6 +37,49 @@ if "portfolio_metadata" not in st.session_state:
 if "api_recommendation_result" not in st.session_state:
     st.session_state["api_recommendation_result"] = None
 
+# --- Render Advisory Flow Sidebar ---
+with st.sidebar:
+    st.markdown("### 🧭 Advisory Workflow")
+    
+    _user_portfolio = st.session_state.get("user_portfolio", [])
+    _has_cas = len(_user_portfolio) > 0
+    _has_risk = bool(st.session_state.get("user_risk_score") or st.session_state.get("risk_tier"))
+    _has_goals = bool(st.session_state.get("goals_allocation"))
+    
+    st.markdown(
+        f"**1. 📤 Upload CAS Statement** {'✅' if _has_cas else '⏳'}<br>"
+        f"<span style='color: #64748b; font-size: 0.8rem;'>Portfolio Ingestion & Diagnostics</span>",
+        unsafe_allow_html=True
+    )
+    st.markdown(
+        f"**2. 📋 SEBI Risk Profiling** {'✅' if _has_risk else '⏳'}<br>"
+        f"<span style='color: #64748b; font-size: 0.8rem;'>Binding Constraint SAA</span>",
+        unsafe_allow_html=True
+    )
+    st.markdown(
+        f"**3. 🎯 Goals & Step-Up SIP** {'✅' if _has_goals else '⏳'}<br>"
+        f"<span style='color: #64748b; font-size: 0.8rem;'>Compounding & Step-Up SIP</span>",
+        unsafe_allow_html=True
+    )
+    st.markdown(
+        f"**4. 📈 True Debt Allocation** {'✅' if _has_cas else '⏳'}<br>"
+        f"<span style='color: #64748b; font-size: 0.8rem;'>Unbundle Hybrid Internal Debt</span>",
+        unsafe_allow_html=True
+    )
+    st.markdown(
+        f"**5. 📄 Fiduciary Review Report** {'✅' if (_has_cas and _has_risk and _has_goals) else '⏳'}<br>"
+        f"<span style='color: #64748b; font-size: 0.8rem;'>Actionable Client Report</span>",
+        unsafe_allow_html=True
+    )
+    
+    if _has_cas:
+        _total_val = sum(f.get("current_value", 0) for f in _user_portfolio)
+        st.markdown("---")
+        st.markdown(f"💼 **Active Portfolio:** ₹{_total_val/100000:.2f}L ({len(_user_portfolio)} funds)")
+    
+    st.markdown("---")
+    st.caption("🛡️ **Fiduciary Standard:** SEBI (Investment Advisers) Regulations, 2013 | Non-execution authority | Zero distributor commission bias.")
+
 # --- Helper Functions ---
 def export_portfolio_csv(funds: list[dict], metadata: dict) -> bytes:
     """Generate CSV export of the portfolio."""
