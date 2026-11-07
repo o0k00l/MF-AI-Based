@@ -419,7 +419,7 @@ VERIFIED_SCHEME_LOOKTHROUGH: Dict[str, Dict[str, Any]] = {
     },
 
     # WhiteOak Capital
-    "whiteoak capital - special opportunities": {
+    "whiteoak capital special opportunities": {
         "category": "Equity",
         "scheme_type": "Sectoral / Thematic",
         "asset_class": "Equity",
@@ -917,16 +917,18 @@ def classify_fund_with_ai(scheme_name: str) -> Dict[str, Any]:
     """
     clean_name = _clean_scheme_name(scheme_name)
 
-    # 1. First Pass: Check against verified disclosures knowledgebase (exact substring)
+    # 1. First Pass: Check against verified disclosures knowledgebase (exact substring & cleaned key)
     for key, profile in VERIFIED_SCHEME_LOOKTHROUGH.items():
-        if key in clean_name:
+        clean_key = _clean_scheme_name(key)
+        if key in clean_name or clean_key in clean_name:
             res = dict(profile)
             res["source"] = "AMC Factsheet Look-Through"
             return res
 
-    # 2. Second Pass: Check key component words
+    # 2. Second Pass: Check key component words (ignoring punctuation)
     for key, profile in VERIFIED_SCHEME_LOOKTHROUGH.items():
-        key_words = key.split()
+        clean_key = _clean_scheme_name(key)
+        key_words = [w for w in clean_key.split() if len(w) > 1]
         if len(key_words) >= 2 and all(w in clean_name for w in key_words):
             res = dict(profile)
             res["source"] = "AMC Factsheet Look-Through"
