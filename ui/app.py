@@ -46,11 +46,13 @@ with st.sidebar:
     
     _user_portfolio = st.session_state.get("user_portfolio", [])
     _has_cas = len(_user_portfolio) > 0
+    _has_cgs = bool(st.session_state.get("cgs_data"))
+    _has_statements = _has_cas and _has_cgs
     _has_risk = bool(st.session_state.get("user_risk_score") or st.session_state.get("risk_tier"))
     _has_goals = bool(st.session_state.get("goals_allocation"))
     
     st.markdown(
-        f"**1. 📤 Upload CAS & CGS Statements** {'✅' if _has_cas else '⏳'}<br>"
+        f"**1. 📤 Upload CAS & CGS Statements** {'✅' if _has_statements else '⏳'}<br>"
         f"<span style='color: #64748b; font-size: 0.8rem;'>Portfolio Ingestion & Tax Audit</span>",
         unsafe_allow_html=True
     )
@@ -173,12 +175,12 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# --- Dual Statement Ingestion (CAS & CGS) ---
+# --- Dual Mandatory Statement Ingestion (CAS & CGS) ---
 st.markdown(
     "<p style='color: #64748b; font-size: 1.05rem;'>"
-    "A SEBI-compliant review requires analyzing both <strong>what you hold</strong> and <strong>what gains have already been booked</strong>:<br>"
-    "• <strong>CAS (Consolidated Account Statement):</strong> Current holdings, units, folios, and valuations. <em>(Required)</em><br>"
-    "• <strong>CGS (Capital Gains Statement):</strong> Realized LTCG/STCG, Section 112A grandfathering, and exemption headroom. <em>(Recommended)</em>"
+    "A SEBI-compliant review strictly mandates uploading <strong>both statements</strong>:<br>"
+    "• <strong>1. CAS (Consolidated Account Statement):</strong> Current holdings, units, folios, and market valuations. <em>(Mandatory)</em><br>"
+    "• <strong>2. CGS (Capital Gains Statement):</strong> Realized LTCG/STCG, Section 112A grandfathered values, and exemption headroom. <em>(Mandatory)</em>"
     "</p>",
     unsafe_allow_html=True,
 )
@@ -186,21 +188,26 @@ st.markdown(
 col_up1, col_up2 = st.columns(2)
 with col_up1:
     uploaded_file = st.file_uploader(
-        "1. CAS Statement (.xlsx) *Required*",
+        "1. CAS Statement (.xlsx) *Mandatory*",
         type=["xlsx"],
         help="Upload your CAMS/Karvy/NSDL/MFCentral Consolidated Account Statement Excel file.",
         key="main_cas_uploader",
     )
 with col_up2:
     cgs_file = st.file_uploader(
-        "2. Capital Gains Statement (CGS .xlsx) *Recommended*",
+        "2. Capital Gains Statement (CGS .xlsx) *Mandatory*",
         type=["xlsx"],
         help="Upload your CAMS or KFintech Capital Gains Statement for realized LTCG/STCG and tax audit.",
         key="main_cgs_uploader",
     )
 
-if uploaded_file is None:
-    st.info("⬆️ Please upload your CAS file on the left to begin your portfolio analysis.")
+if uploaded_file is None or cgs_file is None:
+    if uploaded_file is None and cgs_file is None:
+        st.info("⬆️ **Both CAS and CGS Statements Required:** Please upload both your CAS statement on the left and your Capital Gains Statement (CGS) on the right to begin.")
+    elif uploaded_file is None:
+        st.warning("⚠️ **CAS Statement Missing:** Please upload your Consolidated Account Statement (CAS) on the left to proceed.")
+    else:
+        st.warning("⚠️ **CGS Statement Missing:** Please upload your Capital Gains Statement (CGS) on the right to complete intake.")
     st.stop()
 
 # --- Parse uploaded statements ---
@@ -208,22 +215,22 @@ with st.spinner("Parsing your CAS file..."):
     funds = parse_cas_file(uploaded_file)
 
 if not funds:
-    st.error("Could not parse any funds from the uploaded file. Please check the file format.")
+    st.error("Could not parse any funds from the uploaded CAS file. Please check the file format.")
     st.stop()
 
-# Parse CGS file if provided
-if cgs_file is not None:
-    with st.spinner("Auditing Capital Gains Statement (CGS)..."):
-        try:
-            cgs_res = parse_cgs_file(cgs_file)
-            st.session_state["cgs_data"] = cgs_res
-        except Exception as exc:
-            st.warning(f"⚠️ CGS Parse Note: {exc}")
-            st.session_state["cgs_data"] = None
-else:
-    st.session_state["cgs_data"] = None
+# Parse mandatory CGS file
+with st.spinner("Auditing Capital Gains Statement (CGS)..."):
+    try:
+        cgs_res = parse_cgs_file(cgs_file)
+        if not cgs_res or not cgs_res.get("summary"):
+            st.error("Could not parse valid capital gains summary from the uploaded CGS file. Please upload an official CAMS/KFintech CGS statement.")
+            st.stop()
+        st.session_state["cgs_data"] = cgs_res
+    except Exception as exc:
+        st.error(f"❌ Failed to parse CGS: {exc}")
+        st.stop()
 
-st.success(f"Parsed **{len(funds)}** active funds from your CAS." + (" (CGS Statement Linked ✅)" if st.session_state.get("cgs_data") else ""))
+st.success(f"✅ **Both Statements Verified:** Parsed **{len(funds)}** active funds from your CAS and verified statutory CGS tax evidence.")
 
 # Store portfolio in session state for other pages
 st.session_state["user_portfolio"] = funds

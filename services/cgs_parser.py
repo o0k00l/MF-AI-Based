@@ -38,3 +38,4 @@ def parse_cgs_file(file_obj: BinaryIO | bytes | Path) -> dict[str, Any]:
         return parse_cgs_excel(tmp_path)
     finally:
         tmp_path.unlink(missing_ok=True)
+

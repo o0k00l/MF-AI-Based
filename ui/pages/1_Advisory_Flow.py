@@ -85,11 +85,14 @@ st.markdown(
 
 # --- Session Progress Tracker ---
 user_portfolio = st.session_state.get("user_portfolio", [])
+cgs_data = st.session_state.get("cgs_data")
 has_cas = len(user_portfolio) > 0
+has_cgs = bool(cgs_data)
+has_statements = has_cas and has_cgs
 has_risk = bool(st.session_state.get("user_risk_score") or st.session_state.get("risk_tier"))
 has_goals = bool(st.session_state.get("goals_allocation"))
 
-completed_count = sum([has_cas, has_risk, has_goals])
+completed_count = sum([has_statements, has_risk, has_goals])
 progress_pct = int((completed_count / 3.0) * 100)
 
 st.markdown("---")
@@ -101,17 +104,19 @@ with col_prog1:
 with col_prog2:
     st.markdown(f"**{progress_pct}% Completed** ({completed_count} of 3 milestones)")
 
-if has_cas:
+if has_statements:
     total_val = sum(f.get("current_value", 0) for f in user_portfolio)
-    st.info(f"💼 **Active Session Portfolio:** {len(user_portfolio)} live funds worth **₹{total_val/100000:.2f} Lakhs**.")
+    st.info(f"💼 **Active Session Portfolio:** {len(user_portfolio)} live funds worth **₹{total_val/100000:.2f} Lakhs** (CAS & CGS Verified ✅).")
+elif has_cas:
+    st.warning("⚠️ **CAS uploaded, but CGS Statement is missing.** Both statements are required to proceed.")
 else:
-    st.warning("⚠️ No CAS statement uploaded yet. Begin with **Step 1** below to analyze your investments.")
+    st.warning("⚠️ **Statements missing.** Both CAS and CGS statements are required. Begin with **Step 1** below.")
 
 st.markdown("---")
 st.subheader("📋 Step-by-Step Fiduciary Roadmap")
 
 # --- Step 1 Card ---
-badge_step1 = '<span class="status-badge-done">✅ COMPLETED</span>' if has_cas else '<span class="status-badge-pending">⏳ ACTION REQUIRED</span>'
+badge_step1 = '<span class="status-badge-done">✅ COMPLETED</span>' if has_statements else '<span class="status-badge-pending">⏳ ACTION REQUIRED</span>'
 st.markdown(f"""
 <div class="flow-card">
     <span class="flow-step-num">1</span>
@@ -124,8 +129,8 @@ st.markdown(f"""
     </div>
 </div>
 """, unsafe_allow_html=True)
-if not has_cas:
-    st.caption("👉 *Navigate to **Portfolio Dashboard** in the sidebar to upload your CAS and CGS statements.*")
+if not has_statements:
+    st.caption("👉 *Navigate to **Portfolio Dashboard** in the sidebar to upload both your mandatory CAS and CGS statements.*")
 
 # --- Step 2 Card ---
 badge_step2 = '<span class="status-badge-done">✅ PROFILED</span>' if has_risk else '<span class="status-badge-pending">⏳ PENDING</span>'

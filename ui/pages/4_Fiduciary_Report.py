@@ -15,12 +15,15 @@ st.markdown("Your formal, comprehensive portfolio diagnostic and investment advi
 
 # Check prerequisites
 portfolio = st.session_state.get("user_portfolio", [])
+cgs_data = st.session_state.get("cgs_data")
 goals_alloc = st.session_state.get("goals_allocation")
 risk_tier = st.session_state.get("risk_tier") or st.session_state.get("risk_bucket")
 
 missing = []
 if not portfolio:
     missing.append("📤 Upload CAS Statement (Portfolio Dashboard)")
+if not cgs_data:
+    missing.append("📑 Upload Capital Gains Statement (CGS) (Portfolio Dashboard)")
 if not risk_tier:
     missing.append("📋 Complete Risk Profiler (Portfolio Dashboard)")
 if not goals_alloc:
