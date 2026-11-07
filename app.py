@@ -16,6 +16,7 @@ if _ROOT not in sys.path:
 if "streamlit" in sys.modules:
     # Running directly inside Streamlit (e.g. Streamlit Community Cloud with main file path `app.py`)
     _ui_path = os.path.join(_ROOT, "ui", "app.py")
+    globals()["__file__"] = _ui_path
     with open(_ui_path, encoding="utf-8") as _f:
         exec(compile(_f.read(), _ui_path, "exec"), globals())
 elif __name__ == "__main__":

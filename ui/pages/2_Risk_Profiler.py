@@ -11,9 +11,17 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-_REPO_ROOT = str(Path(__file__).resolve().parents[2])
-if _REPO_ROOT not in sys.path:
-    sys.path.insert(0, _REPO_ROOT)
+_this_file = Path(__file__).resolve() if "__file__" in globals() else Path.cwd()
+_REPO_ROOT = None
+for _cand in [_this_file.parent, _this_file.parent.parent, _this_file.parent.parent.parent, Path.cwd()]:
+    if (_cand / "services").is_dir() and (_cand / "data").is_dir():
+        _REPO_ROOT = str(_cand)
+        break
+if not _REPO_ROOT:
+    _REPO_ROOT = str(Path.cwd())
+if _REPO_ROOT in sys.path:
+    sys.path.remove(_REPO_ROOT)
+sys.path.insert(0, _REPO_ROOT)
 
 import streamlit as st
 from services.risk_profiler import (

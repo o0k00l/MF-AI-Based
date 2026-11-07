@@ -10,9 +10,17 @@ import json
 from pathlib import Path
 
 _sys = __import__("sys")
-_REPO_ROOT = str(Path(__file__).resolve().parents[1])
-if _REPO_ROOT not in _sys.path:
-    _sys.path.insert(0, _REPO_ROOT)
+_this_file = Path(__file__).resolve() if "__file__" in globals() else Path.cwd()
+_REPO_ROOT = None
+for _cand in [_this_file.parent, _this_file.parent.parent, _this_file.parent.parent.parent, Path.cwd()]:
+    if (_cand / "services").is_dir() and (_cand / "data").is_dir():
+        _REPO_ROOT = str(_cand)
+        break
+if not _REPO_ROOT:
+    _REPO_ROOT = str(Path.cwd())
+if _REPO_ROOT in _sys.path:
+    _sys.path.remove(_REPO_ROOT)
+_sys.path.insert(0, _REPO_ROOT)
 
 import streamlit as st
 
