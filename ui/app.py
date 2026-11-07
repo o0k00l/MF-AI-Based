@@ -347,6 +347,7 @@ with col4:
     st.markdown('<div class="metric-card">', unsafe_allow_html=True)
     st.markdown('<span class="metric-label">True Debt</span>', unsafe_allow_html=True)
     st.markdown(f'<span class="metric-value">{debt_pct:.1f}%</span>', unsafe_allow_html=True)
+    st.caption(f"₹{total_debt/100000:.2f}L unbundled cash/debt across holdings")
     st.markdown('</div>', unsafe_allow_html=True)
 
 # --- Segment Allocation ---
