@@ -62,37 +62,41 @@ def _clean_scheme_name(scheme_name: str) -> str:
 
 
 def _load_verified_policy_lookthrough() -> Dict[str, Dict[str, Any]]:
-    """Dynamically load verified scheme lookthrough disclosures from external policy storage.
+    """Dynamically load verified scheme lookthrough disclosures from unified scheme master.
 
-    Reads data/policy/fund_metrics.json dynamically at runtime, mapping each scheme
+    Reads data/policy/scheme_master.json dynamically at runtime, mapping each scheme
     to its authentic SEBI category, asset class lookthrough, and benchmark without
     hardcoding any client-specific fund dictionaries into python source code.
     """
-    policy_file = Path(__file__).resolve().parent.parent / "data" / "policy" / "fund_metrics.json"
+    policy_file = Path(__file__).resolve().parent.parent / "data" / "policy" / "scheme_master.json"
     if not policy_file.exists():
         return {}
     try:
         with open(policy_file, "r", encoding="utf-8") as f:
             data = json.load(f)
     except Exception as exc:
-        logger.warning("Could not read policy fund_metrics.json: %s", exc)
+        logger.warning("Could not read policy scheme_master.json: %s", exc)
         return {}
 
     registry: Dict[str, Dict[str, Any]] = {}
-    for item in data.get("funds", []):
-        f_id = item.get("id")
+    for canonical_name, item in data.get("schemes", {}).items():
+        f_id = canonical_name
         if not f_id:
             continue
-        cat_str = str(item.get("cat") or "")
+        cat_str = str(item.get("category") or "").strip()
         f_id_lower = str(f_id).lower().strip()
 
         # Category, Scheme Type & Benchmark mapping
-        raw_cat = str(item.get("category") or "").strip()
-        raw_bench = str(item.get("benchmark") or "").strip()
-        raw_sch = str(item.get("scheme_type") or item.get("cat") or "").strip()
+        raw_cat = cat_str
+        raw_bench = str(item.get("benchmark_index") or "").strip()
+        raw_sch = str(item.get("mandate") or item.get("category") or "").strip()
 
-        eq_val = float(item.get("eq") if item.get("eq") is not None else 95.0)
-        debt_val = float(item.get("debt") if item.get("debt") is not None else 0.0)
+        # Use eq/debt from unified schema directly if available, otherwise calculate from portfolio breakdown
+        lc = float(item.get("portfolio_large_cap_pct") or 0)
+        mc = float(item.get("portfolio_mid_cap_pct") or 0)
+        sc = float(item.get("portfolio_small_cap_pct") or 0)
+        eq_val = float(item.get("eq") or (lc + mc + sc) or 0)
+        debt_val = float(item.get("debt") or item.get("portfolio_debt_pct") or 0.0)
 
         if raw_cat in ("Debt", "Hybrid", "Equity"):
             broad_cat = raw_cat
@@ -170,31 +174,35 @@ def _load_verified_policy_lookthrough() -> Dict[str, Dict[str, Any]]:
         if raw_bench:
             bench = raw_bench
 
-        ter_d = float(item.get("er") or item.get("ter_direct_pct") or 0.75)
+        ter_d = float(item.get("ter_direct_pct") or 0.75)
         ter_r = float(item.get("ter_regular_pct") or (ter_d + (1.00 if broad_cat == "Equity" else 0.75)))
         trail = float(item.get("trail_commission_pct") or round(ter_r - ter_d, 2))
+
+        # Calculate total equity from portfolio breakdown
+        total_eq = float(item.get("portfolio_large_cap_pct") or 0) + float(item.get("portfolio_mid_cap_pct") or 0) + float(item.get("portfolio_small_cap_pct") or 0)
+        total_debt = float(item.get("portfolio_debt_pct") or 0)
 
         entry = {
             "category": broad_cat,
             "scheme_type": sch_type,
             "asset_class": sch_type,
             "sub_category": item.get("sector") or cat_str or sch_type,
-            "eq": float(item.get("eq") if item.get("eq") is not None else 95.0),
-            "debt": float(item.get("debt") if item.get("debt") is not None else 0.0),
-            "gold": float(item.get("gold") if item.get("gold") is not None else 0.0),
-            "intl": float(item.get("intl") if item.get("intl") is not None else 0.0),
-            "lc": float(item.get("lc") if item.get("lc") is not None else (item.get("portfolio_large_cap_pct") or 50.0)),
-            "mc": float(item.get("mc") if item.get("mc") is not None else (item.get("portfolio_mid_cap_pct") or 30.0)),
-            "sc": float(item.get("sc") if item.get("sc") is not None else (item.get("portfolio_small_cap_pct") or 15.0)),
+            "eq": total_eq if total_eq > 0 else 95.0,
+            "debt": total_debt if total_debt > 0 else 0.0,
+            "gold": float(item.get("gold_pct") or 0),
+            "intl": float(item.get("intl_pct") or 0),
+            "lc": float(item.get("portfolio_large_cap_pct") or 0),
+            "mc": float(item.get("portfolio_mid_cap_pct") or 0),
+            "sc": float(item.get("portfolio_small_cap_pct") or 0),
             "sector": item.get("sector") or "Diversified",
-            "sharpe": float(item.get("sharpe") or item.get("sharpe_3y") or 0.5),
+            "sharpe": float(item.get("sharpe_3y") or 0.5),
             "ter_direct": ter_d,
             "ter_regular": ter_r,
             "trail_commission_pct": trail,
             "benchmark": bench,
             "risk_rating": "High" if broad_cat == "Hybrid" else ("Low" if broad_cat == "Debt" else "Very High"),
-            "source": "AMC Factsheet Look-Through",
-            "ai_rationale": "Audited from official AMC portfolio factsheet disclosures (data/policy/fund_metrics.json).",
+            "source": "AMC Factsheet Look-Through (Unified Scheme Master)",
+            "ai_rationale": "Audited from official AMC portfolio factsheet disclosures (data/policy/scheme_master.json).",
         }
 
         # Index by id and all its aliases dynamically from policy storage
@@ -1166,19 +1174,22 @@ def compute_portfolio_segment_breakdown(funds: List[Dict[str, Any]]) -> Dict[str
         })
 
     eq_pct = (eq_inr / total_val * 100.0) if total_val > 0 else 0.0
-    debt_pct = (debt_inr / total_val * 100.0) if total_val > 0 else 0.0
+    raw_debt_pct = (debt_inr / total_val * 100.0) if total_val > 0 else 0.0
+    gold_pct = (gold_inr / total_val * 100.0) if total_val > 0 else 0.0
+    intl_pct = (intl_inr / total_val * 100.0) if total_val > 0 else 0.0
     lc_pct = (lc_inr / total_val * 100.0) if total_val > 0 else 0.0
     mc_pct = (mc_inr / total_val * 100.0) if total_val > 0 else 0.0
     sc_pct = (sc_inr / total_val * 100.0) if total_val > 0 else 0.0
-    gold_pct = (gold_inr / total_val * 100.0) if total_val > 0 else 0.0
-    intl_pct = (intl_inr / total_val * 100.0) if total_val > 0 else 0.0
+    # For SAA drift analysis, gold is part of the stability buffer (debt + gold)
+    # This ensures equity + stability = 100% for proper target comparison
+    debt_pct = raw_debt_pct + gold_pct
 
     return {
         "total_value": total_val,
         "equity_value": round(eq_inr, 2),
         "equity_pct": round(eq_pct, 2),
-        "debt_value": round(debt_inr, 2),
-        "debt_pct": round(debt_pct, 2),
+        "debt_value": round(debt_inr + gold_inr, 2),  # Include gold in debt value for SAA
+        "debt_pct": round(debt_pct, 2),  # Already includes gold
         "large_cap_value": round(lc_inr, 2),
         "large_cap_pct": round(lc_pct, 2),
         "mid_cap_value": round(mc_inr, 2),
@@ -1721,6 +1732,13 @@ Provide a concise, direct, institutional fiduciary answer in 2-4 bullet points. 
                 f"* **Portfolio Hygiene:** No dual-plan folio overlaps detected across your {len(funds)} holdings.\n"
                 "* **Exit Priority:** Prioritize switching any remaining Regular plans into zero-commission Direct equivalents using annual Section 112A tax-exempt headroom."
             )
+    elif any(k in ql for k in ("thematic", "sector", "satellite")):
+        theme_pct = portfolio_metrics.get("thematic_pct", 0.0)
+        resp = (
+            f"* **Thematic/Satellite Allocation:** **{theme_pct:.1f}%** of your portfolio is in thematic or sectoral funds (technology, pharma, banking, infrastructure, energy, PSU, manufacturing).\\n"
+            f"* **Fiduciary Guidance:** Thematic exposure above 15% indicates concentration risk. Sector funds carry high cyclical drawdown potential. Consider rebalancing into core broad market funds if this cap is exceeded.\\n"
+            f"* **Actionable Checkpoint:** Quarterly review of thematic holdings against sector weights to maintain strategic diversification."
+        )
     else:
         resp = (
             f"* **Portfolio Health Summary:** Total valuation stands at **₹{tot_val:,.0f}** across {len(funds)} active plan folios.\n"

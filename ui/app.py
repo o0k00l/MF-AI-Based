@@ -26,7 +26,7 @@ import streamlit as st
 
 try:
     from services.cas_parser import parse_cas_file
-    from services.ai_fund_classifier import enrich_funds_with_ai, classify_fund_with_ai, generate_fiduciary_ai_narrative, compute_portfolio_segment_breakdown
+    from services.ai_fund_classifier import enrich_funds_with_ai, classify_fund_with_ai, generate_fiduciary_ai_narrative, compute_portfolio_segment_breakdown, evaluate_portfolio_concentration_risks
     from services.sip_api_client import get_api_health, request_sip_recommendations
     from services.risk_profiler import evaluate_fiduciary_profile
     from services.cgs_parser import parse_cgs_file
@@ -260,6 +260,9 @@ total_gold = seg_breakdown["gold_value"]
 total_intl = seg_breakdown["intl_value"]
 eq_pct = seg_breakdown["equity_pct"]
 debt_pct = seg_breakdown["debt_pct"]
+# Compute thematic/sectoral concentration percentage
+conc_res = evaluate_portfolio_concentration_risks(funds)
+thematic_pct = conc_res.get("thematic_pct", 0.0)
 
 # Group by canonical underlying strategy to distinguish unique schemes from duplicate plan variants
 canonical_schemes = {}
@@ -351,22 +354,17 @@ with tab_audit:
         st.caption(f"{(total_debt/total_value*100):.1f}% (Bonds, T-Bills, TREPS)")
         st.markdown('</div>', unsafe_allow_html=True)
 
-    with st.expander("🔍 Scheme-by-Scheme Segment Allocation (Actual Factsheet Look-Through)", expanded=False):
-        st.caption("Actual underlying market capitalization and stability asset look-through audited scheme-by-scheme per AMC disclosures and regulatory filings.")
-        seg_rows = []
-        for r in seg_breakdown["scheme_rows"]:
-            c_val = r["current_value"]
-            seg_rows.append({
-                "Scheme": r["scheme"][:45],
-                "Mandate": r["mandate"],
-                "Large Cap": f"{r['large_cap_pct']:.1f}% (₹{r['large_cap_inr']/100000:.2f}L)",
-                "Mid Cap": f"{r['mid_cap_pct']:.1f}% (₹{r['mid_cap_inr']/100000:.2f}L)",
-                "Small Cap": f"{r['small_cap_pct']:.1f}% (₹{r['small_cap_inr']/100000:.2f}L)",
-                "Debt / Cash": f"{r['debt_pct']:.1f}% (₹{r['debt_inr']/100000:.2f}L)",
-                "Provenance": r["provenance"],
-            })
-        if seg_rows:
-            st.dataframe(seg_rows, use_container_width=True, hide_index=True)
+    with st.expander("🔍 True Debt & Liquid Cash Holdings", expanded=False):
+        st.caption("Bonds, T-Bills, TREPS, and stable cash equivalents.")
+        if total_debt > 0:
+            debt_data = [
+                {"Name": "Debt/Cash Reserve", "Value": f"₹{total_debt:,.0f}", "% of Portfolio": f"{(total_debt/total_value*100):.1f}%"},
+                {"Name": "Large Cap Equity", "Value": f"₹{total_lc:,.0f}", "% of Portfolio": f"{(total_lc/total_value*100):.1f}%"},
+                {"Name": "Mid Cap Equity", "Value": f"₹{total_mc:,.0f}", "% of Portfolio": f"{(total_mc/total_value*100):.1f}%"},
+                {"Name": "Small Cap Equity", "Value": f"₹{total_sc:,.0f}", "% of Portfolio": f"{(total_sc/total_value*100):.1f}%"},
+                {"Name": "Gold Holdings", "Value": f"₹{total_gold:,.0f}", "% of Portfolio": f"{(total_gold/total_value*100):.1f}%" if total_value else "0.0%"},
+            ]
+            st.table(debt_data)
 
     # 2.1 Factor-Aware Attribution & Concentration Index
     from services.ai_fund_classifier import evaluate_factor_attribution
@@ -386,54 +384,95 @@ with tab_audit:
             rating = factor_res.get("diversification_rating", "N/A").replace("_", " ").title()
             st.metric("Concentration (HHI)", f"{hhi:,.0f}", rating)
 
-        if factor_res.get("exit_signals"):
-            with st.expander(f"🚨 Fiduciary Exit & Pruning Signals ({len(factor_res['exit_signals'])} Actionable Alerts)", expanded=False):
-                for sig in factor_res["exit_signals"]:
-                    badge = "🛑 [CRITICAL ACTION]" if sig.get("severity") == "HIGH" else "⚠️ [REBALANCE]"
-                    saving_note = f" (Saves ₹{sig.get('annual_saving_inr', 0):,.0f}/yr)" if sig.get("annual_saving_inr") else ""
-                    st.markdown(f"**{badge} {sig.get('scheme')}** — `{sig.get('action')}`{saving_note}")
-                    st.caption(sig.get("rationale", ""))
-
-    # 3. Direct vs Regular Plan Audit
-    st.markdown("##### 🛡️ Distributor Commission Drag & Direct Plan Audit")
-    if regular_total > 0:
-        reg_c1, reg_c2, reg_c3 = st.columns(3)
-        with reg_c1:
-            st.metric("Regular Plan Exposure", f"₹{regular_total/100000:.2f}L", f"{regular_pct:.1f}% of wealth")
-        with reg_c2:
-            st.metric("Annual Distributor Bleed", f"₹{total_annual_bleed:,.0f} / yr", "Trailing fee drag", delta_color="inverse")
-        with reg_c3:
-            st.metric("10-Year Compounded Drag", f"₹{total_10y_compounded:,.0f}", "@ 12% CAGR wealth drag", delta_color="inverse")
-
-        if dual_count > 0:
-            st.warning(f"🚨 **Scheme Duplication Alert:** You hold **{dual_count} mutual fund strategies** in BOTH Regular and Direct plans simultaneously. Consolidate these units to stop immediate commission bleed.")
-
-        with st.expander("🔍 View Identified Regular Plan Schemes & TER Breakdown", expanded=False):
-            st.markdown("| Scheme Name | Current Value | Direct TER | Regular TER | Trail Commission | Annual Bleed |")
-            st.markdown("| :--- | :--- | :--- | :--- | :--- | :--- |")
-            for rf in regular_holdings:
-                st.markdown(f"| {rf.get('scheme')} | ₹{rf.get('current_value', 0):,.0f} | {rf.get('ter_direct', 0):.2f}% | {rf.get('ter_regular', 0):.2f}% | {rf.get('trail_commission_pct', 0):.2f}% | ₹{rf.get('annual_commission_bleed', 0):,.0f}/yr |")
-    else:
-        st.success("✅ **100% Direct Plan Compliance:** Entire portfolio is invested in Direct plans. Zero intermediary commission leakage detected.")
-
-    # 4. Scheme-by-Scheme Holdings Table
+    # 3. Scheme-by-Scheme Holdings Table with Exit Signals & Segment Allocation
     st.markdown("##### 📋 Fund Holdings Look-Through")
+    st.caption("Scheme-level factsheet allocation audit with exit signals and actionable recommendations.")
     filter_search = st.text_input("Filter funds by name or AMC", "", key="holdings_search_query")
     filtered_funds = [f for f in funds if filter_search.lower() in str(f.get("scheme", "")).lower()] if filter_search else funds
 
+    # Build exit signals lookup by scheme name
+    exit_signals_by_scheme = {}
+    for sig in factor_res.get("exit_signals", []):
+        scheme_name = sig.get("scheme", "").lower()
+        exit_signals_by_scheme[scheme_name] = sig
+    
+    # Build segment breakdown lookup by scheme name
+    segment_breakdown_by_scheme = {}
+    for seg in seg_breakdown.get("scheme_rows", []):
+        scheme = seg.get("scheme", "").lower()
+        segment_breakdown_by_scheme[scheme] = seg
+
     table_data = []
     for f in filtered_funds:
+        scheme_name_lower = f.get("scheme", "").lower()
+        sig = exit_signals_by_scheme.get(scheme_name_lower, {})
+        seg_info = segment_breakdown_by_scheme.get(scheme_name_lower, {})
+        
+        badge = "🛑" if sig.get("severity") == "HIGH" else ("⚠️" if sig.get("severity") == "MODERATE" else "")
+        action_text = sig.get("action", "—").replace("_", " ").title()
+        saving_text = f"+₹{sig.get('annual_saving_inr', 0):,.0f}/yr" if sig.get("annual_saving_inr") else "—"
+        
+        # Format segment allocations
+        lc = seg_info.get("large_cap_pct", 0)
+        mc = seg_info.get("mid_cap_pct", 0)
+        sc = seg_info.get("small_cap_pct", 0)
+        debt = seg_info.get("debt_pct", 0)
+        prov = seg_info.get("provenance", "AMC Factsheet")
+        
+        # Get numeric current value for sorting
+        current_val_num = float(f.get('current_value', 0))
+
         table_data.append({
             "Scheme Name": f.get("scheme", ""),
+            "Current Value (₹)": f"₹{current_val_num:,.0f}",
+            "_sort_key": current_val_num,
             "Category": f.get("category", ""),
             "Plan": f.get("plan_type", "Direct"),
-            "Current Value (₹)": f"₹{f.get('current_value', 0):,.0f}",
-            "Equity %": f"{f.get('eq', 0):.1f}%",
-            "Debt %": f"{f.get('debt', 0):.1f}%",
+            "Large Cap": f"{lc:.1f}%",
+            "Mid Cap": f"{mc:.1f}%",
+            "Small Cap": f"{sc:.1f}%",
+            "Debt/Cash": f"{debt:.1f}%",
+            "Provenance": prov,
             "Direct TER": f"{f.get('ter_direct', 0):.2f}%",
             "Benchmark": f.get("benchmark", ""),
+            "Action": f"{badge} {action_text}",
+            "Savings": saving_text,
         })
-    st.dataframe(table_data, use_container_width=True)
+    
+    # Sort by Current Value (₹) descending using numeric sort key
+    table_data.sort(key=lambda x: x.get("_sort_key", 0), reverse=True)
+    
+    # Remove the hidden sort key before displaying
+    for row in table_data:
+        row.pop("_sort_key", None)
+    
+    st.dataframe(table_data, use_container_width=True, hide_index=False)
+    
+    with st.expander("🔍 Scheme-by-Scheme Segment Allocation (AMC Factsheet Look-Through)", expanded=False):
+        st.caption("Detailed segment allocation for each fund from AMC factsheets.")
+        if seg_breakdown.get("scheme_rows"):
+            scheme_rows = seg_breakdown.get("scheme_rows", [])
+            scheme_segment_data = []
+            for row in scheme_rows:
+                scheme_name = row.get("scheme", "")
+                large_cap = row.get("large_cap_pct", 0)
+                mid_cap = row.get("mid_cap_pct", 0)
+                small_cap = row.get("small_cap_pct", 0)
+                debt = row.get("debt_pct", 0)
+                total_seg = large_cap + mid_cap + small_cap + debt
+                if total_seg > 0:
+                    scheme_segment_data.append({
+                        "Scheme": scheme_name,
+                        "Large Cap": f"{large_cap:.1f}%",
+                        "Mid Cap": f"{mid_cap:.1f}%",
+                        "Small Cap": f"{small_cap:.1f}%",
+                        "Debt/Cash": f"{debt:.1f}%",
+                        "Total": f"{total_seg:.1f}%"
+                    })
+            if scheme_segment_data:
+                st.dataframe(scheme_segment_data, use_container_width=True, hide_index=False)
+        else:
+            st.info("Segment allocation data not yet available.")
 
 with tab_ai_tax:
     # 1. AI Executive Fiduciary Portfolio Diagnosis
@@ -459,6 +498,7 @@ with tab_ai_tax:
         "compounded_10y_drag": total_10y_compounded,
         "unique_strategies_count": unique_strategies_count,
         "dual_count": dual_count,
+        "thematic_pct": thematic_pct,
     }
 
     if gen_ai_btn or st.session_state.get("ai_portfolio_narrative"):
@@ -634,16 +674,33 @@ with tab_blueprint:
     if sip_res:
         if sip_res.get("optimal_tranche_timing"):
             tt = sip_res["optimal_tranche_timing"]
-            st.markdown(f"📅 **Optimal Cadence:** {tt.get('recommended_cadence')} (₹{float(tt.get('biweekly_amount_inr', 0)):,.0f} per tranche on the {', '.join(str(d) for d in tt.get('suggested_execution_dates_of_month', []))}th).")
+            if tt and isinstance(tt, dict):
+                cadence = tt.get('recommended_cadence', 'Bi-weekly')
+                biweekly = float(tt.get('biweekly_amount_inr', 0))
+                dates = tt.get('suggested_execution_dates_of_month', [])
+                date_str = ', '.join(str(d) for d in dates)
+                st.markdown(f"📅 **Optimal Cadence:** {cadence} (₹{biweekly:,.0f} per tranche on the {date_str}th).")
 
         if sip_res.get("portfolio_completion_alerts"):
             for al in sip_res["portfolio_completion_alerts"]:
-                st.warning(f"⚠️ **Gap Detected:** {al.get('slot')} is under-represented. {al.get('action')}")
+                if al and isinstance(al, dict):
+                    slot = al.get('slot', 'Unknown Slot')
+                    action = al.get('action', 'Review recommended')
+                    severity = al.get('severity', 'MEDIUM')
+                    emoji = "🔴" if severity == "HIGH" else ("🟡" if severity == "MEDIUM" else "⚪")
+                    st.warning(f"{emoji} **{slot}** - {action}")
 
         st.markdown("| Mandate Slot | Scheme Recommendation | Category | Plan | Monthly SIP | Allocation |")
         st.markdown("| :--- | :--- | :--- | :--- | :--- | :--- |")
         for rec in sip_res.get("recommendations", []):
-            st.markdown(f"| {rec.get('slot_name')} | **{rec.get('scheme_name')}** | {rec.get('category')} | {rec.get('plan_type')} | ₹{float(rec.get('monthly_allocation_inr', 0)):,.0f} | {float(rec.get('allocation_pct', 0)):.1f}% |")
+            if rec and isinstance(rec, dict):
+                slot_name = rec.get('slot_name', 'N/A')
+                scheme_name = rec.get('scheme_name', 'N/A')
+                category = rec.get('category', 'N/A')
+                plan_type = rec.get('plan_type', 'N/A')
+                monthly_alloc = float(rec.get('monthly_allocation_inr', 0))
+                alloc_pct = float(rec.get('allocation_pct', 0))
+                st.markdown(f"| {slot_name} | **{scheme_name}** | {category} | {plan_type} | ₹{monthly_alloc:,.0f} | {alloc_pct:.1f}% |")
 
     st.markdown("---")
     # 3. Lump-Sum Capital Deployment & Systematic Transfer Plan (STP)

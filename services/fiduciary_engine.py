@@ -39,6 +39,11 @@ def convert_cas_funds_to_holdings(funds: List[Dict[str, Any]]) -> List[HoldingIt
 
         eq_pct = float(f.get("eq", 100.0 if ac == AssetClass.EQUITY else (0.0 if ac == AssetClass.DEBT else 65.0)))
         debt_pct = float(f.get("debt", 0.0 if ac == AssetClass.EQUITY else (100.0 if ac == AssetClass.DEBT else 35.0)))
+        # Gold is a stability asset (like debt) - include it in debt_pct for SAA drift calculation
+        gold_pct = float(f.get("gold", 0.0))
+        # Adjust debt_pct to include gold for proper SAA drift analysis
+        # Cap at 100% to avoid invalid HoldingItem (debt_pct + gold_pct could theoretically exceed 100%)
+        effective_debt_pct = min(debt_pct + gold_pct, 100.0)
 
         h = HoldingItem(
             fund_id=f"fund_{idx}_{f.get('scheme', 'unnamed')[:15]}",
@@ -48,7 +53,7 @@ def convert_cas_funds_to_holdings(funds: List[Dict[str, Any]]) -> List[HoldingIt
             plan=plan,
             asset_class=ac,
             equity_pct=eq_pct,
-            debt_pct=debt_pct,
+            debt_pct=effective_debt_pct,
             hybrid_pct=0.0,
             international_pct=0.0,
             current_value_inr=val,
@@ -295,22 +300,43 @@ def generate_fiduciary_sip_blueprint(
     }
 
     # Portfolio Completion Alerts & Scheme Replacements
-    completion_alerts: List[str] = []
+    # Returns structured alerts with slot/action for proper display
+    completion_alerts: List[dict] = []
     has_large = any(_match_kw(f, ["large", "index", "nifty"]) for f in (direct_funds or []))
     has_mid_small = any(_match_kw(f, ["mid", "small"]) for f in (direct_funds or []))
     has_debt = any(str(f.get("category") or "") == "Debt" or _match_kw(f, ["liquid", "arbitrage", "money market"]) for f in (direct_funds or []))
     regular_count = sum(1 for f in (funds or []) if str(f.get("plan_type", "Direct")).strip().upper() == "REGULAR")
 
     if not direct_funds:
-        completion_alerts.append("Portfolio lacks active Direct Plan folios. Initiating direct mandates eliminates intermediary trail commission.")
+        completion_alerts.append({
+            "slot": "Direct Plans",
+            "action": "Initiate new Direct Plan folios to eliminate intermediary trail commission",
+            "severity": "HIGH"
+        })
     if not has_large:
-        completion_alerts.append("Core Equity Anchor Missing: Portfolio lacks a low-cost Direct large-cap index fund. Large-cap sleeve allocation provides index anchoring.")
+        completion_alerts.append({
+            "slot": "Core Equity",
+            "action": "Add a low-cost Direct large-cap index fund for index anchoring",
+            "severity": "HIGH"
+        })
     if not has_mid_small:
-        completion_alerts.append("Alpha Engine Missing: Quality mid/small-cap allocation recommended for long-term real wealth creation.")
+        completion_alerts.append({
+            "slot": "Alpha Engine",
+            "action": "Add quality mid/small-cap allocation for long-term real wealth creation",
+            "severity": "MEDIUM"
+        })
     if not has_debt and db_target > Decimal("0.00"):
-        completion_alerts.append("Liquidity Hedge Needed: Adding a pure direct liquid/debt vehicle maintains rebalancing powder without hybrid equity drag.")
+        completion_alerts.append({
+            "slot": "Debt/Stable",
+            "action": "Add pure direct liquid/debt vehicle for capital preservation buffer",
+            "severity": "HIGH"
+        })
     if regular_count > 0:
-        completion_alerts.append(f"Direct Plan Replacement Opportunity: {regular_count} existing Regular plan schemes can be systematically replaced with Direct Growth variants.")
+        completion_alerts.append({
+            "slot": "Plan Optimization",
+            "action": f"Replace {regular_count} Regular plan schemes with Direct Growth variants",
+            "severity": "MEDIUM"
+        })
 
     # Personalized Routing Rationale
     routing_rationale = (
