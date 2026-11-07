@@ -20,6 +20,7 @@ from services.risk_profiler import (
     evaluate_fiduciary_profile,
     evaluate_direct_tier,
     evaluate_custom_saa,
+    predict_risk_tier_from_portfolio,
     SebiRiskTier,
 )
 
@@ -138,7 +139,30 @@ funds = st.session_state.get("user_portfolio", [])
 total_corpus = sum(f.get("current_value", 0.0) for f in funds) if funds else 0.0
 
 if total_corpus > 0:
+    pred_risk = predict_risk_tier_from_portfolio(funds, use_live_ai=False)
     st.info(f"💼 **Linked Portfolio:** Analyzing risk for portfolio of **₹{total_corpus/100000:.2f} Lakhs** ({len(funds)} active schemes).")
+    with st.expander("🤖 AI Behavioral Risk Diagnosis & Pre-Flight Prediction", expanded=True):
+        st.markdown(pred_risk.get("ai_behavioral_rationale", ""))
+        pr_c1, pr_c2, pr_c3, pr_c4 = st.columns(4)
+        with pr_c1:
+            tier_sub = pred_risk["predicted_tier_name"].split(":")[1].strip() if ":" in pred_risk["predicted_tier_name"] else ""
+            st.metric("Revealed Risk Profile", f"Tier {pred_risk['predicted_tier_num']}", tier_sub)
+        with pr_c2:
+            st.metric("Revealed Equity Mix", f"{pred_risk['portfolio_equity_pct']:.1f}%", f"{pred_risk['portfolio_debt_pct']:.1f}% Debt")
+        with pr_c3:
+            st.metric("Mid/Small Exposure", f"{pred_risk['portfolio_mid_small_pct']:.1f}%", "Growth Engine")
+        with pr_c4:
+            st.metric("AI Confidence", f"{pred_risk['confidence_score_pct']:.0f}%", "Revealed Preference")
+
+        if st.button("⚡ Apply AI-Predicted Profile & Target SAA (One-Click)", type="primary", use_container_width=True, key="apply_ai_pred_risk"):
+            p_res = pred_risk["profile_result"]
+            st.session_state["fiduciary_profile_result"] = p_res
+            st.session_state["risk_tier"] = p_res.governing_tier.name
+            st.session_state["risk_bucket"] = p_res.governing_tier.name
+            st.session_state["user_risk_score"] = int(p_res.governing_tier)
+            st.session_state["saa_target"] = p_res.target_saa.as_dict()
+            st.success(f"✅ Applied {pred_risk['predicted_tier_name']} Target SAA ({p_res.target_saa.total_equity_pct:.0f}% Eq / {p_res.target_saa.debt_pct:.0f}% Debt) to all advisory engines!")
+            st.rerun()
 else:
     st.caption("💡 *Tip: Upload your CAS & CGS statements on the Portfolio Dashboard to compare your current portfolio against your target SAA.*")
 

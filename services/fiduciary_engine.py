@@ -282,6 +282,44 @@ def generate_fiduciary_sip_blueprint(
     total_allocated = sum(a["amount_inr"] for a in allocations)
     unallocated = budget_dec - total_allocated
 
+    # AI & Fiduciary Tranche Timing
+    biweekly_tranche = (budget_dec / Decimal("2.0")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    weekly_tranche = (budget_dec / Decimal("4.0")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    optimal_tranche_timing = {
+        "recommended_cadence": "Bi-Weekly (Dual-Tranche)",
+        "dates": "5th and 20th of each month",
+        "biweekly_amount_inr": biweekly_tranche,
+        "weekly_amount_inr": weekly_tranche,
+        "rationale": "Splitting monthly deployment into two equal tranches (5th post-payroll, 20th pre-derivatives expiry) smooths intraday volatility and avoids month-end illiquidity spreads on NSE/BSE.",
+        "weekly_alternative": f"4 weekly tranches of INR {weekly_tranche:,.2f} every Wednesday.",
+    }
+
+    # Portfolio Completion Alerts & Scheme Replacements
+    completion_alerts: List[str] = []
+    has_large = any(_match_kw(f, ["large", "index", "nifty"]) for f in (direct_funds or []))
+    has_mid_small = any(_match_kw(f, ["mid", "small"]) for f in (direct_funds or []))
+    has_debt = any(str(f.get("category") or "") == "Debt" or _match_kw(f, ["liquid", "arbitrage", "money market"]) for f in (direct_funds or []))
+    regular_count = sum(1 for f in (funds or []) if str(f.get("plan_type", "Direct")).strip().upper() == "REGULAR")
+
+    if not direct_funds:
+        completion_alerts.append("Portfolio lacks active Direct Plan folios. Initiating direct mandates eliminates intermediary trail commission.")
+    if not has_large:
+        completion_alerts.append("Core Equity Anchor Missing: Portfolio lacks a low-cost Direct large-cap index fund. Large-cap sleeve allocation provides index anchoring.")
+    if not has_mid_small:
+        completion_alerts.append("Alpha Engine Missing: Quality mid/small-cap allocation recommended for long-term real wealth creation.")
+    if not has_debt and db_target > Decimal("0.00"):
+        completion_alerts.append("Liquidity Hedge Needed: Adding a pure direct liquid/debt vehicle maintains rebalancing powder without hybrid equity drag.")
+    if regular_count > 0:
+        completion_alerts.append(f"Direct Plan Replacement Opportunity: {regular_count} existing Regular plan schemes can be systematically replaced with Direct Growth variants.")
+
+    # Personalized Routing Rationale
+    routing_rationale = (
+        f"SIP budget of INR {budget_dec:,.2f}/mo is routed across 3 fiduciary sleeves: "
+        f"{lc_pct:.0f}% Large-Cap Core (Index compounding), "
+        f"{ms_pct:.0f}% Mid/Small-Cap Alpha (Growth engine), and "
+        f"{db_pct:.0f}% Debt/Liquid Buffer (Capital stability) in strict compliance with your target SAA."
+    )
+
     return {
         "status": "DETERMINISTIC_SIP_READY",
         "monthly_budget_inr": budget_dec,
@@ -289,6 +327,9 @@ def generate_fiduciary_sip_blueprint(
         "unallocated_budget_inr": unallocated,
         "allocations": allocations,
         "reconciliation_valid": abs(unallocated) <= Decimal("0.01"),
+        "optimal_tranche_timing": optimal_tranche_timing,
+        "portfolio_completion_alerts": completion_alerts,
+        "fiduciary_routing_rationale": routing_rationale,
     }
 
 

@@ -247,6 +247,35 @@ else:
         "### 1.1 Fiduciary Executive Analysis & Diagnostic Synthesis",
         ai_narrative.get("content", "") if ai_narrative else "",
         "",
+        "### 1.2 Concentration Risk & Fiduciary Vulnerability Alerts",
+    ]
+
+    from services.ai_fund_classifier import evaluate_portfolio_concentration_risks, evaluate_portfolio_peer_attribution
+    conc_res = evaluate_portfolio_concentration_risks(portfolio)
+    peer_res = evaluate_portfolio_peer_attribution(portfolio)
+
+    report_lines.extend([
+        f"* **Concentration Risk Status:** {conc_res.get('concentration_score', 'BALANCED').replace('_', ' ').title()}",
+        f"* **Top Scheme Concentration:** {conc_res.get('max_scheme_pct', 0.0):.1f}% (Recommended <= 25.0%)",
+        f"* **Top 3 Holdings Weight:** {conc_res.get('top_3_pct', 0.0):.1f}% (Recommended <= 60.0%)",
+        f"* **Thematic/Sector Exposure:** {conc_res.get('thematic_pct', 0.0):.1f}% (Recommended <= 15.0%)",
+        f"* **Primary AMC Concentration:** {conc_res.get('max_amc_name', 'N/A')} ({conc_res.get('max_amc_pct', 0.0):.1f}% of wealth)",
+    ])
+    if conc_res.get("alerts"):
+        for a in conc_res["alerts"]:
+            sev_badge = "🚨 [HIGH RISK]" if a.get("severity") == "HIGH" else "⚠️ [MODERATE RISK]"
+            report_lines.append(f"* {sev_badge} {a.get('message', '')}")
+    else:
+        report_lines.append("* ✅ **Balanced Allocation:** No individual scheme, thematic bet, or AMC exceeds SEBI fiduciary concentration limits.")
+
+    styles = peer_res.get("style_breakdown", {})
+    report_lines.extend([
+        "",
+        "### 1.3 Portfolio Style Box & Peer TER Attribution",
+        f"* **Core Index Foundation:** {styles.get('core_index_pct', 0.0):.1f}% | **Active Alpha Engine:** {styles.get('active_alpha_pct', 0.0):.1f}% | **Defensive Liquidity Buffer:** {styles.get('stability_buffer_pct', 0.0):.1f}%",
+        f"* **Weighted Portfolio TER:** Direct: {peer_res.get('weighted_direct_ter', 0.0):.2f}% vs. Regular: {peer_res.get('weighted_regular_ter', 0.0):.2f}%",
+        f"* **Direct Alpha Advantage:** +{peer_res.get('peer_alpha_spread', 0.0):.2f}% per annum compounded return advantage over regular distributor plans.",
+        "",
         "## 2. Holdings Breakdown",
         "| Scheme Name | Category | Plan | Current Value (₹) | Equity % | Debt % |",
         "| :--- | :--- | :--- | :--- | :--- | :--- |",
@@ -394,9 +423,10 @@ else:
     report_lines.extend([
         "",
         "## 7. Fiduciary Disclosures & Compliance Statement",
-        "* **Statutory Mandate:** SEBI (Investment Advisers) Regulations, 2013.",
-        "* **Direct Plan Enforcement:** All proposed switches and SIP allocations strictly mandate Direct Plans to eliminate intermediary commissions.",
-        "* **Non-Execution Authority:** The adviser operates solely on a fee-only, non-execution advisory basis; order execution remains exclusively in client control.",
+        "* **Statutory Mandate:** SEBI (Investment Advisers) Regulations, 2013 (Regulation 15(1) & Schedule III Code of Conduct).",
+        "* **Direct Plan Enforcement:** All proposed switches and SIP allocations strictly mandate Direct Plans to eliminate intermediary commissions and distributor trail leakage.",
+        "* **Conflict of Interest Prohibition:** The adviser receives zero consideration, referral fees, or commissions from any Asset Management Company (AMC) or intermediary.",
+        "* **Non-Execution Authority:** The adviser operates solely on a fee-only, non-execution advisory basis; order execution remains exclusively in client control via MFCentral, AMC portals, or RTAs.",
     ])
 
     report_md = "\n".join(report_lines)

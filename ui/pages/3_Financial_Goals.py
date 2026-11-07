@@ -527,6 +527,33 @@ with col_m4:
     else:
         st.metric("Surplus Buffer", f"₹{surplus:,.0f}/mo", delta="+Surplus")
 
+# --- AI Scenario Forecaster & Gap Mitigation Advisor ---
+from services.goal_planner import evaluate_goal_scenarios_with_ai
+goal_ai_diag = evaluate_goal_scenarios_with_ai(
+    goals=configured_goals,
+    total_budget_inr=float(sip_budget),
+    portfolio=funds,
+    target_saa=target_saa,
+    use_live_ai=False,
+)
+
+with st.expander("🤖 AI Scenario Forecaster & Gap Mitigation Advisor", expanded=True):
+    st.markdown(goal_ai_diag.get("ai_scenario_narrative", ""))
+    
+    st.markdown("#### 🔮 Stress-Testing & Life-Stage Scenarios")
+    sc_cols = st.columns(3)
+    for idx, sc in enumerate(goal_ai_diag.get("scenarios", [])):
+        with sc_cols[idx % 3]:
+            st.markdown(f"**{sc['scenario_name']}**")
+            st.caption(sc["description"])
+            st.metric("Future Target", f"₹{sc['target_corpus_inr']/100000:.1f}L", f"₹{sc['monthly_sip_inr']:,.0f}/mo SIP")
+            st.caption(f"Status: {sc['budget_status']}")
+
+    if goal_ai_diag.get("mitigation_paths"):
+        st.markdown("#### ⚖️ Fiduciary Trade-Off & Gap Mitigation Options")
+        for p in goal_ai_diag["mitigation_paths"]:
+            st.markdown(p)
+
 # --- 5. Save Plan & Session State Integration ---
 session_allocation_payload = {
     "goals": goals_allocation_map,

@@ -329,3 +329,139 @@ def evaluate_custom_saa(
         fiduciary_rationale=custom_rationale,
         expected_drawdown_range=_DRAWDOWN_RANGES[equiv_tier],
     )
+
+
+
+def predict_risk_tier_from_portfolio(
+    portfolio: list[dict[str, Any]],
+    use_live_ai: bool = True,
+) -> dict[str, Any]:
+    """AI-assisted dynamic risk scoring and behavioral risk tier prediction from CAS data.
+
+    Analyzes revealed asset allocation (equity %, mid/small-cap %, thematic exposure)
+    to predict the investor's governing SEBI risk profile before questionnaire completion.
+    """
+    if not portfolio:
+        # Default neutral moderate profile if portfolio is empty
+        res = evaluate_direct_tier(SebiRiskTier.TIER_3_MODERATE)
+        return {
+            "status": "NO_PORTFOLIO",
+            "predicted_tier": SebiRiskTier.TIER_3_MODERATE,
+            "predicted_tier_num": 3,
+            "predicted_tier_name": _TIER_LABELS[SebiRiskTier.TIER_3_MODERATE],
+            "portfolio_equity_pct": 60.0,
+            "portfolio_debt_pct": 40.0,
+            "portfolio_mid_small_pct": 15.0,
+            "thematic_pct": 0.0,
+            "confidence_score_pct": 50.0,
+            "suggested_horizon_years": 5.0,
+            "suggested_drawdown_pct": 10.0,
+            "suggested_emergency_months": 6.0,
+            "profile_result": res,
+            "ai_behavioral_rationale": "Default baseline profile applied as no uploaded portfolio was detected.",
+        }
+
+    total_val = sum(float(f.get("current_value", 0.0) or 0.0) for f in portfolio)
+    if total_val <= 0.0:
+        total_val = 1.0
+
+    # Calculate revealed asset allocation
+    eq_val = sum(float(f.get("current_value", 0.0) or 0.0) * (float(f.get("eq", 0.0) or 0.0) / 100.0) for f in portfolio)
+    debt_val = sum(float(f.get("current_value", 0.0) or 0.0) * (float(f.get("debt", 0.0) or 0.0) / 100.0) for f in portfolio)
+    
+    eq_pct = round((eq_val / total_val) * 100.0, 1)
+    debt_pct = round((debt_val / total_val) * 100.0, 1)
+
+    # Detect mid/small and thematic concentration
+    mid_small_val = 0.0
+    thematic_val = 0.0
+    for f in portfolio:
+        sch_name = str(f.get("scheme", "")).lower()
+        cat_name = str(f.get("category", "")).lower()
+        val = float(f.get("current_value", 0.0) or 0.0)
+        if any(k in sch_name or k in cat_name for k in ("mid", "small", "micro")):
+            mid_small_val += val
+        if any(k in sch_name or k in cat_name for k in ("sectoral", "thematic", "pharma", "it fund", "banking", "infra")):
+            thematic_val += val
+
+    mid_small_pct = round((mid_small_val / total_val) * 100.0, 1)
+    thematic_pct = round((thematic_val / total_val) * 100.0, 1)
+
+    # Behavioral Tier Prediction Logic
+    if eq_pct < 15.0:
+        predicted_tier = SebiRiskTier.TIER_1_CAPITAL_PRESERVATION
+        conf = 92.0
+        sug_horizon = 2.0
+        sug_dd = 5.0
+    elif eq_pct < 40.0:
+        predicted_tier = SebiRiskTier.TIER_2_LOW
+        conf = 88.0
+        sug_horizon = 4.0
+        sug_dd = 8.0
+    elif eq_pct < 65.0:
+        predicted_tier = SebiRiskTier.TIER_3_MODERATE
+        conf = 85.0
+        sug_horizon = 5.0
+        sug_dd = 12.0
+    elif eq_pct < 80.0:
+        predicted_tier = SebiRiskTier.TIER_4_MODERATE_HIGH
+        conf = 90.0
+        sug_horizon = 7.0
+        sug_dd = 18.0
+    elif eq_pct < 90.0 or mid_small_pct < 45.0:
+        predicted_tier = SebiRiskTier.TIER_5_HIGH
+        conf = 89.0
+        sug_horizon = 10.0
+        sug_dd = 25.0
+    else:
+        predicted_tier = SebiRiskTier.TIER_6_VERY_HIGH
+        conf = 91.0
+        sug_horizon = 12.0
+        sug_dd = 35.0
+
+    profile_res = evaluate_direct_tier(predicted_tier)
+
+    # Generate AI / Institutional Behavioral Narrative
+    ai_narrative = ""
+    if use_live_ai:
+        try:
+            from core.ai_engine import call_llm
+            prompt = f"""You are a SEBI-registered Research Analyst and Behavioral Finance Expert.
+Analyze the investor's revealed portfolio behavior from their uploaded CAS data:
+- Total Portfolio Value: INR {total_val:,.0f} across {len(portfolio)} schemes
+- Revealed Net Equity Allocation: {eq_pct:.1f}%
+- Revealed Debt & Liquid Buffer: {debt_pct:.1f}%
+- Mid/Small-Cap Alpha Allocation: {mid_small_pct:.1f}%
+- Thematic/Sectoral Bet Exposure: {thematic_pct:.1f}%
+- Predicted SEBI Risk Tier: {_TIER_LABELS[predicted_tier]}
+
+Provide a concise 2-3 sentence behavioral diagnostic explaining why their actual investment pattern reflects this risk tier and what it implies for their market correction tolerance."""
+            res = call_llm(prompt, external_processing_consent=True)
+            if res and len(res.strip()) > 40:
+                ai_narrative = res.strip()
+        except Exception:
+            pass
+
+    if not ai_narrative:
+        ai_narrative = (
+            f"Based on your actual CAS asset mix ({eq_pct:.1f}% Equity / {debt_pct:.1f}% Debt with {mid_small_pct:.1f}% Mid/Small-Caps), "
+            f"your revealed investment behavior aligns with **{_TIER_LABELS[predicted_tier]}**. Your portfolio demonstrates capacity "
+            f"for a ~{sug_horizon:.0f}-year compounding horizon and estimated market drawdown tolerance of {sug_dd:.0f}%."
+        )
+
+    return {
+        "status": "PREDICTED",
+        "predicted_tier": predicted_tier,
+        "predicted_tier_num": int(predicted_tier),
+        "predicted_tier_name": _TIER_LABELS[predicted_tier],
+        "portfolio_equity_pct": eq_pct,
+        "portfolio_debt_pct": debt_pct,
+        "portfolio_mid_small_pct": mid_small_pct,
+        "thematic_pct": thematic_pct,
+        "confidence_score_pct": conf,
+        "suggested_horizon_years": sug_horizon,
+        "suggested_drawdown_pct": sug_dd,
+        "suggested_emergency_months": 6.0,
+        "profile_result": profile_res,
+        "ai_behavioral_rationale": ai_narrative,
+    }

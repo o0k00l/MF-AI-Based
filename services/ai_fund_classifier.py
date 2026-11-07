@@ -982,3 +982,177 @@ Format: Clear markdown bullet points."""
         "source": "Statutory Fiduciary Assessment (SEBI 2017 Mandate)",
         "content": "\n".join(lines),
     }
+
+
+
+def evaluate_portfolio_concentration_risks(funds: list[dict[str, Any]]) -> dict[str, Any]:
+    """Evaluate institutional concentration risks and vulnerability alerts.
+
+    Statutory & Fiduciary Rules:
+    - Single Scheme Limit: <= 25.0% of total portfolio.
+    - Thematic / Sectoral Limit: <= 15.0% of total portfolio.
+    - Top 3 Holdings Limit: <= 60.0% of total portfolio.
+    - Fund House (AMC) Limit: <= 40.0% of total portfolio.
+    """
+    if not funds:
+        return {
+            "status": "NO_FUNDS",
+            "alerts": [],
+            "concentration_score": "BALANCED",
+            "max_scheme_pct": 0.0,
+            "top_3_pct": 0.0,
+            "thematic_pct": 0.0,
+            "max_amc_pct": 0.0,
+        }
+
+    total_val = sum(float(f.get("current_value", 0.0) or 0.0) for f in funds)
+    if total_val <= 0.0:
+        total_val = 1.0
+
+    alerts: list[dict[str, str]] = []
+
+    # 1. Single Scheme Concentration
+    sorted_funds = sorted(funds, key=lambda x: float(x.get("current_value", 0.0) or 0.0), reverse=True)
+    max_scheme = sorted_funds[0]
+    max_scheme_val = float(max_scheme.get("current_value", 0.0) or 0.0)
+    max_scheme_pct = round((max_scheme_val / total_val) * 100.0, 1)
+
+    if max_scheme_pct > 25.0:
+        alerts.append({
+            "type": "SINGLE_SCHEME_CONCENTRATION",
+            "severity": "HIGH",
+            "message": f"Single Scheme Overconcentration: '{max_scheme.get('scheme', 'Top Scheme')}' accounts for {max_scheme_pct:.1f}% of total portfolio value (exceeds recommended 25.0% single-holding limit).",
+        })
+
+    # 2. Top 3 Holdings Concentration
+    top_3_val = sum(float(f.get("current_value", 0.0) or 0.0) for f in sorted_funds[:3])
+    top_3_pct = round((top_3_val / total_val) * 100.0, 1)
+    if top_3_pct > 60.0 and len(funds) >= 3:
+        alerts.append({
+            "type": "TOP_3_CONCENTRATION",
+            "severity": "MODERATE",
+            "message": f"Top 3 Holdings Concentration: Top 3 schemes account for {top_3_pct:.1f}% of total portfolio (exceeds 60.0% threshold). A negative cycle in these funds disproportionately impacts total net worth.",
+        })
+
+    # 3. Thematic / Sectoral Concentration
+    thematic_val = 0.0
+    for f in funds:
+        s_name = str(f.get("scheme", "")).lower()
+        c_name = str(f.get("category", "")).lower()
+        if any(k in s_name or k in c_name for k in ("thematic", "sectoral", "tech", "pharma", "banking", "infra", "energy", "psu", "manufacturing")):
+            thematic_val += float(f.get("current_value", 0.0) or 0.0)
+    thematic_pct = round((thematic_val / total_val) * 100.0, 1)
+    if thematic_pct > 15.0:
+        alerts.append({
+            "type": "THEMATIC_OVEREXPOSURE",
+            "severity": "HIGH",
+            "message": f"Thematic/Sector Concentration: Thematic funds represent {thematic_pct:.1f}% of portfolio (exceeds recommended 15.0% satellite cap). Sector funds carry high cyclical drawdown risk.",
+        })
+
+    # 4. AMC / Fund House Concentration
+    amc_totals: dict[str, float] = {}
+    for f in funds:
+        s_name = str(f.get("scheme", ""))
+        amc = s_name.split()[0] if s_name else "Unknown"
+        amc_totals[amc] = amc_totals.get(amc, 0.0) + float(f.get("current_value", 0.0) or 0.0)
+
+    max_amc_name = max(amc_totals, key=amc_totals.get) if amc_totals else "None"
+    max_amc_val = amc_totals.get(max_amc_name, 0.0)
+    max_amc_pct = round((max_amc_val / total_val) * 100.0, 1)
+    if max_amc_pct > 40.0 and len(funds) > 1:
+        alerts.append({
+            "type": "AMC_CONCENTRATION",
+            "severity": "MODERATE",
+            "message": f"Fund House (AMC) Overconcentration: {max_amc_name} Mutual Fund manages {max_amc_pct:.1f}% of your total portfolio (> 40.0% threshold). Diversify across institutional fund houses to limit operational AMC risk.",
+        })
+
+    score = "HIGH_CONCENTRATION" if any(a["severity"] == "HIGH" for a in alerts) else ("MODERATE_CONCENTRATION" if alerts else "BALANCED")
+
+    return {
+        "status": "ANALYZED",
+        "alerts": alerts,
+        "concentration_score": score,
+        "max_scheme_pct": max_scheme_pct,
+        "top_3_pct": top_3_pct,
+        "thematic_pct": thematic_pct,
+        "max_amc_pct": max_amc_pct,
+        "max_amc_name": max_amc_name,
+    }
+
+
+def evaluate_portfolio_peer_attribution(funds: list[dict[str, Any]]) -> dict[str, Any]:
+    """Evaluate peer-group TER attribution, style-box breakdown, and fee alpha.
+
+    Compares scheme Expense Ratios against official AMFI/SEBI peer-group category medians.
+    """
+    if not funds:
+        return {
+            "status": "NO_FUNDS",
+            "category_comparisons": [],
+            "weighted_direct_ter": 0.0,
+            "weighted_regular_ter": 0.0,
+            "annual_fee_drag_inr": 0.0,
+            "compounded_10y_fee_drag_inr": 0.0,
+            "style_breakdown": {},
+        }
+
+    total_val = sum(float(f.get("current_value", 0.0) or 0.0) for f in funds)
+    if total_val <= 0.0:
+        total_val = 1.0
+
+    # AMFI / SEBI Institutional Category TER Medians
+    category_medians = {
+        "Large Cap": {"direct_median_ter": 0.35, "regular_median_ter": 1.65},
+        "Mid Cap": {"direct_median_ter": 0.65, "regular_median_ter": 1.85},
+        "Small Cap": {"direct_median_ter": 0.70, "regular_median_ter": 1.90},
+        "Flexi Cap": {"direct_median_ter": 0.75, "regular_median_ter": 1.75},
+        "Hybrid": {"direct_median_ter": 0.65, "regular_median_ter": 1.55},
+        "Debt": {"direct_median_ter": 0.25, "regular_median_ter": 0.55},
+        "Liquid": {"direct_median_ter": 0.15, "regular_median_ter": 0.25},
+    }
+
+    weighted_direct_ter = 0.0
+    weighted_regular_ter = 0.0
+    total_bleed = 0.0
+    total_10y_drag = 0.0
+
+    core_index_val = 0.0
+    active_alpha_val = 0.0
+    debt_buffer_val = 0.0
+
+    for f in funds:
+        c_val = float(f.get("current_value", 0.0) or 0.0)
+        weight = c_val / total_val
+        t_dir = float(f.get("ter_direct", 0.75) or 0.75)
+        t_reg = float(f.get("ter_regular", 1.75) or 1.75)
+        weighted_direct_ter += t_dir * weight
+        weighted_regular_ter += t_reg * weight
+
+        total_bleed += float(f.get("annual_commission_bleed", 0.0) or 0.0)
+        total_10y_drag += float(f.get("ten_year_compounded_drag", 0.0) or 0.0)
+
+        # Style classification
+        s_name = str(f.get("scheme", "")).lower()
+        c_name = str(f.get("category", "")).lower()
+        if any(k in s_name or k in c_name for k in ("index", "nifty", "sensex", "large cap")):
+            core_index_val += c_val
+        elif any(k in s_name or k in c_name for k in ("mid", "small", "flexi", "multi", "focused")):
+            active_alpha_val += c_val
+        else:
+            debt_buffer_val += c_val
+
+    style_breakdown = {
+        "core_index_pct": round((core_index_val / total_val) * 100.0, 1),
+        "active_alpha_pct": round((active_alpha_val / total_val) * 100.0, 1),
+        "stability_buffer_pct": round((debt_buffer_val / total_val) * 100.0, 1),
+    }
+
+    return {
+        "status": "ANALYZED",
+        "weighted_direct_ter": round(weighted_direct_ter, 2),
+        "weighted_regular_ter": round(weighted_regular_ter, 2),
+        "peer_alpha_spread": round(weighted_regular_ter - weighted_direct_ter, 2),
+        "annual_fee_drag_inr": round(total_bleed, 2),
+        "compounded_10y_fee_drag_inr": round(total_10y_drag, 2),
+        "style_breakdown": style_breakdown,
+    }

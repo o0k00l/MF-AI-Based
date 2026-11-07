@@ -676,6 +676,28 @@ if cgs_info and cgs_info.get("summary"):
                 hide_index=True,
             )
 
+    # AI & Fiduciary Tax Harvesting Advisory
+    from services.cgs_parser import evaluate_tax_harvesting_strategy
+    tax_adv = evaluate_tax_harvesting_strategy(cgs_info, funds, use_live_ai=False)
+    with st.expander("💡 AI Tax-Harvesting & Capital Gains Optimization Advisory", expanded=True):
+        st.markdown(tax_adv.get("ai_tax_narrative", ""))
+        th_c1, th_c2, th_c3 = st.columns(3)
+        with th_c1:
+            st.metric("Harvestable LTCG Headroom", f"₹{tax_adv.get('harvestable_amount_inr', 0):,.0f}", "Section 112A Tax-Free")
+        with th_c2:
+            st.metric("Potential Tax Saved", f"₹{tax_adv.get('potential_tax_saving_inr', 0):,.0f}", "At 12.5% LTCG Rate")
+        with th_c3:
+            st.metric("Unrealized Equity Gains", f"₹{tax_adv.get('unrealized_equity_gain_inr', 0):,.0f}", "Available in Portfolio")
+
+        if tax_adv.get("rebalancing_recommendations"):
+            st.markdown("**🛡️ Fiduciary Rebalancing & Tax Triggers:**")
+            for rec in tax_adv["rebalancing_recommendations"]:
+                st.markdown(f"* {rec}")
+        if tax_adv.get("loss_setoff_insights"):
+            st.markdown("**📉 Capital Loss Set-Off & Carry-Forward:**")
+            for l_ins in tax_adv["loss_setoff_insights"]:
+                st.markdown(f"* {l_ins}")
+
 # --- SAA Target Alignment ---
 st.markdown('<h2 class="section-title">🎯 Strategic Asset Allocation (SAA) Drift</h2>', unsafe_allow_html=True)
 
@@ -910,6 +932,18 @@ if st.session_state.get("deterministic_sip_plan"):
         })
     if bp_rows:
         st.table(bp_rows)
+
+    if bp.get("portfolio_completion_alerts"):
+        with st.expander("🛡️ Portfolio Completion Alerts & Scheme Replacements", expanded=True):
+            for alert_text in bp["portfolio_completion_alerts"]:
+                st.markdown(f"* 💡 {alert_text}")
+
+    if bp.get("optimal_tranche_timing"):
+        tt = bp["optimal_tranche_timing"]
+        with st.expander("⏱️ AI Optimal Tranche Timing & Execution Window", expanded=False):
+            st.markdown(f"**Recommended Cadence:** {tt.get('recommended_cadence')} on **{tt.get('dates')}**")
+            st.caption(tt.get("rationale", ""))
+            st.info(f"💡 Alternative Weekly DCA: {tt.get('weekly_alternative', '')}")
 
 if st.session_state.get("api_recommendation_result"):
     res = st.session_state["api_recommendation_result"]
