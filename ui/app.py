@@ -171,7 +171,7 @@ st.markdown("""
 # --- Page Title ---
 st.markdown('<h1 class="main-header">📊 Portfolio Dashboard</h1>', unsafe_allow_html=True)
 st.markdown(
-    "<p style='color: #64748b; font-size: 1.1rem;'>Upload your CAS (Consolidated Account Statement) to analyze your portfolio.</p>",
+    "<p style='color: #64748b; font-size: 1.1rem;'>Upload your CAS (Consolidated Account Statement) and CGS (Capital Gains Statement) to analyze your portfolio.</p>",
     unsafe_allow_html=True,
 )
 

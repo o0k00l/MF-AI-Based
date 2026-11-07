@@ -111,7 +111,7 @@ Upload your CAS file to begin analysis.
     if "user_portfolio" in st.session_state and st.session_state["user_portfolio"]:
         st.sidebar.success(f"✅ **Portfolio Loaded**\n{len(st.session_state['user_portfolio'])} funds")
     else:
-        st.sidebar.info("⚠️ Upload CAS to proceed")
+        st.sidebar.info("⚠️ Upload CAS & CGS to proceed")
     
     st.sidebar.markdown("---")
     
@@ -120,7 +120,7 @@ Upload your CAS file to begin analysis.
 <div style='font-size: 0.75rem; color: #64748b;'>
 <b>Disclaimer</b><br>
 This is not financial advice. Consult a qualified advisor for investment decisions.<br>
-Data parsed dynamically from your uploaded CAS.
+Data parsed dynamically from your uploaded CAS & CGS statements.
 </div>
 """, unsafe_allow_html=True)
 

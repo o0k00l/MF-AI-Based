@@ -21,7 +21,7 @@ risk_tier = st.session_state.get("risk_tier") or st.session_state.get("risk_buck
 
 missing = []
 if not portfolio:
-    missing.append("📤 Upload CAS Statement (Portfolio Dashboard)")
+    missing.append("📤 Upload CAS & CGS Statements (Portfolio Dashboard)")
 if not cgs_data:
     missing.append("📑 Upload Capital Gains Statement (CGS) (Portfolio Dashboard)")
 if not risk_tier:
