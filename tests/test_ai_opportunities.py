@@ -226,3 +226,66 @@ def test_natural_language_fiduciary_query():
     q_tax = answer_fiduciary_query("How can I do tax harvesting?", metrics, funds, use_live_ai=False)
     assert "Section 112A" in q_tax["response"]
     assert "1.25 Lakhs" in q_tax["response"]
+
+
+def test_segment_allocation_actuals_and_factsheet_lookthrough():
+    from services.ai_fund_classifier import classify_fund_with_ai
+
+    # 1. Nippon India Small Cap Fund (actual factsheet data from policy storage)
+    nippon_res = classify_fund_with_ai("Nippon India Small Cap Fund - Direct Plan - Growth", use_live_ai=False)
+    assert nippon_res["scheme_type"] == "Small Cap"
+    assert nippon_res["category"] == "Equity"
+    assert nippon_res["sc"] == 70.02
+    assert nippon_res["lc"] == 14.31
+    assert nippon_res["mc"] == 13.05
+    assert "Factsheet" in nippon_res["source"]
+
+    # 2. ICICI Prudential Bluechip Fund (actual factsheet large-cap look-through)
+    icici_res = classify_fund_with_ai("ICICI Prudential Bluechip Fund Direct Growth", use_live_ai=False)
+    assert icici_res["scheme_type"] == "Large Cap"
+    assert icici_res["category"] == "Equity"
+    assert icici_res["lc"] == 81.09
+    assert icici_res["mc"] == 10.69
+    assert icici_res["sc"] == 0.0
+    assert "Factsheet" in icici_res["source"]
+
+    # 3. SBI Contra Fund (actual factsheet contra look-through)
+    sbi_res = classify_fund_with_ai("SBI Contra Fund - Direct Plan - Growth", use_live_ai=False)
+    assert sbi_res["category"] == "Equity"
+    assert sbi_res["lc"] == 46.12
+    assert sbi_res["mc"] == 24.80
+    assert sbi_res["sc"] == 20.58
+
+
+def test_fast_ai_fiduciary_query_speed_and_segment_attribution():
+    import time
+    from services.ai_fund_classifier import answer_fiduciary_query
+
+    metrics = {
+        "total_value": 2000000.0,
+        "eq_pct": 85.0,
+        "debt_pct": 15.0,
+        "regular_value": 0.0,
+        "regular_pct": 0.0,
+        "annual_bleed": 0.0,
+        "compounded_10y_drag": 0.0,
+        "dual_count": 0,
+        "total_debt": 300000.0,
+    }
+    funds = [
+        {"scheme": "Nippon India Small Cap Fund Direct", "current_value": 1000000.0, "lc": 14.31, "mc": 13.05, "sc": 70.02, "debt": 2.62},
+        {"scheme": "ICICI Prudential Bluechip Direct", "current_value": 1000000.0, "lc": 81.09, "mc": 10.69, "sc": 0.0, "debt": 8.22},
+    ]
+
+    # Test segment allocation response
+    q_seg = answer_fiduciary_query("What is my segment allocation across large, mid, and small cap?", metrics, funds, use_live_ai=False)
+    assert "Market Cap Look-Through" in q_seg["response"]
+    assert "Large Cap" in q_seg["response"]
+    assert "Small Cap" in q_seg["response"]
+
+    # Test query execution speed on repeat query (cached return in <10ms)
+    t0 = time.perf_counter()
+    q_repeat = answer_fiduciary_query("What is my segment allocation across large, mid, and small cap?", metrics, funds, use_live_ai=False)
+    elapsed = time.perf_counter() - t0
+    assert elapsed < 0.05, f"Cached query should be instantaneous, took {elapsed:.4f}s"
+    assert q_repeat["response"] == q_seg["response"]

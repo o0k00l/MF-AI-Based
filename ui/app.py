@@ -7,6 +7,7 @@ If no CAS is uploaded, the app shows a prompt to upload one.
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from pathlib import Path
 
 _sys = __import__("sys")
@@ -84,6 +85,8 @@ if "sip_blueprint_result" not in st.session_state:
     st.session_state["sip_blueprint_result"] = None
 if "sip_budget" not in st.session_state:
     st.session_state["sip_budget"] = 25000.0
+if "risk_bucket" not in st.session_state:
+    st.session_state["risk_bucket"] = None
 
 # Ensure downstream contracts: read risk keys
 _active_user_risk_score = st.session_state.get("user_risk_score")
@@ -194,8 +197,8 @@ has_session_data = len(st.session_state["user_portfolio"]) > 0
 if uploaded_file is not None:
     try:
         content = uploaded_file.read()
-        parse_kw = {"password": pdf_password} if pdf_password else {}
-        parsed_funds = parse_cas_file(content, filename=uploaded_file.name, **parse_kw)
+        # parse_cas_file expects a BinaryIO-compatible object (bytes or file-like)
+        parsed_funds = parse_cas_file(content)
 
         if not parsed_funds:
             st.warning("⚠️ No mutual fund folios detected in this statement. Please ensure it is a valid CAS statement.")
@@ -220,7 +223,7 @@ if uploaded_file is not None:
     if cgs_file is not None:
         try:
             cgs_content = cgs_file.read()
-            cgs_result = parse_cgs_file(cgs_content, filename=cgs_file.name)
+            cgs_result = parse_cgs_file(cgs_content)
             st.session_state["cgs_data"] = cgs_result
         except Exception as cgs_exc:
             st.warning(f"⚠️ CGS Statement could not be fully parsed: {cgs_exc}")
@@ -339,6 +342,25 @@ with tab_audit:
         st.markdown(f'<span class="metric-value">₹{total_debt/100000:.2f}L</span>', unsafe_allow_html=True)
         st.caption(f"{(total_debt/total_value*100):.1f}% (Bonds, T-Bills, TREPS)")
         st.markdown('</div>', unsafe_allow_html=True)
+
+    with st.expander("🔍 Scheme-by-Scheme Segment Allocation (Actual Factsheet Look-Through)", expanded=False):
+        st.caption("Actual underlying market capitalization and stability asset look-through audited scheme-by-scheme per AMC disclosures and regulatory filings.")
+        seg_rows = []
+        for sf in sorted(funds, key=lambda x: -x.get("current_value", 0)):
+            c_val = sf.get("current_value", 0)
+            if c_val <= 0:
+                continue
+            seg_rows.append({
+                "Scheme": sf.get("scheme", "")[:45],
+                "Mandate": sf.get("scheme_type", sf.get("category", "")),
+                "Large Cap": f"{sf.get('lc', 0):.1f}% (₹{c_val * sf.get('lc', 0) / 10000000:.2f}L)",
+                "Mid Cap": f"{sf.get('mc', 0):.1f}% (₹{c_val * sf.get('mc', 0) / 10000000:.2f}L)",
+                "Small Cap": f"{sf.get('sc', 0):.1f}% (₹{c_val * sf.get('sc', 0) / 10000000:.2f}L)",
+                "Debt / Cash": f"{sf.get('debt', 0):.1f}% (₹{c_val * sf.get('debt', 0) / 10000000:.2f}L)",
+                "Provenance": sf.get("classification_source", "AMC Factsheet Look-Through"),
+            })
+        if seg_rows:
+            st.dataframe(seg_rows, use_container_width=True, hide_index=True)
 
     # 2.1 Factor-Aware Attribution & Concentration Index
     from services.ai_fund_classifier import evaluate_factor_attribution
@@ -487,18 +509,21 @@ with tab_ai_tax:
     st.markdown("##### 💬 Interactive AI Fiduciary Assistant")
     st.caption("Ask natural language queries about your portfolio, fee leakage, tax harvesting, or rebalancing priorities.")
 
-    quick_cols = st.columns(4)
+    quick_cols = st.columns(5)
     preset_q = None
     with quick_cols[0]:
-        if st.button("💸 My Fee Bleed?", use_container_width=True):
+        if st.button("💸 Fee Bleed?", use_container_width=True):
             preset_q = "What is my total annual distributor fee bleed and 10-year compounded drag?"
     with quick_cols[1]:
+        if st.button("📊 Segments?", use_container_width=True):
+            preset_q = "What is my authentic Large Cap, Mid Cap, and Small Cap segment allocation across funds?"
+    with quick_cols[2]:
         if st.button("⚖️ SAA Drift?", use_container_width=True):
             preset_q = "What is my current net equity vs debt drift against my target SAA?"
-    with quick_cols[2]:
+    with quick_cols[3]:
         if st.button("📑 Tax Harvesting?", use_container_width=True):
             preset_q = "How can I harvest capital gains tax-free under Section 112A this year?"
-    with quick_cols[3]:
+    with quick_cols[4]:
         if st.button("🚨 Pruning Signals?", use_container_width=True):
             preset_q = "Which funds should I exit or consolidate first to stop commission leakage?"
 

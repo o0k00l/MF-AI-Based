@@ -202,7 +202,7 @@ else:
         "## 2. Holdings Breakdown",
         "| Scheme Name | Category | Plan | Current Value (₹) | Equity % | Debt % |",
         "| :--- | :--- | :--- | :--- | :--- | :--- |",
-    ]
+    ])
 
     for f in portfolio:
         name = f.get("scheme", "Unknown")

@@ -11,37 +11,15 @@ import streamlit as st
 def render_fiduciary_sidebar(current_page: str = "app.py") -> None:
     """Render the standard SEBI IA Two-Step Fiduciary sidebar."""
     with st.sidebar:
+        # Sidebar Brand Header
         st.markdown("""
         <style>
             [data-testid="stSidebarNav"] { display: none !important; }
-            .sidebar-brand {
-                font-size: 1.15rem;
-                font-weight: 700;
-                color: #0f172a;
-                display: flex;
-                align-items: center;
-                gap: 8px;
-                margin-bottom: 2px;
-            }
-            .sidebar-subbrand {
-                font-size: 0.72rem;
-                color: #64748b;
-                text-transform: uppercase;
-                letter-spacing: 0.05em;
-                margin-bottom: 12px;
-            }
-            .portfolio-card {
-                background: linear-gradient(135deg, #1e3a8a 0%, #0f172a 100%);
-                color: white;
-                border-radius: 10px;
-                padding: 12px 14px;
-                margin-top: 6px;
-                margin-bottom: 14px;
-                box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
-            }
         </style>
-        <div class="sidebar-brand">🛡️ Fiduciary Engine</div>
-        <div class="sidebar-subbrand">SEBI IA Advisory Decision Support</div>
+        """, unsafe_allow_html=True)
+        st.markdown("""
+        <div style="font-size: 1.15rem; font-weight: 700; color: #0f172a; margin-bottom: 4px;">🛡️ Fiduciary Engine</div>
+        <div style="font-size: 0.72rem; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 12px;">SEBI IA Advisory Decision Support</div>
         """, unsafe_allow_html=True)
 
         user_portfolio = st.session_state.get("user_portfolio", [])

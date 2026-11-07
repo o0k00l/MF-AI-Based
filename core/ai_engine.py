@@ -320,16 +320,30 @@ def _openai_exception(provider: str, exc: Exception, model: str) -> ProviderErro
     )
 
 
+def _get_provider_key(env_name: str) -> str:
+    key = os.getenv(env_name, "").strip()
+    if key:
+        return key
+    try:
+        import streamlit as st
+        if hasattr(st, "secrets") and env_name in st.secrets:
+            return str(st.secrets[env_name]).strip()
+    except Exception:
+        pass
+    return ""
+
+
 def _call_openai_compatible(provider: str, base_url: str, prompt: str,
                             system_prompt: str = "") -> str:
     env_name = "REQUESTY_API_KEY" if provider == "Requesty" else "OPENROUTER_API_KEY"
-    key = os.getenv(env_name, "")
+    key = _get_provider_key(env_name)
     if not key:
         raise ProviderError(provider, f"{env_name} is not configured.")
     models = (discover_requesty_free_models(key) if provider == "Requesty"
               else discover_openrouter_free_models(key))
     from openai import OpenAI
-    client = OpenAI(base_url=base_url, api_key=key, max_retries=0, timeout=60,
+    timeout_sec = int(os.getenv("AI_TIMEOUT_SECONDS", "10"))
+    client = OpenAI(base_url=base_url, api_key=key, max_retries=0, timeout=timeout_sec,
                     default_headers={"HTTP-Referer": "https://fiduciary.engine",
                                      "X-Title": "Fiduciary Portfolio Engine"})
     messages = []
@@ -339,15 +353,17 @@ def _call_openai_compatible(provider: str, base_url: str, prompt: str,
     last_error: ProviderError | None = None
     lock = _requesty_mutex if provider == "Requesty" else _NullLock()
     with lock:
-        for model in models[:5]:
+        currently_free = None
+        for model in models[:2]:
             try:
                 # Re-fetch the live catalogue immediately before generation.
                 # Cached IDs alone cannot prove that a model is still free.
-                currently_free = (
-                    discover_requesty_free_models(key, force_refresh=True)
-                    if provider == "Requesty"
-                    else discover_openrouter_free_models(key, force_refresh=True)
-                )
+                if currently_free is None:
+                    currently_free = (
+                        discover_requesty_free_models(key, force_refresh=True)
+                        if provider == "Requesty"
+                        else discover_openrouter_free_models(key, force_refresh=True)
+                    )
                 if model not in currently_free:
                     last_error = ProviderError(
                         provider,

@@ -16,7 +16,7 @@ from typing import BinaryIO
 from openpyxl import load_workbook
 
 
-def classify_fund_by_name(scheme_name: str) -> dict:
+def _estimate_allocations(scheme_name: str) -> dict:
     """Classify fund allocation by scheme name at runtime.
 
     Uses AMFI category conventions:
@@ -50,6 +50,9 @@ def classify_fund_by_name(scheme_name: str) -> dict:
     return {"eq": 100.0, "debt": 2.0, "lc": 30.0, "mc": 40.0, "sc": 30.0}
 
 
+classify_fund_by_name = _estimate_allocations
+
+
 def parse_cas_file(file_obj: BinaryIO) -> list[dict]:
     """Parse an uploaded CAS Excel file and return fund records.
 
@@ -57,7 +60,9 @@ def parse_cas_file(file_obj: BinaryIO) -> list[dict]:
     Supports multi-sheet workbooks and lot-level holding period calculations.
     Aggregates multiple folios belonging to the same scheme name.
     """
-    if hasattr(file_obj, "seek"):
+    if isinstance(file_obj, (bytes, bytearray)):
+        file_obj = io.BytesIO(file_obj)
+    elif hasattr(file_obj, "seek"):
         file_obj.seek(0)
 
     try:
