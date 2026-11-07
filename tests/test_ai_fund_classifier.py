@@ -139,3 +139,30 @@ def test_ai_rationale_and_live_llm_integration(monkeypatch):
     assert res["scheme_type"] == "Sectoral / Thematic"
     assert res["source"] == "AI LLM Model Look-Through (SEBI 2017 Mandate)"
     assert "Dynamic mock LLM" in res["ai_rationale"]
+
+
+def test_generate_fiduciary_ai_narrative():
+    """Verify fiduciary AI narrative generates structured diagnosis and respects live AI flag."""
+    from services.ai_fund_classifier import generate_fiduciary_ai_narrative
+
+    metrics = {
+        "total_value": 2500000.0,
+        "total_invested": 1800000.0,
+        "eq_pct": 85.0,
+        "debt_pct": 15.0,
+        "regular_value": 1000000.0,
+        "regular_pct": 40.0,
+        "annual_bleed": 10000.0,
+        "compounded_10y_drag": 175000.0,
+        "unique_strategies_count": 8,
+        "dual_count": 2,
+    }
+    funds = [{"scheme": "Test Equity Fund", "plan_type": "Regular"}]
+    res = generate_fiduciary_ai_narrative(metrics, funds, use_live_ai=False)
+
+    assert "content" in res
+    assert "source" in res
+    assert "SEBI" in res["source"]
+    assert "Institutional Fiduciary Health Diagnostic" in res["content"]
+    assert "Distributor Commission Bleed" in res["content"]
+    assert "Scheme Duplication & Folio Consolidation" in res["content"]

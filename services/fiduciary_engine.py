@@ -207,7 +207,7 @@ def generate_fiduciary_sip_blueprint(
 
         # Large-Cap Sleeve
         if lc_target > Decimal("0.00"):
-            s_name = lc_fund.get("scheme") if lc_fund else "UTI Nifty 50 Index Fund - Direct Plan - Growth"
+            s_name = lc_fund.get("scheme") if lc_fund else "Nifty 50 Index Fund (Direct - Growth)"
             f_num = lc_fund.get("folio_no", "Existing Direct Folio") if lc_fund else "New Direct Folio Mandate"
             allocations.append({
                 "sleeve": "Large-Cap Core Index",

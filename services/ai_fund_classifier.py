@@ -865,3 +865,120 @@ def enrich_funds_with_ai(funds: List[Dict[str, Any]], use_live_ai: bool = False)
         enriched.append(item)
 
     return enriched
+
+
+
+def generate_fiduciary_ai_narrative(
+    portfolio_metrics: Dict[str, Any],
+    funds: List[Dict[str, Any]],
+    target_saa: Optional[Dict[str, Any]] = None,
+    use_live_ai: bool = True,
+) -> Dict[str, str]:
+    """Generate an analytical, fiduciary portfolio diagnostic narrative using AI.
+
+    Synthesizes asset allocation drift, scheme overlap, distributor commission drag,
+    and statutory rebalancing actions.
+    """
+    total_val = float(portfolio_metrics.get("total_value", 0.0) or 0.0)
+    eq_pct = float(portfolio_metrics.get("eq_pct", 0.0) or 0.0)
+    debt_pct = float(portfolio_metrics.get("debt_pct", 0.0) or 0.0)
+    regular_val = float(portfolio_metrics.get("regular_value", 0.0) or 0.0)
+    regular_pct = float(portfolio_metrics.get("regular_pct", 0.0) or 0.0)
+    annual_bleed = float(portfolio_metrics.get("annual_bleed", 0.0) or 0.0)
+    ten_yr_drag = float(portfolio_metrics.get("compounded_10y_drag", 0.0) or 0.0)
+    unique_schemes = int(portfolio_metrics.get("unique_strategies_count", len(funds)))
+    dual_count = int(portfolio_metrics.get("dual_count", 0))
+
+    target_eq = 75.0
+    target_db = 25.0
+    if target_saa:
+        if isinstance(target_saa, dict):
+            target_eq = float(target_saa.get("total_equity_pct", target_saa.get("equity_pct", 75.0)) or 75.0)
+            target_db = float(target_saa.get("debt_pct", 25.0) or 25.0)
+        elif hasattr(target_saa, "total_equity_pct"):
+            target_eq = float(getattr(target_saa, "total_equity_pct", 75.0) or 75.0)
+            target_db = float(getattr(target_saa, "debt_pct", 25.0) or 25.0)
+
+    # 1. Attempt Live AI Synthesis if requested
+    if use_live_ai:
+        try:
+            from core.ai_engine import call_llm
+            prompt = f"""You are a SEBI-registered Research Analyst and Fee-Only Fiduciary Wealth Advisor.
+Review the following audited mutual fund portfolio factsheet data and generate an institutional Fiduciary Review:
+
+Portfolio Overview:
+- Total Valuation: INR {total_val:,.0f} across {unique_schemes} distinct mutual fund strategies ({len(funds)} folios).
+- Net Equity Allocation: {eq_pct:.1f}% vs Target SAA of {target_eq:.1f}% ({eq_pct - target_eq:+.1f}% drift).
+- True Debt & Cash Stability Buffer: {debt_pct:.1f}% vs Target SAA of {target_db:.1f}% ({debt_pct - target_db:+.1f}% drift).
+- Regular Plan Holding Exposure: INR {regular_val:,.0f} ({regular_pct:.1f}% of portfolio).
+- Distributor Commission Bleed: INR {annual_bleed:,.0f} per year.
+- Estimated 10-Year Compounded Commission Drag: INR {ten_yr_drag:,.0f}.
+- Dual Plan Overlaps: {dual_count} mutual fund strategies held in BOTH Regular and Direct plans simultaneously.
+
+Provide a structured fiduciary assessment covering:
+1. Executive Health Diagnostic (Asset allocation balance and drift vs target SAA)
+2. Distributor Commission Leakage & Regular-to-Direct Transition Impact
+3. Folio Duplication & Consolidation Priority (Action on {dual_count} dual-held schemes)
+4. Strategic Capital Deployment (Recommendations for deploying monthly SIPs and idle lump-sum capital)
+
+Tone: Professional, institutional, objective, fiduciary, strictly non-promotional.
+Format: Clear markdown bullet points."""
+
+            raw_res = call_llm(prompt, external_processing_consent=True)
+            if raw_res and len(raw_res.strip()) > 50:
+                return {
+                    "source": "Live AI Model (Fiduciary Synthesis)",
+                    "content": raw_res.strip(),
+                }
+        except Exception as exc:
+            logger.debug("Live AI narrative generation unavailable: %s", exc)
+
+    # 2. Deterministic Statutory Fiduciary Synthesis (SEBI 2017 & AMFI Factual Rules)
+    lines = [
+        "### 🛡️ Institutional Fiduciary Health Diagnostic",
+        "",
+        f"* **Asset Allocation Alignment:** Net equity exposure stands at **{eq_pct:.1f}%** against your strategic asset allocation (SAA) target of **{target_eq:.1f}%** ({eq_pct - target_eq:+.1f}% drift). True debt and liquid cash buffers comprise **{debt_pct:.1f}%** ({debt_pct - target_db:+.1f}% vs {target_db:.1f}% target).",
+    ]
+
+    if abs(eq_pct - target_eq) > 5.0:
+        if eq_pct > target_eq:
+            lines.append(f"* **Rebalancing Advisory:** The portfolio is overweight equity by **{eq_pct - target_eq:+.1f}%**. Consider directing incremental SIPs or lump-sum capital into high-grade debt/arbitrage vehicles to restore stability buffers.")
+        else:
+            lines.append(f"* **Rebalancing Advisory:** The portfolio is underweight equity by **{target_eq - eq_pct:.1f}%**. Deploy incremental SIP tranches into core low-cost Direct large-cap index funds to systematically close the equity deficit.")
+    else:
+        lines.append("* **Rebalancing Advisory:** Portfolio asset allocation is well-balanced within the standard ±5% fiduciary tolerance band of your SAA target.")
+
+    lines.extend([
+        "",
+        "### 💸 Distributor Commission Bleed & Direct Conversion Priority",
+    ])
+
+    if regular_val > 0:
+        lines.extend([
+            f"* **Intermediary Drag:** You hold **₹{regular_val:,.0f}** ({regular_pct:.1f}% of total wealth) in commission-bearing Regular mutual fund plans.",
+            f"* **Annual Bleed:** This Regular plan allocation bleeds **₹{annual_bleed:,.0f} every year** in ongoing trail commissions paid directly to distributors out of your fund NAV.",
+            f"* **10-Year Compounded Impact:** Over a 10-year holding horizon at 12% portfolio CAGR, this fee drag compounds to **₹{ten_yr_drag:,.0f}** in forfeited wealth.",
+            "* **Fiduciary Action:** Execute non-taxable / tax-exempt phased switches from Regular to Direct Growth plans, utilizing annual Section 112A capital gains exemption headroom (₹1.25 Lakhs/year) to transition without tax friction.",
+        ])
+    else:
+        lines.append("* **100% Direct Plan Compliance:** Excellent fiduciary posture. Entire portfolio is invested in Direct plans with zero intermediary commission leakage.")
+
+    if dual_count > 0:
+        lines.extend([
+            "",
+            "### 🚨 Scheme Duplication & Folio Consolidation",
+            f"* **Redundant Folios Detected:** The audit identified **{dual_count} mutual fund strategies** held simultaneously in both Regular and Direct plans.",
+            f"* **Immediate Consolidation Step:** Consolidate units of the Regular plan folios into your existing Direct folios of the same scheme to eliminate duplicate account maintenance and immediate commission bleed without changing portfolio strategy.",
+        ])
+
+    lines.extend([
+        "",
+        "### 📈 Fiduciary Deployment Roadmap",
+        "* **Direct SIP Deployment:** Deploy monthly investment budget exclusively into zero-commission Direct Growth schemes matched to your target risk profile.",
+        "* **Lump-Sum Capital Staging:** For lump-sum capital, stage equity deployment systematically over 6–12 monthly STP tranches from a Direct liquid or arbitrage vehicle to mitigate short-term market timing risk.",
+    ])
+
+    return {
+        "source": "Statutory Fiduciary Assessment (SEBI 2017 Mandate)",
+        "content": "\n".join(lines),
+    }

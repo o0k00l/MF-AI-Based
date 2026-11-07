@@ -9,7 +9,7 @@ if _REPO_ROOT not in sys.path:
 
 import streamlit as st
 from services.fiduciary_engine import evaluate_portfolio_saa_audit, generate_fiduciary_sip_blueprint
-from services.ai_fund_classifier import enrich_funds_with_ai
+from services.ai_fund_classifier import enrich_funds_with_ai, generate_fiduciary_ai_narrative
 
 # --- Page Configuration ---
 st.set_page_config(
@@ -208,6 +208,29 @@ else:
     unique_strat_count = len(canonical_portfolio)
     dual_schemes = {c_name: flist for c_name, flist in canonical_portfolio.items() if len(flist) > 1}
 
+    # AI Executive Diagnostic Synthesis Integration
+    ai_narrative = st.session_state.get("ai_portfolio_narrative")
+    if not ai_narrative and portfolio:
+        portfolio_metrics_for_report = {
+            "total_value": total_val,
+            "total_invested": total_invested,
+            "eq_pct": (sum(f.get("current_value", 0) * f.get("eq", 0) / 100 for f in portfolio) / total_val * 100) if total_val else 0,
+            "debt_pct": (sum(f.get("current_value", 0) * f.get("debt", 0) / 100 for f in portfolio) / total_val * 100) if total_val else 0,
+            "regular_value": sum(f.get("current_value", 0) for f in portfolio if str(f.get("plan_type", "Direct")).upper() == "REGULAR"),
+            "regular_pct": (sum(f.get("current_value", 0) for f in portfolio if str(f.get("plan_type", "Direct")).upper() == "REGULAR") / total_val * 100) if total_val else 0,
+            "annual_bleed": sum(f.get("annual_commission_bleed", 0) for f in portfolio),
+            "compounded_10y_drag": sum(f.get("ten_year_compounded_drag", 0) for f in portfolio),
+            "unique_strategies_count": unique_strat_count,
+            "dual_count": len(dual_schemes),
+        }
+        ai_narrative = generate_fiduciary_ai_narrative(
+            portfolio_metrics=portfolio_metrics_for_report,
+            funds=portfolio,
+            target_saa=st.session_state.get("saa_target"),
+            use_live_ai=False,
+        )
+        st.session_state["ai_portfolio_narrative"] = ai_narrative
+
     # Build report preview
     report_lines = [
         "# Executive Mutual Fund Portfolio Review & Fiduciary Advisory Plan",
@@ -220,6 +243,9 @@ else:
         f"* **Total Portfolio Value:** ₹{total_val:,.0f}",
         f"* **Total Invested Cost:** ₹{total_invested:,.0f}",
         f"* **Unrealized Gain / (Loss):** ₹{total_gain:,.0f} ({gain_pct:+.1f}%)",
+        "",
+        "### 1.1 Fiduciary Executive Analysis & Diagnostic Synthesis",
+        ai_narrative.get("content", "") if ai_narrative else "",
         "",
         "## 2. Holdings Breakdown",
         "| Scheme Name | Category | Plan | Current Value (₹) | Equity % | Debt % |",

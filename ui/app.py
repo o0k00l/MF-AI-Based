@@ -17,7 +17,7 @@ if _REPO_ROOT not in _sys.path:
 import streamlit as st
 
 from services.cas_parser import parse_cas_file
-from services.ai_fund_classifier import enrich_funds_with_ai, classify_fund_with_ai
+from services.ai_fund_classifier import enrich_funds_with_ai, classify_fund_with_ai, generate_fiduciary_ai_narrative
 from services.sip_api_client import get_api_health, request_sip_recommendations
 from services.risk_profiler import evaluate_fiduciary_profile
 from services.cgs_parser import parse_cgs_file
@@ -572,6 +572,55 @@ if regular_total > 0:
 else:
     st.success("✅ **Fiduciary Best Practice**: 100% of your holdings are in Direct plans. Zero intermediary commission bleed detected.")
 
+# --- AI Executive Fiduciary Portfolio Diagnosis ---
+st.markdown('<h2 class="section-title">🤖 AI Executive Fiduciary Portfolio Diagnosis</h2>', unsafe_allow_html=True)
+st.caption("Deep institutional fiduciary synthesis across asset allocation drift, distributor commission bleed, and direct-plan consolidation.")
+
+ai_diag_c1, ai_diag_c2 = st.columns([3, 1])
+with ai_diag_c1:
+    st.markdown("Generate a comprehensive, personalized fiduciary review combining live AI analysis with official SEBI & AMFI statutory benchmarks.")
+with ai_diag_c2:
+    gen_narrative_btn = st.button("🧠 Generate AI Fiduciary Diagnosis", use_container_width=True, help="Synthesize portfolio health, distributor fee leakage, and rebalancing priorities")
+
+portfolio_metrics_summary = {
+    "total_value": total_value,
+    "total_invested": total_invested,
+    "eq_pct": eq_pct,
+    "debt_pct": debt_pct,
+    "gold_pct": (total_gold / total_value * 100.0) if total_value else 0.0,
+    "intl_pct": (total_intl / total_value * 100.0) if total_value else 0.0,
+    "regular_value": regular_total,
+    "regular_pct": regular_pct,
+    "annual_bleed": total_annual_bleed,
+    "compounded_10y_drag": total_10y_compounded,
+    "unique_strategies_count": unique_strategies_count,
+    "dual_count": dual_count,
+}
+
+if gen_narrative_btn or st.session_state.get("ai_portfolio_narrative"):
+    if gen_narrative_btn:
+        with st.spinner("Synthesizing portfolio health and fiduciary recommendations..."):
+            diag_result = generate_fiduciary_ai_narrative(
+                portfolio_metrics=portfolio_metrics_summary,
+                funds=funds,
+                target_saa=st.session_state.get("saa_target"),
+                use_live_ai=True,
+            )
+            st.session_state["ai_portfolio_narrative"] = diag_result
+
+    diag = st.session_state.get("ai_portfolio_narrative")
+    if diag:
+        st.markdown(f"""
+        <div style="background: #f8fafc; border: 1px solid #cbd5e1; border-left: 5px solid #2563eb; border-radius: 8px; padding: 16px 20px; margin: 12px 0;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                <span style="font-size: 0.82rem; font-weight: 700; color: #1e40af; text-transform: uppercase;">Fiduciary Narrative Provenance</span>
+                <span style="background: #dbeafe; color: #1e40af; font-size: 0.75rem; font-weight: 600; padding: 3px 10px; border-radius: 12px;">{diag['source']}</span>
+            </div>
+            <div style="font-size: 0.95rem; line-height: 1.6; color: #1e293b;">
+        """, unsafe_allow_html=True)
+        st.markdown(diag["content"])
+        st.markdown("</div></div>", unsafe_allow_html=True)
+
 # --- Statutory Capital Gains & Tax Audit (CGS) ---
 cgs_info = st.session_state.get("cgs_data")
 if cgs_info and cgs_info.get("summary"):
@@ -727,6 +776,26 @@ else:
     }
     chosen_saa = st.selectbox("Select Target Risk Profile", list(saa_options.keys()), index=2)
     target_eq, target_debt = saa_options[chosen_saa]
+    if "Conservative" in chosen_saa:
+        st.session_state["saa_target"] = {
+            "total_equity_pct": 30.0, "large_cap_pct": 20.0, "mid_small_cap_pct": 10.0, "debt_pct": 70.0
+        }
+        st.session_state["risk_tier"] = "TIER_2_LOW"
+    elif "Moderate" in chosen_saa:
+        st.session_state["saa_target"] = {
+            "total_equity_pct": 60.0, "large_cap_pct": 40.0, "mid_small_cap_pct": 20.0, "debt_pct": 40.0
+        }
+        st.session_state["risk_tier"] = "TIER_3_MODERATE"
+    elif "Very High" in chosen_saa:
+        st.session_state["saa_target"] = {
+            "total_equity_pct": 95.0, "large_cap_pct": 55.0, "mid_small_cap_pct": 40.0, "debt_pct": 5.0
+        }
+        st.session_state["risk_tier"] = "TIER_6_VERY_HIGH"
+    else:
+        st.session_state["saa_target"] = {
+            "total_equity_pct": 85.0, "large_cap_pct": 50.0, "mid_small_cap_pct": 35.0, "debt_pct": 15.0
+        }
+        st.session_state["risk_tier"] = "TIER_4_MODERATE_HIGH"
 
 eq_drift = eq_pct - target_eq
 debt_drift = debt_pct - target_debt
@@ -780,6 +849,13 @@ if st.button("🚀 Run Fiduciary Engine & Generate SIP Blueprint", type="primary
     with st.spinner("Executing mathematical fiduciary engine..."):
         # 1. Execute deterministic local fiduciary engine
         target_saa = st.session_state.get("saa_target")
+        if not st.session_state.get("fiduciary_profile_result"):
+            if risk_choice == "Conservative":
+                target_saa = {"total_equity_pct": 30.0, "large_cap_pct": 20.0, "mid_small_cap_pct": 10.0, "debt_pct": 70.0}
+            elif risk_choice == "Moderate":
+                target_saa = {"total_equity_pct": 60.0, "large_cap_pct": 40.0, "mid_small_cap_pct": 20.0, "debt_pct": 40.0}
+            else:
+                target_saa = {"total_equity_pct": 85.0, "large_cap_pct": 50.0, "mid_small_cap_pct": 35.0, "debt_pct": 15.0}
         try:
             safe_sip_budget = float(sip_budget) if sip_budget is not None else 25000.0
         except (ValueError, TypeError):
