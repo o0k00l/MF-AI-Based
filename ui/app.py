@@ -743,11 +743,6 @@ if calc_lumpsum or st.session_state.get("deterministic_lumpsum_plan"):
         st.table(sched_rows)
         st.caption(f"Reconciliation check: {'Exact ₹0.00 remainder' if ls_plan['reconciliation_valid'] else 'Check'}")
 
-# --- Equity vs Internal Debt Chart ---
-st.markdown('<h2 class="section-title">⚖️ Equity vs Internal Debt</h2>', unsafe_allow_html=True)
-st.info("💡 Equity funds legally hold internal debt (cash equivalents) for liquidity management. Large Cap funds typically hold ~5% debt, while Flexi/Multi Cap funds hold ~2% debt.")
-chart_data = {"Equity": total_eq, "Internal Debt": total_debt}
-st.bar_chart(chart_data, use_container_width=True)
 
 # --- Fund-by-Fund Details ---
 st.markdown('<h2 class="section-title">📋 Fund Details</h2>', unsafe_allow_html=True)
