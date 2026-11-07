@@ -233,3 +233,4 @@ with st.expander("⚙️ Advanced Settings: AI Research & Model Keys", expanded=
                 st.write(f"**{provider}:** {'Configured' if configured else 'Not configured'}")
         except (OSError, TypeError, ValueError):
             st.error("Settings could not be saved. Check file permissions.")
+
