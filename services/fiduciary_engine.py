@@ -266,3 +266,141 @@ def generate_fiduciary_sip_blueprint(
         "reconciliation_valid": abs(unallocated) <= Decimal("0.01"),
     }
 
+
+def evaluate_fiduciary_lumpsum_blueprint(
+    lumpsum_amount_inr: float,
+    bank_cash_inr: float,
+    monthly_expenses_inr: float = 0.0,
+    emergency_reserve_inr: Optional[float] = None,
+    stp_duration_months: int = 6,
+    target_saa: Optional[Dict[str, float] | TargetSaa] = None,
+    funds: Optional[List[Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
+    """Evaluate portfolio-aware lump sum deployment and generate a deterministic STP schedule.
+
+    Adheres strictly to SEBI fiduciary standards:
+    1. Reserves 6 months of essential living expenses (or explicit emergency reserve) in bank cash.
+    2. Enforces deployable surplus ceiling: cannot deploy capital that cuts into emergency buffer.
+    3. Mitigates market timing / peak-valuation risk by staging equity via a systematic transfer plan (STP).
+    4. Parks idle cash in an ultra-low-risk Direct parking vehicle (Direct Liquid / Arbitrage).
+    5. Reconciles every monthly tranche to the exact paisa.
+    """
+    lump_dec = quantize_inr(max(0.0, lumpsum_amount_inr))
+    cash_dec = quantize_inr(max(0.0, bank_cash_inr))
+
+    if emergency_reserve_inr is not None and emergency_reserve_inr > 0:
+        reserve_dec = quantize_inr(emergency_reserve_inr)
+    elif monthly_expenses_inr > 0:
+        reserve_dec = quantize_inr(monthly_expenses_inr * 6.0)
+    else:
+        reserve_dec = Decimal("0.00")
+
+    deployable_surplus = max(Decimal("0.00"), cash_dec - reserve_dec)
+    reasons: List[str] = []
+
+    if cash_dec < reserve_dec:
+        status = "RESERVE_DEFICIT"
+        effective_lumpsum = Decimal("0.00")
+        deficit = reserve_dec - cash_dec
+        reasons.append(
+            f"Bank cash (₹{cash_dec:,.2f}) is below the required 6-month emergency reserve (₹{reserve_dec:,.2f}) "
+            f"by ₹{deficit:,.2f}. Fiduciary policy mandates holding a complete liquid cushion before deploying equity lump sums."
+        )
+    elif deployable_surplus < lump_dec:
+        status = "CAPPED_AT_SURPLUS"
+        effective_lumpsum = deployable_surplus
+        reasons.append(
+            f"Requested lump sum (₹{lump_dec:,.2f}) exceeds deployable surplus (₹{deployable_surplus:,.2f}) "
+            f"after protecting ₹{reserve_dec:,.2f} for emergency reserves. Deployment is capped at deployable surplus."
+        )
+    elif lump_dec <= Decimal("0.00"):
+        status = "ZERO_AMOUNT"
+        effective_lumpsum = Decimal("0.00")
+        reasons.append("Lump-sum deployment amount must be greater than zero.")
+    else:
+        status = "ELIGIBLE"
+        effective_lumpsum = lump_dec
+        reasons.append(
+            f"Deployable surplus (₹{deployable_surplus:,.2f}) fully accommodates the requested lump sum of ₹{lump_dec:,.2f} "
+            f"while maintaining a full ₹{reserve_dec:,.2f} emergency reserve."
+        )
+
+    # Determine SAA target allocation percentages
+    if target_saa is not None:
+        if hasattr(target_saa, "debt_pct"):
+            db_pct = Decimal(str(target_saa.debt_pct))
+            eq_pct = Decimal(str(target_saa.total_equity_pct))
+            lc_pct = Decimal(str(target_saa.large_cap_pct))
+            ms_pct = Decimal(str(target_saa.mid_small_cap_pct))
+        elif isinstance(target_saa, dict):
+            db_pct = Decimal(str(target_saa.get("debt_pct", 25.0)))
+            eq_pct = Decimal(str(target_saa.get("equity_pct", 100.0 - float(db_pct))))
+            lc_pct = Decimal(str(target_saa.get("large_cap_pct", 50.0)))
+            ms_pct = Decimal(str(target_saa.get("mid_small_cap_pct", 25.0)))
+        else:
+            eq_pct, db_pct, lc_pct, ms_pct = Decimal("75.0"), Decimal("25.0"), Decimal("50.0"), Decimal("25.0")
+    else:
+        eq_pct, db_pct, lc_pct, ms_pct = Decimal("75.0"), Decimal("25.0"), Decimal("50.0"), Decimal("25.0")
+
+    # Quantize equity deployment and debt retention
+    target_equity_capital = (effective_lumpsum * (eq_pct / Decimal("100.0"))).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    target_debt_capital = (effective_lumpsum - target_equity_capital).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+    # Resolve direct parking vehicle
+    direct_funds = [f for f in (funds or []) if str(f.get("plan_type", "Direct")).upper() == "DIRECT"]
+    parking_scheme = next(
+        (f.get("scheme") for f in direct_funds if f.get("category") == "Debt" or "liquid" in f.get("scheme", "").lower() or "arbitrage" in f.get("scheme", "").lower()),
+        "Direct Liquid / Money Market Fund",
+    )
+
+    # Multi-month STP Staging Schedule for Equity Capital
+    stp_duration = max(1, min(stp_duration_months, 36))
+    base_tranche = (target_equity_capital / Decimal(str(stp_duration))).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    
+    stp_schedule: List[Dict[str, Any]] = []
+    cumulative_deployed = Decimal("0.00")
+
+    # Ratio within equity sleeve
+    tot_eq_weight = lc_pct + ms_pct
+    lc_ratio = (lc_pct / tot_eq_weight) if tot_eq_weight > Decimal("0.0") else Decimal("0.67")
+    ms_ratio = Decimal("1.0") - lc_ratio
+
+    for month_num in range(1, stp_duration + 1):
+        if month_num == stp_duration:
+            tranche_amt = target_equity_capital - cumulative_deployed
+        else:
+            tranche_amt = base_tranche
+
+        lc_tranche = (tranche_amt * lc_ratio).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        ms_tranche = (tranche_amt - lc_tranche).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        cumulative_deployed += tranche_amt
+
+        rem_parking = (target_equity_capital - cumulative_deployed).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+        stp_schedule.append({
+            "month": month_num,
+            "tranche_amount_inr": tranche_amt,
+            "large_cap_inr": lc_tranche,
+            "mid_small_inr": ms_tranche,
+            "remaining_liquid_parking_inr": rem_parking,
+            "source_parking": parking_scheme,
+        })
+
+    return {
+        "status": status,
+        "effective_lumpsum_inr": effective_lumpsum,
+        "requested_lumpsum_inr": lump_dec,
+        "bank_cash_inr": cash_dec,
+        "emergency_reserve_inr": reserve_dec,
+        "deployable_surplus_inr": deployable_surplus,
+        "target_equity_capital_inr": target_equity_capital,
+        "target_debt_capital_inr": target_debt_capital,
+        "stp_duration_months": stp_duration,
+        "monthly_stp_tranche_inr": base_tranche,
+        "stp_schedule": stp_schedule,
+        "parking_scheme": parking_scheme,
+        "reasons": reasons,
+        "reconciliation_valid": cumulative_deployed == target_equity_capital,
+    }
+
+

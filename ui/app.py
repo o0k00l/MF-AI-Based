@@ -15,7 +15,7 @@ from services.cas_parser import parse_cas_file
 from services.sip_api_client import get_api_health, request_sip_recommendations
 from services.risk_profiler import evaluate_fiduciary_profile
 from services.cgs_parser import parse_cgs_file
-from services.fiduciary_engine import generate_fiduciary_sip_blueprint, evaluate_portfolio_saa_audit
+from services.fiduciary_engine import generate_fiduciary_sip_blueprint, evaluate_portfolio_saa_audit, evaluate_fiduciary_lumpsum_blueprint
 
 # --- Page Configuration ---
 st.set_page_config(
@@ -577,6 +577,104 @@ if st.session_state.get("api_recommendation_result"):
     with st.expander("🔍 View Technical API Decision Diagnostics"):
         st.metric("API Fiduciary Gate Status", res.get("status", "HOLD"))
         st.code(json.dumps(res, indent=2), language="json")
+
+# --- Lump-Sum Capital Deployment & Systematic Transfer Plan (STP) ---
+st.markdown('<h2 class="section-title">💰 Lump-Sum Capital Deployment & STP Waterfall</h2>', unsafe_allow_html=True)
+st.caption("Fiduciary idle-cash staging: Enforces a mandatory 6-month emergency reserve before staging deployable surplus via STP into Direct funds to mitigate market timing risk.")
+
+ls_col1, ls_col2, ls_col3 = st.columns(3)
+with ls_col1:
+    lumpsum_input = st.number_input(
+        "Available Lump Sum to Deploy (₹)",
+        min_value=0.0,
+        max_value=100000000.0,
+        value=float(st.session_state.get("lumpsum_amount", 500000.0)),
+        step=50000.0,
+        help="Amount of idle capital you wish to allocate."
+    )
+with ls_col2:
+    bank_cash_input = st.number_input(
+        "Total Liquid Bank Balance / Savings (₹)",
+        min_value=0.0,
+        max_value=100000000.0,
+        value=float(st.session_state.get("bank_cash", 800000.0)),
+        step=50000.0,
+        help="Total cash across savings accounts and liquid deposits."
+    )
+with ls_col3:
+    monthly_exp_input = st.number_input(
+        "Monthly Household Living Expenses (₹)",
+        min_value=0.0,
+        max_value=5000000.0,
+        value=float(st.session_state.get("monthly_expenses", 50000.0)),
+        step=5000.0,
+        help="Used to compute the statutory 6-month emergency reserve."
+    )
+
+ls_opt1, ls_opt2 = st.columns(2)
+with ls_opt1:
+    stp_months = st.slider(
+        "STP Staging Duration (Months)",
+        min_value=3,
+        max_value=24,
+        value=int(st.session_state.get("stp_months", 6)),
+        help="Number of monthly tranches to average into equities."
+    )
+with ls_opt2:
+    st.markdown("<br>", unsafe_allow_html=True)
+    calc_lumpsum = st.button("📈 Calculate Fiduciary Lump-Sum STP Plan", use_container_width=True)
+
+if calc_lumpsum or st.session_state.get("deterministic_lumpsum_plan"):
+    if calc_lumpsum:
+        target_saa = st.session_state.get("saa_target")
+        lumpsum_plan = evaluate_fiduciary_lumpsum_blueprint(
+            lumpsum_amount_inr=float(lumpsum_input),
+            bank_cash_inr=float(bank_cash_input),
+            monthly_expenses_inr=float(monthly_exp_input),
+            stp_duration_months=int(stp_months),
+            target_saa=target_saa,
+            funds=funds,
+        )
+        st.session_state["deterministic_lumpsum_plan"] = lumpsum_plan
+        st.session_state["lumpsum_amount"] = float(lumpsum_input)
+        st.session_state["bank_cash"] = float(bank_cash_input)
+        st.session_state["monthly_expenses"] = float(monthly_exp_input)
+        st.session_state["stp_months"] = int(stp_months)
+
+    ls_plan = st.session_state.get("deterministic_lumpsum_plan")
+    if ls_plan:
+        if ls_plan["status"] == "RESERVE_DEFICIT":
+            st.error(f"🚫 **Emergency Reserve Deficit:** {ls_plan['reasons'][0]}")
+        else:
+            if ls_plan["status"] == "CAPPED_AT_SURPLUS":
+                st.warning(f"⚠️ **Surplus Cap Notice:** {ls_plan['reasons'][0]}")
+            else:
+                st.success(f"✅ **Surplus Verified:** {ls_plan['reasons'][0]}")
+
+            m1, m2, m3, m4 = st.columns(4)
+            with m1:
+                st.metric("Total Bank Cash", f"₹{float(ls_plan['bank_cash_inr']):,.0f}")
+            with m2:
+                st.metric("6-Month Emergency Reserve", f"₹{float(ls_plan['emergency_reserve_inr']):,.0f}")
+            with m3:
+                st.metric("Deployable Surplus", f"₹{float(ls_plan['deployable_surplus_inr']):,.0f}")
+            with m4:
+                st.metric("Effective Lump-Sum", f"₹{float(ls_plan['effective_lumpsum_inr']):,.0f}")
+
+            st.markdown("#### 🛡️ Parking & Systematic Transfer Plan (STP) Schedule")
+            st.caption(f"Initial Parking: **100% in {ls_plan['parking_scheme']}** -> Staged monthly transfers to Direct Equity:")
+
+            sched_rows = []
+            for item in ls_plan["stp_schedule"]:
+                sched_rows.append({
+                    "Tranche Month": f"Month {item['month']}",
+                    "Monthly Transfer (₹)": f"₹{float(item['tranche_amount_inr']):,.2f}",
+                    "Large Cap Core (₹)": f"₹{float(item['large_cap_inr']):,.2f}",
+                    "Mid/Small Alpha (₹)": f"₹{float(item['mid_small_inr']):,.2f}",
+                    "Remaining Parked (₹)": f"₹{float(item['remaining_liquid_parking_inr']):,.2f}",
+                })
+            st.table(sched_rows)
+            st.caption(f"Reconciliation check: {'Exact ₹0.00 remainder' if ls_plan['reconciliation_valid'] else 'Check'}")
 
 # --- Equity vs Internal Debt Chart ---
 st.markdown('<h2 class="section-title">⚖️ Equity vs Internal Debt</h2>', unsafe_allow_html=True)

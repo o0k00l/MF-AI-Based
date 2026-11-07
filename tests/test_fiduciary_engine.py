@@ -8,6 +8,7 @@ from services.fiduciary_engine import (
     convert_cas_funds_to_holdings,
     evaluate_portfolio_saa_audit,
     generate_fiduciary_sip_blueprint,
+    evaluate_fiduciary_lumpsum_blueprint,
 )
 from services.risk_profiler import TargetSaa
 
@@ -87,4 +88,50 @@ def test_generate_fiduciary_sip_blueprint():
     assert blueprint["allocated_budget_inr"] == Decimal("30000.00")
     assert blueprint["unallocated_budget_inr"] == Decimal("0.00")
     assert len(blueprint["allocations"]) == 3
+
+
+def test_evaluate_fiduciary_lumpsum_blueprint():
+    """Verify portfolio-aware lumpsum deployment, reserve defense, and STP reconciliation."""
+    # Case 1: Fully eligible
+    target = TargetSaa(large_cap_pct=50.0, mid_small_cap_pct=25.0, debt_pct=25.0)
+    res = evaluate_fiduciary_lumpsum_blueprint(
+        lumpsum_amount_inr=500000.0,
+        bank_cash_inr=1000000.0,
+        monthly_expenses_inr=50000.0,  # 6mo reserve = 300,000; surplus = 700,000 >= 500,000
+        stp_duration_months=6,
+        target_saa=target,
+    )
+    assert res["status"] == "ELIGIBLE"
+    assert res["effective_lumpsum_inr"] == Decimal("500000.00")
+    assert res["emergency_reserve_inr"] == Decimal("300000.00")
+    assert res["deployable_surplus_inr"] == Decimal("700000.00")
+    assert res["target_equity_capital_inr"] == Decimal("375000.00")  # 75% equity
+    assert res["target_debt_capital_inr"] == Decimal("125000.00")    # 25% debt
+    assert len(res["stp_schedule"]) == 6
+    assert res["reconciliation_valid"] is True
+    total_stped = sum(item["tranche_amount_inr"] for item in res["stp_schedule"])
+    assert total_stped == Decimal("375000.00")
+
+    # Case 2: Reserve Deficit (Bank cash < 6mo expenses)
+    res_def = evaluate_fiduciary_lumpsum_blueprint(
+        lumpsum_amount_inr=200000.0,
+        bank_cash_inr=250000.0,
+        monthly_expenses_inr=50000.0,  # Reserve needs 300,000, only 250,000 available
+    )
+    assert res_def["status"] == "RESERVE_DEFICIT"
+    assert res_def["effective_lumpsum_inr"] == Decimal("0.00")
+    assert res_def["deployable_surplus_inr"] == Decimal("0.00")
+    assert "below the required 6-month emergency reserve" in res_def["reasons"][0]
+
+    # Case 3: Capped at surplus (Surplus < requested lump sum)
+    res_cap = evaluate_fiduciary_lumpsum_blueprint(
+        lumpsum_amount_inr=500000.0,
+        bank_cash_inr=500000.0,
+        emergency_reserve_inr=200000.0,  # Surplus = 300,000 < 500,000
+        stp_duration_months=3,
+    )
+    assert res_cap["status"] == "CAPPED_AT_SURPLUS"
+    assert res_cap["effective_lumpsum_inr"] == Decimal("300000.00")
+    assert res_cap["reconciliation_valid"] is True
+
 

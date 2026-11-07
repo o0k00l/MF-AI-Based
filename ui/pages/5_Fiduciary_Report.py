@@ -167,6 +167,20 @@ else:
             f"* **Debt & Liquidity Cushion:** ₹{sleeves.get('debt_inr', 0):,.2f} / month",
         ])
 
+    # Add Lump-Sum Deployment Plan if available
+    ls_plan = st.session_state.get("deterministic_lumpsum_plan")
+    if ls_plan and ls_plan.get("status") in ("ELIGIBLE", "CAPPED_AT_SURPLUS"):
+        report_lines.extend([
+            "",
+            "### Lump-Sum Capital Staging & STP Plan",
+            f"* **Total Bank Cash:** ₹{float(ls_plan['bank_cash_inr']):,.2f}",
+            f"* **6-Month Emergency Reserve:** ₹{float(ls_plan['emergency_reserve_inr']):,.2f}",
+            f"* **Deployable Surplus:** ₹{float(ls_plan['deployable_surplus_inr']):,.2f}",
+            f"* **Effective Staged Deployment:** ₹{float(ls_plan['effective_lumpsum_inr']):,.2f}",
+            f"* **Liquid Parking Vehicle:** {ls_plan['parking_scheme']}",
+            f"* **STP Duration:** {ls_plan['stp_duration_months']} months @ ₹{float(ls_plan['monthly_stp_tranche_inr']):,.2f} / month",
+        ])
+
     report_lines.extend([
         "",
         "## 7. Fiduciary Disclosures & Compliance Statement",
