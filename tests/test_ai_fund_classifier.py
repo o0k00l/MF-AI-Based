@@ -6,7 +6,7 @@ and SEBI regulatory mandates without crude heuristic substring assumptions.
 from __future__ import annotations
 
 import pytest
-from services.ai_fund_classifier import classify_fund_with_ai, enrich_funds_with_ai
+from services.ai_fund_classifier import classify_fund_with_ai, enrich_funds_with_ai, extract_canonical_scheme_name
 
 
 def test_hdfc_balanced_advantage_lookthrough():
@@ -95,3 +95,10 @@ def test_enrich_funds_with_ai():
     assert crma["gold"] == 9.50
     assert crma["debt"] == 22.00
 
+
+
+def test_extract_canonical_scheme_name_and_dual_plan_detection():
+    """Verify underlying scheme name normalizes across Direct and Regular plans."""
+    d = "HDFC Flexi Cap Fund - Direct Plan - Growth Option"
+    r = "HDFC Flexi Cap Fund - Regular Plan - Growth"
+    assert extract_canonical_scheme_name(d) == extract_canonical_scheme_name(r) == "Hdfc Flexi Cap Fund"

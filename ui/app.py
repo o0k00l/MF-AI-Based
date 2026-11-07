@@ -328,14 +328,28 @@ total_intl = sum(f.get("current_value", 0) * f.get("intl", 0) / 100 for f in fun
 eq_pct = (total_eq / total_value * 100) if total_value else 0
 debt_pct = (total_debt / total_value * 100) if total_value else 0
 
+# Group by canonical underlying strategy to distinguish unique schemes from plan variants
+canonical_schemes = {}
+for f in funds:
+    c_name = f.get("canonical_scheme") or f.get("scheme", "")
+    canonical_schemes.setdefault(c_name, []).append(f)
+
+unique_strategies_count = len(canonical_schemes)
+total_plan_holdings = len(funds)
+dual_holding_schemes = {c_name: flist for c_name, flist in canonical_schemes.items() if len(flist) > 1}
+dual_count = len(dual_holding_schemes)
+
 # --- Key Metrics Row ---
 st.markdown('<h2 class="section-title">📊 Portfolio Overview</h2>', unsafe_allow_html=True)
 col1, col2, col3, col4 = st.columns(4)
 with col1:
     st.markdown('<div class="metric-card">', unsafe_allow_html=True)
-    st.markdown('<span class="metric-label">Total Active Funds</span>', unsafe_allow_html=True)
-    st.markdown(f'<span class="metric-value">{len(funds)}</span>', unsafe_allow_html=True)
-    st.caption("100% verified from uploaded CAS")
+    st.markdown('<span class="metric-label">Active Schemes</span>', unsafe_allow_html=True)
+    st.markdown(f'<span class="metric-value">{unique_strategies_count} Funds</span>', unsafe_allow_html=True)
+    if dual_count > 0:
+        st.caption(f"{total_plan_holdings} Plan Folios ({dual_count} dual Regular+Direct)")
+    else:
+        st.caption(f"{total_plan_holdings} Plan Folios (0 duplicate overlaps)")
     st.markdown('</div>', unsafe_allow_html=True)
 with col2:
     st.markdown('<div class="metric-card">', unsafe_allow_html=True)
@@ -467,6 +481,29 @@ if regular_total > 0:
             r_10y = float(rf.get("ten_year_compounded_drag", 0))
             bleed_rows.append(f"| {r_sch} | ₹{r_val:,.0f} | {r_td:.2f}% | {r_tr:.2f}% | {r_trail:.2f}% | ₹{r_yr:,.0f}/yr | ₹{r_10y:,.0f} |")
         st.markdown("\n".join(bleed_rows))
+
+    if dual_count > 0:
+        with st.expander(f"🚨 Dual-Plan Overlap Detected ({dual_count} Schemes Held in BOTH Regular & Direct Plans)", expanded=True):
+            st.markdown(
+                f"You are currently invested in the **exact same mutual fund strategy** through both Direct and Regular plans simultaneously across {dual_count} schemes. "
+                "This causes unnecessary folio fragmentation and avoidable distributor trail commission bleed on the Regular sleeve:"
+            )
+            dual_rows = [
+                "| Underlying Strategy | Direct Value (₹) | Regular Value (₹) | Total Strategy AUM (₹) | Regular Trail Drag (% / yr) |",
+                "| :--- | :--- | :--- | :--- | :--- |"
+            ]
+            total_dual_bleed = 0.0
+            for c_name, flist in dual_holding_schemes.items():
+                d_val = sum(f.get("current_value", 0) for f in flist if f.get("plan_type") == "Direct")
+                r_val = sum(f.get("current_value", 0) for f in flist if f.get("plan_type") == "Regular")
+                tot_strat_val = d_val + r_val
+                r_fund = next((f for f in flist if f.get("plan_type") == "Regular"), None)
+                trail_pct = r_fund.get("trail_commission_pct", 1.0) if r_fund else 1.0
+                ann_bleed = r_fund.get("annual_commission_bleed", 0) if r_fund else 0
+                total_dual_bleed += ann_bleed
+                dual_rows.append(f"| **{c_name}** | ₹{d_val:,.0f} | ₹{r_val:,.0f} | ₹{tot_strat_val:,.0f} | {trail_pct:.2f}% (₹{ann_bleed:,.0f}/yr) |")
+            st.markdown("\n".join(dual_rows))
+            st.info(f"💡 **Fiduciary Rebalancing Action:** Consolidate the Regular plan units of these {dual_count} schemes directly into your existing Direct folios of the same scheme. This eliminates **₹{total_dual_bleed:,.0f}/year** in trail commissions without changing your asset allocation or risk profile.")
 else:
     st.success("✅ **Fiduciary Best Practice**: 100% of your holdings are in Direct plans. Zero intermediary commission bleed detected.")
 

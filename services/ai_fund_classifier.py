@@ -1312,6 +1312,52 @@ def classify_fund_with_ai(scheme_name: str) -> Dict[str, Any]:
     }
 
 
+def extract_canonical_scheme_name(scheme_name: str) -> str:
+    """Extract canonical underlying mutual fund strategy name, stripping plan/option variants.
+
+    Distinguishes unique underlying strategies (e.g. 'HDFC Flexi Cap Fund')
+    from plan/option variants (Direct vs Regular, Growth vs IDCW).
+    """
+    s = scheme_name.lower().strip()
+    if "(" in s:
+        s = s[:s.find("(")].strip()
+
+    for phrase in [
+        "- direct growth plan growth option",
+        "- growth plan growth option",
+        "- direct plan - growth option",
+        "- regular plan - growth option",
+        "- regular plan - growth",
+        "- direct plan - growth",
+        "- regular plan growth",
+        "- direct plan growth",
+        "- regular growth plan",
+        "- direct growth plan",
+        "regular growth",
+        "direct growth",
+        "- regular plan",
+        "- direct plan",
+        "growth option",
+        "growth plan",
+        "regular plan",
+        "direct plan",
+        "idcw option",
+        "dividend option",
+        "reinvestment",
+        "payout",
+        "growth",
+        "direct",
+        "regular",
+        "plan",
+        "option",
+    ]:
+        s = s.replace(phrase, "")
+
+    s = s.replace("-", " ").strip()
+    cleaned = " ".join(s.split()).title()
+    return cleaned
+
+
 def enrich_funds_with_ai(funds: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Enrich an uploaded portfolio fund list with fund-by-fund AI look-through intelligence.
 
@@ -1340,6 +1386,7 @@ def enrich_funds_with_ai(funds: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         item["benchmark"] = profile.get("benchmark", "Nifty 500 TRI")
         item["risk_rating"] = profile.get("risk_rating", "High")
         item["classification_source"] = profile.get("source", "AI Look-Through")
+        item["canonical_scheme"] = extract_canonical_scheme_name(scheme_name)
 
         # Scheme-wise TER & Distributor Commission Bleed
         item["ter_direct"] = profile.get("ter_direct", 0.75)

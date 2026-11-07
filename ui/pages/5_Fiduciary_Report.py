@@ -196,11 +196,20 @@ else:
         sip_budget = goals_alloc.get("total_allocated", 0)
         st.metric("Monthly SIP Budget", f"₹{sip_budget:,.0f}/mo")
 
+    # Group by canonical underlying strategy
+    canonical_portfolio = {}
+    for f in portfolio:
+        c_name = f.get("canonical_scheme") or f.get("scheme", "")
+        canonical_portfolio.setdefault(c_name, []).append(f)
+
+    unique_strat_count = len(canonical_portfolio)
+    dual_schemes = {c_name: flist for c_name, flist in canonical_portfolio.items() if len(flist) > 1}
+
     # Build report preview
     report_lines = [
         "# Executive Mutual Fund Portfolio Review & Fiduciary Advisory Plan",
         "",
-        f"**Valuation Date:** Current Session  |  **Governing Risk Tier:** {risk_tier}  |  **Active Funds:** {len(portfolio)}",
+        f"**Valuation Date:** Current Session  |  **Governing Risk Tier:** {risk_tier}  |  **Active Strategies:** {unique_strat_count} ({len(portfolio)} Plan Folios)",
         "",
         "---",
         "",
@@ -262,6 +271,27 @@ else:
             "| Identified Regular Scheme | Current Value (₹) | Direct TER | Regular TER | Trail Comm. % | Annual Bleed (₹/yr) | 10Y Compounded Drag (₹) |",
             "| :--- | :--- | :--- | :--- | :--- | :--- | :--- |",
         ])
+
+        if dual_schemes:
+            report_lines.extend([
+                "",
+                "### Dual-Plan Duplication & Folio Consolidation Priority",
+                f"The audit identified **{len(dual_schemes)} mutual fund strategies** held simultaneously in both Direct and Regular plans:",
+                "",
+                "| Underlying Strategy | Direct Value (₹) | Regular Value (₹) | Total Strategy Value (₹) | Annual Commission Bleed |",
+                "| :--- | :--- | :--- | :--- | :--- |",
+            ])
+            for c_name, flist in dual_schemes.items():
+                d_val = sum(f.get("current_value", 0) for f in flist if f.get("plan_type") == "Direct")
+                r_val = sum(f.get("current_value", 0) for f in flist if f.get("plan_type") == "Regular")
+                r_fund = next((f for f in flist if f.get("plan_type") == "Regular"), None)
+                bleed = r_fund.get("annual_commission_bleed", 0) if r_fund else 0
+                trail = r_fund.get("trail_commission_pct", 1.0) if r_fund else 1.0
+                report_lines.append(f"| **{c_name}** | ₹{d_val:,.0f} | ₹{r_val:,.0f} | ₹{d_val+r_val:,.0f} | ₹{bleed:,.0f}/yr ({trail:.2f}%) |")
+            report_lines.extend([
+                "",
+                "* **Immediate Fiduciary Action:** Consolidate the Regular plan units of these schemes directly into your existing Direct folios of the same scheme to eliminate trail leakage without altering asset allocation.",
+            ])
         for rf in sorted(regular_holdings, key=lambda x: x.get("annual_commission_bleed", 0), reverse=True):
             r_name = rf.get("scheme", "Regular Scheme")
             r_val = float(rf.get("current_value", 0))
