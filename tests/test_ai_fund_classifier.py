@@ -102,3 +102,40 @@ def test_extract_canonical_scheme_name_and_dual_plan_detection():
     d = "HDFC Flexi Cap Fund - Direct Plan - Growth Option"
     r = "HDFC Flexi Cap Fund - Regular Plan - Growth"
     assert extract_canonical_scheme_name(d) == extract_canonical_scheme_name(r) == "Hdfc Flexi Cap Fund"
+
+
+def test_ai_rationale_and_live_llm_integration(monkeypatch):
+    """Verify that enriched funds contain ai_rationale and classify_fund_with_llm can be injected."""
+    from services.ai_fund_classifier import classify_fund_with_llm, _AI_SCHEME_CACHE
+
+    raw_funds = [
+        {"scheme": "HDFC Balanced Advantage Fund - Direct Plan - Growth Option", "current_value": 100000.0},
+    ]
+    enriched = enrich_funds_with_ai(raw_funds)
+    assert "ai_rationale" in enriched[0]
+    assert len(enriched[0]["ai_rationale"]) > 0
+
+    # Inject mock LLM response
+    mock_llm_res = {
+        "category": "Equity",
+        "scheme_type": "Sectoral / Thematic",
+        "asset_class": "Sectoral / Thematic",
+        "sub_category": "Thematic Space & Defence Mandate",
+        "eq": 98.0,
+        "debt": 2.0,
+        "gold": 0.0,
+        "intl": 0.0,
+        "lc": 50.0,
+        "mc": 30.0,
+        "sc": 18.0,
+        "benchmark": "Nifty India Defence Index TRI",
+        "risk_rating": "Very High",
+        "ai_rationale": "Dynamic mock LLM classification under SEBI 2017 circular.",
+        "source": "AI LLM Model Look-Through (SEBI 2017 Mandate)",
+    }
+    _AI_SCHEME_CACHE["Mock Space Defence Fund"] = mock_llm_res
+
+    res = classify_fund_with_ai("Mock Space Defence Fund", use_live_ai=True)
+    assert res["scheme_type"] == "Sectoral / Thematic"
+    assert res["source"] == "AI LLM Model Look-Through (SEBI 2017 Mandate)"
+    assert "Dynamic mock LLM" in res["ai_rationale"]

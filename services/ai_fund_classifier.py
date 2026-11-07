@@ -12,6 +12,7 @@ SID regulatory filings, and AMFI factsheets).
 """
 from __future__ import annotations
 
+import json
 import logging
 import re
 from typing import Any, Dict, List, Optional
@@ -908,7 +909,180 @@ def _clean_scheme_name(scheme_name: str) -> str:
     return " ".join(s.split())
 
 
-def classify_fund_with_ai(scheme_name: str) -> Dict[str, Any]:
+
+_AI_SCHEME_CACHE: Dict[str, Dict[str, Any]] = {}
+
+
+def classify_fund_with_llm(scheme_name: str) -> Optional[Dict[str, Any]]:
+    """Prompt the AI engine dynamically to classify an Indian mutual fund per SEBI rules.
+
+    Analyzes scheme mandate, asset allocation, and market cap exposure using SEBI
+    Categorization Circular SEBI/HO/IMD/DF3/CIR/P/2017/114.
+    """
+    if not scheme_name or not scheme_name.strip():
+        return None
+
+    canonical = extract_canonical_scheme_name(scheme_name)
+    if canonical in _AI_SCHEME_CACHE:
+        return dict(_AI_SCHEME_CACHE[canonical])
+    if scheme_name in _AI_SCHEME_CACHE:
+        return dict(_AI_SCHEME_CACHE[scheme_name])
+
+    try:
+        from core.ai_engine import call_llm
+    except ImportError:
+        return None
+
+    prompt = f"""You are a SEBI-registered Mutual Fund Research Analyst. Classify the following Indian Mutual Fund scheme strictly per SEBI Categorization Circular (SEBI/HO/IMD/DF3/CIR/P/2017/114).
+
+Scheme Name: \"{scheme_name}\"
+
+Analyze its investment mandate, asset allocation, and market cap exposure.
+Respond ONLY with a valid JSON object in this exact schema without any markdown formatting or commentary:
+{{
+  \"canonical_name\": \"{canonical}\",
+  \"category\": \"Equity\" or \"Hybrid\" or \"Debt\",
+  \"scheme_type\": \"Exact SEBI Category, e.g. Flexi Cap, Large Cap, Large & Mid Cap, Mid Cap, Small Cap, Multi Cap, Sectoral / Thematic, Hybrid: Dynamic Asset Allocation / BAF, Multi Asset Allocation, Arbitrage, Liquid / Overnight, Debt / Fixed Income\",
+  \"sub_category\": \"Brief investment mandate per SEBI definitions\",
+  \"eq\": 95.0,
+  \"debt\": 5.0,
+  \"gold\": 0.0,
+  \"intl\": 0.0,
+  \"lc\": 45.0,
+  \"mc\": 35.0,
+  \"sc\": 15.0,
+  \"benchmark\": \"Official TRI Benchmark\",
+  \"risk_rating\": \"Very High\" or \"High\" or \"Moderate\" or \"Low\",
+  \"ai_rationale\": \"Concise fiduciary justification citing SEBI categorization rules\"
+}}"""
+
+    try:
+        raw_res = call_llm(prompt, external_processing_consent=True)
+        clean = raw_res.strip()
+        if "```json" in clean:
+            clean = clean.split("```json")[1].split("```")[0].strip()
+        elif "```" in clean:
+            clean = clean.split("```")[1].split("```")[0].strip()
+
+        data = json.loads(clean)
+        res = {
+            "category": str(data.get("category", "Equity")),
+            "scheme_type": str(data.get("scheme_type", "Diversified Equity")),
+            "asset_class": str(data.get("scheme_type", "Diversified Equity")),
+            "sub_category": str(data.get("sub_category", "")),
+            "eq": float(data.get("eq", 95.0)),
+            "debt": float(data.get("debt", 5.0)),
+            "gold": float(data.get("gold", 0.0)),
+            "intl": float(data.get("intl", 0.0)),
+            "lc": float(data.get("lc", 50.0)),
+            "mc": float(data.get("mc", 30.0)),
+            "sc": float(data.get("sc", 15.0)),
+            "benchmark": str(data.get("benchmark", "Nifty 500 TRI")),
+            "risk_rating": str(data.get("risk_rating", "Very High")),
+            "ai_rationale": str(data.get("ai_rationale", "Classified dynamically per SEBI Categorization Circular (2017).")),
+            "source": "AI LLM Model Look-Through (SEBI 2017 Mandate)",
+        }
+        _AI_SCHEME_CACHE[canonical] = res
+        _AI_SCHEME_CACHE[scheme_name] = res
+        return res
+    except Exception as exc:
+        logger.debug("Live LLM classification bypassed or unavailable: %s", exc)
+        return None
+
+
+def batch_classify_funds_with_llm(scheme_names: List[str]) -> Dict[str, Dict[str, Any]]:
+    """Batch prompt the AI model to classify multiple schemes efficiently in a single round-trip."""
+    results: Dict[str, Dict[str, Any]] = {}
+    needed: List[str] = []
+
+    for name in scheme_names:
+        if not name:
+            continue
+        canonical = extract_canonical_scheme_name(name)
+        if canonical in _AI_SCHEME_CACHE:
+            results[name] = dict(_AI_SCHEME_CACHE[canonical])
+        elif name in _AI_SCHEME_CACHE:
+            results[name] = dict(_AI_SCHEME_CACHE[name])
+        else:
+            needed.append(name)
+
+    if not needed:
+        return results
+
+    try:
+        from core.ai_engine import call_llm
+    except ImportError:
+        return results
+
+    unique_needed = list(dict.fromkeys(needed))[:25]
+    prompt = f"""You are an expert SEBI-registered Research Analyst. Classify the following Indian Mutual Fund schemes strictly according to SEBI Categorization Circular (SEBI/HO/IMD/DF3/CIR/P/2017/114).
+
+Schemes to classify:
+{json.dumps(unique_needed, indent=2)}
+
+Respond ONLY with a valid JSON array of objects, one per scheme, in this exact format:
+[
+  {{
+    \"scheme\": \"Original Scheme Name\",
+    \"canonical_name\": \"Scheme name without plan/growth\",
+    \"category\": \"Equity\" or \"Hybrid\" or \"Debt\",
+    \"scheme_type\": \"Exact SEBI Category, e.g. Flexi Cap, Mid Cap, Sectoral / Thematic, Multi Asset Allocation, etc.\",
+    \"sub_category\": \"Mandate description\",
+    \"eq\": 95.0,
+    \"debt\": 5.0,
+    \"gold\": 0.0,
+    \"intl\": 0.0,
+    \"lc\": 45.0,
+    \"mc\": 35.0,
+    \"sc\": 15.0,
+    \"benchmark\": \"Official TRI Benchmark\",
+    \"risk_rating\": \"Very High\" or \"High\" or \"Moderate\" or \"Low\",
+    \"ai_rationale\": \"1-sentence fiduciary reason citing SEBI rules\"
+  }}
+]"""
+
+    try:
+        raw_res = call_llm(prompt, external_processing_consent=True)
+        clean = raw_res.strip()
+        if "```json" in clean:
+            clean = clean.split("```json")[1].split("```")[0].strip()
+        elif "```" in clean:
+            clean = clean.split("```")[1].split("```")[0].strip()
+
+        parsed = json.loads(clean)
+        if isinstance(parsed, list):
+            for data in parsed:
+                s_key = data.get("scheme", "")
+                c_key = data.get("canonical_name", extract_canonical_scheme_name(s_key))
+                res = {
+                    "category": str(data.get("category", "Equity")),
+                    "scheme_type": str(data.get("scheme_type", "Diversified Equity")),
+                    "asset_class": str(data.get("scheme_type", "Diversified Equity")),
+                    "sub_category": str(data.get("sub_category", "")),
+                    "eq": float(data.get("eq", 95.0)),
+                    "debt": float(data.get("debt", 5.0)),
+                    "gold": float(data.get("gold", 0.0)),
+                    "intl": float(data.get("intl", 0.0)),
+                    "lc": float(data.get("lc", 50.0)),
+                    "mc": float(data.get("mc", 30.0)),
+                    "sc": float(data.get("sc", 15.0)),
+                    "benchmark": str(data.get("benchmark", "Nifty 500 TRI")),
+                    "risk_rating": str(data.get("risk_rating", "Very High")),
+                    "ai_rationale": str(data.get("ai_rationale", "Classified dynamically per SEBI Categorization Circular (2017).")),
+                    "source": "AI LLM Model Look-Through (SEBI 2017 Mandate)",
+                }
+                if s_key:
+                    _AI_SCHEME_CACHE[s_key] = res
+                    results[s_key] = res
+                if c_key:
+                    _AI_SCHEME_CACHE[c_key] = res
+    except Exception as exc:
+        logger.debug("Batch live LLM classification bypassed or unavailable: %s", exc)
+
+    return results
+
+
+def classify_fund_with_ai(scheme_name: str, use_live_ai: bool = False) -> Dict[str, Any]:
     """Classify a single mutual fund scheme using fund-by-fund verified disclosures and AI.
 
     Returns authentic SEBI broad category (Equity, Hybrid, Debt), exact scheme_type,
@@ -917,21 +1091,31 @@ def classify_fund_with_ai(scheme_name: str) -> Dict[str, Any]:
     """
     clean_name = _clean_scheme_name(scheme_name)
 
-    # 1. First Pass: Check against verified disclosures knowledgebase (exact substring & cleaned key)
+    # 1. First Pass (Optional Live AI Prompting): If live AI requested, query LLM
+    if use_live_ai:
+        ai_res = classify_fund_with_llm(scheme_name)
+        if ai_res:
+            return ai_res
+
+    # 2. Second Pass: Check against verified disclosures knowledgebase (exact substring & cleaned key)
     for key, profile in VERIFIED_SCHEME_LOOKTHROUGH.items():
         clean_key = _clean_scheme_name(key)
         if key in clean_name or clean_key in clean_name:
             res = dict(profile)
             res["source"] = "AMC Factsheet Look-Through"
+            if "ai_rationale" not in res:
+                res["ai_rationale"] = "Audited from official AMC monthly factsheet portfolio disclosures and statutory SID filings."
             return res
 
-    # 2. Second Pass: Check key component words (ignoring punctuation)
+    # 3. Third Pass: Check key component words (ignoring punctuation)
     for key, profile in VERIFIED_SCHEME_LOOKTHROUGH.items():
         clean_key = _clean_scheme_name(key)
         key_words = [w for w in clean_key.split() if len(w) > 1]
         if len(key_words) >= 2 and all(w in clean_name for w in key_words):
             res = dict(profile)
             res["source"] = "AMC Factsheet Look-Through"
+            if "ai_rationale" not in res:
+                res["ai_rationale"] = "Audited from official AMC monthly factsheet portfolio disclosures and statutory SID filings."
             return res
 
     # 3. Third Pass: Contextual SEBI Regulatory Archetype Resolution
@@ -1358,17 +1542,21 @@ def extract_canonical_scheme_name(scheme_name: str) -> str:
     return cleaned
 
 
-def enrich_funds_with_ai(funds: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def enrich_funds_with_ai(funds: List[Dict[str, Any]], use_live_ai: bool = False) -> List[Dict[str, Any]]:
     """Enrich an uploaded portfolio fund list with fund-by-fund AI look-through intelligence.
 
     Replaces static heuristic assumptions with verified AMC factsheet data,
     true SEBI categories, actual equity/debt/gold proportions, real market-cap look-through,
     and exact scheme-wise distributor commission bleed calculations.
     """
+    if use_live_ai:
+        names = [f.get("scheme", "") for f in funds if f.get("scheme")]
+        batch_classify_funds_with_llm(names)
+
     enriched: List[Dict[str, Any]] = []
     for f in funds:
         scheme_name = f.get("scheme", "")
-        profile = classify_fund_with_ai(scheme_name)
+        profile = classify_fund_with_ai(scheme_name, use_live_ai=use_live_ai)
 
         item = dict(f)
         item["category"] = profile["category"]
@@ -1387,6 +1575,7 @@ def enrich_funds_with_ai(funds: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         item["risk_rating"] = profile.get("risk_rating", "High")
         item["classification_source"] = profile.get("source", "AI Look-Through")
         item["canonical_scheme"] = extract_canonical_scheme_name(scheme_name)
+        item["ai_rationale"] = profile.get("ai_rationale", "Classified per official SEBI Categorization Circular (2017).")
 
         # Scheme-wise TER & Distributor Commission Bleed
         item["ter_direct"] = profile.get("ter_direct", 0.75)
