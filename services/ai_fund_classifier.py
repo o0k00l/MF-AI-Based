@@ -1156,3 +1156,222 @@ def evaluate_portfolio_peer_attribution(funds: list[dict[str, Any]]) -> dict[str
         "compounded_10y_fee_drag_inr": round(total_10y_drag, 2),
         "style_breakdown": style_breakdown,
     }
+
+
+def evaluate_factor_attribution(funds: list[dict[str, Any]]) -> dict[str, Any]:
+    """Decompose portfolio into academic/fiduciary style factors and concentration index.
+
+    Calculates:
+    1. Factor Tilts: Quality, Momentum/Alpha, Value/Contra, Low Volatility/Debt Buffer.
+    2. Herfindahl-Hirschman Index (HHI) for scheme concentration.
+    3. Fiduciary Fund Exit & Pruning signals (regular plan drag, duplication, thematic bets).
+    """
+    if not funds:
+        return {
+            "status": "EMPTY",
+            "hhi_score": 0.0,
+            "diversification_rating": "EMPTY",
+            "factor_tilts": {},
+            "exit_signals": [],
+        }
+
+    total_val = sum(float(f.get("current_value", 0.0) or 0.0) for f in funds)
+    if total_val <= 0:
+        return {
+            "status": "ZERO_VALUE",
+            "hhi_score": 0.0,
+            "diversification_rating": "EMPTY",
+            "factor_tilts": {},
+            "exit_signals": [],
+        }
+
+    quality_val = 0.0
+    momentum_val = 0.0
+    value_val = 0.0
+    low_vol_val = 0.0
+    hhi_score = 0.0
+    exit_signals = []
+
+    # Map underlying strategy to detect dual holding
+    canonical_map: dict[str, list[dict[str, Any]]] = {}
+    for f in funds:
+        c_name = str(f.get("canonical_scheme") or f.get("scheme", "")).lower()
+        canonical_map.setdefault(c_name, []).append(f)
+
+    for f in funds:
+        c_val = float(f.get("current_value", 0.0) or 0.0)
+        weight_pct = (c_val / total_val) * 100.0
+        hhi_score += weight_pct ** 2
+
+        s_name = str(f.get("scheme", "")).lower()
+        c_name = str(f.get("category", "")).lower()
+        plan = str(f.get("plan_type", "Direct")).upper()
+        trail = float(f.get("trail_commission_pct", 0.0) or 0.0)
+        bleed = float(f.get("annual_commission_bleed", 0.0) or 0.0)
+
+        # Factor decomposition
+        if any(k in s_name for k in ("value", "contra", "dividend")):
+            value_val += c_val
+        elif any(k in s_name for k in ("mid", "small", "alpha", "thematic", "defence", "energy", "pharma", "tech")):
+            momentum_val += c_val
+        elif any(k in s_name or k in c_name for k in ("large", "index", "nifty", "sensex", "bluechip")):
+            quality_val += c_val
+        else:
+            low_vol_val += c_val
+
+        # Exit & Pruning Signals
+        canon = str(f.get("canonical_scheme") or f.get("scheme", "")).lower()
+        is_dual = len(canonical_map.get(canon, [])) > 1
+
+        if plan == "REGULAR" and is_dual:
+            exit_signals.append({
+                "scheme": f.get("scheme", ""),
+                "action": "CONSOLIDATE_DUPLICATE_REGULAR",
+                "severity": "HIGH",
+                "annual_saving_inr": bleed,
+                "rationale": "Holding duplicate folio of this strategy in Regular plan while already owning Direct units. Immediate consolidation eliminates fee leakage without strategy shift.",
+            })
+        elif plan == "REGULAR" and trail >= 0.50:
+            exit_signals.append({
+                "scheme": f.get("scheme", ""),
+                "action": "SWITCH_TO_DIRECT",
+                "severity": "HIGH",
+                "annual_saving_inr": bleed,
+                "rationale": f"Bleeding {trail:.2f}% trail commission per year. Switch to Direct Growth to capture full compounding return.",
+            })
+        elif weight_pct > 25.0 and len(funds) > 2:
+            exit_signals.append({
+                "scheme": f.get("scheme", ""),
+                "action": "TRIM_SINGLE_SCHEME_OVEREXPOSURE",
+                "severity": "MODERATE",
+                "annual_saving_inr": 0.0,
+                "rationale": f"Comprises {weight_pct:.1f}% of entire wealth. Exceeds standard 25% single-scheme risk limit.",
+            })
+
+    if hhi_score > 2500:
+        div_rating = "HIGH_CONCENTRATION"
+    elif hhi_score >= 1500:
+        div_rating = "MODERATE_CONCENTRATION"
+    else:
+        div_rating = "WELL_DIVERSIFIED"
+
+    return {
+        "status": "ANALYZED",
+        "hhi_score": round(hhi_score, 1),
+        "diversification_rating": div_rating,
+        "factor_tilts": {
+            "quality_large_core_pct": round((quality_val / total_val) * 100.0, 1),
+            "momentum_alpha_pct": round((momentum_val / total_val) * 100.0, 1),
+            "value_contra_pct": round((value_val / total_val) * 100.0, 1),
+            "low_vol_stability_pct": round((low_vol_val / total_val) * 100.0, 1),
+        },
+        "exit_signals": exit_signals,
+    }
+
+
+def answer_fiduciary_query(
+    query: str,
+    portfolio_metrics: Dict[str, Any],
+    funds: List[Dict[str, Any]],
+    target_saa: Optional[Dict[str, Any]] = None,
+    use_live_ai: bool = True,
+) -> Dict[str, str]:
+    """Provide real-time institutional fiduciary responses to natural language client queries.
+
+    Analyzes client-specific audited factsheet data against SEBI IA regulations and
+    statutory portfolio mandates.
+    """
+    q_clean = query.strip()
+    if not q_clean:
+        return {
+            "source": "Statutory Fiduciary Engine",
+            "response": "Please enter a specific question about your mutual fund portfolio, fee drag, tax harvesting, or asset allocation.",
+        }
+
+    tot_val = float(portfolio_metrics.get("total_value", 0.0) or 0.0)
+    eq_pct = float(portfolio_metrics.get("eq_pct", 0.0) or 0.0)
+    debt_pct = float(portfolio_metrics.get("debt_pct", 0.0) or 0.0)
+    reg_val = float(portfolio_metrics.get("regular_value", 0.0) or 0.0)
+    reg_pct = float(portfolio_metrics.get("regular_pct", 0.0) or 0.0)
+    bleed = float(portfolio_metrics.get("annual_bleed", 0.0) or 0.0)
+    ten_yr_drag = float(portfolio_metrics.get("compounded_10y_drag", 0.0) or 0.0)
+    dual_cnt = int(portfolio_metrics.get("dual_count", 0))
+
+    target_eq = 75.0
+    if target_saa and isinstance(target_saa, dict):
+        target_eq = float(target_saa.get("total_equity_pct", 75.0) or 75.0)
+
+    # 1. Attempt Live LLM synthesis if requested
+    if use_live_ai:
+        try:
+            from core.ai_engine import call_llm
+            prompt = f"""You are a SEBI-registered Fee-Only Fiduciary Wealth Advisor. Answer the client's question strictly using their audited mutual fund portfolio data:
+
+Client Question: "{q_clean}"
+
+Portfolio Facts:
+- Total Valuation: INR {tot_val:,.0f} across {len(funds)} holdings.
+- Net Equity Exposure: {eq_pct:.1f}% vs Target SAA of {target_eq:.1f}% ({eq_pct - target_eq:+.1f}% drift).
+- True Debt & Cash Stability Buffer: {debt_pct:.1f}%.
+- Regular Plan Exposure: INR {reg_val:,.0f} ({reg_pct:.1f}% of wealth).
+- Annual Intermediary Trail Commission Bleed: INR {bleed:,.0f} per year.
+- Estimated 10-Year Compounded Drag: INR {ten_yr_drag:,.0f}.
+- Dual Plan Holdings: {dual_cnt} strategies held in both Regular and Direct plans.
+
+Provide a concise, direct, institutional fiduciary answer in 2-4 bullet points. Strictly objective and non-promotional."""
+            raw_res = call_llm(prompt, external_processing_consent=True)
+            if raw_res and len(raw_res.strip()) > 30:
+                return {
+                    "source": "Live AI Assistant (Fiduciary Intelligence)",
+                    "response": raw_res.strip(),
+                }
+        except Exception:
+            pass
+
+    # 2. Deterministic Statutory Fiduciary Pattern Synthesis
+    ql = q_clean.lower()
+    if any(k in ql for k in ("commission", "bleed", "trail", "fee", "expense", "drag", "regular")):
+        if reg_val > 0:
+            resp = (
+                f"* **Regular Plan Exposure:** You hold **₹{reg_val:,.0f}** ({reg_pct:.1f}% of total portfolio) in commission-bearing Regular mutual fund plans.\n"
+                f"* **Annual Commission Bleed:** You are currently losing **₹{bleed:,.0f} every year** in ongoing distributor commissions deducted directly from fund NAV.\n"
+                f"* **10-Year Compounded Loss:** Over a 10-year holding period at 12% portfolio CAGR, this fee drag compounds to **₹{ten_yr_drag:,.0f}** in forfeited wealth.\n"
+                f"* **Fiduciary Action:** Execute non-taxable / tax-exempt phased switches to Direct Growth plans to immediately capture this return."
+            )
+        else:
+            resp = "* **100% Direct Plan Posture:** Excellent fiduciary standing. Your entire portfolio is invested in Direct plans with zero intermediary commission leakage."
+    elif any(k in ql for k in ("equity", "debt", "stock", "cash", "allocation", "drift", "saa")):
+        drift = eq_pct - target_eq
+        resp = (
+            f"* **Net Equity Look-Through:** **{eq_pct:.1f}%** of your portfolio is in true equity vs. your target SAA of **{target_eq:.1f}%** ({drift:+.1f}% drift).\n"
+            f"* **True Debt & Liquid Buffer:** **{debt_pct:.1f}%** is parked in debt, arbitrage, and cash equivalents.\n"
+            f"* **Rebalancing Advisory:** " + ("Portfolio is well-balanced within the standard ±5% fiduciary tolerance band." if abs(drift) <= 5.0 else (f"Overweight equity by {drift:+.1f}%. Consider directing incremental cashflow into debt cushions." if drift > 5.0 else f"Underweight equity by {abs(drift):.1f}%. Deploy incremental SIPs into core index funds."))
+        )
+    elif any(k in ql for k in ("tax", "gain", "harvest", "112a", "cgs", "ltcg", "stcg")):
+        resp = (
+            "* **Section 112A Annual Exemption:** You are entitled to **₹1.25 Lakhs per financial year** in completely tax-free long-term capital gains (LTCG) on equity mutual funds.\n"
+            "* **Tax Harvesting Strategy:** Realize up to ₹1.25L of accumulated LTCG before March 31st each year and immediately reinvest into Direct Growth plans to reset cost basis with zero tax friction.\n"
+            "* **Loss Utilization:** Short-term capital losses (STCL) can be set off against both STCG and LTCG, while long-term capital losses (LTCL) can only be set off against LTCG (8-year carry forward)."
+        )
+    elif any(k in ql for k in ("exit", "prune", "sell", "switch", "duplicate", "dual")):
+        if dual_cnt > 0:
+            resp = (
+                f"* **Dual Folio Duplication:** The audit detected **{dual_cnt} strategies** held in both Regular and Direct plans simultaneously.\n"
+                f"* **Immediate Consolidation Priority:** Consolidate units of the Regular plan folios into your existing Direct folios of the same scheme to eliminate duplicate account maintenance and immediate commission bleed without changing portfolio strategy."
+            )
+        else:
+            resp = (
+                f"* **Portfolio Hygiene:** No dual-plan folio overlaps detected across your {len(funds)} holdings.\n"
+                "* **Exit Priority:** Prioritize switching any remaining Regular plans into zero-commission Direct equivalents using annual Section 112A tax-exempt headroom."
+            )
+    else:
+        resp = (
+            f"* **Portfolio Health Summary:** Total valuation stands at **₹{tot_val:,.0f}** across {len(funds)} active plan folios.\n"
+            f"* **Asset Allocation:** Net equity exposure is **{eq_pct:.1f}%** with **{debt_pct:.1f}%** in stability buffers.\n"
+            f"* **Intermediary Drag:** " + (f"Regular plan holdings bleed **₹{bleed:,.0f}/year** in distributor commissions." if reg_val > 0 else "100% Direct plan compliance with zero distributor trail bleed.")
+        )
+
+    return {
+        "source": "Statutory Fiduciary Assessment (SEBI Mandate)",
+        "response": resp,
+    }

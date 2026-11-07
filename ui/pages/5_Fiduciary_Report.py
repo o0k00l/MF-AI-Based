@@ -183,11 +183,19 @@ else:
     else:
         report_lines.append("* ✅ **Balanced Allocation:** No individual scheme, thematic bet, or AMC exceeds SEBI fiduciary concentration limits.")
 
+    from services.ai_fund_classifier import evaluate_factor_attribution
+    from services.cas_parser import audit_cas_document_integrity
+    factor_res = evaluate_factor_attribution(portfolio)
+    cas_audit = audit_cas_document_integrity(portfolio)
+
     styles = peer_res.get("style_breakdown", {})
+    tilts = factor_res.get("factor_tilts", {})
     report_lines.extend([
         "",
-        "### 1.3 Portfolio Style Box & Peer TER Attribution",
-        f"* **Core Index Foundation:** {styles.get('core_index_pct', 0.0):.1f}% | **Active Alpha Engine:** {styles.get('active_alpha_pct', 0.0):.1f}% | **Defensive Liquidity Buffer:** {styles.get('stability_buffer_pct', 0.0):.1f}%",
+        "### 1.3 Portfolio Style Box & Academic Factor Attribution",
+        f"* **Core Index Foundation:** {styles.get('core_index_pct', 0.0):.1f}% | **Active Alpha Engine:** {styles.get('active_alpha_pct', 0.0):.1f}% | **Defensive Buffer:** {styles.get('stability_buffer_pct', 0.0):.1f}%",
+        f"* **Style Factor Tilts:** Quality Core: {tilts.get('quality_large_core_pct', 0.0):.1f}% | Momentum Alpha: {tilts.get('momentum_alpha_pct', 0.0):.1f}% | Value/Yield: {tilts.get('value_contra_pct', 0.0):.1f}% | Stability: {tilts.get('low_vol_stability_pct', 0.0):.1f}%",
+        f"* **Concentration Index (HHI):** {factor_res.get('hhi_score', 0.0):,.0f} ({factor_res.get('diversification_rating', 'BALANCED').replace('_', ' ').title()})",
         f"* **Weighted Portfolio TER:** Direct: {peer_res.get('weighted_direct_ter', 0.0):.2f}% vs. Regular: {peer_res.get('weighted_regular_ter', 0.0):.2f}%",
         f"* **Direct Alpha Advantage:** +{peer_res.get('peer_alpha_spread', 0.0):.2f}% per annum compounded return advantage over regular distributor plans.",
         "",
@@ -338,6 +346,7 @@ else:
     report_lines.extend([
         "",
         "## 7. Fiduciary Disclosures & Compliance Statement",
+        f"* **CAS Document Provenance:** {cas_audit.get('total_folios', len(portfolio))} plan folios verified | Integrity Score: {cas_audit.get('integrity_score_pct', 100.0):.1f}% | RFC-8785 Decision Hash: `{cas_audit.get('audit_hash', 'N/A')[:24]}...`",
         "* **Statutory Mandate:** SEBI (Investment Advisers) Regulations, 2013 (Regulation 15(1) & Schedule III Code of Conduct).",
         "* **Direct Plan Enforcement:** All proposed switches and SIP allocations strictly mandate Direct Plans to eliminate intermediary commissions and distributor trail leakage.",
         "* **Conflict of Interest Prohibition:** The adviser receives zero consideration, referral fees, or commissions from any Asset Management Company (AMC) or intermediary.",

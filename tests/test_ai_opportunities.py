@@ -147,3 +147,82 @@ def test_sip_blueprint_alerts_and_timing():
     assert len(bp["portfolio_completion_alerts"]) > 0
     assert "fiduciary_routing_rationale" in bp
 
+
+
+def test_factor_attribution_and_exit_signals():
+    from services.ai_fund_classifier import evaluate_factor_attribution
+
+    funds = [
+        {"scheme": "Nifty 50 Index Fund Direct", "canonical_scheme": "nifty 50 index", "current_value": 500000.0, "category": "Large Cap", "plan_type": "Direct"},
+        {"scheme": "Nifty 50 Index Fund Regular", "canonical_scheme": "nifty 50 index", "current_value": 200000.0, "category": "Large Cap", "plan_type": "Regular", "annual_commission_bleed": 2000.0, "trail_commission_pct": 1.0},
+        {"scheme": "Mid Cap Alpha Fund Direct", "canonical_scheme": "mid cap alpha", "current_value": 200000.0, "category": "Mid Cap", "plan_type": "Direct"},
+        {"scheme": "Liquid Fund Direct", "canonical_scheme": "liquid fund", "current_value": 100000.0, "category": "Debt", "plan_type": "Direct"},
+    ]
+    res = evaluate_factor_attribution(funds)
+    assert res["status"] == "ANALYZED"
+    assert res["hhi_score"] > 0
+    assert "quality_large_core_pct" in res["factor_tilts"]
+    assert "momentum_alpha_pct" in res["factor_tilts"]
+    assert len(res["exit_signals"]) > 0
+    assert any(sig["action"] == "CONSOLIDATE_DUPLICATE_REGULAR" for sig in res["exit_signals"])
+
+
+def test_monte_carlo_goal_simulation():
+    from services.goal_planner import run_monte_carlo_goal_simulation
+
+    sim = run_monte_carlo_goal_simulation(
+        monthly_sip_inr=25000.0,
+        target_corpus_inr=10000000.0,
+        horizon_years=15,
+        existing_corpus_inr=500000.0,
+        equity_pct=75.0,
+        num_trials=500,
+        seed=42,
+    )
+    assert sim["status"] == "SIMULATED"
+    assert sim["num_trials"] == 500
+    assert sim["probability_of_success_pct"] > 60.0
+    assert sim["p05_corpus_inr"] < sim["p50_corpus_inr"] < sim["p95_corpus_inr"]
+    assert "statistical confidence" in sim["recommended_action"].lower()
+
+
+def test_cas_document_integrity_audit():
+    from services.cas_parser import audit_cas_document_integrity
+
+    funds = [
+        {"scheme": "Nifty 50 Index Direct", "current_value": 400000.0, "nav": 150.0},
+        {"scheme": "Mid Cap Alpha Direct", "current_value": 300000.0, "nav": 210.0},
+        {"scheme": "Redeemed Zero Balance Folio", "current_value": 0.0, "nav": 0.0},
+    ]
+    res = audit_cas_document_integrity(funds)
+    assert res["status"] == "VERIFIED"
+    assert res["total_folios"] == 3
+    assert res["unique_schemes"] == 3
+    assert res["zero_balance_folios"] == 1
+    assert len(res["audit_hash"]) == 64
+    assert any("zero-balance" in f.lower() for f in res["flags"])
+
+
+def test_natural_language_fiduciary_query():
+    from services.ai_fund_classifier import answer_fiduciary_query
+
+    metrics = {
+        "total_value": 1500000.0,
+        "eq_pct": 82.0,
+        "debt_pct": 18.0,
+        "regular_value": 400000.0,
+        "regular_pct": 26.7,
+        "annual_bleed": 3600.0,
+        "compounded_10y_drag": 68000.0,
+        "dual_count": 1,
+    }
+    funds = [{"scheme": "Test Fund Direct"}]
+
+    q_res = answer_fiduciary_query("What is my commission fee leakage?", metrics, funds, use_live_ai=False)
+    assert "Statutory" in q_res["source"]
+    assert "₹3,600" in q_res["response"]
+    assert "₹68,000" in q_res["response"]
+
+    q_tax = answer_fiduciary_query("How can I do tax harvesting?", metrics, funds, use_live_ai=False)
+    assert "Section 112A" in q_tax["response"]
+    assert "1.25 Lakhs" in q_tax["response"]

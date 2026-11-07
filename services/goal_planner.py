@@ -411,3 +411,107 @@ Provide a structured, encouraging fiduciary narrative advising the investor on h
         "mitigation_paths": mitigation_paths,
         "ai_scenario_narrative": ai_narrative,
     }
+
+
+def run_monte_carlo_goal_simulation(
+    monthly_sip_inr: float,
+    target_corpus_inr: float,
+    horizon_years: int,
+    existing_corpus_inr: float = 0.0,
+    equity_pct: float = 75.0,
+    num_trials: int = 1000,
+    seed: int = 42,
+) -> dict[str, Any]:
+    """Run stochastic Monte Carlo simulations to assess probability of goal achievement.
+
+    Models annual asset-class compounding across 1,000 randomized market paths using
+    SEBI/AMFI long-term distributions:
+    - Equity Return: Mean 12.0%, SD 15.0%
+    - Debt Return: Mean 7.0%, SD 3.5%
+    - Asset correlation: 0.15
+    """
+    import random
+    import math
+
+    if horizon_years <= 0 or (monthly_sip_inr <= 0 and existing_corpus_inr <= 0):
+        return {
+            "status": "INVALID_PARAMETERS",
+            "probability_of_success_pct": 0.0,
+            "p05_corpus_inr": 0.0,
+            "p50_corpus_inr": 0.0,
+            "p95_corpus_inr": 0.0,
+            "expected_corpus_inr": 0.0,
+            "target_corpus_inr": target_corpus_inr,
+            "recommended_action": "Provide a positive investment horizon and budget.",
+        }
+
+    eq_w = max(0.0, min(1.0, equity_pct / 100.0))
+    db_w = 1.0 - eq_w
+
+    mu_eq = 0.12
+    sigma_eq = 0.15
+    mu_db = 0.07
+    sigma_db = 0.035
+    rho = 0.15
+
+    # Blended portfolio mean and standard deviation
+    blended_mu = (eq_w * mu_eq) + (db_w * mu_db)
+    var_portfolio = (
+        (eq_w ** 2) * (sigma_eq ** 2)
+        + (db_w ** 2) * (sigma_db ** 2)
+        + (2.0 * eq_w * db_w * sigma_eq * sigma_db * rho)
+    )
+    blended_sigma = math.sqrt(max(0.0001, var_portfolio))
+
+    rng = random.Random(seed)
+    final_corpora = []
+
+    for _ in range(num_trials):
+        balance = float(existing_corpus_inr)
+        annual_contribution = float(monthly_sip_inr) * 12.0
+
+        for _yr in range(horizon_years):
+            # Stochastic annual return drawn from normal distribution
+            ann_return = rng.gauss(blended_mu, blended_sigma)
+            # Bound realistic extreme left-tail crash floor at -45%
+            ann_return = max(-0.45, ann_return)
+
+            balance = (balance * (1.0 + ann_return)) + (annual_contribution * (1.0 + (ann_return * 0.5)))
+
+        final_corpora.append(max(0.0, balance))
+
+    final_corpora.sort()
+
+    idx_05 = max(0, int(num_trials * 0.05) - 1)
+    idx_50 = max(0, int(num_trials * 0.50) - 1)
+    idx_95 = min(num_trials - 1, int(num_trials * 0.95) - 1)
+
+    p05 = final_corpora[idx_05]
+    p50 = final_corpora[idx_50]
+    p95 = final_corpora[idx_95]
+
+    successes = sum(1 for c in final_corpora if c >= target_corpus_inr)
+    prob_success = round((successes / num_trials) * 100.0, 1)
+
+    if prob_success >= 85.0:
+        action = "High statistical confidence. Current SIP pace comfortably clears the target under historical market stress."
+    elif prob_success >= 65.0:
+        action = "Moderate statistical confidence. Recommend implementing a 5% to 10% annual step-up SIP to shield against extended bear markets."
+    elif prob_success >= 40.0:
+        shortfall = target_corpus_inr - p50
+        action = f"Substantial shortfall risk in bear cycles. Consider increasing monthly SIP or extending horizon by 1–2 years to secure a safety margin."
+    else:
+        action = "High probability of shortfall. Target corpus requires either significant capital scaling, aggressive step-up SIPs, or horizon extension."
+
+    return {
+        "status": "SIMULATED",
+        "num_trials": num_trials,
+        "horizon_years": horizon_years,
+        "target_corpus_inr": round(target_corpus_inr, 2),
+        "probability_of_success_pct": prob_success,
+        "p05_corpus_inr": round(p05, 2),
+        "p50_corpus_inr": round(p50, 2),
+        "p95_corpus_inr": round(p95, 2),
+        "expected_corpus_inr": round(sum(final_corpora) / num_trials, 2),
+        "recommended_action": action,
+    }

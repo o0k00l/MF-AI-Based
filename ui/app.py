@@ -67,6 +67,23 @@ if "api_health" not in st.session_state:
     st.session_state["api_health"] = None
 if "cgs_data" not in st.session_state:
     st.session_state["cgs_data"] = None
+# Initialize fiduciary/SAA related session state keys
+if "saa_target" not in st.session_state:
+    st.session_state["saa_target"] = None
+if "risk_tier" not in st.session_state:
+    st.session_state["risk_tier"] = None
+if "user_risk_score" not in st.session_state:
+    st.session_state["user_risk_score"] = None
+if "deterministic_sip_plan" not in st.session_state:
+    st.session_state["deterministic_sip_plan"] = None
+if "lumpsum_plan_result" not in st.session_state:
+    st.session_state["lumpsum_plan_result"] = None
+if "goals_allocation" not in st.session_state:
+    st.session_state["goals_allocation"] = None
+if "sip_blueprint_result" not in st.session_state:
+    st.session_state["sip_blueprint_result"] = None
+if "sip_budget" not in st.session_state:
+    st.session_state["sip_budget"] = 25000.0
 
 # Ensure downstream contracts: read risk keys
 _active_user_risk_score = st.session_state.get("user_risk_score")
@@ -187,7 +204,7 @@ if uploaded_file is not None:
         enriched_funds = enrich_funds_with_ai(parsed_funds)
         st.session_state["user_portfolio"] = enriched_funds
         st.session_state["portfolio_metadata"] = {
-            "upload_time": str(_sys.modules.get("datetime", Path).cwd()),
+            "upload_time": str(__import__("datetime").datetime.now()),
             "upload_source": uploaded_file.name,
             "fund_count": len(enriched_funds),
             "total_value": sum(f.get("current_value", 0) for f in enriched_funds),
@@ -323,6 +340,32 @@ with tab_audit:
         st.caption(f"{(total_debt/total_value*100):.1f}% (Bonds, T-Bills, TREPS)")
         st.markdown('</div>', unsafe_allow_html=True)
 
+    # 2.1 Factor-Aware Attribution & Concentration Index
+    from services.ai_fund_classifier import evaluate_factor_attribution
+    factor_res = evaluate_factor_attribution(funds)
+    if factor_res.get("status") == "ANALYZED":
+        st.markdown("##### 🔬 Factor-Aware Style Attribution & Concentration Index")
+        fac1, fac2, fac3, fac4 = st.columns(4)
+        tilts = factor_res.get("factor_tilts", {})
+        with fac1:
+            st.metric("Quality Core", f"{tilts.get('quality_large_core_pct', 0.0):.1f}%", "Large-cap index & bluechips")
+        with fac2:
+            st.metric("Momentum Alpha", f"{tilts.get('momentum_alpha_pct', 0.0):.1f}%", "Mid/Small & thematic engines")
+        with fac3:
+            st.metric("Value & Contra", f"{tilts.get('value_contra_pct', 0.0):.1f}%", "Deep-value & high-yield")
+        with fac4:
+            hhi = factor_res.get("hhi_score", 0.0)
+            rating = factor_res.get("diversification_rating", "N/A").replace("_", " ").title()
+            st.metric("Concentration (HHI)", f"{hhi:,.0f}", rating)
+
+        if factor_res.get("exit_signals"):
+            with st.expander(f"🚨 Fiduciary Exit & Pruning Signals ({len(factor_res['exit_signals'])} Actionable Alerts)", expanded=False):
+                for sig in factor_res["exit_signals"]:
+                    badge = "🛑 [CRITICAL ACTION]" if sig.get("severity") == "HIGH" else "⚠️ [REBALANCE]"
+                    saving_note = f" (Saves ₹{sig.get('annual_saving_inr', 0):,.0f}/yr)" if sig.get("annual_saving_inr") else ""
+                    st.markdown(f"**{badge} {sig.get('scheme')}** — `{sig.get('action')}`{saving_note}")
+                    st.caption(sig.get("rationale", ""))
+
     # 3. Direct vs Regular Plan Audit
     st.markdown("##### 🛡️ Distributor Commission Drag & Direct Plan Audit")
     if regular_total > 0:
@@ -439,6 +482,48 @@ with tab_ai_tax:
     else:
         st.info("ℹ️ Upload your Capital Gains Statement (CGS) above to unlock Section 112A tax harvesting, capital loss utilization, and zero-tax Regular-to-Direct switching strategies.")
 
+    st.markdown("---")
+    # 3. Interactive AI Fiduciary Assistant
+    st.markdown("##### 💬 Interactive AI Fiduciary Assistant")
+    st.caption("Ask natural language queries about your portfolio, fee leakage, tax harvesting, or rebalancing priorities.")
+
+    quick_cols = st.columns(4)
+    preset_q = None
+    with quick_cols[0]:
+        if st.button("💸 My Fee Bleed?", use_container_width=True):
+            preset_q = "What is my total annual distributor fee bleed and 10-year compounded drag?"
+    with quick_cols[1]:
+        if st.button("⚖️ SAA Drift?", use_container_width=True):
+            preset_q = "What is my current net equity vs debt drift against my target SAA?"
+    with quick_cols[2]:
+        if st.button("📑 Tax Harvesting?", use_container_width=True):
+            preset_q = "How can I harvest capital gains tax-free under Section 112A this year?"
+    with quick_cols[3]:
+        if st.button("🚨 Pruning Signals?", use_container_width=True):
+            preset_q = "Which funds should I exit or consolidate first to stop commission leakage?"
+
+    from services.ai_fund_classifier import answer_fiduciary_query
+    user_query = st.text_input("Ask anything about your mutual fund portfolio:", value=preset_q if preset_q else "", placeholder="e.g. How much trail commission am I losing in regular funds every year?", key="fiduciary_nl_query_box")
+
+    if user_query:
+        with st.spinner("Analyzing portfolio facts per SEBI statutory rules..."):
+            qa_res = answer_fiduciary_query(
+                query=user_query,
+                portfolio_metrics=portfolio_metrics_summary,
+                funds=funds,
+                target_saa=st.session_state.get("saa_target"),
+                use_live_ai=True,
+            )
+            st.markdown(f"""
+            <div style="background: #f0fdf4; border: 1px solid #86efac; border-left: 5px solid #16a34a; border-radius: 8px; padding: 14px 18px; margin: 10px 0;">
+                <div style="font-size: 0.78rem; font-weight: 700; color: #15803d; text-transform: uppercase; margin-bottom: 6px;">
+                    🤖 {qa_res.get('source', 'Statutory Fiduciary Intelligence')}
+                </div>
+                <div style="color: #14532d; font-size: 0.95rem; line-height: 1.6;">
+            """, unsafe_allow_html=True)
+            st.markdown(qa_res.get("response", ""))
+            st.markdown("</div></div>", unsafe_allow_html=True)
+
 with tab_blueprint:
     # 1. SAA Target Alignment & Drift
     st.markdown("##### 🎯 Strategic Asset Allocation (SAA) Alignment")
@@ -476,6 +561,14 @@ with tab_blueprint:
         st.session_state["saa_target"] = {"total_equity_pct": 85.0, "large_cap_pct": 50.0, "mid_small_cap_pct": 35.0, "debt_pct": 15.0}
         st.session_state["risk_tier"] = "TIER_4_MODERATE_HIGH"
 
+    # Get target SAA from session state for drift calculation
+    saa_tgt = st.session_state.get("saa_target", {})
+    if saa_tgt:
+        target_eq = saa_tgt.get("total_equity_pct", 0.0)
+        target_debt = saa_tgt.get("debt_pct", 0.0)
+    else:
+        target_eq, target_debt = saa_options[chosen_saa]
+    
     eq_drift = eq_pct - target_eq
     debt_drift = debt_pct - target_debt
 
@@ -545,6 +638,36 @@ with tab_blueprint:
     lp = st.session_state.get("lumpsum_plan_result")
     if lp:
         st.markdown(f"🛡️ **Staging Strategy:** Park capital in a zero-exit-load Direct liquid/arbitrage vehicle and stage ₹{float(lp.get('monthly_stp_amount_inr', 0)):,.0f}/month across equity sleeves over {stp_months} months.")
+
+    st.markdown("---")
+    # 4. Monte Carlo Wealth Accumulation Stochastic Simulation
+    st.markdown("##### 🎲 Monte Carlo Wealth Accumulation Stochastic Simulation")
+    st.caption("Simulates 1,000 randomized market trajectories to calculate your statistical probability of goal achievement.")
+    from services.goal_planner import run_monte_carlo_goal_simulation
+    mc_c1, mc_c2 = st.columns(2)
+    with mc_c1:
+        target_corpus_goal = st.number_input("Target Corpus Goal (₹)", min_value=100000.0, max_value=500000000.0, value=10000000.0, step=500000.0)
+    with mc_c2:
+        goal_horizon = st.slider("Goal Horizon (Years)", min_value=1, max_value=30, value=15, step=1)
+
+    mc_sim = run_monte_carlo_goal_simulation(
+        monthly_sip_inr=float(sip_budget_val),
+        target_corpus_inr=float(target_corpus_goal),
+        horizon_years=int(goal_horizon),
+        existing_corpus_inr=float(total_value),
+        equity_pct=float(target_eq),
+        num_trials=1000,
+    )
+    if mc_sim.get("status") == "SIMULATED":
+        prob = mc_sim.get("probability_of_success_pct", 0.0)
+        mc_m1, mc_m2, mc_m3 = st.columns(3)
+        with mc_m1:
+            st.metric("Success Probability", f"{prob:.1f}%", "Historical market paths")
+        with mc_m2:
+            st.metric("Median Corpus (P50)", f"₹{mc_sim.get('p50_corpus_inr', 0)/100000:.2f}L", "Expected compounding")
+        with mc_m3:
+            st.metric("Severe Bear Market (P05)", f"₹{mc_sim.get('p05_corpus_inr', 0)/100000:.2f}L", "Left-tail stress test")
+        st.info(f"💡 **Fiduciary Monte Carlo Guidance:** {mc_sim.get('recommended_action', '')}")
 
 # --- Step 2 Transition Banner ---
 st.markdown("---")
