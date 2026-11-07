@@ -24,6 +24,7 @@ if _REPO_ROOT in sys.path:
 sys.path.insert(0, _REPO_ROOT)
 
 import streamlit as st
+from services.sidebar import render_fiduciary_sidebar
 from services.fiduciary_engine import evaluate_portfolio_saa_audit
 from services.ai_fund_classifier import enrich_funds_with_ai
 
@@ -35,102 +36,8 @@ st.set_page_config(
 )
 
 # --- Render Advisory Flow Sidebar ---
-with st.sidebar:
-    st.markdown("""
-    <style>
-        [data-testid="stSidebarNav"] { display: none !important; }
-        .sidebar-brand {
-            font-size: 1.15rem;
-            font-weight: 700;
-            color: #0f172a;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            margin-bottom: 2px;
-        }
-        .sidebar-subbrand {
-            font-size: 0.72rem;
-            color: #64748b;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            margin-bottom: 12px;
-        }
-        .portfolio-card {
-            background: linear-gradient(135deg, #1e3a8a 0%, #0f172a 100%);
-            color: white;
-            border-radius: 10px;
-            padding: 12px 14px;
-            margin-top: 6px;
-            margin-bottom: 14px;
-            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
-        }
-    </style>
-    <div class="sidebar-brand">🛡️ Fiduciary Engine</div>
-    <div class="sidebar-subbrand">SEBI IA Advisory Decision Support</div>
-    """, unsafe_allow_html=True)
-
-    _user_portfolio = st.session_state.get("user_portfolio", [])
-    _has_cas = len(_user_portfolio) > 0
-    _has_cgs = bool(st.session_state.get("cgs_data"))
-    _has_statements = _has_cas and _has_cgs
-    _has_risk = bool(st.session_state.get("user_risk_score") or st.session_state.get("risk_tier"))
-    _has_goals = bool(st.session_state.get("goals_allocation"))
-
-    # Active Portfolio Card (if uploaded)
-    if _has_cas:
-        _tot_val = sum(f.get("current_value", 0) for f in _user_portfolio)
-        _tot_inv = sum(f.get("invested_value", 0) for f in _user_portfolio)
-        _gain = _tot_val - _tot_inv if _tot_inv > 0 else 0
-        _gain_pct = (_gain / _tot_inv * 100) if _tot_inv > 0 else 0
-        _dir_val = sum(f.get("current_value", 0) for f in _user_portfolio if str(f.get("plan_type", "Direct")).upper() == "DIRECT")
-        _dir_pct = (_dir_val / _tot_val * 100) if _tot_val > 0 else 100.0
-
-        st.markdown(f"""
-        <div class="portfolio-card">
-            <div style="font-size: 0.72rem; text-transform: uppercase; color: #94a3b8; letter-spacing: 0.05em;">Active Portfolio</div>
-            <div style="font-size: 1.45rem; font-weight: 700; color: #38bdf8; margin: 2px 0;">₹{_tot_val/100000:.2f}L</div>
-            <div style="font-size: 0.78rem; color: #cbd5e1; display: flex; justify-content: space-between;">
-                <span>{len(_user_portfolio)} Schemes</span>
-                <span style="color: {'#4ade80' if _gain >= 0 else '#f87171'}; font-weight: 600;">{_gain_pct:+.1f}%</span>
-            </div>
-            <div style="font-size: 0.72rem; color: #94a3b8; margin-top: 6px; border-top: 1px solid rgba(255,255,255,0.15); padding-top: 5px;">
-                Direct Plans: <b style="color: {'#4ade80' if _dir_pct == 100 else '#facc15'}">{_dir_pct:.0f}%</b>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-
-    # Active Governing Risk Tier (if evaluated)
-    if _has_risk:
-        _tier_name = str(st.session_state.get("risk_tier", "Assessed")).replace("_", " ").title()
-        _target = st.session_state.get("saa_target", {})
-        _eq_t = _target.get("total_equity_pct", _target.get("equity_pct", 75.0))
-        _db_t = _target.get("debt_pct", 25.0)
-        st.markdown(f"""
-        <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px 10px; margin-bottom: 12px;">
-            <div style="color: #64748b; font-size: 0.7rem; text-transform: uppercase;">Governing Risk Profile</div>
-            <div style="color: #0f172a; font-size: 0.85rem; font-weight: 600;">🎯 {_tier_name}</div>
-            <div style="color: #475569; font-size: 0.75rem;">Target SAA: <b>{_eq_t:.0f}% Eq / {_db_t:.0f}% Debt</b></div>
-        </div>
-        """, unsafe_allow_html=True)
-
-    st.markdown("<p style='font-weight: 700; font-size: 0.82rem; color: #334155; margin-bottom: 6px;'>🧭 TWO-STEP FIDUCIARY FLOW</p>", unsafe_allow_html=True)
-
-    # Two-Step Fiduciary Flow
-    st.page_link("app.py", label=f"Step 1: Portfolio Intake & Audit {'✅' if _has_cas else '⏳'}", icon="📊")
-    st.page_link("pages/5_Fiduciary_Report.py", label=f"Step 2: Executive Fiduciary Report {'✅' if _has_cas else '⏳'}", icon="📄")
-
-    st.markdown("<p style='font-weight: 700; font-size: 0.75rem; color: #64748b; margin-top: 10px; margin-bottom: 4px;'>🔬 OPTIONAL DEEP-DIVES</p>", unsafe_allow_html=True)
-    st.page_link("pages/2_Risk_Profiler.py", label="Risk Profiler & SAA", icon="📋")
-    st.page_link("pages/4_Debt_Allocation.py", label="True Debt Factsheet Matrix", icon="📈")
-    st.page_link("pages/3_Financial_Goals.py", label="Financial Goals Wizard", icon="🎯")
-    st.page_link("pages/1_Advisory_Flow.py", label="Advisory Roadmap", icon="🧭")
-
-    st.markdown("---")
-    if st.button("🔄 Reset / Clear Session", use_container_width=True, help="Clear active session portfolio and start over"):
-        st.session_state.clear()
-        st.rerun()
-
-    st.caption("🛡️ **Fiduciary Standard:** SEBI (Investment Advisers) Regulations, 2013 | Non-execution authority | Zero distributor commission bias.")
+# --- Render Unified Advisory Flow Sidebar (Single Source of Truth) ---
+render_fiduciary_sidebar(current_page="pages/4_Debt_Allocation.py")
 
 # --- Custom CSS for Professional Styling ---
 st.markdown("""
