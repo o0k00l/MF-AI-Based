@@ -76,9 +76,25 @@ else:
         debt = f.get("debt", 0)
         report_lines.append(f"| {name} | {cat} | {plan} | ₹{val:,.0f} | {eq:.1f}% | {debt:.1f}% |")
 
+    # Add CGS section if available
+    cgs_data = st.session_state.get("cgs_data")
+    if cgs_data and cgs_data.get("summary"):
+        cg_s = cgs_data.get("summary", {})
+        ltcg = float(cg_s.get("ltcg_inr") or 0.0)
+        stcg = float(cg_s.get("stcg_inr") or 0.0)
+        rem_hd = max(0.0, 125_000.0 - ltcg)
+        report_lines.extend([
+            "",
+            "## 3. Statutory Capital Gains Audit (CGS)",
+            f"* **Realized LTCG (§112A):** ₹{ltcg:,.2f}",
+            f"* **Realized STCG (§111A):** ₹{stcg:,.2f}",
+            f"* **Remaining §112A Exemption Headroom:** ₹{rem_hd:,.2f} (out of ₹1.25 Lakhs annual tax-free limit)",
+            f"* **Statement Provenance:** SHA256 `{cgs_data.get('source_sha256', 'N/A')[:16]}...`",
+        ])
+
     report_lines.extend([
         "",
-        "## 3. Financial Goal Allocation",
+        "## 4. Financial Goal Allocation",
     ])
     for g_id, g_info in goals_alloc.get("goals", {}).items():
         g_name = g_info.get("goal_name", g_id)
@@ -88,7 +104,7 @@ else:
 
     report_lines.extend([
         "",
-        "## 4. Fiduciary Disclosures & Compliance Statement",
+        "## 5. Fiduciary Disclosures & Compliance Statement",
         "* **Statutory Mandate:** SEBI (Investment Advisers) Regulations, 2013.",
         "* **Direct Plan Enforcement:** All proposed switches and SIP allocations strictly mandate Direct Plans to eliminate intermediary commissions.",
         "* **Non-Execution Authority:** The adviser operates solely on a fee-only, non-execution advisory basis; order execution remains exclusively in client control.",

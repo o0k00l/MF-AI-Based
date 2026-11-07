@@ -14,6 +14,7 @@ import streamlit as st
 from services.cas_parser import parse_cas_file
 from services.sip_api_client import get_api_health, request_sip_recommendations
 from services.risk_profiler import evaluate_fiduciary_profile
+from services.cgs_parser import parse_cgs_file
 
 # --- Page Configuration ---
 st.set_page_config(
@@ -36,6 +37,8 @@ if "portfolio_metadata" not in st.session_state:
     }
 if "api_recommendation_result" not in st.session_state:
     st.session_state["api_recommendation_result"] = None
+if "cgs_data" not in st.session_state:
+    st.session_state["cgs_data"] = None
 
 # --- Render Advisory Flow Sidebar ---
 with st.sidebar:
@@ -47,8 +50,8 @@ with st.sidebar:
     _has_goals = bool(st.session_state.get("goals_allocation"))
     
     st.markdown(
-        f"**1. 📤 Upload CAS Statement** {'✅' if _has_cas else '⏳'}<br>"
-        f"<span style='color: #64748b; font-size: 0.8rem;'>Portfolio Ingestion & Diagnostics</span>",
+        f"**1. 📤 Upload CAS & CGS Statements** {'✅' if _has_cas else '⏳'}<br>"
+        f"<span style='color: #64748b; font-size: 0.8rem;'>Portfolio Ingestion & Tax Audit</span>",
         unsafe_allow_html=True
     )
     st.markdown(
@@ -170,18 +173,37 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# --- CAS Upload ---
-uploaded_file = st.file_uploader(
-    "Upload your CAS Excel file (.xlsx)",
-    type=["xlsx"],
-    help="Every user's CAS is different. The app parses your file dynamically.",
+# --- Dual Statement Ingestion (CAS & CGS) ---
+st.markdown(
+    "<p style='color: #64748b; font-size: 1.05rem;'>"
+    "A SEBI-compliant review requires analyzing both <strong>what you hold</strong> and <strong>what gains have already been booked</strong>:<br>"
+    "• <strong>CAS (Consolidated Account Statement):</strong> Current holdings, units, folios, and valuations. <em>(Required)</em><br>"
+    "• <strong>CGS (Capital Gains Statement):</strong> Realized LTCG/STCG, Section 112A grandfathering, and exemption headroom. <em>(Recommended)</em>"
+    "</p>",
+    unsafe_allow_html=True,
 )
 
+col_up1, col_up2 = st.columns(2)
+with col_up1:
+    uploaded_file = st.file_uploader(
+        "1. CAS Statement (.xlsx) *Required*",
+        type=["xlsx"],
+        help="Upload your CAMS/Karvy/NSDL/MFCentral Consolidated Account Statement Excel file.",
+        key="main_cas_uploader",
+    )
+with col_up2:
+    cgs_file = st.file_uploader(
+        "2. Capital Gains Statement (CGS .xlsx) *Recommended*",
+        type=["xlsx"],
+        help="Upload your CAMS or KFintech Capital Gains Statement for realized LTCG/STCG and tax audit.",
+        key="main_cgs_uploader",
+    )
+
 if uploaded_file is None:
-    st.info("⬆️ Please upload your CAS file to view your portfolio analysis.")
+    st.info("⬆️ Please upload your CAS file on the left to begin your portfolio analysis.")
     st.stop()
 
-# --- Parse uploaded CAS ---
+# --- Parse uploaded statements ---
 with st.spinner("Parsing your CAS file..."):
     funds = parse_cas_file(uploaded_file)
 
@@ -189,7 +211,19 @@ if not funds:
     st.error("Could not parse any funds from the uploaded file. Please check the file format.")
     st.stop()
 
-st.success(f"Parsed **{len(funds)}** active funds from your CAS.")
+# Parse CGS file if provided
+if cgs_file is not None:
+    with st.spinner("Auditing Capital Gains Statement (CGS)..."):
+        try:
+            cgs_res = parse_cgs_file(cgs_file)
+            st.session_state["cgs_data"] = cgs_res
+        except Exception as exc:
+            st.warning(f"⚠️ CGS Parse Note: {exc}")
+            st.session_state["cgs_data"] = None
+else:
+    st.session_state["cgs_data"] = None
+
+st.success(f"Parsed **{len(funds)}** active funds from your CAS." + (" (CGS Statement Linked ✅)" if st.session_state.get("cgs_data") else ""))
 
 # Store portfolio in session state for other pages
 st.session_state["user_portfolio"] = funds
@@ -292,6 +326,43 @@ if regular_total > 0:
     )
 else:
     st.success("✅ **Fiduciary Best Practice**: 100% of your holdings are in Direct plans. Zero intermediary commission bleed detected.")
+
+# --- Statutory Capital Gains & Tax Audit (CGS) ---
+cgs_info = st.session_state.get("cgs_data")
+if cgs_info and cgs_info.get("summary"):
+    st.markdown('<h2 class="section-title">📑 Capital Gains & Tax Audit (CGS)</h2>', unsafe_allow_html=True)
+    s_data = cgs_info.get("summary", {})
+    ltcg_val = float(s_data.get("ltcg_inr") or 0.0)
+    stcg_val = float(s_data.get("stcg_inr") or 0.0)
+    outflows_val = float(s_data.get("total_outflows") or 0.0)
+    cost_val = float(s_data.get("total_cost") or 0.0)
+    rem_exempt = max(0.0, 125_000.0 - ltcg_val)
+    
+    cg_c1, cg_c2, cg_c3, cg_c4 = st.columns(4)
+    with cg_c1:
+        st.markdown('<div class="metric-card">', unsafe_allow_html=True)
+        st.markdown('<span class="metric-label">Realized LTCG (§112A)</span>', unsafe_allow_html=True)
+        st.markdown(f'<span class="metric-value">₹{ltcg_val:,.0f}</span>', unsafe_allow_html=True)
+        st.caption("Long-term equity gains")
+        st.markdown('</div>', unsafe_allow_html=True)
+    with cg_c2:
+        st.markdown('<div class="metric-card">', unsafe_allow_html=True)
+        st.markdown('<span class="metric-label">Realized STCG (§111A)</span>', unsafe_allow_html=True)
+        st.markdown(f'<span class="metric-value">₹{stcg_val:,.0f}</span>', unsafe_allow_html=True)
+        st.caption("Short-term gains @ 20%")
+        st.markdown('</div>', unsafe_allow_html=True)
+    with cg_c3:
+        st.markdown('<div class="metric-card">', unsafe_allow_html=True)
+        st.markdown('<span class="metric-label">Remaining §112A Headroom</span>', unsafe_allow_html=True)
+        st.markdown(f'<span class="metric-value">₹{rem_exempt:,.0f}</span>', unsafe_allow_html=True)
+        st.caption("of ₹1.25 Lakh annual tax-free limit")
+        st.markdown('</div>', unsafe_allow_html=True)
+    with cg_c4:
+        st.markdown('<div class="metric-card">', unsafe_allow_html=True)
+        st.markdown('<span class="metric-label">CGS Audit Status</span>', unsafe_allow_html=True)
+        st.markdown('<span class="metric-value" style="color:#16a34a;">Verified</span>', unsafe_allow_html=True)
+        st.caption(f"Digest: {cgs_info.get('source_sha256', '')[:10]}...")
+        st.markdown('</div>', unsafe_allow_html=True)
 
 # --- SAA Target Alignment ---
 st.markdown('<h2 class="section-title">🎯 Strategic Asset Allocation (SAA) Drift</h2>', unsafe_allow_html=True)

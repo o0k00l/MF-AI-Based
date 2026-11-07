@@ -115,16 +115,17 @@ badge_step1 = '<span class="status-badge-done">✅ COMPLETED</span>' if has_cas 
 st.markdown(f"""
 <div class="flow-card">
     <span class="flow-step-num">1</span>
-    <span class="flow-title">Portfolio Statement Ingestion (CAS)</span>
+    <span class="flow-title">Portfolio Statement Ingestion (CAS & CGS)</span>
     {badge_step1}
     <div class="step-desc">
-        Upload your consolidated statement (CAMS / KFintech / MFCentral). The engine automatically unbundles composite folios,
-        filters dormant accounts, identifies Regular vs. Direct plans, and validates your true cost basis.
+        Upload your Consolidated Account Statement (CAS) and Capital Gains Statement (CGS) from CAMS / KFintech / MFCentral.
+        <strong>CAS</strong> unbundles folios, identifies Regular vs. Direct plans, and computes current asset allocations.
+        <strong>CGS</strong> audits statutory realized LTCG/STCG, Section 112A grandfathering, and tracks your remaining ₹1.25 Lakh tax-free headroom.
     </div>
 </div>
 """, unsafe_allow_html=True)
 if not has_cas:
-    st.caption("👉 *Navigate to **Portfolio Dashboard** in the sidebar to upload your CAS Excel file.*")
+    st.caption("👉 *Navigate to **Portfolio Dashboard** in the sidebar to upload your CAS and CGS statements.*")
 
 # --- Step 2 Card ---
 badge_step2 = '<span class="status-badge-done">✅ PROFILED</span>' if has_risk else '<span class="status-badge-pending">⏳ PENDING</span>'
