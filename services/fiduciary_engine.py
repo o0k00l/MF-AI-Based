@@ -265,3 +265,4 @@ def generate_fiduciary_sip_blueprint(
         "allocations": allocations,
         "reconciliation_valid": abs(unallocated) <= Decimal("0.01"),
     }
+

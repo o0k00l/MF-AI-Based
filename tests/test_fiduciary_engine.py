@@ -87,3 +87,4 @@ def test_generate_fiduciary_sip_blueprint():
     assert blueprint["allocated_budget_inr"] == Decimal("30000.00")
     assert blueprint["unallocated_budget_inr"] == Decimal("0.00")
     assert len(blueprint["allocations"]) == 3
+

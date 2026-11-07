@@ -89,11 +89,40 @@ else:
         rem_hd = max(0.0, 125_000.0 - ltcg)
         report_lines.extend([
             "",
-            "## 5. Statutory Capital Gains Audit (CGS)",
+            "## 6. Statutory Capital Gains Audit (CGS)",
             f"* **Realized LTCG (§112A):** ₹{ltcg:,.2f}",
             f"* **Realized STCG (§111A):** ₹{stcg:,.2f}",
             f"* **Remaining §112A Exemption Headroom:** ₹{rem_hd:,.2f} (out of ₹1.25 Lakhs annual tax-free limit)",
             f"* **Statement Provenance:** SHA256 `{cgs_data.get('source_sha256', 'N/A')[:16]}...`",
+        ])
+
+    # Commission Bleed & Direct Conversion Audit
+    regular_holdings = [f for f in portfolio if str(f.get("plan_type", "Direct")).upper() == "REGULAR"]
+    regular_val = sum(f.get("current_value", 0) for f in regular_holdings)
+    regular_pct = (regular_val / total_val * 100.0) if total_val > 0 else 0.0
+
+    report_lines.extend([
+        "",
+        "## 3. Distributor Commission Bleed & Direct Plan Audit",
+    ])
+    if regular_val > 0:
+        est_10y = regular_val * 0.1046  # 10-year compounded drag factor at ~1% p.a.
+        report_lines.extend([
+            f"* **Regular Plan Exposure:** ₹{regular_val:,.0f} ({regular_pct:.1f}% of total portfolio) across {len(regular_holdings)} schemes",
+            f"* **Estimated 10-Year Compounded Drag:** ₹{est_10y:,.0f} in avoidable distributor commissions",
+            "* **Fiduciary Switch Recommendation:** Recommend executing switches from Regular to Direct Growth plans to retain 100% of compounding returns.",
+            "",
+            "| Identified Regular Scheme | Current Value (₹) | Potential Annual Savings (~1% p.a.) |",
+            "| :--- | :--- | :--- |",
+        ])
+        for rf in regular_holdings:
+            r_name = rf.get("scheme", "Regular Scheme")
+            r_val = rf.get("current_value", 0)
+            report_lines.append(f"| {r_name} | ₹{r_val:,.0f} | ~₹{r_val * 0.01:,.0f}/yr |")
+    else:
+        report_lines.extend([
+            "* **Direct Plan Compliance:** ✅ 100% Direct Plan Mandate Verified",
+            "* **Commission Leakage:** Zero distributor trail commission bleed detected across all active folios.",
         ])
 
     # SAA Drift & Fiduciary Audit
@@ -110,7 +139,7 @@ else:
 
         report_lines.extend([
             "",
-            "## 3. Strategic Asset Allocation (SAA) & Drift Diagnostic",
+            "## 4. Strategic Asset Allocation (SAA) & Drift Diagnostic",
             f"* **Target SAA:** {tgt_eq:.1f}% Equity / {tgt_db:.1f}% Debt",
             f"* **Current Portfolio Mix:** {cur_eq:.1f}% Equity / {cur_db:.1f}% Debt",
             f"* **Debt Stability Buffer:** {'Deficit of ₹' + str(round(float(db_gap)/100000.0, 2)) + ' Lakhs' if is_def else 'Adequate Surplus'}",
@@ -119,7 +148,7 @@ else:
 
     report_lines.extend([
         "",
-        "## 4. Financial Goal Allocation & SIP Deployment",
+        "## 5. Financial Goal Allocation & SIP Deployment",
     ])
     for g_id, g_info in goals_alloc.get("goals", {}).items():
         g_name = g_info.get("goal_name", g_id)
@@ -140,7 +169,7 @@ else:
 
     report_lines.extend([
         "",
-        "## 6. Fiduciary Disclosures & Compliance Statement",
+        "## 7. Fiduciary Disclosures & Compliance Statement",
         "* **Statutory Mandate:** SEBI (Investment Advisers) Regulations, 2013.",
         "* **Direct Plan Enforcement:** All proposed switches and SIP allocations strictly mandate Direct Plans to eliminate intermediary commissions.",
         "* **Non-Execution Authority:** The adviser operates solely on a fee-only, non-execution advisory basis; order execution remains exclusively in client control.",

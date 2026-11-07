@@ -150,12 +150,17 @@ with tab1:
         inc_key = "stable" if "stable" in q_income.lower() else ("variable" if "variable" in q_income.lower() else "retired")
         exp_key = "experienced" if "experienced" in q_exp.lower() else ("moderate" if "moderate" in q_exp.lower() else "beginner")
 
+        h_years = float(q_horizon)
+        dd_tol = float(q_drop)
+        em_mos = float(q_emergency)
+        emi_pct = float(q_emi)
+
         p_result = evaluate_fiduciary_profile(
-            horizon_years=float(q_horizon),
-            max_drawdown_tolerance_pct=float(q_drop),
-            emergency_fund_months=float(q_emergency),
+            horizon_years=h_years,
+            max_drawdown_tolerance_pct=dd_tol,
+            emergency_fund_months=em_mos,
             income_stability=inc_key,
-            emi_burden_pct=float(q_emi),
+            emi_burden_pct=emi_pct,
             experience_level=exp_key,
         )
         st.session_state["fiduciary_profile_result"] = p_result
