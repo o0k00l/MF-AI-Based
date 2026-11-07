@@ -129,9 +129,10 @@ st.markdown(f"""
     </div>
 </div>
 """, unsafe_allow_html=True)
-st.caption("👉 *Navigate to **5. Fiduciary Report** in the sidebar to generate and download your executive review.*")
-if not has_statements:
-    st.caption("👉 *Navigate to **Portfolio Dashboard** in the sidebar to upload both your mandatory CAS and CGS statements.*")
+c_btn1, _ = st.columns([1, 2])
+with c_btn1:
+    if st.button("📤 Go to Statement Intake", key="flow_btn_s1", use_container_width=True):
+        st.switch_page("app.py")
 
 # --- Step 2 Card ---
 badge_step2 = '<span class="status-badge-done">✅ PROFILED</span>' if has_risk else '<span class="status-badge-pending">⏳ PENDING</span>'
@@ -147,11 +148,13 @@ st.markdown(f"""
     </div>
 </div>
 """, unsafe_allow_html=True)
+c_btn2, _ = st.columns([1, 2])
+with c_btn2:
+    if st.button("📋 Open Risk Profiler", key="flow_btn_s2", type="primary" if (has_statements and not has_risk) else "secondary", use_container_width=True):
+        st.switch_page("pages/2_Risk_Profiler.py")
 if has_risk:
-    tier = st.session_state.get("risk_tier", "Evaluated")
+    tier = str(st.session_state.get("risk_tier", "Evaluated")).replace("_", " ").title()
     st.caption(f"🎯 *Current Governing Profile: **{tier}***")
-else:
-    st.caption("👉 *Navigate to **2. Risk Profiler** in the sidebar to take your SEBI fiduciary questionnaire.*")
 
 # --- Step 3 Card ---
 badge_step3 = '<span class="status-badge-done">✅ PLANNED</span>' if has_goals else '<span class="status-badge-pending">⏳ PENDING</span>'
@@ -167,7 +170,10 @@ st.markdown(f"""
     </div>
 </div>
 """, unsafe_allow_html=True)
-st.caption("👉 *Navigate to **3. Financial Goals** in the sidebar to model your goals and step-up SIP.*")
+c_btn3, _ = st.columns([1, 2])
+with c_btn3:
+    if st.button("🎯 Open Goals Wizard", key="flow_btn_s3", type="primary" if (has_risk and not has_goals) else "secondary", use_container_width=True):
+        st.switch_page("pages/3_Financial_Goals.py")
 
 # --- Step 4 Card ---
 badge_step4 = '<span class="status-badge-done">✅ READY</span>' if has_cas else '<span class="status-badge-pending">⏳ WAITING FOR CAS</span>'
@@ -182,7 +188,10 @@ st.markdown(f"""
     </div>
 </div>
 """, unsafe_allow_html=True)
-st.caption("👉 *Navigate to **4. Debt Allocation** in the sidebar to inspect unbundled fixed-income exposures.*")
+c_btn4, _ = st.columns([1, 2])
+with c_btn4:
+    if st.button("📈 Inspect True Debt", key="flow_btn_s4", use_container_width=True):
+        st.switch_page("pages/4_Debt_Allocation.py")
 
 # --- Step 5 Card ---
 badge_step5 = '<span class="status-badge-done">✅ AVAILABLE</span>' if (has_cas and has_risk and has_goals) else '<span class="status-badge-pending">⏳ AWAITING PREREQUISITES</span>'
@@ -199,6 +208,11 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # --- Advanced AI Configuration Expander ---
+c_btn5, _ = st.columns([1, 2])
+with c_btn5:
+    if st.button("📄 View Fiduciary Report", key="flow_btn_s5", type="primary" if (has_statements and has_risk and has_goals) else "secondary", use_container_width=True):
+        st.switch_page("pages/5_Fiduciary_Report.py")
+
 st.markdown("---")
 with st.expander("⚙️ Advanced Settings: AI Research & Model Keys", expanded=False):
     st.caption("Configure optional AI narrative providers for automated research summarization.")
