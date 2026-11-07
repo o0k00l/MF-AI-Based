@@ -34,46 +34,20 @@ def load_scheme_master() -> dict | None:
 
 
 def calculate_allocations(funds: list) -> dict:
-    """Calculate portfolio-level allocation metrics.
+    """Calculate portfolio-level allocation metrics via canonical fiduciary engine.
 
     Returns true debt allocation including internal debt in equity funds.
     """
-    total_value = sum(f.get("current_value", 0) for f in funds) or 0
-
-    allocations = {
-        "total_value": total_value,
-        "equity_value": 0.0,
-        "debt_value": 0.0,
-        "large_cap_value": 0.0,
-        "mid_cap_value": 0.0,
-        "small_cap_value": 0.0,
+    from services.ai_fund_classifier import compute_portfolio_segment_breakdown
+    seg = compute_portfolio_segment_breakdown(funds)
+    return {
+        "total_value": seg["total_value"],
+        "equity_value": seg["equity_value"],
+        "debt_value": seg["debt_value"],
+        "large_cap_value": seg["large_cap_value"],
+        "mid_cap_value": seg["mid_cap_value"],
+        "small_cap_value": seg["small_cap_value"],
     }
-
-    for fund in funds:
-        current = fund.get("current_value", 0) or 0
-        if current <= 0:
-            continue
-
-        eq = fund.get("eq", 0) or 0
-        debt = fund.get("debt", 0) or 0
-        lc = fund.get("lc", 0) or 0
-        mc = fund.get("mc", 0) or 0
-        sc = fund.get("sc", 0) or 0
-        category = fund.get("category", "")
-
-        # Equity allocation
-        allocations["equity_value"] += current * eq / 100
-
-        # Internal debt in equity/hybrid funds
-        if category in ("Equity", "Hybrid", "Flexi Cap", "Multi Cap"):
-            allocations["debt_value"] += current * debt / 100
-
-        # Segment allocations
-        allocations["large_cap_value"] += current * lc / 100
-        allocations["mid_cap_value"] += current * mc / 100
-        allocations["small_cap_value"] += current * sc / 100
-
-    return allocations
 
 
 def get_category_counts(funds: list) -> dict:

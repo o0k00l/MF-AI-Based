@@ -22,16 +22,11 @@ if _REPO_ROOT in _sys.path:
     _sys.path.remove(_REPO_ROOT)
 _sys.path.insert(0, _REPO_ROOT)
 
-# Invalidate stale in-memory cached modules from previous hot reloads
-for _k in list(_sys.modules.keys()):
-    if _k == "services" or _k.startswith("services."):
-        del _sys.modules[_k]
-
 import streamlit as st
 
 try:
     from services.cas_parser import parse_cas_file
-    from services.ai_fund_classifier import enrich_funds_with_ai, classify_fund_with_ai, generate_fiduciary_ai_narrative
+    from services.ai_fund_classifier import enrich_funds_with_ai, classify_fund_with_ai, generate_fiduciary_ai_narrative, compute_portfolio_segment_breakdown
     from services.sip_api_client import get_api_health, request_sip_recommendations
     from services.risk_profiler import evaluate_fiduciary_profile
     from services.cgs_parser import parse_cgs_file
@@ -148,6 +143,15 @@ st.markdown("""
         border-radius: 10px;
         margin-bottom: 18px;
     }
+    .portfolio-card {
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-left: 4px solid #38bdf8;
+        border-radius: 8px;
+        padding: 10px 14px;
+        margin-bottom: 12px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -206,7 +210,7 @@ if uploaded_file is not None:
         enriched_funds = enrich_funds_with_ai(parsed_funds)
         st.session_state["user_portfolio"] = enriched_funds
         st.session_state["portfolio_metadata"] = {
-            "upload_time": str(__import__("datetime").datetime.now()),
+            "upload_time": str(__import__("datetime").datetime.now().isoformat()),
             "upload_source": uploaded_file.name,
             "fund_count": len(enriched_funds),
             "total_value": sum(f.get("current_value", 0) for f in enriched_funds),
@@ -241,16 +245,16 @@ total_invested = sum(f.get("invested_value", 0) for f in funds)
 total_gain = (total_value - total_invested) if total_invested > 0 else 0.0
 gain_pct = (total_gain / total_invested * 100) if total_invested > 0 else 0.0
 
-total_eq = sum(f.get("current_value", 0) * f.get("eq", 0) / 100 for f in funds)
-total_debt = sum(f.get("current_value", 0) * f.get("debt", 0) / 100 for f in funds)
-total_lc = sum(f.get("current_value", 0) * f.get("lc", 0) / 100 for f in funds)
-total_mc = sum(f.get("current_value", 0) * f.get("mc", 0) / 100 for f in funds)
-total_sc = sum(f.get("current_value", 0) * f.get("sc", 0) / 100 for f in funds)
-total_gold = sum(f.get("current_value", 0) * f.get("gold", 0) / 100 for f in funds)
-total_intl = sum(f.get("current_value", 0) * f.get("intl", 0) / 100 for f in funds)
-
-eq_pct = (total_eq / total_value * 100) if total_value else 0.0
-debt_pct = (total_debt / total_value * 100) if total_value else 0.0
+seg_breakdown = compute_portfolio_segment_breakdown(funds)
+total_eq = seg_breakdown["equity_value"]
+total_debt = seg_breakdown["debt_value"]
+total_lc = seg_breakdown["large_cap_value"]
+total_mc = seg_breakdown["mid_cap_value"]
+total_sc = seg_breakdown["small_cap_value"]
+total_gold = seg_breakdown["gold_value"]
+total_intl = seg_breakdown["intl_value"]
+eq_pct = seg_breakdown["equity_pct"]
+debt_pct = seg_breakdown["debt_pct"]
 
 # Group by canonical underlying strategy to distinguish unique schemes from duplicate plan variants
 canonical_schemes = {}
@@ -345,18 +349,16 @@ with tab_audit:
     with st.expander("🔍 Scheme-by-Scheme Segment Allocation (Actual Factsheet Look-Through)", expanded=False):
         st.caption("Actual underlying market capitalization and stability asset look-through audited scheme-by-scheme per AMC disclosures and regulatory filings.")
         seg_rows = []
-        for sf in sorted(funds, key=lambda x: -x.get("current_value", 0)):
-            c_val = sf.get("current_value", 0)
-            if c_val <= 0:
-                continue
+        for r in seg_breakdown["scheme_rows"]:
+            c_val = r["current_value"]
             seg_rows.append({
-                "Scheme": sf.get("scheme", "")[:45],
-                "Mandate": sf.get("scheme_type", sf.get("category", "")),
-                "Large Cap": f"{sf.get('lc', 0):.1f}% (₹{c_val * sf.get('lc', 0) / 10000000:.2f}L)",
-                "Mid Cap": f"{sf.get('mc', 0):.1f}% (₹{c_val * sf.get('mc', 0) / 10000000:.2f}L)",
-                "Small Cap": f"{sf.get('sc', 0):.1f}% (₹{c_val * sf.get('sc', 0) / 10000000:.2f}L)",
-                "Debt / Cash": f"{sf.get('debt', 0):.1f}% (₹{c_val * sf.get('debt', 0) / 10000000:.2f}L)",
-                "Provenance": sf.get("classification_source", "AMC Factsheet Look-Through"),
+                "Scheme": r["scheme"][:45],
+                "Mandate": r["mandate"],
+                "Large Cap": f"{r['large_cap_pct']:.1f}% (₹{r['large_cap_inr']/100000:.2f}L)",
+                "Mid Cap": f"{r['mid_cap_pct']:.1f}% (₹{r['mid_cap_inr']/100000:.2f}L)",
+                "Small Cap": f"{r['small_cap_pct']:.1f}% (₹{r['small_cap_inr']/100000:.2f}L)",
+                "Debt / Cash": f"{r['debt_pct']:.1f}% (₹{r['debt_inr']/100000:.2f}L)",
+                "Provenance": r["provenance"],
             })
         if seg_rows:
             st.dataframe(seg_rows, use_container_width=True, hide_index=True)

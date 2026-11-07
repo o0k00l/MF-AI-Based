@@ -289,3 +289,108 @@ def test_fast_ai_fiduciary_query_speed_and_segment_attribution():
     elapsed = time.perf_counter() - t0
     assert elapsed < 0.05, f"Cached query should be instantaneous, took {elapsed:.4f}s"
     assert q_repeat["response"] == q_seg["response"]
+
+
+def test_compute_portfolio_segment_breakdown_and_exact_math():
+    from services.ai_fund_classifier import compute_portfolio_segment_breakdown
+
+    funds = [
+        {
+            "scheme": "Axis Small Cap Fund Direct Growth",
+            "scheme_type": "Small Cap",
+            "current_value": 500000.0,
+            "lc": 6.31,
+            "mc": 9.60,
+            "sc": 74.41,
+            "eq": 90.32,
+            "debt": 9.68,
+            "classification_source": "AMC Factsheet Look-Through",
+        },
+        {
+            "scheme": "ICICI Prudential Bluechip Direct",
+            "scheme_type": "Large Cap",
+            "current_value": 500000.0,
+            "lc": 81.09,
+            "mc": 10.69,
+            "sc": 0.0,
+            "eq": 91.78,
+            "debt": 8.22,
+            "classification_source": "AMC Factsheet Look-Through",
+        },
+    ]
+
+    res = compute_portfolio_segment_breakdown(funds)
+    assert res["total_value"] == 1000000.0
+    
+    # Large Cap: 500k * 6.31% + 500k * 81.09% = 31550 + 405450 = 437000 (43.7%)
+    expected_lc = 500000.0 * 0.0631 + 500000.0 * 0.8109
+    assert abs(res["large_cap_value"] - expected_lc) < 1.0
+    assert abs(res["large_cap_pct"] - 43.7) < 0.1
+
+    # Small Cap: 500k * 74.41% = 372050 (37.2%)
+    expected_sc = 500000.0 * 0.7441
+    assert abs(res["small_cap_value"] - expected_sc) < 1.0
+    assert abs(res["small_cap_pct"] - 37.2) < 0.1
+
+    # Debt: 500k * 9.68% + 500k * 8.22% = 48400 + 41100 = 89500 (8.95%)
+    expected_debt = 500000.0 * 0.0968 + 500000.0 * 0.0822
+    assert abs(res["debt_value"] - expected_debt) < 1.0
+    assert abs(res["debt_pct"] - 8.95) < 0.1
+
+    # Mathematical consistency checks
+    assert len(res["scheme_rows"]) == 2
+    for r in res["scheme_rows"]:
+        assert r["large_cap_inr"] + r["mid_cap_inr"] + r["small_cap_inr"] <= r["current_value"] + 1.0
+
+
+def test_expanded_authentic_factsheet_coverage_and_hybrid_classification():
+    from services.ai_fund_classifier import classify_fund_with_ai
+
+    # 1. Axis Small Cap Fund
+    axis = classify_fund_with_ai("Axis Small Cap Fund - Direct Plan - Growth", use_live_ai=False)
+    assert axis["sc"] == 74.41
+    assert axis["lc"] == 6.31
+    assert "Factsheet" in axis["source"]
+
+    # 2. Bandhan Small Cap Fund
+    bandhan = classify_fund_with_ai("Bandhan Small Cap Fund", use_live_ai=False)
+    assert bandhan["sc"] == 74.2
+    assert bandhan["lc"] == 4.1
+    assert "Factsheet" in bandhan["source"]
+
+    # 3. Quant Active Fund (Multi Cap)
+    quant_act = classify_fund_with_ai("Quant Active Fund Direct Growth", use_live_ai=False)
+    assert quant_act["category"] == "Equity"
+    assert quant_act["lc"] == 46.5
+    assert quant_act["mc"] == 26.2
+    assert quant_act["sc"] == 23.8
+
+    # 4. ICICI Prudential Equity & Debt Fund (Hybrid, NOT pure debt)
+    icici_ed = classify_fund_with_ai("ICICI Prudential Equity & Debt Fund Direct Growth", use_live_ai=False)
+    assert icici_ed["category"] == "Hybrid"
+    assert icici_ed["eq"] == 72.0
+    assert icici_ed["debt"] == 28.0
+    assert icici_ed["lc"] == 50.2
+
+    # 5. SBI Liquid Fund (Pure debt)
+    sbi_liq = classify_fund_with_ai("SBI Liquid Fund Direct Growth", use_live_ai=False)
+    assert sbi_liq["category"] == "Debt"
+    assert sbi_liq["debt"] == 100.0
+    assert sbi_liq["eq"] == 0.0
+
+
+def test_ui_utils_canonical_segment_delegation():
+    from ui.utils import calculate_allocations
+
+    funds = [
+        {"scheme": "Fund 1", "current_value": 100000.0, "lc": 60.0, "mc": 30.0, "sc": 10.0, "eq": 100.0, "debt": 0.0},
+        {"scheme": "Fund 2", "current_value": 100000.0, "lc": 0.0, "mc": 0.0, "sc": 0.0, "eq": 0.0, "debt": 100.0},
+    ]
+
+    allocs = calculate_allocations(funds)
+    assert allocs["total_value"] == 200000.0
+    assert allocs["equity_value"] == 100000.0
+    assert allocs["debt_value"] == 100000.0
+    assert allocs["large_cap_value"] == 60000.0
+    assert allocs["mid_cap_value"] == 30000.0
+    assert allocs["small_cap_value"] == 10000.0

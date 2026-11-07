@@ -26,7 +26,7 @@ sys.path.insert(0, _REPO_ROOT)
 import streamlit as st
 from services.sidebar import render_fiduciary_sidebar
 from services.fiduciary_engine import evaluate_portfolio_saa_audit
-from services.ai_fund_classifier import enrich_funds_with_ai
+from services.ai_fund_classifier import enrich_funds_with_ai, compute_portfolio_segment_breakdown
 
 # --- Page Configuration ---
 st.set_page_config(
@@ -129,41 +129,8 @@ Rather than assuming generic category percentages, the fiduciary engine performs
 total_portfolio_value = sum(f.get("current_value", 0) for f in funds) or 0
 
 if total_portfolio_value > 0:
-    # Calculate allocations based on USER portfolio values
-    allocations = {
-        "Equity": 0.0,
-        "Debt (Internal)": 0.0,
-        "Large Cap": 0.0,
-        "Mid Cap": 0.0,
-        "Small Cap": 0.0,
-    }
-    
-    for fund in funds:
-        current = fund.get("current_value", 0) or 0
-        if current <= 0:
-            continue
-            
-        eq = fund.get("eq", 0) or 0
-        debt = fund.get("debt", 0) or 0
-        lc = fund.get("lc", 0) or 0
-        mc = fund.get("mc", 0) or 0
-        sc = fund.get("sc", 0) or 0
-        cat = fund.get("category", "")
-        
-        # Equity allocation based on category
-        if cat == "Hybrid":
-            allocations["Equity"] += current * eq / 100
-        else:
-            allocations["Equity"] += current * eq / 100
-        
-        # Internal debt in equity funds
-        if cat in ["Equity", "Hybrid"]:
-            allocations["Debt (Internal)"] += current * debt / 100
-        
-        # Segment allocations
-        allocations["Large Cap"] += current * lc / 100
-        allocations["Mid Cap"] += current * mc / 100
-        allocations["Small Cap"] += current * sc / 100
+    # Authoritative canonical segment breakdown (zero heuristic fabrication)
+    seg = compute_portfolio_segment_breakdown(funds)
 
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -173,13 +140,15 @@ if total_portfolio_value > 0:
         st.markdown('</div>', unsafe_allow_html=True)
     with col2:
         st.markdown('<div class="metric-card">', unsafe_allow_html=True)
-        st.markdown('<span class="metric-label">True Equity</span>', unsafe_allow_html=True)
-        st.markdown(f'<span class="metric-value">{allocations["Equity"]/total_portfolio_value*100:.1f}%</span>', unsafe_allow_html=True)
+        st.markdown('<span class="metric-label">True Equity Look-Through</span>', unsafe_allow_html=True)
+        st.markdown(f'<span class="metric-value">{seg["equity_pct"]:.1f}%</span>', unsafe_allow_html=True)
+        st.caption(f"₹{seg['equity_value']/100000:.2f}L active equities")
         st.markdown('</div>', unsafe_allow_html=True)
     with col3:
         st.markdown('<div class="metric-card">', unsafe_allow_html=True)
-        st.markdown('<span class="metric-label">True Debt</span>', unsafe_allow_html=True)
-        st.markdown(f'<span class="metric-value">{allocations["Debt (Internal)"]/total_portfolio_value*100:.1f}%</span>', unsafe_allow_html=True)
+        st.markdown('<span class="metric-label">True Debt & Cash Buffer</span>', unsafe_allow_html=True)
+        st.markdown(f'<span class="metric-value">{seg["debt_pct"]:.1f}%</span>', unsafe_allow_html=True)
+        st.caption(f"₹{seg['debt_value']/100000:.2f}L stability reserves")
         st.markdown('</div>', unsafe_allow_html=True)
 
     # --- Target SAA Benchmark & Deficit Analysis ---
@@ -227,29 +196,11 @@ if total_portfolio_value > 0:
 
     # Create bar chart data
     chart_data = {
-        "Equity": allocations["Equity"],
-        "Internal Debt": allocations["Debt (Internal)"],
+        "Equity": seg["equity_value"],
+        "True Debt": seg["debt_value"],
     }
 
     st.bar_chart(chart_data, use_container_width=True)
-
-    # Detailed segment breakdown
-    seg_col1, seg_col2, seg_col3 = st.columns(3)
-    with seg_col1:
-        st.markdown('<div class="metric-card">', unsafe_allow_html=True)
-        st.markdown('<span class="metric-label">Large Cap</span>', unsafe_allow_html=True)
-        st.markdown(f'<span class="metric-value">₹{allocations["Large Cap"]/100000:.2f} Lakhs</span>', unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)
-    with seg_col2:
-        st.markdown('<div class="metric-card">', unsafe_allow_html=True)
-        st.markdown('<span class="metric-label">Mid Cap</span>', unsafe_allow_html=True)
-        st.markdown(f'<span class="metric-value">₹{allocations["Mid Cap"]/100000:.2f} Lakhs</span>', unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)
-    with seg_col3:
-        st.markdown('<div class="metric-card">', unsafe_allow_html=True)
-        st.markdown('<span class="metric-label">Small Cap</span>', unsafe_allow_html=True)
-        st.markdown(f'<span class="metric-value">₹{allocations["Small Cap"]/100000:.2f} Lakhs</span>', unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)
 
 st.markdown("---", unsafe_allow_html=True)
 st.markdown('<h2 class="section-title">Fund-by-Fund Debt Allocation</h2>', unsafe_allow_html=True)

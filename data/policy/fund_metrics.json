@@ -2930,6 +2930,392 @@
         "confidence_score": 0.98,
         "engine_version": "2.0.0"
       }
+    },
+    {
+      "id": "Axis Small Cap",
+      "cat": "Small Cap",
+      "category": "Small Cap",
+      "eq": 90.32,
+      "debt": 9.68,
+      "lc": 6.31,
+      "mc": 9.6,
+      "sc": 74.41,
+      "er": 0.55,
+      "ter_direct_pct": 0.55,
+      "ter_regular_pct": 1.64,
+      "trail_commission_pct": 1.09,
+      "portfolio_large_cap_pct": 6.31,
+      "portfolio_mid_cap_pct": 9.6,
+      "portfolio_small_cap_pct": 74.41,
+      "portfolio_debt_pct": 9.68,
+      "benchmark": "Nifty Smallcap 250 TRI",
+      "aliases": [
+        "axis small cap",
+        "axis small cap fund",
+        "axis smallcap",
+        "axis small cap fund - direct plan"
+      ],
+      "_provenance": {
+        "source": "ETMoney / AMC Factsheet Look-Through",
+        "confidence_level": "high"
+      }
+    },
+    {
+      "id": "Quant Active",
+      "cat": "Multi Cap",
+      "category": "Multi Cap",
+      "eq": 96.5,
+      "debt": 3.5,
+      "lc": 46.5,
+      "mc": 26.2,
+      "sc": 23.8,
+      "er": 0.77,
+      "ter_direct_pct": 0.77,
+      "ter_regular_pct": 1.88,
+      "trail_commission_pct": 1.11,
+      "portfolio_large_cap_pct": 46.5,
+      "portfolio_mid_cap_pct": 26.2,
+      "portfolio_small_cap_pct": 23.8,
+      "portfolio_debt_pct": 3.5,
+      "benchmark": "Nifty 500 Multicap 50:25:25 TRI",
+      "aliases": [
+        "quant active",
+        "quant active fund",
+        "quant active fund - direct plan"
+      ],
+      "_provenance": {
+        "source": "AMC Factsheet Look-Through",
+        "confidence_level": "high"
+      }
+    },
+    {
+      "id": "ICICI Pru Equity & Debt",
+      "cat": "Hybrid: Aggressive",
+      "category": "Hybrid",
+      "eq": 72.0,
+      "debt": 28.0,
+      "lc": 50.2,
+      "mc": 16.5,
+      "sc": 5.3,
+      "er": 1.04,
+      "ter_direct_pct": 1.04,
+      "ter_regular_pct": 1.68,
+      "trail_commission_pct": 0.64,
+      "portfolio_large_cap_pct": 50.2,
+      "portfolio_mid_cap_pct": 16.5,
+      "portfolio_small_cap_pct": 5.3,
+      "portfolio_debt_pct": 28.0,
+      "benchmark": "CRISIL Hybrid 35+65 Aggressive Index",
+      "aliases": [
+        "icici pru equity & debt",
+        "icici prudential equity & debt",
+        "icici prudential equity and debt",
+        "icici prudential equity & debt fund"
+      ],
+      "_provenance": {
+        "source": "AMC Factsheet Look-Through",
+        "confidence_level": "high"
+      }
+    },
+    {
+      "id": "Bandhan Small Cap",
+      "cat": "Small Cap",
+      "category": "Small Cap",
+      "eq": 93.1,
+      "debt": 6.9,
+      "lc": 4.1,
+      "mc": 14.8,
+      "sc": 74.2,
+      "er": 0.35,
+      "ter_direct_pct": 0.35,
+      "ter_regular_pct": 1.7,
+      "trail_commission_pct": 1.35,
+      "portfolio_large_cap_pct": 4.1,
+      "portfolio_mid_cap_pct": 14.8,
+      "portfolio_small_cap_pct": 74.2,
+      "portfolio_debt_pct": 6.9,
+      "benchmark": "Nifty Smallcap 250 TRI",
+      "aliases": [
+        "bandhan small cap",
+        "bandhan small cap fund"
+      ],
+      "_provenance": {
+        "source": "AMC Factsheet Look-Through",
+        "confidence_level": "high"
+      }
+    },
+    {
+      "id": "Tata Small Cap",
+      "cat": "Small Cap",
+      "category": "Small Cap",
+      "eq": 93.5,
+      "debt": 6.5,
+      "lc": 3.2,
+      "mc": 12.5,
+      "sc": 77.8,
+      "er": 0.38,
+      "ter_direct_pct": 0.38,
+      "ter_regular_pct": 1.74,
+      "trail_commission_pct": 1.36,
+      "portfolio_large_cap_pct": 3.2,
+      "portfolio_mid_cap_pct": 12.5,
+      "portfolio_small_cap_pct": 77.8,
+      "portfolio_debt_pct": 6.5,
+      "benchmark": "Nifty Smallcap 250 TRI",
+      "aliases": [
+        "tata small cap",
+        "tata small cap fund"
+      ],
+      "_provenance": {
+        "source": "AMC Factsheet Look-Through",
+        "confidence_level": "high"
+      }
+    },
+    {
+      "id": "SBI Equity Hybrid",
+      "cat": "Hybrid: Aggressive",
+      "category": "Hybrid",
+      "eq": 70.5,
+      "debt": 29.5,
+      "lc": 52.0,
+      "mc": 15.0,
+      "sc": 3.5,
+      "er": 0.81,
+      "ter_direct_pct": 0.81,
+      "ter_regular_pct": 1.44,
+      "trail_commission_pct": 0.63,
+      "portfolio_large_cap_pct": 52.0,
+      "portfolio_mid_cap_pct": 15.0,
+      "portfolio_small_cap_pct": 3.5,
+      "portfolio_debt_pct": 29.5,
+      "benchmark": "CRISIL Hybrid 35+65 Aggressive Index",
+      "aliases": [
+        "sbi equity hybrid",
+        "sbi equity hybrid fund",
+        "sbi equity & debt"
+      ],
+      "_provenance": {
+        "source": "AMC Factsheet Look-Through",
+        "confidence_level": "high"
+      }
+    },
+    {
+      "id": "Canara Robeco Equity Hybrid",
+      "cat": "Hybrid: Aggressive",
+      "category": "Hybrid",
+      "eq": 71.2,
+      "debt": 28.8,
+      "lc": 51.2,
+      "mc": 17.6,
+      "sc": 2.4,
+      "er": 0.62,
+      "ter_direct_pct": 0.62,
+      "ter_regular_pct": 1.72,
+      "trail_commission_pct": 1.1,
+      "portfolio_large_cap_pct": 51.2,
+      "portfolio_mid_cap_pct": 17.6,
+      "portfolio_small_cap_pct": 2.4,
+      "portfolio_debt_pct": 28.8,
+      "benchmark": "CRISIL Hybrid 35+65 Aggressive Index",
+      "aliases": [
+        "canara robeco equity hybrid",
+        "canara robeco equity hybrid fund"
+      ],
+      "_provenance": {
+        "source": "AMC Factsheet Look-Through",
+        "confidence_level": "high"
+      }
+    },
+    {
+      "id": "Mirae Asset Midcap",
+      "cat": "Mid Cap",
+      "category": "Mid Cap",
+      "eq": 96.8,
+      "debt": 3.2,
+      "lc": 14.5,
+      "mc": 68.2,
+      "sc": 14.1,
+      "er": 0.61,
+      "ter_direct_pct": 0.61,
+      "ter_regular_pct": 1.72,
+      "trail_commission_pct": 1.11,
+      "portfolio_large_cap_pct": 14.5,
+      "portfolio_mid_cap_pct": 68.2,
+      "portfolio_small_cap_pct": 14.1,
+      "portfolio_debt_pct": 3.2,
+      "benchmark": "Nifty Midcap 150 TRI",
+      "aliases": [
+        "mirae asset midcap",
+        "mirae asset midcap fund"
+      ],
+      "_provenance": {
+        "source": "AMC Factsheet Look-Through",
+        "confidence_level": "high"
+      }
+    },
+    {
+      "id": "UTI Flexi Cap",
+      "cat": "Flexi Cap",
+      "category": "Flexi Cap",
+      "eq": 97.2,
+      "debt": 2.8,
+      "lc": 68.4,
+      "mc": 22.1,
+      "sc": 6.7,
+      "er": 0.88,
+      "ter_direct_pct": 0.88,
+      "ter_regular_pct": 1.78,
+      "trail_commission_pct": 0.9,
+      "portfolio_large_cap_pct": 68.4,
+      "portfolio_mid_cap_pct": 22.1,
+      "portfolio_small_cap_pct": 6.7,
+      "portfolio_debt_pct": 2.8,
+      "benchmark": "Nifty 500 TRI",
+      "aliases": [
+        "uti flexi cap",
+        "uti flexi cap fund",
+        "uti flexicap"
+      ],
+      "_provenance": {
+        "source": "AMC Factsheet Look-Through",
+        "confidence_level": "high"
+      }
+    },
+    {
+      "id": "Parag Parikh Conservative Hybrid",
+      "cat": "Hybrid: Conservative",
+      "category": "Hybrid",
+      "eq": 24.5,
+      "debt": 75.5,
+      "lc": 18.2,
+      "mc": 4.1,
+      "sc": 2.2,
+      "er": 0.32,
+      "ter_direct_pct": 0.32,
+      "ter_regular_pct": 0.62,
+      "trail_commission_pct": 0.3,
+      "portfolio_large_cap_pct": 18.2,
+      "portfolio_mid_cap_pct": 4.1,
+      "portfolio_small_cap_pct": 2.2,
+      "portfolio_debt_pct": 75.5,
+      "benchmark": "CRISIL Hybrid 85+15 Conservative Index",
+      "aliases": [
+        "parag parikh conservative hybrid",
+        "ppfas conservative hybrid"
+      ],
+      "_provenance": {
+        "source": "AMC Factsheet Look-Through",
+        "confidence_level": "high"
+      }
+    },
+    {
+      "id": "SBI Liquid",
+      "cat": "Debt",
+      "category": "Debt",
+      "eq": 0.0,
+      "debt": 100.0,
+      "lc": 0.0,
+      "mc": 0.0,
+      "sc": 0.0,
+      "er": 0.18,
+      "ter_direct_pct": 0.18,
+      "ter_regular_pct": 0.28,
+      "trail_commission_pct": 0.1,
+      "portfolio_large_cap_pct": 0.0,
+      "portfolio_mid_cap_pct": 0.0,
+      "portfolio_small_cap_pct": 0.0,
+      "portfolio_debt_pct": 100.0,
+      "benchmark": "NIFTY Liquid Index A-I",
+      "aliases": [
+        "sbi liquid",
+        "sbi liquid fund"
+      ],
+      "_provenance": {
+        "source": "AMC Factsheet Look-Through",
+        "confidence_level": "high"
+      }
+    },
+    {
+      "id": "Nippon India Liquid",
+      "cat": "Debt",
+      "category": "Debt",
+      "eq": 0.0,
+      "debt": 100.0,
+      "lc": 0.0,
+      "mc": 0.0,
+      "sc": 0.0,
+      "er": 0.2,
+      "ter_direct_pct": 0.2,
+      "ter_regular_pct": 0.29,
+      "trail_commission_pct": 0.09,
+      "portfolio_large_cap_pct": 0.0,
+      "portfolio_mid_cap_pct": 0.0,
+      "portfolio_small_cap_pct": 0.0,
+      "portfolio_debt_pct": 100.0,
+      "benchmark": "NIFTY Liquid Index A-I",
+      "aliases": [
+        "nippon india liquid",
+        "nippon india liquid fund",
+        "nippon liquid"
+      ],
+      "_provenance": {
+        "source": "AMC Factsheet Look-Through",
+        "confidence_level": "high"
+      }
+    },
+    {
+      "id": "HDFC Money Market",
+      "cat": "Debt",
+      "category": "Debt",
+      "eq": 0.0,
+      "debt": 100.0,
+      "lc": 0.0,
+      "mc": 0.0,
+      "sc": 0.0,
+      "er": 0.21,
+      "ter_direct_pct": 0.21,
+      "ter_regular_pct": 0.44,
+      "trail_commission_pct": 0.23,
+      "portfolio_large_cap_pct": 0.0,
+      "portfolio_mid_cap_pct": 0.0,
+      "portfolio_small_cap_pct": 0.0,
+      "portfolio_debt_pct": 100.0,
+      "benchmark": "NIFTY Money Market Index B-I",
+      "aliases": [
+        "hdfc money market",
+        "hdfc money market fund"
+      ],
+      "_provenance": {
+        "source": "AMC Factsheet Look-Through",
+        "confidence_level": "high"
+      }
+    },
+    {
+      "id": "Bandhan Sterling Value",
+      "cat": "Value",
+      "category": "Equity",
+      "eq": 96.2,
+      "debt": 3.8,
+      "lc": 53.4,
+      "mc": 24.2,
+      "sc": 18.6,
+      "er": 0.65,
+      "ter_direct_pct": 0.65,
+      "ter_regular_pct": 1.78,
+      "trail_commission_pct": 1.13,
+      "portfolio_large_cap_pct": 53.4,
+      "portfolio_mid_cap_pct": 24.2,
+      "portfolio_small_cap_pct": 18.6,
+      "portfolio_debt_pct": 3.8,
+      "benchmark": "Nifty 500 TRI",
+      "aliases": [
+        "bandhan sterling value",
+        "bandhan sterling value fund"
+      ],
+      "_provenance": {
+        "source": "AMC Factsheet Look-Through",
+        "confidence_level": "high"
+      }
     }
   ]
 }
