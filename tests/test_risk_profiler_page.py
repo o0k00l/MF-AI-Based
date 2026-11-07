@@ -46,17 +46,26 @@ def test_risk_profiler_page_imports_service_layer():
 def test_risk_profiler_page_calls_service_with_full_parameter_contract():
     """evaluate_fiduciary_profile call must pass all six documented kwargs."""
     source = _page_source()
-    start = source.index("evaluate_fiduciary_profile(")
-    call_body = source[start : source.index(")", start)]
-    for kwarg in (
-        "horizon_years=",
-        "max_drawdown_tolerance_pct=",
-        "emergency_fund_months=",
-        "income_stability=",
-        "emi_burden_pct=",
-        "experience_level=",
-    ):
-        assert kwarg in call_body, f"Missing kwarg in service call: {kwarg}"
+    # Use AST to find the exact call - more reliable than string matching
+    tree = ast.parse(source)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+            if node.func.id == "evaluate_fiduciary_profile":
+                kwarg_names = {kw.arg for kw in node.keywords}
+                expected = {
+                    "horizon_years",
+                    "max_drawdown_tolerance_pct",
+                    "emergency_fund_months",
+                    "income_stability",
+                    "emi_burden_pct",
+                    "experience_level",
+                }
+                assert expected <= kwarg_names, (
+                    f"Missing kwargs in evaluate_fiduciary_profile call: "
+                    f"{expected - kwarg_names}"
+                )
+                return
+    raise AssertionError("evaluate_fiduciary_profile call not found in page source")
 
 
 def test_risk_profiler_page_persists_session_state_contract():

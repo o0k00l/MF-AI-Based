@@ -2,11 +2,15 @@
 
 Parses any user-uploaded CAS file dynamically. No hardcoded fund names,
 scheme codes, or portfolio values. Every CAS is different per user.
+Supports multi-sheet workbooks (e.g. Equity, Debt, Portfolio Details)
+and transaction-level FIFO lot maturation (LTCG >365d vs STCG <=365d).
 """
 from __future__ import annotations
 
 import io
 import math
+from datetime import datetime, date
+from collections import defaultdict
 from typing import BinaryIO
 
 from openpyxl import load_workbook
@@ -49,8 +53,8 @@ def classify_fund_by_name(scheme_name: str) -> dict:
 def parse_cas_file(file_obj: BinaryIO) -> list[dict]:
     """Parse an uploaded CAS Excel file and return fund records.
 
-    Works with ANY user's CAS — no hardcoded scheme names.
-    Looks for a sheet containing 'portfolio' or 'details' in its name.
+    Works with ANY user's CAS -- no hardcoded scheme names.
+    Supports multi-sheet workbooks and lot-level holding period calculations.
     Aggregates multiple folios belonging to the same scheme name.
     """
     if hasattr(file_obj, "seek"):
@@ -61,21 +65,27 @@ def parse_cas_file(file_obj: BinaryIO) -> list[dict]:
     except Exception:
         return []
 
-    # Find the portfolio sheet dynamically
-    sheet_name = None
-    _KEYWORDS = ("portfolio", "details", "holding", "holdings", "consolidated", "scheme")
+    # Find all candidate portfolio sheets dynamically
+    portfolio_sheet_names: list[str] = []
+    _KEYWORDS = ("portfolio", "details", "holding", "holdings", "consolidated", "scheme", "equity", "debt")
+    _TX_KEYWORDS = ("transaction", "trxn", "txndetail", "sip detail", "mandate", "summary")
+    
     for name in wb.sheetnames:
-        if any(kw in name.lower() for kw in _KEYWORDS):
-            sheet_name = name
-            break
-    if not sheet_name:
-        wb.close()
-        return []
-    if not sheet_name:
+        n_low = name.lower()
+        if any(kw in n_low for kw in _KEYWORDS) and not any(tx_kw in n_low for tx_kw in _TX_KEYWORDS):
+            portfolio_sheet_names.append(name)
+
+    if not portfolio_sheet_names:
+        # Fallback: check if any sheet at all matches keywords
+        for name in wb.sheetnames:
+            if any(kw in name.lower() for kw in _KEYWORDS):
+                portfolio_sheet_names.append(name)
+                break
+
+    if not portfolio_sheet_names:
         wb.close()
         return []
 
-    sheet = wb[sheet_name]
     schemes_seen: list[str] = []
     values_map: dict[str, float] = {}
     invested_map: dict[str, float] = {}
@@ -94,14 +104,6 @@ def parse_cas_file(file_obj: BinaryIO) -> list[dict]:
         "amount", "price", "return", "returns", "xirr", "absolute return",
         "invested value", "invested", "cost value", "cost", "market value",
     })
-
-    # First pass: detect header row to find column indices
-    scheme_col_idx: int = 0
-    value_col_idx: int | None = None
-    invested_col_idx: int | None = None
-    units_col_idx: int | None = None
-    nav_col_idx: int | None = None
-    folio_col_idx: int | None = None
 
     _SCHEME_HEADERS = (
         "scheme", "scheme name", "fund", "fund name", "name",
@@ -131,130 +133,237 @@ def parse_cas_file(file_obj: BinaryIO) -> list[dict]:
         "account no.", "account no", "folio/account"
     )
 
-    for row in sheet.iter_rows(values_only=True):
-        if not row:
-            continue
-        row_str = [str(c).strip().lower() if c is not None else "" for c in row]
-        if any(h in row_str for h in _SCHEME_HEADERS):
-            for idx, cell_str in enumerate(row_str):
-                if cell_str in _SCHEME_HEADERS:
-                    scheme_col_idx = idx
-                elif cell_str in _VALUE_HEADERS:
-                    value_col_idx = idx
-                elif cell_str in _INVESTED_HEADERS:
-                    invested_col_idx = idx
-                elif cell_str in _UNITS_HEADERS:
-                    units_col_idx = idx
-                elif cell_str in _NAV_HEADERS:
-                    nav_col_idx = idx
-                elif cell_str in _FOLIO_HEADERS:
-                    folio_col_idx = idx
-            if value_col_idx is not None:
-                break
+    for sheet_name in portfolio_sheet_names:
+        sheet = wb[sheet_name]
+        scheme_col_idx: int = 0
+        value_col_idx: int | None = None
+        invested_col_idx: int | None = None
+        units_col_idx: int | None = None
+        nav_col_idx: int | None = None
+        folio_col_idx: int | None = None
+        header_row_idx: int | None = None
 
-    for row in sheet.iter_rows(values_only=True):
-        if not row or len(row) <= scheme_col_idx or not row[scheme_col_idx]:
-            continue
-        scheme = str(row[scheme_col_idx]).strip()
-        if not scheme:
-            continue
-        # Skip header rows and common non-scheme labels
-        if scheme.lower() in _SKIP_LABELS:
+        for r_idx, row in enumerate(sheet.iter_rows(values_only=True)):
+            if not row:
+                continue
+            row_str = [str(c).strip().lower() if c is not None else "" for c in row]
+            if any(h in row_str for h in _SCHEME_HEADERS):
+                header_row_idx = r_idx
+                for idx, cell_str in enumerate(row_str):
+                    if cell_str in _SCHEME_HEADERS:
+                        scheme_col_idx = idx
+                    elif cell_str in _VALUE_HEADERS:
+                        value_col_idx = idx
+                    elif cell_str in _INVESTED_HEADERS:
+                        invested_col_idx = idx
+                    elif cell_str in _UNITS_HEADERS:
+                        units_col_idx = idx
+                    elif cell_str in _NAV_HEADERS:
+                        nav_col_idx = idx
+                    elif cell_str in _FOLIO_HEADERS:
+                        folio_col_idx = idx
+                if value_col_idx is not None:
+                    break
+
+        if value_col_idx is None:
             continue
 
-        # Extract current value
-        value = 0.0
-        if value_col_idx is not None and value_col_idx < len(row):
-            cell = row[value_col_idx]
-            if cell is not None:
-                try:
-                    val_str = str(cell).replace(",", "").replace("\u20b9", "").strip()
-                    val_f = float(val_str)
-                    if math.isfinite(val_f) and val_f > 0:
-                        value = val_f
-                except (ValueError, TypeError):
-                    value = 0.0
-        else:
-            # Fallback: take the LAST positive number in the row
-            for cell in reversed(row[1:]):
+        start_row = (header_row_idx + 1) if header_row_idx is not None else 0
+        for row in sheet.iter_rows(values_only=True):
+            if not row or len(row) <= scheme_col_idx or not row[scheme_col_idx]:
+                continue
+            scheme = str(row[scheme_col_idx]).strip()
+            if not scheme or scheme.lower() in _SKIP_LABELS:
+                continue
+
+            # Extract current value
+            value = 0.0
+            if value_col_idx is not None and value_col_idx < len(row):
+                cell = row[value_col_idx]
                 if cell is not None:
                     try:
-                        cand_str = str(cell).replace(",", "").replace("\u20b9", "").strip()
-                        cand_f = float(cand_str)
-                        if math.isfinite(cand_f) and cand_f > 0:
-                            value = cand_f
-                            break
+                        val_str = str(cell).replace(",", "").replace("₹", "").strip()
+                        val_f = float(val_str)
+                        if math.isfinite(val_f) and val_f > 0:
+                            value = val_f
                     except (ValueError, TypeError):
-                        continue
+                        value = 0.0
+            else:
+                for cell in reversed(row[1:]):
+                    if cell is not None:
+                        try:
+                            cand_str = str(cell).replace(",", "").replace("₹", "").strip()
+                            cand_f = float(cand_str)
+                            if math.isfinite(cand_f) and cand_f > 0:
+                                value = cand_f
+                                break
+                        except (ValueError, TypeError):
+                            continue
 
-        # Extract invested value
-        invested = 0.0
-        if invested_col_idx is not None and invested_col_idx < len(row):
-            cell = row[invested_col_idx]
-            if cell is not None:
-                try:
-                    inv_str = str(cell).replace(",", "").replace("\u20b9", "").strip()
-                    inv_f = float(inv_str)
-                    if math.isfinite(inv_f) and inv_f > 0:
-                        invested = inv_f
-                except (ValueError, TypeError):
-                    invested = 0.0
+            # Extract invested value
+            invested = 0.0
+            if invested_col_idx is not None and invested_col_idx < len(row):
+                cell = row[invested_col_idx]
+                if cell is not None:
+                    try:
+                        inv_str = str(cell).replace(",", "").replace("₹", "").strip()
+                        inv_f = float(inv_str)
+                        if math.isfinite(inv_f) and inv_f > 0:
+                            invested = inv_f
+                    except (ValueError, TypeError):
+                        invested = 0.0
 
-        # Extract units
-        units = 0.0
-        if units_col_idx is not None and units_col_idx < len(row):
-            cell = row[units_col_idx]
-            if cell is not None:
-                try:
-                    units_str = str(cell).replace(",", "").strip()
-                    units_f = float(units_str)
-                    if math.isfinite(units_f) and units_f > 0:
-                        units = units_f
-                except (ValueError, TypeError):
-                    units = 0.0
+            # Extract units
+            units = 0.0
+            if units_col_idx is not None and units_col_idx < len(row):
+                cell = row[units_col_idx]
+                if cell is not None:
+                    try:
+                        units_str = str(cell).replace(",", "").strip()
+                        units_f = float(units_str)
+                        if math.isfinite(units_f) and units_f > 0:
+                            units = units_f
+                    except (ValueError, TypeError):
+                        units = 0.0
 
-        # Extract NAV
-        nav = 0.0
-        if nav_col_idx is not None and nav_col_idx < len(row):
-            cell = row[nav_col_idx]
-            if cell is not None:
-                try:
-                    nav_str = str(cell).replace(",", "").replace("\u20b9", "").strip()
-                    nav_f = float(nav_str)
-                    if math.isfinite(nav_f) and nav_f > 0:
-                        nav = nav_f
-                except (ValueError, TypeError):
-                    nav = 0.0
+            # Extract NAV
+            nav = 0.0
+            if nav_col_idx is not None and nav_col_idx < len(row):
+                cell = row[nav_col_idx]
+                if cell is not None:
+                    try:
+                        nav_str = str(cell).replace(",", "").replace("₹", "").strip()
+                        nav_f = float(nav_str)
+                        if math.isfinite(nav_f) and nav_f > 0:
+                            nav = nav_f
+                    except (ValueError, TypeError):
+                        nav = 0.0
 
-        # Derived values when one is missing
-        if nav <= 0.0 and units > 0.0 and value > 0.0:
-            nav = round(value / units, 4)
-        elif units <= 0.0 and nav > 0.0 and value > 0.0:
-            units = round(value / nav, 4)
+            # Derived values when one is missing
+            if nav <= 0.0 and units > 0.0 and value > 0.0:
+                nav = round(value / units, 4)
+            elif units <= 0.0 and nav > 0.0 and value > 0.0:
+                units = round(value / nav, 4)
 
-        # Extract folio
-        folio_str = ""
-        if folio_col_idx is not None and folio_col_idx < len(row) and row[folio_col_idx]:
-            folio_str = str(row[folio_col_idx]).strip()
+            # Extract folio
+            folio_str = ""
+            if folio_col_idx is not None and folio_col_idx < len(row) and row[folio_col_idx]:
+                folio_str = str(row[folio_col_idx]).strip()
 
-        # Aggregate multiple folios of the same scheme
-        if scheme not in schemes_seen:
-            schemes_seen.append(scheme)
-            values_map[scheme] = value
-            invested_map[scheme] = invested
-            units_map[scheme] = units
-            nav_map[scheme] = nav
-            folios_map[scheme] = [folio_str] if folio_str else []
-        else:
-            values_map[scheme] += value
-            invested_map[scheme] += invested
-            units_map[scheme] += units
-            if nav > 0.0:
+            # Aggregate multiple folios of the same scheme
+            if scheme not in schemes_seen:
+                schemes_seen.append(scheme)
+                values_map[scheme] = value
+                invested_map[scheme] = invested
+                units_map[scheme] = units
                 nav_map[scheme] = nav
-            elif units_map[scheme] > 0.0:
-                nav_map[scheme] = round(values_map[scheme] / units_map[scheme], 4)
-            if folio_str and folio_str not in folios_map[scheme]:
-                folios_map[scheme].append(folio_str)
+                folios_map[scheme] = [folio_str] if folio_str else []
+            else:
+                values_map[scheme] += value
+                invested_map[scheme] += invested
+                units_map[scheme] += units
+                if nav > 0.0:
+                    nav_map[scheme] = nav
+                elif units_map[scheme] > 0.0:
+                    nav_map[scheme] = round(values_map[scheme] / units_map[scheme], 4)
+                if folio_str and folio_str not in folios_map[scheme]:
+                    folios_map[scheme].append(folio_str)
+
+    # Check for Transaction Details sheet to compute FIFO maturation
+    tx_sheet_name = None
+    for name in wb.sheetnames:
+        n_low = name.lower()
+        if any(kw in n_low for kw in ("transaction details", "transactiondetails", "transactions", "trxn")):
+            tx_sheet_name = name
+            break
+
+    scheme_lot_maturation: dict[str, dict[str, float]] = {}
+    if tx_sheet_name:
+        try:
+            tx_sheet = wb[tx_sheet_name]
+            tx_rows = list(tx_sheet.iter_rows(values_only=True))
+            tx_hdr_idx = None
+            for i, r in enumerate(tx_rows[:25]):
+                r_lower = [str(c or "").strip().lower() for c in r]
+                if any("scheme" in c for c in r_lower) and any("date" in c for c in r_lower):
+                    tx_hdr_idx = i
+                    break
+
+            if tx_hdr_idx is not None:
+                tx_hdr = [str(c or "").strip().lower() for c in tx_rows[tx_hdr_idx]]
+                t_sn_col = next((idx for idx, c in enumerate(tx_hdr) if "scheme" in c), None)
+                t_dt_col = next((idx for idx, c in enumerate(tx_hdr) if "date" in c), None)
+                t_unt_col = next((idx for idx, c in enumerate(tx_hdr) if "unit" in c), None)
+                t_amt_col = next((idx for idx, c in enumerate(tx_hdr) if any(k in c for k in ("amount", "cost"))), None)
+                t_desc_col = next((idx for idx, c in enumerate(tx_hdr) if any(k in c for k in ("desc", "type"))), None)
+
+                if t_sn_col is not None and t_dt_col is not None and t_unt_col is not None:
+                    scheme_txns = defaultdict(list)
+                    latest_tx_date = None
+                    for r in tx_rows[tx_hdr_idx + 1:]:
+                        if not r or len(r) <= t_sn_col or not r[t_sn_col]:
+                            continue
+                        sn = str(r[t_sn_col]).strip()
+                        try:
+                            unt_val = float(str(r[t_unt_col]).replace(",", "").strip() or 0)
+                            amt_val = float(str(r[t_amt_col]).replace(",", "").strip() or 0) if t_amt_col is not None and len(r) > t_amt_col and r[t_amt_col] is not None else 0.0
+                            dt_raw = str(r[t_dt_col]).strip()
+                            d_obj = None
+                            for fmt in ("%d-%b-%Y", "%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y"):
+                                try:
+                                    d_obj = datetime.strptime(dt_raw[:11].strip(), fmt).date()
+                                    break
+                                except Exception:
+                                    pass
+                            if d_obj:
+                                if latest_tx_date is None or d_obj > latest_tx_date:
+                                    latest_tx_date = d_obj
+                                desc = str(r[t_desc_col] or "").lower() if t_desc_col is not None and len(r) > t_desc_col else ""
+                                scheme_txns[sn].append({"units": unt_val, "amount": amt_val, "date": d_obj, "desc": desc})
+                        except Exception:
+                            continue
+
+                    eval_as_of = latest_tx_date or date.today()
+                    for sn, raw_tx_list in scheme_txns.items():
+                        sorted_txs = sorted(raw_tx_list, key=lambda x: x["date"])
+                        lots: list[dict] = []
+                        for t in sorted_txs:
+                            unt = t["units"]
+                            amt = t["amount"]
+                            if unt > 0 and "reversal" not in t["desc"]:
+                                lots.append({"units": unt, "cost": amt, "date": t["date"]})
+                            elif unt < 0:
+                                burn = abs(unt)
+                                while burn > 0.0001 and lots:
+                                    if lots[0]["units"] <= burn + 0.0001:
+                                        burn -= lots[0]["units"]
+                                        lots.pop(0)
+                                    else:
+                                        frac = burn / lots[0]["units"]
+                                        lots[0]["cost"] -= lots[0]["cost"] * frac
+                                        lots[0]["units"] -= burn
+                                        burn = 0.0
+
+                        m_units = 0.0
+                        im_units = 0.0
+                        m_cost = 0.0
+                        im_cost = 0.0
+                        for l in lots:
+                            if (eval_as_of - l["date"]).days > 365:
+                                m_units += l["units"]
+                                m_cost += l["cost"]
+                            else:
+                                im_units += l["units"]
+                                im_cost += l["cost"]
+
+                        scheme_lot_maturation[sn] = {
+                            "mature_units": m_units,
+                            "immature_units": im_units,
+                            "mature_cost": m_cost,
+                            "immature_cost": im_cost,
+                        }
+        except Exception:
+            pass
 
     wb.close()
 
@@ -281,6 +390,25 @@ def parse_cas_file(file_obj: BinaryIO) -> list[dict]:
         unrealized_gain = round(val - inv, 2) if inv > 0.0 else 0.0
         gain_pct = round((unrealized_gain / inv) * 100, 2) if inv > 0.0 else 0.0
 
+        # Calculate lot maturation if transaction details were present
+        lot_info = scheme_lot_maturation.get(scheme)
+        if not lot_info:
+            for cand_sn, cand_lot in scheme_lot_maturation.items():
+                if cand_sn.lower() in scheme.lower() or scheme.lower() in cand_sn.lower():
+                    lot_info = cand_lot
+                    break
+
+        if lot_info and (lot_info["mature_units"] + lot_info["immature_units"]) > 0:
+            tot_lot_units = lot_info["mature_units"] + lot_info["immature_units"]
+            mature_ratio = min(1.0, max(0.0, lot_info["mature_units"] / tot_lot_units))
+            unrealized_ltcg = round(unrealized_gain * mature_ratio, 2) if unrealized_gain > 0 else 0.0
+            unrealized_stcg = round(unrealized_gain * (1.0 - mature_ratio), 2) if unrealized_gain > 0 else 0.0
+            is_fully_mature = lot_info["immature_units"] <= 0.001
+        else:
+            unrealized_ltcg = None
+            unrealized_stcg = None
+            is_fully_mature = None
+
         funds.append({
             "scheme": scheme,
             "category": category,
@@ -295,6 +423,9 @@ def parse_cas_file(file_obj: BinaryIO) -> list[dict]:
             "invested_value": inv,
             "unrealized_gain": unrealized_gain,
             "gain_pct": gain_pct,
+            "unrealized_ltcg": unrealized_ltcg,
+            "unrealized_stcg": unrealized_stcg,
+            "is_fully_mature": is_fully_mature,
             "units": u,
             "nav": n,
             "folio_no": ", ".join(folios) if folios else "",

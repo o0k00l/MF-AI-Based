@@ -1,8 +1,8 @@
 """
-core/cgs_parser.py — Official Capital Gains Statement (CGS) Ingestion & Tax Auditor.
+core/cgs_parser.py -- Official Capital Gains Statement (CGS) Ingestion and Tax Auditor.
 
 Parses CAMS, KFintech, and MFCentral CGS Excel reports ('cgs_detailed_report_*.xlsx'):
-1. Summary Sheet: Realized STCG, LTCG under Section 112A, Outflow & Acquisition Cost.
+1. Summary Sheet: Realized STCG, LTCG under Section 112A, Outflow and Acquisition Cost.
 2. Scheme_Level_Summary: Fund-by-fund realized gain/loss breakdown.
 3. TransactionDetails: Lot-level subscription and redemption audit.
 """
@@ -93,50 +93,159 @@ def parse_cgs_excel(cgs_path: str | Path) -> Dict[str, Any]:
             raise ValueError(f"{label} is non-finite")
         return parsed
 
-    # 1. Overall summary: preserve missing fields as None, not fabricated zero.
-    if "Summary" in wb.sheetnames:
-        sheet = wb["Summary"]
+    # 1. Overall summary: locate any sheet matching 'summary' (and not scheme/transaction)
+    summary_sheet_name = None
+    for s_name in wb.sheetnames:
+        s_low = s_name.strip().casefold()
+        if "summary" in s_low and not any(k in s_low for k in ("scheme", "transaction", "trxn", "detail")):
+            summary_sheet_name = s_name
+            break
+    if not summary_sheet_name and "Summary" in wb.sheetnames:
+        summary_sheet_name = "Summary"
+
+    if summary_sheet_name:
+        sheet = wb[summary_sheet_name]
+        stcg_val = None
+        ltcg_without_idx_val = None
+        ltcg_with_idx_val = None
+        ltcg_gen_val = None
+        outflow_sum = 0.0
+        cost_sum = 0.0
+        has_outflow = False
+        has_cost = False
+
         for row_number, row in enumerate(sheet.iter_rows(values_only=True), start=1):
             values = [cell for cell in row if cell is not None and str(cell).strip()]
             if len(values) < 2:
                 continue
             label = str(values[0]).strip().casefold()
+            clean_label = label.replace(" ", "").replace("-", "").replace("_", "")
             source_value = values[-1]
-            field = None
-            if "short term capital gain/loss" in label:
-                field = "stcg_inr"
-            elif "longtermwithoutindex-capitalgain/loss" in label:
-                field = "ltcg_inr"
-            elif "full value consideration" in label:
-                field = "total_outflows"
-            elif "cost of acquisition" in label:
-                field = "total_cost"
-            if field:
-                try:
-                    summary_data[field] = number(source_value, field)
-                except (TypeError, ValueError, OverflowError) as exc:
-                    parse_errors.append(f"Summary row {row_number}: {exc}")
 
-    # 2. Scheme summary: exact totals may fill missing overall summary values.
-    if "Scheme_Level_Summary" in wb.sheetnames:
-        sheet = wb["Scheme_Level_Summary"]
-        for row_number, row in enumerate(sheet.iter_rows(min_row=5, values_only=True), start=5):
-            if not row or not row[0]:
-                continue
-            scheme_name = str(row[0]).strip()
             try:
-                if scheme_name.casefold() == "total":
-                    for index, field in ((2, "total_outflows"), (3, "total_cost"),
-                                         (6, "stcg_inr"), (7, "ltcg_inr")):
-                        if len(row) > index and row[index] is not None:
-                            summary_data[field] = number(row[index], field)
+                if "shorttermcapitalgain" in clean_label or "shortterm" in clean_label:
+                    stcg_val = number(source_value, "stcg_inr")
+                elif "longtermwithoutindex" in clean_label or "withoutindex" in clean_label:
+                    ltcg_without_idx_val = number(source_value, "ltcg_without_index_inr")
+                elif "longtermwithindex" in clean_label or "withindex" in clean_label:
+                    ltcg_with_idx_val = number(source_value, "ltcg_with_index_inr")
+                elif "longtermcapitalgain" in clean_label or "longterm" in clean_label:
+                    ltcg_gen_val = number(source_value, "ltcg_inr")
+                elif "fullvalueconsideration" in clean_label or "outflow" in clean_label:
+                    outflow_sum += number(source_value, "total_outflows")
+                    has_outflow = True
+                elif "costofacquisition" in clean_label:
+                    cost_sum += number(source_value, "total_cost")
+                    has_cost = True
+            except (TypeError, ValueError, OverflowError) as exc:
+                parse_errors.append(f"Summary row {row_number}: {exc}")
+
+        if stcg_val is not None:
+            summary_data["stcg_inr"] = stcg_val
+        if ltcg_without_idx_val is not None or ltcg_with_idx_val is not None:
+            summary_data["ltcg_inr"] = (ltcg_without_idx_val or 0.0) + (ltcg_with_idx_val or 0.0)
+        elif ltcg_gen_val is not None:
+            summary_data["ltcg_inr"] = ltcg_gen_val
+        if has_outflow:
+            summary_data["total_outflows"] = outflow_sum
+        if has_cost:
+            summary_data["total_cost"] = cost_sum
+
+    # 2. Scheme summary sheets: find all sheets matching scheme, equity, debt, tradable, etc.
+    scheme_sheet_names = []
+    for s_name in wb.sheetnames:
+        s_low = s_name.strip().casefold()
+        if any(k in s_low for k in ("scheme", "equity", "debt", "tradable", "category", "schemewise")) and not any(k in s_low for k in ("transaction", "trxn", "txndetail")):
+            scheme_sheet_names.append(s_name)
+    if not scheme_sheet_names and "Scheme_Level_Summary" in wb.sheetnames:
+        scheme_sheet_names.append("Scheme_Level_Summary")
+
+    total_scheme_outflows = 0.0
+    total_scheme_cost = 0.0
+    total_scheme_stcg = 0.0
+    total_scheme_ltcg = 0.0
+    has_scheme_totals = False
+
+    for s_name in scheme_sheet_names:
+        sheet = wb[s_name]
+        # Detect header row: must have at least 3 non-empty cells
+        header_row_idx = None
+        cols: dict[str, int] = {}
+        for r_idx, row in enumerate(sheet.iter_rows(values_only=True), start=1):
+            if not row:
+                continue
+            r_non_empty = [str(c or "").strip().lower() for c in row if c is not None and str(c).strip()]
+            if len(r_non_empty) >= 3 and any("scheme" in c for c in r_non_empty) and any(
+                k in c for c in r_non_empty for k in ("outflow", "cost", "gain", "short", "long", "stcg", "ltcg", "net value")
+            ):
+                header_row_idx = r_idx
+                for col_idx, cell in enumerate(row):
+                    if cell is None:
+                        continue
+                    c_str = str(cell).strip().lower()
+                    if "scheme" in c_str or "fund name" in c_str or c_str == "fund":
+                        cols.setdefault("scheme", col_idx)
+                    elif any(k in c_str for k in ("outflow", "redemption amount", "full value")):
+                        cols.setdefault("outflow", col_idx)
+                    elif any(k in c_str for k in ("net value", "cost", "acquisition")):
+                        cols.setdefault("cost", col_idx)
+                    elif any(k in c_str for k in ("short", "stcg")):
+                        cols.setdefault("stcg", col_idx)
+                    elif ("long" in c_str or "ltcg" in c_str) and ("without index" in c_str or "withoutindex" in c_str):
+                        cols.setdefault("ltcg_no_idx", col_idx)
+                    elif ("long" in c_str or "ltcg" in c_str) and ("with index" in c_str or "withindex" in c_str):
+                        cols.setdefault("ltcg_idx", col_idx)
+                    elif any(k in c_str for k in ("long", "ltcg")):
+                        cols.setdefault("ltcg_gen", col_idx)
+                break
+
+        # Fallback column positions if header not detected
+        if header_row_idx is None:
+            header_row_idx = 4
+            cols = {"scheme": 0, "outflow": 2, "cost": 3, "stcg": 6, "ltcg_idx": 7, "ltcg_no_idx": 8, "ltcg_gen": 7}
+
+        for row_number, row in enumerate(sheet.iter_rows(min_row=header_row_idx + 1, values_only=True), start=header_row_idx + 1):
+            if not row or len(row) <= cols.get("scheme", 0) or not row[cols.get("scheme", 0)]:
+                continue
+            scheme_name = str(row[cols.get("scheme", 0)]).strip()
+            if not scheme_name:
+                continue
+            try:
+                # Calculate LTCG for this row
+                ltcg_val = None
+                if "ltcg_no_idx" in cols or "ltcg_idx" in cols:
+                    no_idx = number(row[cols["ltcg_no_idx"]], "ltcg_without_index") if "ltcg_no_idx" in cols and len(row) > cols["ltcg_no_idx"] and row[cols["ltcg_no_idx"]] is not None else 0.0
+                    with_idx = number(row[cols["ltcg_idx"]], "ltcg_with_index") if "ltcg_idx" in cols and len(row) > cols["ltcg_idx"] and row[cols["ltcg_idx"]] is not None else 0.0
+                    ltcg_val = no_idx + with_idx
+                elif "ltcg_gen" in cols and len(row) > cols["ltcg_gen"] and row[cols["ltcg_gen"]] is not None:
+                    ltcg_val = number(row[cols["ltcg_gen"]], "LTCG")
+                elif len(row) > 7 and row[7] is not None:
+                    ltcg_val = number(row[7], "LTCG")
+
+                if scheme_name.casefold() in ("total", "subtotal", "grand total"):
+                    if "outflow" in cols and len(row) > cols["outflow"] and row[cols["outflow"]] is not None:
+                        total_scheme_outflows += number(row[cols["outflow"]], "total_outflows")
+                    if "cost" in cols and len(row) > cols["cost"] and row[cols["cost"]] is not None:
+                        total_scheme_cost += number(row[cols["cost"]], "total_cost")
+                    if "stcg" in cols and len(row) > cols["stcg"] and row[cols["stcg"]] is not None:
+                        total_scheme_stcg += number(row[cols["stcg"]], "stcg_inr")
+                    if ltcg_val is not None:
+                        total_scheme_ltcg += ltcg_val
+                    has_scheme_totals = True
                     continue
-                if len(row) <= 7:
+
+                outflow_idx = cols.get("outflow", 2)
+                cost_idx = cols.get("cost", 3)
+                stcg_idx = cols.get("stcg", 6)
+
+                if len(row) <= max(outflow_idx, cost_idx):
                     raise ValueError("scheme summary row is missing required columns")
-                outflow = number(row[2], "outflow")
-                cost = number(row[3], "cost")
-                stcg = number(row[6], "STCG")
-                ltcg = number(row[7], "LTCG")
+
+                outflow = number(row[outflow_idx], "outflow")
+                cost = number(row[cost_idx], "cost")
+                stcg = number(row[stcg_idx], "STCG") if len(row) > stcg_idx and row[stcg_idx] is not None else 0.0
+                ltcg = ltcg_val if ltcg_val is not None else 0.0
+
                 schemes.append({
                     "scheme": scheme_name,
                     "outflow_inr": outflow,
@@ -147,11 +256,35 @@ def parse_cgs_excel(cgs_path: str | Path) -> Dict[str, Any]:
                     "is_loss": outflow - cost < 0,
                 })
             except (TypeError, ValueError, OverflowError, IndexError) as exc:
-                parse_errors.append(f"Scheme summary row {row_number}: {exc}")
+                parse_errors.append(f"Scheme summary ({s_name}) row {row_number}: {exc}")
 
-    # 3. Transaction details: rows are either fully parsed or explicitly flagged.
-    if "TransactionDetails" in wb.sheetnames:
-        sheet = wb["TransactionDetails"]
+    if has_scheme_totals:
+        summary_data["total_outflows"] = total_scheme_outflows
+        summary_data["total_cost"] = total_scheme_cost
+        summary_data["stcg_inr"] = total_scheme_stcg
+        summary_data["ltcg_inr"] = total_scheme_ltcg
+    elif schemes:
+        if summary_data["total_outflows"] is None:
+            summary_data["total_outflows"] = sum(s["outflow_inr"] for s in schemes)
+        if summary_data["total_cost"] is None:
+            summary_data["total_cost"] = sum(s["cost_inr"] for s in schemes)
+        if summary_data["stcg_inr"] is None:
+            summary_data["stcg_inr"] = sum(s["stcg_inr"] for s in schemes)
+        if summary_data["ltcg_inr"] is None:
+            summary_data["ltcg_inr"] = sum(s["ltcg_inr"] for s in schemes)
+
+    # 3. Transaction details: find any sheet matching transaction, trxn, details
+    tx_sheet_name = None
+    for s_name in wb.sheetnames:
+        s_low = s_name.strip().casefold()
+        if any(k in s_low for k in ("transactiondetails", "transaction_details", "transaction details", "transactions", "txndetails")):
+            tx_sheet_name = s_name
+            break
+    if not tx_sheet_name and "TransactionDetails" in wb.sheetnames:
+        tx_sheet_name = "TransactionDetails"
+
+    if tx_sheet_name:
+        sheet = wb[tx_sheet_name]
         for row_number, row in enumerate(sheet.iter_rows(min_row=6, values_only=True), start=6):
             if not row or len(row) <= 3 or not (row[2] or row[3]):
                 continue

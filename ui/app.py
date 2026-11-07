@@ -336,7 +336,11 @@ with col2:
     st.markdown('<span class="metric-label">Current Value</span>', unsafe_allow_html=True)
     st.markdown(f'<span class="metric-value">₹{total_value/100000:.1f} Lakhs</span>', unsafe_allow_html=True)
     if total_invested > 0:
-        st.caption(f"Cost: ₹{total_invested/100000:.1f}L | Gain: {gain_pct:+.1f}%")
+        tot_unreal_ltcg = sum(f.get("unrealized_ltcg") or 0.0 for f in funds)
+        if tot_unreal_ltcg > 0:
+            st.caption(f"Cost: ₹{total_invested/100000:.1f}L | Unrealized: {gain_pct:+.1f}% (₹{tot_unreal_ltcg/100000:.1f}L >1Y)")
+        else:
+            st.caption(f"Cost: ₹{total_invested/100000:.1f}L | Gain: {gain_pct:+.1f}%")
     st.markdown('</div>', unsafe_allow_html=True)
 with col3:
     st.markdown('<div class="metric-card">', unsafe_allow_html=True)
@@ -437,6 +441,24 @@ if cgs_info and cgs_info.get("summary"):
         st.markdown('<span class="metric-value" style="color:#16a34a;">Verified</span>', unsafe_allow_html=True)
         st.caption(f"Digest: {cgs_info.get('source_sha256', '')[:10]}...")
         st.markdown('</div>', unsafe_allow_html=True)
+
+    if cgs_info.get("schemes"):
+        with st.expander("🔍 View Realized Scheme Capital Gain Breakdown (CGS)", expanded=False):
+            st.dataframe(
+                [
+                    {
+                        "Scheme Name": s["scheme"],
+                        "Redemption Outflow": f"₹{s['outflow_inr']:,.2f}",
+                        "Cost Basis": f"₹{s['cost_inr']:,.2f}",
+                        "Realized STCG (§111A)": f"₹{s['stcg_inr']:,.2f}",
+                        "Realized LTCG (§112A)": f"₹{s['ltcg_inr']:,.2f}",
+                        "Net Realized Gain": f"₹{s['net_gain_inr']:,.2f}",
+                    }
+                    for s in cgs_info["schemes"]
+                ],
+                use_container_width=True,
+                hide_index=True,
+            )
 
 # --- SAA Target Alignment ---
 st.markdown('<h2 class="section-title">🎯 Strategic Asset Allocation (SAA) Drift</h2>', unsafe_allow_html=True)
