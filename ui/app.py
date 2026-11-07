@@ -15,6 +15,7 @@ from services.cas_parser import parse_cas_file
 from services.sip_api_client import get_api_health, request_sip_recommendations
 from services.risk_profiler import evaluate_fiduciary_profile
 from services.cgs_parser import parse_cgs_file
+from services.fiduciary_engine import generate_fiduciary_sip_blueprint, evaluate_portfolio_saa_audit
 
 # --- Page Configuration ---
 st.set_page_config(
@@ -488,9 +489,17 @@ with scol3:
     else:
         st.warning(f"⚠️ Underweight Equity by {eq_drift:+.1f}%. Consider deploying incremental SIPs into core equity.")
 
-# --- Fiduciary SIP Decision Support (API Powered) ---
-st.markdown('<h2 class="section-title">🎯 Fiduciary SIP Decision Support (API Powered)</h2>', unsafe_allow_html=True)
-st.caption("Connected to Mutual Fund SIP Decision Support API. Enforces SEBI fail-closed fiduciary safety boundaries.")
+# --- Fiduciary SIP Decision Support & Mathematical Engine ---
+st.markdown('<h2 class="section-title">🎯 Fiduciary SIP Decision Support & SAA Blueprint</h2>', unsafe_allow_html=True)
+st.caption("Synchronized with your SEBI risk profile. Enforces 100% Direct Plan compliance and deterministic paise-exact budgeting.")
+
+# Pre-fill risk profile from session state if available
+_sess_tier = st.session_state.get("risk_tier", "")
+_tier_idx = 1 # default Moderate
+if "CAPITAL_PRESERVATION" in _sess_tier or "LOW" in _sess_tier or "TIER_1" in _sess_tier or "TIER_2" in _sess_tier:
+    _tier_idx = 2 # Conservative
+elif "VERY_HIGH" in _sess_tier or "HIGH" in _sess_tier or "TIER_5" in _sess_tier or "TIER_6" in _sess_tier:
+    _tier_idx = 0 # Aggressive
 
 api_col1, api_col2 = st.columns(2)
 with api_col1:
@@ -498,7 +507,7 @@ with api_col1:
         "Monthly SIP Budget (₹)",
         min_value=1000.0,
         max_value=10000000.0,
-        value=25000.0,
+        value=float(st.session_state.get("sip_budget", 25000.0)),
         step=1000.0,
         help="Target monthly capital deployment across direct mutual fund schemes."
     )
@@ -506,12 +515,25 @@ with api_col2:
     risk_choice = st.selectbox(
         "Deployment Risk Profile",
         options=["Aggressive", "Moderate", "Conservative"],
-        index=0,
-        help="Aligned with SEBI SAA asset allocation matrix."
+        index=_tier_idx,
+        help="Pre-filled from Step 2: Risk Profiler."
     )
+    if _sess_tier:
+        st.caption(f"🔗 *Linked from Step 2: Risk Profiler ({_sess_tier.replace('_', ' ').title()})*")
 
-if st.button("🚀 Run Fiduciary SIP Analysis via API", type="primary", use_container_width=True):
-    with st.spinner("Executing decision support analysis via API..."):
+if st.button("🚀 Run Fiduciary Engine & Generate SIP Blueprint", type="primary", use_container_width=True):
+    with st.spinner("Executing mathematical fiduciary engine..."):
+        # 1. Execute deterministic local fiduciary engine
+        target_saa = st.session_state.get("saa_target")
+        sip_blueprint = generate_fiduciary_sip_blueprint(
+            monthly_budget_inr=float(sip_budget),
+            funds=funds,
+            target_saa=target_saa,
+        )
+        st.session_state["deterministic_sip_plan"] = sip_blueprint
+        st.session_state["sip_budget"] = float(sip_budget)
+
+        # 2. Also query backend API
         uploaded_file.seek(0)
         cas_raw_bytes = uploaded_file.read()
         api_result = request_sip_recommendations(
@@ -522,28 +544,38 @@ if st.button("🚀 Run Fiduciary SIP Analysis via API", type="primary", use_cont
         )
         st.session_state["api_recommendation_result"] = api_result
 
+# Render Deterministic SIP Blueprint
+if st.session_state.get("deterministic_sip_plan"):
+    bp = st.session_state["deterministic_sip_plan"]
+    st.markdown("### 📋 Fiduciary Direct-Plan SIP Deployment Blueprint")
+    st.caption("Reconciles monthly budget to the exact paisa into 100% Direct mutual fund folios:")
+
+    b_col1, b_col2, b_col3 = st.columns(3)
+    with b_col1:
+        st.metric("Total Monthly SIP", f"₹{float(bp['monthly_budget_inr']):,.2f}")
+    with b_col2:
+        st.metric("Allocated Capital", f"₹{float(bp['allocated_budget_inr']):,.2f}")
+    with b_col3:
+        st.metric("Paise Reconciliation", "✅ Exact (0.00)" if bp["reconciliation_valid"] else "⚠️ Check")
+
+    bp_rows = []
+    for alloc in bp.get("allocations", []):
+        bp_rows.append({
+            "Asset Sleeve": alloc["sleeve"],
+            "Recommended Scheme": alloc["scheme_name"],
+            "Folio": alloc["folio_no"],
+            "Plan Type": alloc["plan_type"],
+            "Monthly SIP (₹)": f"₹{float(alloc['amount_inr']):,.2f}",
+            "Share (%)": f"{alloc['allocation_pct']:.1f}%",
+            "Fiduciary Rationale": alloc["rationale"],
+        })
+    if bp_rows:
+        st.table(bp_rows)
+
 if st.session_state.get("api_recommendation_result"):
     res = st.session_state["api_recommendation_result"]
-    res_status = res.get("status", "HOLD")
-    res_decision = res.get("decision", "NO_ACTION")
-    unallocated = res.get("unallocated_budget_inr", sip_budget)
-    reasons = res.get("reasons", [])
-
-    st.markdown("### 📋 API Recommendation Result")
-    rc1, rc2, rc3 = st.columns(3)
-    with rc1:
-        st.metric("Fiduciary Status", res_status)
-    with rc2:
-        st.metric("Decision Branch", res_decision)
-    with rc3:
-        st.metric("Unallocated Capital", f"₹{unallocated:,.2f}" if unallocated is not None else "₹0.00")
-
-    if reasons:
-        st.markdown("**Fiduciary Safeguards & Invariants:**")
-        for r in reasons:
-            st.info(f"🔒 {r}")
-
-    with st.expander("🔍 View Raw API JSON Contract"):
+    with st.expander("🔍 View Technical API Decision Diagnostics"):
+        st.metric("API Fiduciary Gate Status", res.get("status", "HOLD"))
         st.code(json.dumps(res, indent=2), language="json")
 
 # --- Equity vs Internal Debt Chart ---

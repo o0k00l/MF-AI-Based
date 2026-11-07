@@ -70,16 +70,33 @@ def test_no_hardcoded_demo_data():
         )
 
 
-def test_legacy_dashboard_pages_are_not_shipped():
-    """Verify legacy pages are not in the repository."""
+def test_streamlit_pages_exist_with_correct_naming():
+    """Verify active Streamlit pages exist with correct numbered naming convention."""
     root = Path(__file__).resolve().parents[1]
-    retired_pages = (
+    
+    # Active pages following Streamlit multi-page convention (numbered)
+    _LIVE_PAGES = [
+        "ui/pages/1_Advisory_Flow.py",
+        "ui/pages/2_Risk_Profiler.py",
+        "ui/pages/3_Financial_Goals.py",
+        "ui/pages/4_Debt_Allocation.py",
+        "ui/pages/5_Fiduciary_Report.py",
+    ]
+    
+    for relative_path in _LIVE_PAGES:
+        assert (root / relative_path).exists(), (
+            f"Expected Streamlit page missing: {relative_path}"
+        )
+    
+    # Retired legacy pages must NOT exist (old naming convention)
+    _RETIRED_PAGES = [
         "ui/pages/page_upload.py",
         "ui/pages/page_profile.py",
         "ui/pages/page_goals.py",
         "ui/pages/page_report.py",
-    )
-    for relative_path in retired_pages:
+    ]
+    
+    for relative_path in _RETIRED_PAGES:
         assert not (root / relative_path).exists(), (
             f"Retired legacy dashboard module still exists: {relative_path}"
         )

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import streamlit as st
+from services.fiduciary_engine import evaluate_portfolio_saa_audit, generate_fiduciary_sip_blueprint
 
 # --- Page Configuration ---
 st.set_page_config(
@@ -88,16 +89,37 @@ else:
         rem_hd = max(0.0, 125_000.0 - ltcg)
         report_lines.extend([
             "",
-            "## 3. Statutory Capital Gains Audit (CGS)",
+            "## 5. Statutory Capital Gains Audit (CGS)",
             f"* **Realized LTCG (§112A):** ₹{ltcg:,.2f}",
             f"* **Realized STCG (§111A):** ₹{stcg:,.2f}",
             f"* **Remaining §112A Exemption Headroom:** ₹{rem_hd:,.2f} (out of ₹1.25 Lakhs annual tax-free limit)",
             f"* **Statement Provenance:** SHA256 `{cgs_data.get('source_sha256', 'N/A')[:16]}...`",
         ])
 
+    # SAA Drift & Fiduciary Audit
+    target_saa = st.session_state.get("saa_target")
+    audit_res = evaluate_portfolio_saa_audit(portfolio, target_saa=target_saa) if target_saa else None
+
+    if audit_res and audit_res.get("status") == "ANALYZED":
+        tgt_eq = audit_res["target_equity_pct"]
+        tgt_db = audit_res["target_debt_pct"]
+        cur_eq = audit_res["current_equity_pct"]
+        cur_db = audit_res["current_debt_pct"]
+        db_gap = audit_res["debt_gap_inr"]
+        is_def = audit_res["is_debt_deficit"]
+
+        report_lines.extend([
+            "",
+            "## 3. Strategic Asset Allocation (SAA) & Drift Diagnostic",
+            f"* **Target SAA:** {tgt_eq:.1f}% Equity / {tgt_db:.1f}% Debt",
+            f"* **Current Portfolio Mix:** {cur_eq:.1f}% Equity / {cur_db:.1f}% Debt",
+            f"* **Debt Stability Buffer:** {'Deficit of ₹' + str(round(float(db_gap)/100000.0, 2)) + ' Lakhs' if is_def else 'Adequate Surplus'}",
+            f"* **Fiduciary Rebalancing Flag:** {'Action Required (Drift exceeds tolerance band)' if audit_res.get('rebalance_required') else 'Compliant within +/-5% Band'}",
+        ])
+
     report_lines.extend([
         "",
-        "## 4. Financial Goal Allocation",
+        "## 4. Financial Goal Allocation & SIP Deployment",
     ])
     for g_id, g_info in goals_alloc.get("goals", {}).items():
         g_name = g_info.get("goal_name", g_id)
@@ -105,9 +127,20 @@ else:
         alloc = g_info.get("allocated_monthly", 0)
         report_lines.append(f"* **{g_name}:** Required SIP: ₹{req:,.0f}/mo | Allocated SIP: ₹{alloc:,.0f}/mo")
 
+    # Add Asset Sleeve SIP Blueprint if available
+    sleeves = goals_alloc.get("asset_sleeves")
+    if sleeves:
+        report_lines.extend([
+            "",
+            "### Monthly SIP Asset-Sleeve Deployment Breakdown",
+            f"* **Large-Cap Core Index:** ₹{sleeves.get('large_cap_inr', 0):,.2f} / month",
+            f"* **Mid/Small-Cap Alpha:** ₹{sleeves.get('mid_small_cap_inr', 0):,.2f} / month",
+            f"* **Debt & Liquidity Cushion:** ₹{sleeves.get('debt_inr', 0):,.2f} / month",
+        ])
+
     report_lines.extend([
         "",
-        "## 5. Fiduciary Disclosures & Compliance Statement",
+        "## 6. Fiduciary Disclosures & Compliance Statement",
         "* **Statutory Mandate:** SEBI (Investment Advisers) Regulations, 2013.",
         "* **Direct Plan Enforcement:** All proposed switches and SIP allocations strictly mandate Direct Plans to eliminate intermediary commissions.",
         "* **Non-Execution Authority:** The adviser operates solely on a fee-only, non-execution advisory basis; order execution remains exclusively in client control.",

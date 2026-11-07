@@ -11,6 +11,7 @@ import json
 from pathlib import Path
 
 import streamlit as st
+from services.fiduciary_engine import evaluate_portfolio_saa_audit
 
 # --- Page Configuration ---
 st.set_page_config(
@@ -162,6 +163,46 @@ if total_portfolio_value > 0:
         st.markdown('<span class="metric-label">True Debt</span>', unsafe_allow_html=True)
         st.markdown(f'<span class="metric-value">{allocations["Debt (Internal)"]/total_portfolio_value*100:.1f}%</span>', unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
+
+    # --- Target SAA Benchmark & Deficit Analysis ---
+    target_saa = st.session_state.get("saa_target")
+    if target_saa:
+        audit = evaluate_portfolio_saa_audit(funds, target_saa=target_saa)
+        tgt_db_pct = audit.get("target_debt_pct", 25.0)
+        curr_db_pct = audit.get("current_debt_pct", 0.0)
+        db_gap = audit.get("debt_gap_inr", 0.0)
+        is_deficit = audit.get("is_debt_deficit", False)
+        tier_title = str(st.session_state.get("risk_tier", "Assessed Profile")).replace("_", " ").title()
+
+        st.markdown("---")
+        st.subheader("🎯 Fiduciary Target Debt Benchmark")
+        st.caption(f"Benchmarked against your evaluated **{tier_title}** Strategic Asset Allocation (SAA):")
+
+        tc1, tc2, tc3, tc4 = st.columns(4)
+        with tc1:
+            st.metric("Target Debt SAA", f"{tgt_db_pct:.1f}%", "Required Safety Buffer")
+        with tc2:
+            st.metric("Actual Portfolio Debt", f"{curr_db_pct:.1f}%", f"{curr_db_pct - tgt_db_pct:+.1f}% vs Target")
+        with tc3:
+            tgt_db_inr = total_portfolio_value * (tgt_db_pct / 100.0)
+            st.metric("Target Debt Corpus", f"₹{tgt_db_inr/100000:.2f}L")
+        with tc4:
+            if is_deficit:
+                st.metric("Debt Buffer Deficit", f"₹{float(db_gap)/100000:.2f}L", delta="-Deficit", delta_color="inverse")
+            else:
+                surplus_val = max(0.0, (curr_db_pct - tgt_db_pct) / 100.0 * total_portfolio_value)
+                st.metric("Debt Cushion Surplus", f"₹{surplus_val/100000:.2f}L", delta="+Surplus")
+
+        if is_deficit:
+            st.warning(
+                f"🛡️ **Fiduciary Action Required:** Your portfolio has a **₹{float(db_gap)/100000:.2f} Lakhs Debt Deficit** "
+                f"relative to your {tier_title} profile. In a market downturn, your portfolio will experience greater volatility than your declared risk tolerance. "
+                "Recommend routing incremental monthly SIPs or rebalancing regular funds into Direct Liquid / Money Market funds to build this stability floor."
+            )
+        else:
+            st.success("✅ **Stability Floor Satisfied:** Your portfolio holds adequate defensive reserves aligned with your SEBI risk mandate.")
+    else:
+        st.info("💡 **Tip:** Complete Step 2: Risk Profiler to automatically benchmark your debt exposure against your required SEBI safety buffer.")
 
     st.markdown("---", unsafe_allow_html=True)
     st.markdown('<h2 class="section-title">Allocation Breakdown</h2>', unsafe_allow_html=True)

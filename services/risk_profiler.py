@@ -254,3 +254,78 @@ def evaluate_fiduciary_profile(
         expected_drawdown_range=_DRAWDOWN_RANGES[governing_tier],
     )
 
+
+
+def evaluate_direct_tier(tier: SebiRiskTier | int) -> RiskProfileResult:
+    """Evaluate investor risk profile directly from selected SEBI Tier (Mode 2: Informed)."""
+    if isinstance(tier, int):
+        tier = SebiRiskTier(tier)
+    base_saa = _SEBI_SAA_TABLE[tier]
+    return RiskProfileResult(
+        governing_tier=tier,
+        tier_label=_TIER_LABELS[tier],
+        target_saa=base_saa,
+        capacity_tier=tier,
+        tolerance_tier=tier,
+        binding_constraints=[],
+        fiduciary_rationale=(
+            f"**Governing Profile:** {_TIER_LABELS[tier]}\n"
+            f"* **Mode:** Direct Regulatory Declaration (Informed Investor)\n"
+            f"* **Asset Allocation:** Equity {base_saa.total_equity_pct:.1f}% (Large Cap {base_saa.large_cap_pct:.1f}%, Mid/Small Cap {base_saa.mid_small_cap_pct:.1f}%) | Debt {base_saa.debt_pct:.1f}%\n"
+            f"* **Regulatory Alignment:** Directly mapped to SEBI 6-Tier risk governance framework."
+        ),
+        expected_drawdown_range=_DRAWDOWN_RANGES[tier],
+    )
+
+
+def evaluate_custom_saa(
+    *,
+    large_cap_pct: float,
+    mid_small_cap_pct: float,
+    debt_pct: float,
+    rationale: str = "",
+) -> RiskProfileResult:
+    """Evaluate custom SAA target defined by investor or RIA (Mode 3: Expert / IPS)."""
+    lc = float(large_cap_pct)
+    ms = float(mid_small_cap_pct)
+    db = float(debt_pct)
+    total = lc + ms + db
+    if abs(total - 100.0) > 0.01:
+        raise ValueError(f"Custom asset allocation must sum to 100.0% (got {total:.2f}%).")
+    if lc < 0 or ms < 0 or db < 0:
+        raise ValueError("Asset allocation percentages cannot be negative.")
+
+    target_saa = TargetSaa(large_cap_pct=round(lc, 1), mid_small_cap_pct=round(ms, 1), debt_pct=round(db, 1))
+    total_eq = target_saa.total_equity_pct
+
+    # Map to closest regulatory equivalent tier
+    if total_eq <= 20.0:
+        equiv_tier = SebiRiskTier.TIER_1_CAPITAL_PRESERVATION
+    elif total_eq <= 35.0:
+        equiv_tier = SebiRiskTier.TIER_2_LOW
+    elif total_eq <= 65.0:
+        equiv_tier = SebiRiskTier.TIER_3_MODERATE
+    elif total_eq <= 80.0:
+        equiv_tier = SebiRiskTier.TIER_4_MODERATE_HIGH
+    elif total_eq <= 90.0:
+        equiv_tier = SebiRiskTier.TIER_5_HIGH
+    else:
+        equiv_tier = SebiRiskTier.TIER_6_VERY_HIGH
+
+    custom_rationale = (
+        f"**Governing Profile:** Custom IPS Allocation (Closest SEBI Equivalent: {_TIER_LABELS[equiv_tier]})\n"
+        f"* **Mode:** Expert Bespoke Target (HNIs / RIAs / Institutional Mandate)\n"
+        f"* **Custom SAA:** Large Cap {lc:.1f}%, Mid/Small Cap {ms:.1f}%, Debt/Cash {db:.1f}%\n"
+        f"* **Client Notes:** {rationale or 'Bespoke mandate specified by investor.'}"
+    )
+
+    return RiskProfileResult(
+        governing_tier=equiv_tier,
+        tier_label=f"Custom Allocation (Eq: {total_eq:.0f}% / Debt: {db:.0f}%)",
+        target_saa=target_saa,
+        capacity_tier=equiv_tier,
+        tolerance_tier=equiv_tier,
+        binding_constraints=["Custom IPS Mandate: User-defined asset allocation active."],
+        fiduciary_rationale=custom_rationale,
+        expected_drawdown_range=_DRAWDOWN_RANGES[equiv_tier],
+    )

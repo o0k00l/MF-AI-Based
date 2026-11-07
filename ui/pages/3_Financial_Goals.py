@@ -6,7 +6,7 @@ and applies realistic horizon-adjusted compounding instead of blunt shortfalls.
 from __future__ import annotations
 
 import streamlit as st
-from services.goal_planner import plan_goal, compute_expected_cagr
+from services.goal_planner import plan_goal, compute_expected_cagr, decompose_sip_to_asset_sleeves
 
 st.set_page_config(
     page_title="Financial Goal Wizard | Milestone SIP Planner",
@@ -35,6 +35,16 @@ else:
         "💡 **Tip:** Upload your CAS statement on the Portfolio Dashboard to automatically link your "
         "existing investments towards your future goals."
     )
+
+target_saa = st.session_state.get("saa_target")
+if target_saa:
+    eq_p = target_saa.get("total_equity_pct", 75.0)
+    db_p = target_saa.get("debt_pct", 25.0)
+    blended_cagr = compute_expected_cagr(10, target_saa=target_saa)
+    tier_name = str(st.session_state.get("risk_tier", "Evaluated Profile")).replace("_", " ").title()
+    st.success(f"🎯 **Linked Fiduciary SAA ({tier_name}):** Target is **{eq_p:.0f}% Equity / {db_p:.0f}% Debt**. Milestones compound dynamically at **{blended_cagr:.2f}% p.a.** based on your verified risk profile.")
+else:
+    st.caption("ℹ️ *Default compounding applied. Complete Step 2: Risk Profiler to align goal returns with your exact SEBI asset allocation.*")
 
 st.markdown("---")
 
@@ -138,6 +148,7 @@ if want_retire:
             inflation_rate_pct=inf_retire,
             annual_step_up_pct=step_up_pct,
             monthly_budget_capacity_inr=float(sip_budget),
+            target_saa=target_saa,
         )
         configured_goals.append({
             "id": "retirement",
@@ -197,6 +208,7 @@ if want_edu:
             inflation_rate_pct=inf_edu,
             annual_step_up_pct=step_up_pct,
             monthly_budget_capacity_inr=float(sip_budget),
+            target_saa=target_saa,
         )
         configured_goals.append({
             "id": "education",
@@ -255,6 +267,7 @@ if want_house:
             inflation_rate_pct=inf_house,
             annual_step_up_pct=step_up_pct,
             monthly_budget_capacity_inr=float(sip_budget),
+            target_saa=target_saa,
         )
         configured_goals.append({
             "id": "house",
@@ -313,6 +326,7 @@ if want_custom:
             inflation_rate_pct=inf_cust,
             annual_step_up_pct=step_up_pct,
             monthly_budget_capacity_inr=float(sip_budget),
+            target_saa=target_saa,
         )
         configured_goals.append({
             "id": "custom",
@@ -378,6 +392,21 @@ for g in configured_goals:
 
 st.table(summary_rows)
 
+# --- Asset Allocation Decomposition of Monthly SIP ---
+st.markdown("### 🏛️ Asset Sleeve Decomposition of Monthly SIP")
+st.caption("Your monthly SIP budget is automatically mapped into direct asset class sleeves per your Strategic Asset Allocation (SAA):")
+sleeves = decompose_sip_to_asset_sleeves(total_allocated_sip, target_saa=target_saa)
+sc1, sc2, sc3 = st.columns(3)
+with sc1:
+    lc_pct_disp = target_saa.get('large_cap_pct', 50.0) if target_saa else 50.0
+    st.metric("Large-Cap Core Index", f"₹{sleeves['large_cap_inr']:,.0f}/mo", f"{lc_pct_disp:.0f}% SAA Target")
+with sc2:
+    ms_pct_disp = target_saa.get('mid_small_cap_pct', 25.0) if target_saa else 25.0
+    st.metric("Mid/Small-Cap Alpha", f"₹{sleeves['mid_small_cap_inr']:,.0f}/mo", f"{ms_pct_disp:.0f}% SAA Target")
+with sc3:
+    db_pct_disp = target_saa.get('debt_pct', 25.0) if target_saa else 25.0
+    st.metric("Debt & Liquidity Cushion", f"₹{sleeves['debt_inr']:,.0f}/mo", f"{db_pct_disp:.0f}% SAA Target")
+
 # Metric Summary Cards
 col_m1, col_m2, col_m3, col_m4 = st.columns(4)
 with col_m1:
@@ -402,6 +431,7 @@ session_allocation_payload = {
     "total_gap": round(max(0.0, total_required_sip - total_allocated_sip), 2),
     "surplus": round(max(0.0, sip_budget - total_allocated_sip), 2),
     "use_step_up": use_step_up,
+    "asset_sleeves": sleeves,
 }
 
 st.session_state["goals_allocation"] = session_allocation_payload

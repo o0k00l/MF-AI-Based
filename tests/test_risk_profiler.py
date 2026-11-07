@@ -110,3 +110,35 @@ def test_all_target_saas_sum_to_100():
         total = res.target_saa.large_cap_pct + res.target_saa.mid_small_cap_pct + res.target_saa.debt_pct
         assert total == pytest.approx(100.0, abs=1e-5)
 
+
+
+def test_evaluate_direct_tier():
+    """Verify Mode 2 direct tier selection maps directly to regulatory SAA."""
+    from services.risk_profiler import evaluate_direct_tier
+
+    res_t4 = evaluate_direct_tier(SebiRiskTier.TIER_4_MODERATE_HIGH)
+    assert res_t4.governing_tier == SebiRiskTier.TIER_4_MODERATE_HIGH
+    assert res_t4.target_saa.large_cap_pct == 50.0
+    assert res_t4.target_saa.mid_small_cap_pct == 25.0
+    assert res_t4.target_saa.debt_pct == 25.0
+    assert res_t4.target_saa.total_equity_pct == 75.0
+
+    res_t2 = evaluate_direct_tier(2)
+    assert res_t2.governing_tier == SebiRiskTier.TIER_2_LOW
+    assert res_t2.target_saa.debt_pct == 70.0
+
+
+def test_evaluate_custom_saa():
+    """Verify Mode 3 expert custom asset allocation validation."""
+    from services.risk_profiler import evaluate_custom_saa
+
+    res = evaluate_custom_saa(large_cap_pct=60.0, mid_small_cap_pct=20.0, debt_pct=20.0, rationale="HNI Core Portfolio")
+    assert res.target_saa.large_cap_pct == 60.0
+    assert res.target_saa.mid_small_cap_pct == 20.0
+    assert res.target_saa.debt_pct == 20.0
+    assert res.target_saa.total_equity_pct == 80.0
+    assert res.governing_tier == SebiRiskTier.TIER_4_MODERATE_HIGH
+
+    # Sum must be 100%
+    with pytest.raises(ValueError, match="must sum to 100.0%"):
+        evaluate_custom_saa(large_cap_pct=50.0, mid_small_cap_pct=30.0, debt_pct=10.0)

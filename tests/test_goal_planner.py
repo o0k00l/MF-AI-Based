@@ -74,3 +74,26 @@ def test_fully_funded_goal_requires_zero_sip():
     assert res.step_up_initial_sip_inr == 0.0
     assert "Fully Funded" in res.feasibility_status
 
+
+
+def test_saa_aware_expected_cagr_and_decomposition():
+    """Returns blended CAGR based on SAA equity/debt weights and decomposes SIP."""
+    from services.goal_planner import decompose_sip_to_asset_sleeves
+
+    # 40% equity / 60% debt SAA (Tier 2 conservative):
+    # blended = (0.40 * 12.0) + (0.60 * 7.0) = 4.8 + 4.2 = 9.0%
+    saa_cons = {"large_cap_pct": 30.0, "mid_small_cap_pct": 10.0, "debt_pct": 60.0}
+    cagr_cons = compute_expected_cagr(10, target_saa=saa_cons)
+    assert cagr_cons == pytest.approx(9.0, abs=0.1)
+
+    # 80% equity / 20% debt SAA (Tier 5 aggressive):
+    # blended = (0.80 * 12.0) + (0.20 * 7.0) = 9.6 + 1.4 = 11.0%
+    saa_aggr = {"large_cap_pct": 45.0, "mid_small_cap_pct": 35.0, "debt_pct": 20.0}
+    cagr_aggr = compute_expected_cagr(10, target_saa=saa_aggr)
+    assert cagr_aggr == pytest.approx(11.0, abs=0.1)
+
+    # Decompose ₹40,000 monthly SIP
+    decomp = decompose_sip_to_asset_sleeves(40000.0, target_saa=saa_aggr)
+    assert decomp["large_cap_inr"] == pytest.approx(18000.0)  # 45% of 40k
+    assert decomp["mid_small_cap_inr"] == pytest.approx(14000.0)  # 35% of 40k
+    assert decomp["debt_inr"] == pytest.approx(8000.0)  # 20% of 40k

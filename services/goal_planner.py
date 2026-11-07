@@ -38,8 +38,27 @@ class GoalCalculationResult:
     actionable_advice: str
 
 
-def compute_expected_cagr(horizon_years: int) -> float:
-    """Return realistic market-standard portfolio CAGR based on horizon."""
+def compute_expected_cagr(
+    horizon_years: int,
+    target_saa: Any = None,
+) -> float:
+    """Return realistic market-standard portfolio CAGR based on horizon and SAA target."""
+    if target_saa is not None:
+        if hasattr(target_saa, "total_equity_pct"):
+            eq_pct = float(target_saa.total_equity_pct)
+            db_pct = float(target_saa.debt_pct)
+        elif isinstance(target_saa, dict):
+            eq_pct = float(target_saa.get("total_equity_pct", target_saa.get("large_cap_pct", 0) + target_saa.get("mid_small_cap_pct", 0)))
+            db_pct = float(target_saa.get("debt_pct", max(0.0, 100.0 - eq_pct)))
+        else:
+            eq_pct = 70.0
+            db_pct = 30.0
+
+        blended = ((eq_pct / 100.0) * 12.0) + ((db_pct / 100.0) * 7.0)
+        if horizon_years < 3:
+            blended = min(blended, 7.5)
+        return round(blended, 2)
+
     if horizon_years < 3:
         return 7.5   # Liquid / Arbitrage
     elif horizon_years <= 5:
@@ -113,6 +132,7 @@ def plan_goal(
     inflation_rate_pct: float = 6.0,
     annual_step_up_pct: float = 10.0,
     monthly_budget_capacity_inr: float | None = None,
+    target_saa: Any = None,
 ) -> GoalCalculationResult:
     """Plan a realistic, sensible financial milestone goal.
 
@@ -129,7 +149,7 @@ def plan_goal(
         GoalCalculationResult with realistic compounding and actionable guidance.
     """
     horizon_years = max(1, int(horizon_years))
-    cagr_pct = compute_expected_cagr(horizon_years)
+    cagr_pct = compute_expected_cagr(horizon_years, target_saa=target_saa)
 
     # 1. Future target value with inflation
     future_target = calculate_future_value(cost_today_inr, inflation_rate_pct, horizon_years)
@@ -204,3 +224,30 @@ def plan_goal(
         actionable_advice="\n\n".join(advice_items),
     )
 
+
+
+def decompose_sip_to_asset_sleeves(
+    monthly_sip_inr: float,
+    target_saa: Any = None,
+) -> dict[str, float]:
+    """Decompose monthly SIP amount into Large Cap, Mid/Small Cap, and Debt sleeves based on SAA."""
+    if monthly_sip_inr <= 0:
+        return {"large_cap_inr": 0.0, "mid_small_cap_inr": 0.0, "debt_inr": 0.0}
+    if target_saa is None:
+        lc_pct, ms_pct, db_pct = 50.0, 25.0, 25.0
+    elif hasattr(target_saa, "large_cap_pct"):
+        lc_pct = float(target_saa.large_cap_pct)
+        ms_pct = float(target_saa.mid_small_cap_pct)
+        db_pct = float(target_saa.debt_pct)
+    elif isinstance(target_saa, dict):
+        lc_pct = float(target_saa.get("large_cap_pct", 50.0))
+        ms_pct = float(target_saa.get("mid_small_cap_pct", 25.0))
+        db_pct = float(target_saa.get("debt_pct", 25.0))
+    else:
+        lc_pct, ms_pct, db_pct = 50.0, 25.0, 25.0
+
+    return {
+        "large_cap_inr": round(monthly_sip_inr * (lc_pct / 100.0), 2),
+        "mid_small_cap_inr": round(monthly_sip_inr * (ms_pct / 100.0), 2),
+        "debt_inr": round(monthly_sip_inr * (db_pct / 100.0), 2),
+    }

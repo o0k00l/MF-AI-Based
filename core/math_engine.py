@@ -1738,9 +1738,9 @@ def calculate_saa_drift(
         )
 
     # Compute look-through equity, debt, and cash amounts
-    equity_val = 0.0
-    debt_val = 0.0
-    cash_val = 0.0
+    equity_val = Decimal("0.00")
+    debt_val = Decimal("0.00")
+    cash_val = Decimal("0.00")
 
     for h in holdings:
         eq_amt = h.current_value_inr * (Decimal(str(h.equity_pct)) / Decimal("100"))
@@ -1751,14 +1751,14 @@ def calculate_saa_drift(
         debt_val += db_amt
         cash_val += c_amt
 
-    curr_eq_pct = (equity_val / total_val) * 100.0
-    curr_db_pct = (debt_val / total_val) * 100.0
-    curr_cash_pct = (cash_val / total_val) * 100.0
+    curr_eq_pct = float((equity_val / total_val) * Decimal("100.0"))
+    curr_db_pct = float((debt_val / total_val) * Decimal("100.0"))
+    curr_cash_pct = float((cash_val / total_val) * Decimal("100.0"))
     stability_buffer_pct = curr_db_pct + curr_cash_pct
 
     # Dynamic target resolution supporting Tier 6 and granular allocations
     if target_saa:
-        tgt_db = target_saa.get("debt_liquid_pct", target_saa.get("debt_global_pct", 5.0))
+        tgt_db = target_saa.get("debt_pct", target_saa.get("debt_liquid_pct", target_saa.get("debt_global_pct", 5.0)))
         if "equity_pct" in target_saa:
             tgt_eq = target_saa["equity_pct"]
         elif any(k in target_saa for k in ["large_cap_pct", "mid_cap_pct", "small_cap_pct", "flexi_multi_cap_pct"]):
@@ -1789,16 +1789,16 @@ def calculate_saa_drift(
         current_equity_pct=round(curr_eq_pct, 1),
         current_debt_pct=round(curr_db_pct, 1),
         current_cash_pct=round(curr_cash_pct, 1),
-        current_equity_inr=round(equity_val, 2),
-        current_debt_inr=round(debt_val, 2),
+        current_equity_inr=float(round(equity_val, 2)),
+        current_debt_inr=float(round(debt_val, 2)),
         target_equity_pct=round(tgt_eq, 1),
         target_debt_pct=round(tgt_db, 1),
         tolerance_band_pct=tolerance_band_pct,
         rebalance_required=rebalance_required,
         equity_gap_inr=round(equity_gap_inr, 2),
         debt_gap_inr=round(debt_gap_inr, 2),
-        look_through_debt_inr=round(debt_val, 2),
-        look_through_cash_inr=round(cash_val, 2),
+        look_through_debt_inr=float(round(debt_val, 2)),
+        look_through_cash_inr=float(round(cash_val, 2)),
         look_through_stability_buffer_pct=round(stability_buffer_pct, 2),
     )
 
