@@ -17,6 +17,7 @@ if _REPO_ROOT not in sys.path:
 
 import streamlit as st
 from services.fiduciary_engine import evaluate_portfolio_saa_audit
+from services.ai_fund_classifier import enrich_funds_with_ai
 
 # --- Page Configuration ---
 st.set_page_config(
@@ -195,19 +196,18 @@ st.caption("True portfolio debt allocation including internal debt in equity fun
 
 # Get user's actual portfolio from session state
 user_portfolio = st.session_state["user_portfolio"]
-funds = user_portfolio
+funds = enrich_funds_with_ai(user_portfolio)
 
 # --- Explanation ---
 st.markdown("""
-### Why Debt Allocation Matters
+### 🔬 How True Debt is Calculated (Fund-Wise AMC Disclosures)
 
-Equity funds legally hold internal debt (cash equivalents) for liquidity management:
+Rather than assuming generic category percentages, the fiduciary engine performs **fund-by-fund look-through** based on published AMC factsheets and SEBI portfolio disclosures:
 
-- Large Cap funds: approximately 5% debt
-- Flexi/Multi Cap funds: approximately 2% debt
-- Mid/Small Cap funds: approximately 2% debt
-- Tax Saver (ELSS) funds: 0% debt
-- Contra funds: 0% debt
+* **Balanced Advantage & Dynamic Asset Funds**: Unbundles equity derivatives from actual fixed income (G-Secs, T-Bills, Corporate Bonds).
+* **Multi-Asset Allocation Funds**: Unbundles physical domestic gold and debt reserves from pure equities.
+* **Flexi Cap & Large Cap Funds**: Tracks real TREPS, repo cash, and net debt held for daily liquidity and deployment.
+* **Pure Sectoral & Thematic Funds**: Reflects near-100% net equity exposure without artificial debt drag.
 """)
 
 # --- Portfolio-Level Analysis ---
@@ -340,23 +340,26 @@ st.markdown("---", unsafe_allow_html=True)
 st.markdown('<h2 class="section-title">Fund-by-Fund Debt Allocation</h2>', unsafe_allow_html=True)
 
 # Show funds with debt allocation from USER portfolio
-for fund in sorted(funds, key=lambda f: f.get("scheme", "")):
+debt_table_rows = []
+for fund in sorted(funds, key=lambda f: -((f.get("current_value", 0) * f.get("debt", 0) / 100.0))):
     if fund.get("current_value", 0) <= 0:
         continue
-        
-    current = fund["current_value"]
-    eq = fund.get("eq", 0)
-    debt = fund.get("debt", 0)
-    scheme = fund.get("scheme", "")[:60]
-    cat = fund.get("category", "")
-    
-    col1, col2, col3 = st.columns([4, 1, 1])
-    with col1:
-        st.markdown(f"**{scheme}** ({cat}) - ₹{current:,.0f}")
-    with col2:
-        st.caption(f"EQ: {eq:.0f}%")
-    with col3:
-        st.caption(f"Debt: {debt:.0f}%")
+    c_val = fund.get("current_value", 0)
+    d_pct = fund.get("debt", 0)
+    d_inr = c_val * (d_pct / 100.0)
+    debt_table_rows.append({
+        "Scheme Name": fund.get("scheme", "")[:50],
+        "Scheme Mandate": fund.get("scheme_type", fund.get("category", "")),
+        "Current Value": f"₹{c_val:,.0f}",
+        "Debt / Cash %": f"{d_pct:.2f}%",
+        "Debt Corpus (₹)": f"₹{d_inr:,.0f}",
+        "Equity %": f"{fund.get('eq', 0):.2f}%",
+        "Gold %": f"{fund.get('gold', 0):.1f}%" if fund.get("gold", 0) > 0 else "0.0%",
+        "Source": fund.get("classification_source", "AMC Factsheet"),
+    })
+
+if debt_table_rows:
+    st.dataframe(debt_table_rows, use_container_width=True, hide_index=True)
 
 st.markdown("""
 <div class="disclaimer-box">

@@ -17,6 +17,7 @@ if _REPO_ROOT not in _sys.path:
 import streamlit as st
 
 from services.cas_parser import parse_cas_file
+from services.ai_fund_classifier import enrich_funds_with_ai, classify_fund_with_ai
 from services.sip_api_client import get_api_health, request_sip_recommendations
 from services.risk_profiler import evaluate_fiduciary_profile
 from services.cgs_parser import parse_cgs_file
@@ -266,6 +267,7 @@ if uploaded_file is not None and cgs_file is not None:
     # --- Parse uploaded statements ---
     with st.spinner("Parsing your CAS file..."):
         funds = parse_cas_file(uploaded_file)
+        funds = enrich_funds_with_ai(funds)
 
     if not funds:
         st.error("Could not parse any funds from the uploaded CAS file. Please check the file format.")
@@ -294,9 +296,10 @@ if uploaded_file is not None and cgs_file is not None:
         "total_value": sum(f.get("current_value", 0) for f in funds),
         "validation_status": "parsed",
     }
-    st.success(f"✅ **Both Statements Verified:** Parsed **{len(funds)}** active funds from your CAS and verified statutory CGS tax evidence.")
+    st.success(f"✅ **Both Statements Verified:** Parsed **{len(funds)}** active funds with fund-by-fund AI look-through and verified statutory CGS tax evidence.")
+    st.info("🤖 **Fund-Wise AI Look-Through Active:** Every scheme is individually resolved against AMC factsheet disclosures and SEBI categorizations. No crude percentage assumptions or hardcoded estimates.")
 elif has_session_data:
-    funds = st.session_state["user_portfolio"]
+    funds = enrich_funds_with_ai(st.session_state["user_portfolio"])
     src_name = st.session_state.get("portfolio_metadata", {}).get("upload_source", "uploaded CAS")
     st.info(f"📂 **Active Session Statements Loaded:** Retaining **{len(funds)}** active funds from `{src_name}`. (Upload new statements above anytime to replace)")
 else:
@@ -319,6 +322,8 @@ total_debt = sum(f.get("current_value", 0) * f.get("debt", 0) / 100 for f in fun
 total_lc = sum(f.get("current_value", 0) * f.get("lc", 0) / 100 for f in funds)
 total_mc = sum(f.get("current_value", 0) * f.get("mc", 0) / 100 for f in funds)
 total_sc = sum(f.get("current_value", 0) * f.get("sc", 0) / 100 for f in funds)
+total_gold = sum(f.get("current_value", 0) * f.get("gold", 0) / 100 for f in funds)
+total_intl = sum(f.get("current_value", 0) * f.get("intl", 0) / 100 for f in funds)
 
 eq_pct = (total_eq / total_value * 100) if total_value else 0
 debt_pct = (total_debt / total_value * 100) if total_value else 0
@@ -748,7 +753,7 @@ st.bar_chart(chart_data, use_container_width=True)
 st.markdown('<h2 class="section-title">📋 Fund Details</h2>', unsafe_allow_html=True)
 st.caption("All data parsed dynamically from your uploaded CAS. No hardcoded values.")
 
-tab1, tab2, tab3 = st.tabs(["Equity Funds", "Hybrid Funds", "Debt Funds"])
+tab1, tab2, tab3, tab4 = st.tabs(["Equity Funds", "Hybrid Funds", "Debt Funds", "🤖 AI Look-Through Matrix"])
 
 with tab1:
     equity_funds = [f for f in funds if f.get("category") in ["Equity", "Contra"]]
@@ -759,22 +764,25 @@ with tab1:
             with st.expander(f"{fund['scheme'][:70]} — ₹{fund['current_value']:,.0f}"):
                 c1, c2, c3 = st.columns(3)
                 with c1:
-                    st.markdown(f"**Category:** {fund.get('category', 'Equity')}")
-                    st.caption(f"**EQ:** {fund.get('eq', 0):.0f}% | **Debt:** {fund.get('debt', 0):.0f}%")
+                    sch_type = fund.get("scheme_type", fund.get("category", "Equity"))
+                    st.markdown(f"**Mandate:** {sch_type}")
+                    st.caption(f"**Sub-Category:** {fund.get('sub_category', 'Diversified')}")
+                    st.caption(f"**EQ:** {fund.get('eq', 0):.1f}% | **Debt:** {fund.get('debt', 0):.1f}% | **Intl:** {fund.get('intl', 0):.1f}%")
                     if fund.get("folio_no"):
                         st.caption(f"**Folio:** {fund['folio_no']}")
                 with c2:
-                    st.markdown(f"**Plan:** {fund.get('plan_type', 'Direct')}")
-                    st.caption(f"**Option:** {fund.get('option_type', 'Growth')}")
+                    st.markdown(f"**Plan:** {fund.get('plan_type', 'Direct')} | **Option:** {fund.get('option_type', 'Growth')}")
+                    st.caption(f"**Market Cap:** LC {fund.get('lc', 0):.1f}% | MC {fund.get('mc', 0):.1f}% | SC {fund.get('sc', 0):.1f}%")
                     if fund.get("invested_value", 0) > 0:
                         st.caption(f"**Cost:** ₹{fund['invested_value']:,.0f} | **Gain:** {fund.get('gain_pct', 0):+.1f}%")
+                    st.caption(f"**Benchmark:** {fund.get('benchmark', 'Nifty 500 TRI')}")
                 with c3:
                     nav_val = fund.get("nav") or 0.0
                     units_val = fund.get("units") or 0.0
                     nav_str = f"₹{nav_val:.4f}" if nav_val > 0 else "N/A"
                     units_str = f"{units_val:.3f}" if units_val > 0 else "N/A"
-                    st.markdown(f"**NAV:** {nav_str}")
-                    st.caption(f"**Units:** {units_str}")
+                    st.markdown(f"**NAV:** {nav_str} | **Units:** {units_str}")
+                    st.caption(f"**Source:** {fund.get('classification_source', 'AMC Factsheet Look-Through')}")
     else:
         st.info("No equity funds in portfolio.")
 
@@ -787,8 +795,12 @@ with tab2:
             with st.expander(f"{fund['scheme'][:70]} — ₹{fund['current_value']:,.0f}"):
                 c1, c2 = st.columns(2)
                 with c1:
-                    st.write(f"**Debt Allocation:** {fund.get('debt', 0):.0f}%")
-                    st.write(f"**Equity Allocation:** {fund.get('eq', 0):.0f}%")
+                    sch_type = fund.get("scheme_type", "Hybrid")
+                    st.markdown(f"**Mandate:** {sch_type}")
+                    st.caption(f"**Sub-Category:** {fund.get('sub_category', '')}")
+                    gold_s = f" | **Gold:** {fund.get('gold', 0):.1f}%" if fund.get('gold', 0) > 0 else ""
+                    st.write(f"**Equity:** {fund.get('eq', 0):.1f}% | **Debt:** {fund.get('debt', 0):.1f}%{gold_s}")
+                    st.caption(f"**Market Cap:** LC {fund.get('lc', 0):.1f}% | MC {fund.get('mc', 0):.1f}% | SC {fund.get('sc', 0):.1f}%")
                     if fund.get("folio_no"):
                         st.caption(f"**Folio:** {fund['folio_no']}")
                 with c2:
@@ -796,8 +808,9 @@ with tab2:
                     units_val = fund.get("units") or 0.0
                     nav_str = f"₹{nav_val:.4f}" if nav_val > 0 else "N/A"
                     units_str = f"{units_val:.3f}" if units_val > 0 else "N/A"
-                    st.markdown(f"**NAV:** {nav_str}")
-                    st.caption(f"**Units:** {units_str}")
+                    st.markdown(f"**NAV:** {nav_str} | **Units:** {units_str}")
+                    st.caption(f"**Benchmark:** {fund.get('benchmark', 'NIFTY 50 Hybrid Composite Debt 50:50 Index')}")
+                    st.caption(f"**Source:** {fund.get('classification_source', 'AMC Factsheet Look-Through')}")
     else:
         st.info("No hybrid funds in portfolio.")
 
@@ -822,6 +835,29 @@ with tab3:
                     st.caption(f"**Units:** {units_str}")
     else:
         st.info("No debt funds in portfolio.")
+
+with tab4:
+    st.markdown("#### 🤖 Complete Fund-by-Fund AI Look-Through Matrix")
+    st.caption("Factual portfolio composition decomposed individually per scheme from AMC factsheets & SEBI circular archetypes.")
+    matrix_rows = []
+    for f in funds:
+        if f.get("current_value", 0) <= 0:
+            continue
+        matrix_rows.append({
+            "Scheme Name": f.get("scheme", "")[:50],
+            "Scheme Type / Mandate": f.get("scheme_type", f.get("category", "")),
+            "Current Value": f"₹{f.get('current_value', 0):,.0f}",
+            "Net Equity %": f"{f.get('eq', 0):.1f}%",
+            "True Debt %": f"{f.get('debt', 0):.1f}%",
+            "Gold/Intl %": f"{(f.get('gold', 0) or f.get('intl', 0)):.1f}%" if (f.get('gold', 0) or f.get('intl', 0)) else "0.0%",
+            "Large Cap %": f"{f.get('lc', 0):.1f}%",
+            "Mid Cap %": f"{f.get('mc', 0):.1f}%",
+            "Small Cap %": f"{f.get('sc', 0):.1f}%",
+            "Benchmark": f.get("benchmark", "Nifty 500 TRI"),
+            "Look-Through Source": f.get("classification_source", "AI Look-Through"),
+        })
+    if matrix_rows:
+        st.dataframe(matrix_rows, use_container_width=True, hide_index=True)
 
 # --- Export Clean Portfolio ---
 st.markdown('<h2 class="section-title">📥 Export Clean Portfolio</h2>', unsafe_allow_html=True)

@@ -109,3 +109,63 @@ def test_root_launcher_delegates_to_streamlit():
     assert '"ui/app.py"' in source
     assert "streamlit" in source
 
+
+def test_lumpsum_ui_no_bank_cash_input():
+    """Verify dev removed bank_cash_input from lump-sum section (ui/app.py).
+
+    After dev change: bank_cash_input was removed; lump sum decisions are now
+    portfolio-aware and do not require explicit bank cash estimation.
+    """
+    source_path = Path(__file__).resolve().parents[1] / "ui" / "app.py"
+    source = source_path.read_text(encoding="utf-8")
+    assert "bank_cash_input" not in source, (
+        "bank_cash_input should not exist in ui/app.py after dev refactoring: "
+        "lump-sum decisions now portfolio-aware without explicit bank cash input"
+    )
+
+
+def test_lumpsum_ui_no_monthly_expenses():
+    """Verify dev removed monthly_expenses_inr from evaluate_fiduciary_lumpsum_blueprint call.
+
+    ui/app.py call to evaluate_fiduciary_lumpsum_blueprint() must no longer pass
+    monthly_expenses_inr (previously used for 6-month reserve calculation).
+    """
+    source_path = Path(__file__).resolve().parents[1] / "ui" / "app.py"
+    source = source_path.read_text(encoding="utf-8")
+    assert "monthly_expenses_inr" not in source, (
+        "monthly_expenses_inr should not be in ui/app.py after dev refactoring"
+    )
+
+
+def test_lumpsum_blueprint_ui_call_contract():
+    """Verify ui/app.py calls evaluate_fiduciary_lumpsum_blueprint with updated signature.
+
+    The dev update removed bank_cash_inr and monthly_expenses_inr parameters.
+    Current contract: lumpsum_amount_inr, stp_duration_months, target_saa, funds
+    """
+    source = (Path(__file__).resolve().parents[1] / "ui" / "app.py").read_text(encoding="utf-8")
+    tree = ast.parse(source)
+
+    call_nodes = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            if isinstance(node.func, ast.Attribute):
+                if node.func.attr == "evaluate_fiduciary_lumpsum_blueprint":
+                    call_nodes.append(node)
+            elif isinstance(node.func, ast.Name):
+                if node.func.id == "evaluate_fiduciary_lumpsum_blueprint":
+                    call_nodes.append(node)
+
+    assert call_nodes, "evaluate_fiduciary_lumpsum_blueprint call not found in ui/app.py"
+
+    for call in call_nodes:
+        kwargs = {kw.arg for kw in call.keywords if kw.arg}
+        # Updated contract: these four kwargs must be present; bank_cash_inr and monthly_expenses_inr should be absent
+        assert "lumpsum_amount_inr" in kwargs, "Missing kwarg: lumpsum_amount_inr"
+        assert "stp_duration_months" in kwargs, "Missing kwarg: stp_duration_months"
+        assert "target_saa" in kwargs, "Missing kwarg: target_saa"
+        assert "funds" in kwargs, "Missing kwarg: funds"
+        # Removed parameters should not be in call
+        assert "bank_cash_inr" not in kwargs, "bank_cash_inr should have been removed by dev"
+        assert "monthly_expenses_inr" not in kwargs, "monthly_expenses_inr should have been removed by dev"
+
