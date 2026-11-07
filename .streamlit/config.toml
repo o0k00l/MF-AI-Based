@@ -5,3 +5,4 @@ enableXsrfProtection = true
 
 [browser]
 gatherUsageStats = false
+
