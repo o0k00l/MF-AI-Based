@@ -269,7 +269,7 @@ def generate_fiduciary_sip_blueprint(
 
 def evaluate_fiduciary_lumpsum_blueprint(
     lumpsum_amount_inr: float,
-    bank_cash_inr: float,
+    bank_cash_inr: Optional[float] = None,
     monthly_expenses_inr: float = 0.0,
     emergency_reserve_inr: Optional[float] = None,
     stp_duration_months: int = 6,
@@ -279,14 +279,14 @@ def evaluate_fiduciary_lumpsum_blueprint(
     """Evaluate portfolio-aware lump sum deployment and generate a deterministic STP schedule.
 
     Adheres strictly to SEBI fiduciary standards:
-    1. Reserves 6 months of essential living expenses (or explicit emergency reserve) in bank cash.
-    2. Enforces deployable surplus ceiling: cannot deploy capital that cuts into emergency buffer.
-    3. Mitigates market timing / peak-valuation risk by staging equity via a systematic transfer plan (STP).
-    4. Parks idle cash in an ultra-low-risk Direct parking vehicle (Direct Liquid / Arbitrage).
-    5. Reconciles every monthly tranche to the exact paisa.
+    1. Stages equity deployments systematically via STP into Direct funds to mitigate timing risk.
+    2. Parks idle capital in an ultra-low-risk Direct parking vehicle (Direct Liquid / Arbitrage).
+    3. Reconciles every monthly tranche to the exact paisa.
+    4. When explicit bank cash and expenses are provided, guards emergency reserves;
+       otherwise assumes deployable capital is the investor's designated allocation.
     """
     lump_dec = quantize_inr(max(0.0, lumpsum_amount_inr))
-    cash_dec = quantize_inr(max(0.0, bank_cash_inr))
+    reasons: List[str] = []
 
     if emergency_reserve_inr is not None and emergency_reserve_inr > 0:
         reserve_dec = quantize_inr(emergency_reserve_inr)
@@ -295,35 +295,49 @@ def evaluate_fiduciary_lumpsum_blueprint(
     else:
         reserve_dec = Decimal("0.00")
 
-    deployable_surplus = max(Decimal("0.00"), cash_dec - reserve_dec)
-    reasons: List[str] = []
-
-    if cash_dec < reserve_dec:
-        status = "RESERVE_DEFICIT"
-        effective_lumpsum = Decimal("0.00")
-        deficit = reserve_dec - cash_dec
-        reasons.append(
-            f"Bank cash (₹{cash_dec:,.2f}) is below the required 6-month emergency reserve (₹{reserve_dec:,.2f}) "
-            f"by ₹{deficit:,.2f}. Fiduciary policy mandates holding a complete liquid cushion before deploying equity lump sums."
-        )
-    elif deployable_surplus < lump_dec:
-        status = "CAPPED_AT_SURPLUS"
-        effective_lumpsum = deployable_surplus
-        reasons.append(
-            f"Requested lump sum (₹{lump_dec:,.2f}) exceeds deployable surplus (₹{deployable_surplus:,.2f}) "
-            f"after protecting ₹{reserve_dec:,.2f} for emergency reserves. Deployment is capped at deployable surplus."
-        )
-    elif lump_dec <= Decimal("0.00"):
-        status = "ZERO_AMOUNT"
-        effective_lumpsum = Decimal("0.00")
-        reasons.append("Lump-sum deployment amount must be greater than zero.")
+    if bank_cash_inr is None or bank_cash_inr <= 0.0:
+        cash_dec = lump_dec
+        deployable_surplus = lump_dec
+        if lump_dec <= Decimal("0.00"):
+            status = "ZERO_AMOUNT"
+            effective_lumpsum = Decimal("0.00")
+            reasons.append("Lump-sum deployment amount must be greater than zero.")
+        else:
+            status = "ELIGIBLE"
+            effective_lumpsum = lump_dec
+            reasons.append(
+                f"Lump sum capital of ₹{lump_dec:,.2f} ready for staged fiduciary deployment into Direct plans."
+            )
     else:
-        status = "ELIGIBLE"
-        effective_lumpsum = lump_dec
-        reasons.append(
-            f"Deployable surplus (₹{deployable_surplus:,.2f}) fully accommodates the requested lump sum of ₹{lump_dec:,.2f} "
-            f"while maintaining a full ₹{reserve_dec:,.2f} emergency reserve."
-        )
+        cash_dec = quantize_inr(max(0.0, bank_cash_inr))
+        deployable_surplus = max(Decimal("0.00"), cash_dec - reserve_dec)
+
+        if cash_dec < reserve_dec:
+            status = "RESERVE_DEFICIT"
+            effective_lumpsum = Decimal("0.00")
+            deficit = reserve_dec - cash_dec
+            reasons.append(
+                f"Bank cash (₹{cash_dec:,.2f}) is below the required 6-month emergency reserve (₹{reserve_dec:,.2f}) "
+                f"by ₹{deficit:,.2f}. Fiduciary policy mandates holding a complete liquid cushion before deploying equity lump sums."
+            )
+        elif deployable_surplus < lump_dec:
+            status = "CAPPED_AT_SURPLUS"
+            effective_lumpsum = deployable_surplus
+            reasons.append(
+                f"Requested lump sum (₹{lump_dec:,.2f}) exceeds deployable surplus (₹{deployable_surplus:,.2f}) "
+                f"after protecting ₹{reserve_dec:,.2f} for emergency reserves. Deployment is capped at deployable surplus."
+            )
+        elif lump_dec <= Decimal("0.00"):
+            status = "ZERO_AMOUNT"
+            effective_lumpsum = Decimal("0.00")
+            reasons.append("Lump-sum deployment amount must be greater than zero.")
+        else:
+            status = "ELIGIBLE"
+            effective_lumpsum = lump_dec
+            reasons.append(
+                f"Deployable surplus (₹{deployable_surplus:,.2f}) fully accommodates the requested lump sum of ₹{lump_dec:,.2f} "
+                f"while maintaining a full ₹{reserve_dec:,.2f} emergency reserve."
+            )
 
     # Determine SAA target allocation percentages
     if target_saa is not None:
