@@ -6,3 +6,6 @@ enableXsrfProtection = true
 [browser]
 gatherUsageStats = false
 
+[client]
+showErrorDetails = "full"
+

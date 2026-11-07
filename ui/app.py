@@ -22,14 +22,24 @@ if _REPO_ROOT in _sys.path:
     _sys.path.remove(_REPO_ROOT)
 _sys.path.insert(0, _REPO_ROOT)
 
+# Invalidate stale in-memory cached modules from previous hot reloads
+for _k in list(_sys.modules.keys()):
+    if _k == "services" or _k.startswith("services."):
+        del _sys.modules[_k]
+
 import streamlit as st
 
-from services.cas_parser import parse_cas_file
-from services.ai_fund_classifier import enrich_funds_with_ai, classify_fund_with_ai, generate_fiduciary_ai_narrative
-from services.sip_api_client import get_api_health, request_sip_recommendations
-from services.risk_profiler import evaluate_fiduciary_profile
-from services.cgs_parser import parse_cgs_file
-from services.fiduciary_engine import generate_fiduciary_sip_blueprint, evaluate_portfolio_saa_audit, evaluate_fiduciary_lumpsum_blueprint
+try:
+    from services.cas_parser import parse_cas_file
+    from services.ai_fund_classifier import enrich_funds_with_ai, classify_fund_with_ai, generate_fiduciary_ai_narrative
+    from services.sip_api_client import get_api_health, request_sip_recommendations
+    from services.risk_profiler import evaluate_fiduciary_profile
+    from services.cgs_parser import parse_cgs_file
+    from services.fiduciary_engine import generate_fiduciary_sip_blueprint, evaluate_portfolio_saa_audit, evaluate_fiduciary_lumpsum_blueprint
+except BaseException as _startup_exc:
+    st.error(f"⚠️ Service Engine Startup Notice: {type(_startup_exc).__name__}: {_startup_exc}")
+    st.info(f"Target Repository Path: {_REPO_ROOT}")
+    st.stop()
 
 # --- Page Configuration ---
 st.set_page_config(
