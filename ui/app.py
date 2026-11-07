@@ -164,16 +164,16 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# --- Dual Mandatory Statement Ingestion (CAS & CGS) ---
-st.markdown('<h2 class="section-title">📂 Upload Statements (CAS & CGS Required)</h2>', unsafe_allow_html=True)
+# --- Dual Mandatory Statement Ingestion (CAS Detailed & CGS) ---
+st.markdown('<h2 class="section-title">📂 Upload Statements (CAS Detailed & CGS Required)</h2>', unsafe_allow_html=True)
 
 upload_c1, upload_c2 = st.columns(2)
 with upload_c1:
-    st.markdown("##### 1. Consolidated Account Statement (CAS)")
+    st.markdown("##### 1. Consolidated Account Statement (CAS) (Detailed)")
     uploaded_file = st.file_uploader(
-        "Upload CAS PDF or Excel Statement",
+        "Upload CAS (Detailed) PDF or Excel Statement",
         type=["pdf", "xlsx", "xls"],
-        help="Upload your CAMS / KFintech monthly CAS statement",
+        help="Download the 'Detailed' (not Summary) CAS from CAMS, KFintech, or MFCentral to include complete transaction histories and acquisition costs.",
         key="cas_uploader_input",
     )
     pdf_password = st.text_input(
@@ -182,6 +182,7 @@ with upload_c1:
         help="Usually your PAN (uppercase) or date of birth per CAMS/KFintech instructions",
         key="cas_pdf_password_input",
     )
+    st.caption("📌 **Detailed Statement Required:** Please ensure you select **'Detailed'** when requesting your CAS from CAMS, KFintech, or MFCentral so complete transaction lots, purchase dates, and acquisition NAVs are included.")
 
 with upload_c2:
     st.markdown("##### 2. Capital Gains Statement (CGS)")
@@ -209,11 +210,13 @@ if uploaded_file is not None:
 
         enriched_funds = enrich_funds_with_ai(parsed_funds)
         st.session_state["user_portfolio"] = enriched_funds
+        has_detailed_txns = any(f.get("unrealized_ltcg") is not None for f in enriched_funds)
         st.session_state["portfolio_metadata"] = {
             "upload_time": str(__import__("datetime").datetime.now().isoformat()),
             "upload_source": uploaded_file.name,
             "fund_count": len(enriched_funds),
             "total_value": sum(f.get("current_value", 0) for f in enriched_funds),
+            "is_detailed_statement": has_detailed_txns,
             "validation_status": "parsed_successfully",
         }
         funds = enriched_funds
@@ -233,10 +236,12 @@ if uploaded_file is not None:
 
 elif has_session_data:
     funds = enrich_funds_with_ai(st.session_state["user_portfolio"])
-    src_name = st.session_state.get("portfolio_metadata", {}).get("upload_source", "uploaded CAS")
-    st.info(f"📂 **Active Statements Loaded:** Retaining **{len(funds)}** active funds from `{src_name}`.")
+    src_name = st.session_state.get("portfolio_metadata", {}).get("upload_source", "uploaded CAS (Detailed)")
+    is_detailed = st.session_state.get("portfolio_metadata", {}).get("is_detailed_statement", False)
+    detail_note = " — *Detailed Transaction History & Lots Verified*" if is_detailed else ""
+    st.info(f"📂 **Active Statements Loaded:** Retaining **{len(funds)}** active funds from `{src_name}`{detail_note}.")
 else:
-    st.info("⬆️ **Please upload your Consolidated Account Statement (CAS)** above to generate your fiduciary audit.")
+    st.info("⬆️ **Please upload your Consolidated Account Statement (CAS) (Detailed)** above to generate your fiduciary audit.")
     st.stop()
 
 # --- Compute Portfolio Metrics Dynamically (Zero Hardcoding) ---

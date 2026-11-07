@@ -139,11 +139,11 @@ badge_step1 = '<span class="status-badge-done">✅ COMPLETED</span>' if has_stat
 st.markdown(f"""
 <div class="flow-card">
     <span class="flow-step-num">1</span>
-    <span class="flow-title">Portfolio Statement Ingestion (CAS & CGS)</span>
+    <span class="flow-title">Portfolio Statement Ingestion (CAS Detailed & CGS)</span>
     {badge_step1}
     <div class="step-desc">
-        Upload your Consolidated Account Statement (CAS) and Capital Gains Statement (CGS) from CAMS / KFintech / MFCentral.
-        <strong>CAS</strong> unbundles folios, identifies Regular vs. Direct plans, and computes current asset allocations.
+        Upload your Consolidated Account Statement (CAS) (Detailed) and Capital Gains Statement (CGS) from CAMS / KFintech / MFCentral.
+        <strong>CAS (Detailed)</strong> provides the complete transaction history, purchase dates, and acquisition NAVs needed to unbundle folios and eliminate Regular plan trail leakage.
         <strong>CGS</strong> audits statutory realized LTCG/STCG, Section 112A grandfathering, and tracks your remaining ₹1.25 Lakh tax-free headroom.
     </div>
 </div>
