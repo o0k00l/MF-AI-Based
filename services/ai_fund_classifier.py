@@ -178,7 +178,11 @@ def _load_verified_policy_lookthrough() -> Dict[str, Dict[str, Any]]:
         ter_r = float(item.get("ter_regular_pct") or (ter_d + (1.00 if broad_cat == "Equity" else 0.75)))
         trail = float(item.get("trail_commission_pct") or round(ter_r - ter_d, 2))
 
-        # Calculate total equity from portfolio breakdown
+        # Use stored eq/debt if available (check key existence, not truthiness), otherwise calculate from portfolio breakdown
+        has_stored_eq = "eq" in item and item.get("eq") is not None
+        has_stored_debt = "debt" in item and item.get("debt") is not None
+        stored_eq = float(item.get("eq") or 0)
+        stored_debt = float(item.get("debt") or 0)
         total_eq = float(item.get("portfolio_large_cap_pct") or 0) + float(item.get("portfolio_mid_cap_pct") or 0) + float(item.get("portfolio_small_cap_pct") or 0)
         total_debt = float(item.get("portfolio_debt_pct") or 0)
 
@@ -187,8 +191,8 @@ def _load_verified_policy_lookthrough() -> Dict[str, Dict[str, Any]]:
             "scheme_type": sch_type,
             "asset_class": sch_type,
             "sub_category": item.get("sector") or cat_str or sch_type,
-            "eq": total_eq if total_eq > 0 else 95.0,
-            "debt": total_debt if total_debt > 0 else 0.0,
+            "eq": stored_eq if has_stored_eq else (total_eq if total_eq > 0 else 95.0),
+            "debt": stored_debt if has_stored_debt else (total_debt if total_debt > 0 else 0.0),
             "gold": float(item.get("gold_pct") or 0),
             "intl": float(item.get("intl_pct") or 0),
             "lc": float(item.get("portfolio_large_cap_pct") or 0),
