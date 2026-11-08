@@ -1073,3 +1073,52 @@ def transition_recommendation_lifecycle(
     return {"previous_state": current_state, "state": requested_state,
             "decision_trace_sha256": decision_trace_sha256,
             "execution_authorized": False}
+
+
+def _validate_new_fund_limit(
+    recommendations: list[dict[str, Any]],
+    sip_policy: dict[str, Any],
+    portfolio_introduction_history: dict[str, Any] | None = None,
+    existing_schemes: list[Any] | None = None,
+    is_starter: bool = False,
+) -> list[str]:
+    """Validate the 12-month new fund limit for proposed SIP allocations.
+    
+    Returns a list of violation messages; empty list means compliant.
+    Fail-closed: missing history or policy misconfiguration returns violations.
+    
+    Issue #4: Enforces max_new_funds_per_12_months policy to prevent
+    excessive scheme introduction within a 12-month window.
+    """
+    from core.math_engine import _sip_operational_constraint_violations
+    
+    # Convert recommendations to DeterministicSIPRecommendation objects if needed
+    from core.models import DeterministicSIPRecommendation
+    items = []
+    for rec in recommendations:
+        if isinstance(rec, DeterministicSIPRecommendation):
+            items.append(rec)
+        elif isinstance(rec, dict):
+            items.append(DeterministicSIPRecommendation(
+                category_role=rec.get("category_role", ""),
+                scheme_name=rec.get("scheme_name", ""),
+                monthly_inr=float(rec.get("monthly_inr", 0)),
+                allocation_pct=float(rec.get("allocation_pct", 0)),
+                rational_code=rec.get("rational_code", ""),
+                fiduciary_rationale=rec.get("fiduciary_rationale", ""),
+            ))
+    
+    violations = _sip_operational_constraint_violations(
+        items,
+        sip_policy,
+        portfolio_introduction_history=portfolio_introduction_history,
+        existing_schemes=existing_schemes or [],
+        is_starter=is_starter,
+    )
+    
+    # Filter to only return new-fund-related violations
+    new_fund_violations = [
+        v for v in violations 
+        if "new fund" in v.lower() or "12-month" in v.lower()
+    ]
+    return new_fund_violations

@@ -195,6 +195,8 @@ def _load_verified_policy_lookthrough() -> Dict[str, Dict[str, Any]]:
             "debt": stored_debt if has_stored_debt else (total_debt if total_debt > 0 else 0.0),
             "gold": float(item.get("gold_pct") or 0),
             "intl": float(item.get("intl_pct") or 0),
+            "re": float(item.get("re") or 0),
+            "other": float(item.get("other") or 0),
             "lc": float(item.get("portfolio_large_cap_pct") or 0),
             "mc": float(item.get("portfolio_mid_cap_pct") or 0),
             "sc": float(item.get("portfolio_small_cap_pct") or 0),
@@ -1076,6 +1078,8 @@ def enrich_funds_with_ai(funds: List[Dict[str, Any]], use_live_ai: bool = False)
         item["lc"] = profile["lc"]
         item["mc"] = profile["mc"]
         item["sc"] = profile["sc"]
+        item["re"] = profile.get("re", 0.0)
+        item["other"] = profile.get("other", 0.0)
         item["sector"] = profile.get("sector", "Diversified")
         item["benchmark"] = profile.get("benchmark", "Nifty 500 TRI")
         item["risk_rating"] = profile.get("risk_rating", "High")
@@ -1153,23 +1157,25 @@ def compute_portfolio_segment_breakdown(funds: List[Dict[str, Any]]) -> Dict[str
         s_amt = c_val * (sc / 100.0)
         d_amt = c_val * (debt / 100.0)
         g_amt = c_val * (gold / 100.0)
-        i_amt = c_val * (intl / 100.0)
+        # intl_pct represents international equity as a % of TOTAL EQUITY, not portfolio
+        # So intl_inr is a subset of equity: intl_inr = e_amt * (intl / 100)
+        # eq already represents total equity (domestic + international), so we don't add intl separately
+        e_amt = c_val * (eq / 100.0)  # Total equity (includes intl)
+        i_amt = e_amt * (intl / 100.0)  # International equity as subset of equity
         re_amt = c_val * (re / 100.0)
         o_amt = c_val * (other / 100.0)
-        e_amt = c_val * (eq / 100.0)
 
         lc_inr += l_amt
         mc_inr += m_amt
         sc_inr += s_amt
         debt_inr += d_amt
         gold_inr += g_amt
-        intl_inr += i_amt
+        intl_inr += i_amt  # Track international separately for reporting
         re_inr += re_amt
         other_inr += o_amt
-        # Equity = domestic equity (e_amt) + international equity (i_amt)
-        # Note: For funds like PPFAS, eq (from scheme_master) represents domestic equity only (lc+mc+sc)
-        # and intl is additional international equity that must be added
-        eq_inr += e_amt + i_amt
+        # Equity is the total equity value (eq already includes international exposure)
+        # intl is a subset, so we only add e_amt for total equity
+        eq_inr += e_amt
 
         scheme_rows.append({
             "scheme": sf.get("scheme", ""),

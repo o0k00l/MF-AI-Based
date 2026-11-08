@@ -106,16 +106,16 @@ def format_crores(val: float | int) -> str:
 st.markdown("""
 <style>
     .metric-card {
-        background: #f8fafc;
-        border: 1px solid #e2e8f0;
+        background: var(--secondary-background-color, #f8fafc);
+        border: 1px solid rgba(148, 163, 184, 0.25);
         border-radius: 10px;
         padding: 14px 18px;
         margin-bottom: 10px;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+        box-shadow: 0 1px 3px rgba(0,0,0,0.06);
     }
     .metric-label {
         font-size: 0.78rem;
-        color: #64748b;
+        color: #94a3b8;
         text-transform: uppercase;
         font-weight: 600;
         letter-spacing: 0.04em;
@@ -123,34 +123,140 @@ st.markdown("""
     .metric-value {
         font-size: 1.55rem;
         font-weight: 700;
-        color: #0f172a;
+        color: var(--text-color, #0f172a) !important;
         margin-top: 4px;
         display: block;
     }
     .section-title {
         font-size: 1.15rem;
         font-weight: 700;
-        color: #0f172a;
+        color: var(--text-color, #0f172a) !important;
         margin-top: 18px;
         margin-bottom: 10px;
-        border-bottom: 2px solid #e2e8f0;
+        border-bottom: 2px solid rgba(148, 163, 184, 0.25);
         padding-bottom: 6px;
     }
     .banner-intake {
         background: linear-gradient(135deg, #1e3a8a 0%, #0f172a 100%);
-        color: white;
+        color: #ffffff;
         padding: 18px 22px;
         border-radius: 10px;
         margin-bottom: 18px;
+        border: 1px solid rgba(255, 255, 255, 0.12);
     }
     .portfolio-card {
-        background: #f8fafc;
-        border: 1px solid #e2e8f0;
+        background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+        color: #ffffff;
+        border: 1px solid rgba(255, 255, 255, 0.12);
         border-left: 4px solid #38bdf8;
         border-radius: 8px;
-        padding: 10px 14px;
+        padding: 12px 14px;
         margin-bottom: 12px;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+        box-shadow: 0 2px 4px rgba(0,0,0,0.12);
+    }
+    .fiduciary-callout {
+        background: var(--secondary-background-color, #f8fafc);
+        border: 1px solid rgba(148, 163, 184, 0.25);
+        border-left: 5px solid #2563eb;
+        border-radius: 8px;
+        padding: 16px 20px;
+        margin: 12px 0;
+        color: var(--text-color, #0f172a);
+    }
+    .fiduciary-callout-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 8px;
+    }
+    .fiduciary-callout-title {
+        font-size: 0.82rem;
+        font-weight: 700;
+        color: #3b82f6;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+    }
+    .fiduciary-callout-badge {
+        background: rgba(37, 99, 235, 0.15);
+        color: #38bdf8;
+        font-size: 0.75rem;
+        font-weight: 600;
+        padding: 3px 10px;
+        border-radius: 12px;
+        border: 1px solid rgba(56, 189, 248, 0.3);
+    }
+    .qa-callout {
+        background: rgba(22, 163, 74, 0.08);
+        border: 1px solid rgba(22, 163, 74, 0.3);
+        border-left: 5px solid #16a34a;
+        border-radius: 8px;
+        padding: 14px 18px;
+        margin: 10px 0;
+        color: var(--text-color, #0f172a);
+    }
+    .qa-callout-title {
+        font-size: 0.78rem;
+        font-weight: 700;
+        color: #16a34a;
+        text-transform: uppercase;
+        margin-bottom: 6px;
+    }
+    .qa-callout-body {
+        color: var(--text-color, #0f172a);
+        font-size: 0.95rem;
+        line-height: 1.6;
+    }
+    @media (prefers-color-scheme: dark) {
+        .metric-card {
+            background: #1e293b !important;
+            border-color: rgba(148, 163, 184, 0.2) !important;
+        }
+        .metric-value, .section-title {
+            color: #f8fafc !important;
+        }
+        .metric-label {
+            color: #94a3b8 !important;
+        }
+        .fiduciary-callout {
+            background: #1e293b !important;
+            color: #f8fafc !important;
+            border-color: rgba(148, 163, 184, 0.2) !important;
+        }
+        .qa-callout {
+            background: rgba(22, 163, 74, 0.12) !important;
+            border-color: rgba(34, 197, 94, 0.35) !important;
+        }
+        .qa-callout-title {
+            color: #4ade80 !important;
+        }
+        .qa-callout-body {
+            color: #f8fafc !important;
+        }
+    }
+    [data-theme="dark"] .metric-card {
+        background: #1e293b !important;
+        border-color: rgba(148, 163, 184, 0.2) !important;
+    }
+    [data-theme="dark"] .metric-value, [data-theme="dark"] .section-title {
+        color: #f8fafc !important;
+    }
+    [data-theme="dark"] .metric-label {
+        color: #94a3b8 !important;
+    }
+    [data-theme="dark"] .fiduciary-callout {
+        background: #1e293b !important;
+        color: #f8fafc !important;
+        border-color: rgba(148, 163, 184, 0.2) !important;
+    }
+    [data-theme="dark"] .qa-callout {
+        background: rgba(22, 163, 74, 0.12) !important;
+        border-color: rgba(34, 197, 94, 0.35) !important;
+    }
+    [data-theme="dark"] .qa-callout-title {
+        color: #4ade80 !important;
+    }
+    [data-theme="dark"] .qa-callout-body {
+        color: #f8fafc !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -525,10 +631,10 @@ with tab_ai_tax:
         diag = st.session_state.get("ai_portfolio_narrative")
         if diag:
             st.markdown(f'''
-            <div style="background: #f8fafc; border: 1px solid #cbd5e1; border-left: 5px solid #2563eb; border-radius: 8px; padding: 16px 20px; margin: 12px 0;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                    <span style="font-size: 0.82rem; font-weight: 700; color: #1e40af; text-transform: uppercase;">Fiduciary Provenance</span>
-                    <span style="background: #dbeafe; color: #1e40af; font-size: 0.75rem; font-weight: 600; padding: 3px 10px; border-radius: 12px;">{diag.get("source", "SEBI Statutory Rule")}</span>
+            <div class="fiduciary-callout">
+                <div class="fiduciary-callout-header">
+                    <span class="fiduciary-callout-title">Fiduciary Provenance</span>
+                    <span class="fiduciary-callout-badge">{diag.get("source", "SEBI Statutory Rule")}</span>
                 </div>
             ''', unsafe_allow_html=True)
             st.markdown(diag.get("content", ""))
@@ -608,11 +714,11 @@ with tab_ai_tax:
                 use_live_ai=True,
             )
             st.markdown(f"""
-            <div style="background: #f0fdf4; border: 1px solid #86efac; border-left: 5px solid #16a34a; border-radius: 8px; padding: 14px 18px; margin: 10px 0;">
-                <div style="font-size: 0.78rem; font-weight: 700; color: #15803d; text-transform: uppercase; margin-bottom: 6px;">
+            <div class="qa-callout">
+                <div class="qa-callout-title">
                     🤖 {qa_res.get('source', 'Statutory Fiduciary Intelligence')}
                 </div>
-                <div style="color: #14532d; font-size: 0.95rem; line-height: 1.6;">
+                <div class="qa-callout-body">
             """, unsafe_allow_html=True)
             st.markdown(qa_res.get("response", ""))
             st.markdown("</div></div>", unsafe_allow_html=True)

@@ -1,0 +1,43 @@
+{
+  "_meta": {
+    "as_of_holdings": "31-Aug-2026",
+    "fetched": "06-Oct-2026",
+    "source": "sharpely.in fund holdings pages (full monthly disclosure)",
+    "selection_criteria": {
+      "large_cap_index": "lowest TER among Passive Large Cap funds with 100% large cap exposure",
+      "mid_cap_active": "highest Sharpe 3Y among Mid Cap funds with positive alpha",
+      "debt_liquid": "lowest TER among Liquid/Debt funds with AUM > 5000 crore"
+    }
+  },
+  "selection_rules": {
+    "large_cap_index": {
+      "category": "Large Cap",
+      "plan_type": "Direct",
+      "is_passive": true,
+      "sort_by": "ter_direct_pct",
+      "sort_order": "asc",
+      "min_aum_crore": 5000,
+      "equity_pct_min": 95,
+      "scheme": "Nippon India Index Nifty 50 - Direct Plan - Growth"
+    },
+    "mid_cap_active": {
+      "category": "Mid Cap",
+      "plan_type": "Direct",
+      "is_passive": false,
+      "sort_by": "sharpe_3y",
+      "sort_order": "desc",
+      "min_alpha": 0,
+      "min_sharpe": 0.4,
+      "scheme": "Mirae Asset Tax Saver Fund - Direct Plan - Growth"
+    },
+    "debt_liquid": {
+      "category": "Debt",
+      "plan_type": "Direct",
+      "is_passive": false,
+      "sort_by": "aum_crore",
+      "sort_order": "desc",
+      "max_ter_pct": 0.5,
+      "scheme": "Axis Liquid Fund - Direct Plan - Growth"
+    }
+  }
+}

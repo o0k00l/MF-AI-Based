@@ -43,44 +43,62 @@ render_fiduciary_sidebar(current_page="pages/4_Debt_Allocation.py")
 st.markdown("""
 <style>
     .metric-card {
-        background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+        background: var(--secondary-background-color, #f8fafc);
         border-radius: 12px;
         padding: 20px;
-        box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
-        border: 1px solid #e2e8f0;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.06);
+        border: 1px solid rgba(148, 163, 184, 0.25);
     }
     .metric-value {
         font-size: 1.8rem;
         font-weight: 700;
-        color: #0f172a;
+        color: var(--text-color, #0f172a);
     }
     .metric-label {
         font-size: 0.875rem;
-        color: #64748b;
+        color: #94a3b8;
         text-transform: uppercase;
         letter-spacing: 0.05em;
     }
     .section-title {
-        color: #0f172a;
+        color: var(--text-color, #0f172a) !important;
         font-weight: 700;
         margin-top: 24px;
         margin-bottom: 12px;
-        border-bottom: 2px solid #cbd5e1;
+        border-bottom: 2px solid rgba(148, 163, 184, 0.25);
         padding-bottom: 8px;
     }
     .disclaimer-box {
-        background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+        background: var(--secondary-background-color, #f8fafc);
+        color: var(--text-color, #0f172a);
         border-radius: 12px;
         padding: 16px;
+        border: 1px solid rgba(148, 163, 184, 0.25);
         border-left: 4px solid #16a34a;
         margin-top: 32px;
+    }
+    @media (prefers-color-scheme: dark) {
+        .metric-card, .disclaimer-box {
+            background: #1e293b !important;
+            border-color: rgba(148, 163, 184, 0.2) !important;
+        }
+        .metric-value, .section-title {
+            color: #f8fafc !important;
+        }
+    }
+    [data-theme="dark"] .metric-card, [data-theme="dark"] .disclaimer-box {
+        background: #1e293b !important;
+        border-color: rgba(148, 163, 184, 0.2) !important;
+    }
+    [data-theme="dark"] .metric-value, [data-theme="dark"] .section-title {
+        color: #f8fafc !important;
     }
 </style>
 """, unsafe_allow_html=True)
 
 # --- Page Title ---
 st.markdown('<h1 class="section-title">📈 Debt Allocation Verification</h1>', unsafe_allow_html=True)
-st.markdown('<p style="color: #64748b; font-size: 1.1rem;">True portfolio debt allocation including internal debt in equity funds</p>', unsafe_allow_html=True)
+st.markdown('<p style="color: var(--text-color, #64748b); opacity: 0.85; font-size: 1.1rem;">True portfolio debt allocation including internal debt in equity funds</p>', unsafe_allow_html=True)
 
 # Load fund metrics (REFERENCE DATA ONLY - for debt allocation percentages)
 METRICS_PATH = Path(__file__).parent.parent.parent / "data" / "policy" / "fund_metrics.json"

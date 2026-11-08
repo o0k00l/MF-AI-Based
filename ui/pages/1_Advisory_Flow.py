@@ -35,8 +35,8 @@ render_fiduciary_sidebar(current_page="pages/1_Advisory_Flow.py")
 st.markdown("""
 <style>
     .flow-card {
-        background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
-        border: 1px solid #e2e8f0;
+        background: var(--secondary-background-color, #ffffff);
+        border: 1px solid rgba(148, 163, 184, 0.25);
         border-radius: 12px;
         padding: 20px;
         margin-bottom: 16px;
@@ -46,11 +46,11 @@ st.markdown("""
     .flow-card:hover {
         transform: translateY(-2px);
         box-shadow: 0 6px 12px rgba(0,0,0,0.08);
-        border-color: #cbd5e1;
+        border-color: rgba(148, 163, 184, 0.45);
     }
     .flow-step-num {
         display: inline-block;
-        background: #1e3a8a;
+        background: #2563eb;
         color: #ffffff;
         font-weight: 700;
         border-radius: 50%;
@@ -63,13 +63,14 @@ st.markdown("""
     .flow-title {
         font-size: 1.25rem;
         font-weight: 700;
-        color: #0f172a;
+        color: var(--text-color, #0f172a);
         display: inline-block;
         vertical-align: middle;
     }
     .status-badge-done {
-        background-color: #dcfce7;
-        color: #15803d;
+        background-color: rgba(34, 197, 94, 0.15);
+        color: #22c55e;
+        border: 1px solid rgba(34, 197, 94, 0.3);
         padding: 4px 10px;
         border-radius: 20px;
         font-size: 0.8rem;
@@ -77,8 +78,9 @@ st.markdown("""
         float: right;
     }
     .status-badge-pending {
-        background-color: #f1f5f9;
-        color: #64748b;
+        background-color: rgba(148, 163, 184, 0.12);
+        color: #94a3b8;
+        border: 1px solid rgba(148, 163, 184, 0.25);
         padding: 4px 10px;
         border-radius: 20px;
         font-size: 0.8rem;
@@ -86,10 +88,33 @@ st.markdown("""
         float: right;
     }
     .step-desc {
-        color: #475569;
+        color: var(--text-color, #475569);
+        opacity: 0.88;
         font-size: 0.95rem;
         margin-top: 10px;
         line-height: 1.5;
+    }
+    @media (prefers-color-scheme: dark) {
+        .flow-card {
+            background: #1e293b !important;
+            border-color: rgba(148, 163, 184, 0.2) !important;
+        }
+        .flow-title {
+            color: #f8fafc !important;
+        }
+        .step-desc {
+            color: #cbd5e1 !important;
+        }
+    }
+    [data-theme="dark"] .flow-card {
+        background: #1e293b !important;
+        border-color: rgba(148, 163, 184, 0.2) !important;
+    }
+    [data-theme="dark"] .flow-title {
+        color: #f8fafc !important;
+    }
+    [data-theme="dark"] .step-desc {
+        color: #cbd5e1 !important;
     }
 </style>
 """, unsafe_allow_html=True)
