@@ -1127,6 +1127,8 @@ def compute_portfolio_segment_breakdown(funds: List[Dict[str, Any]]) -> Dict[str
     sc_inr = 0.0
     gold_inr = 0.0
     intl_inr = 0.0
+    re_inr = 0.0
+    other_inr = 0.0
 
     scheme_rows = []
     sorted_funds = sorted(funds, key=lambda x: -float(x.get("current_value", 0.0) or 0.0))
@@ -1142,6 +1144,8 @@ def compute_portfolio_segment_breakdown(funds: List[Dict[str, Any]]) -> Dict[str
         debt = float(sf.get("debt", 0.0) or 0.0)
         gold = float(sf.get("gold", 0.0) or 0.0)
         intl = float(sf.get("intl", 0.0) or 0.0)
+        re = float(sf.get("re", 0.0) or 0.0)
+        other = float(sf.get("other", 0.0) or 0.0)
         eq = float(sf.get("eq", 0.0) if sf.get("eq") is not None else (lc + mc + sc))
 
         l_amt = c_val * (lc / 100.0)
@@ -1150,6 +1154,8 @@ def compute_portfolio_segment_breakdown(funds: List[Dict[str, Any]]) -> Dict[str
         d_amt = c_val * (debt / 100.0)
         g_amt = c_val * (gold / 100.0)
         i_amt = c_val * (intl / 100.0)
+        re_amt = c_val * (re / 100.0)
+        o_amt = c_val * (other / 100.0)
         e_amt = c_val * (eq / 100.0)
 
         lc_inr += l_amt
@@ -1158,7 +1164,12 @@ def compute_portfolio_segment_breakdown(funds: List[Dict[str, Any]]) -> Dict[str
         debt_inr += d_amt
         gold_inr += g_amt
         intl_inr += i_amt
-        eq_inr += e_amt
+        re_inr += re_amt
+        other_inr += o_amt
+        # Equity = domestic equity (e_amt) + international equity (i_amt)
+        # Note: For funds like PPFAS, eq (from scheme_master) represents domestic equity only (lc+mc+sc)
+        # and intl is additional international equity that must be added
+        eq_inr += e_amt + i_amt
 
         scheme_rows.append({
             "scheme": sf.get("scheme", ""),
@@ -1174,26 +1185,46 @@ def compute_portfolio_segment_breakdown(funds: List[Dict[str, Any]]) -> Dict[str
             "debt_inr": d_amt,
             "equity_pct": eq,
             "equity_inr": e_amt,
+            "intl_pct": intl,
+            "intl_inr": i_amt,
+            "re_pct": re,
+            "re_inr": re_amt,
+            "other_pct": other,
+            "other_inr": o_amt,
             "provenance": sf.get("classification_source", "AMC Factsheet Look-Through"),
         })
 
     eq_pct = (eq_inr / total_val * 100.0) if total_val > 0 else 0.0
-    raw_debt_pct = (debt_inr / total_val * 100.0) if total_val > 0 else 0.0
     gold_pct = (gold_inr / total_val * 100.0) if total_val > 0 else 0.0
-    intl_pct = (intl_inr / total_val * 100.0) if total_val > 0 else 0.0
+    re_pct = (re_inr / total_val * 100.0) if total_val > 0 else 0.0
+    other_pct = (other_inr / total_val * 100.0) if total_val > 0 else 0.0
     lc_pct = (lc_inr / total_val * 100.0) if total_val > 0 else 0.0
     mc_pct = (mc_inr / total_val * 100.0) if total_val > 0 else 0.0
     sc_pct = (sc_inr / total_val * 100.0) if total_val > 0 else 0.0
-    # For SAA drift analysis, gold is part of the stability buffer (debt + gold)
+    # International exposure as % of total equity (not total portfolio)
+    intl_pct = (intl_inr / eq_inr * 100.0) if eq_inr > 0 else 0.0
+    # For SAA drift analysis, gold, re, and other are part of the stability buffer (debt + gold + re + other)
     # This ensures equity + stability = 100% for proper target comparison
-    debt_pct = raw_debt_pct + gold_pct
+    # Note: eq already includes intl, so we don't double-count it
+    stability_value = debt_inr + gold_inr + re_inr + other_inr
+    stability_pct = (stability_value / total_val * 100.0) if total_val > 0 else 0.0
+    # Normalize to ensure total = 100%
+    if total_val > 0:
+        total_allocated = eq_inr + stability_value
+        if total_allocated > 0 and abs(total_allocated - total_val) > 0.01:
+            # Normalize equity and stability to sum to 100%
+            eq_inr = eq_inr / total_allocated * total_val
+            stability_value = total_val - eq_inr
+            eq_pct = (eq_inr / total_val * 100.0)
+            stability_pct = 100.0 - eq_pct
+    debt_pct = stability_pct
 
     return {
         "total_value": total_val,
         "equity_value": round(eq_inr, 2),
         "equity_pct": round(eq_pct, 2),
-        "debt_value": round(debt_inr + gold_inr, 2),  # Include gold in debt value for SAA
-        "debt_pct": round(debt_pct, 2),  # Already includes gold
+        "debt_value": round(debt_inr + gold_inr + re_inr + other_inr, 2),  # Include gold, re, other in debt value for SAA
+        "debt_pct": round(debt_pct, 2),  # Already includes gold, re, other
         "large_cap_value": round(lc_inr, 2),
         "large_cap_pct": round(lc_pct, 2),
         "mid_cap_value": round(mc_inr, 2),
@@ -1202,8 +1233,12 @@ def compute_portfolio_segment_breakdown(funds: List[Dict[str, Any]]) -> Dict[str
         "small_cap_pct": round(sc_pct, 2),
         "gold_value": round(gold_inr, 2),
         "gold_pct": round(gold_pct, 2),
-        "intl_value": round(intl_inr, 2),
-        "intl_pct": round(intl_pct, 2),
+        "intl_value": round(intl_inr, 2),  # intl is part of eq
+        "intl_pct": round(intl_pct, 2),  # intl as % of total equity
+        "re_value": round(re_inr, 2),
+        "re_pct": round(re_pct, 2),
+        "other_value": round(other_inr, 2),
+        "other_pct": round(other_pct, 2),
         "scheme_rows": scheme_rows,
     }
 

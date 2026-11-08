@@ -186,3 +186,71 @@ def test_generate_fiduciary_sip_blueprint_robustness():
     assert res_malformed["reconciliation_valid"] is True
 
 
+def test_generate_fiduciary_sip_blueprint_uses_market_nominations():
+    """Verify SIP blueprint uses market-nominated funds when client has no matching fund categories.
+    
+    The dynamic selection should use the fund universe and selection rules to pick the best funds
+    based on criteria like lowest TER for large cap index, highest Sharpe for mid cap, etc.
+    """
+    # Case 1: No direct funds - should use market nominations
+    blueprint = generate_fiduciary_sip_blueprint(
+        monthly_budget_inr=25000.0,
+        funds=[],
+        target_saa=None,
+    )
+    assert blueprint["status"] == "DETERMINISTIC_SIP_READY"
+    
+    allocations = blueprint["allocations"]
+    assert len(allocations) == 3
+    
+    # Check that market-nominated funds are used for large cap
+    large_cap_alloc = next((a for a in allocations if a["sleeve"] == "Large-Cap Core Index"), None)
+    assert large_cap_alloc is not None
+    # Market nomination should be a valid index fund (Nifty/Sensex/Index in name or fallback)
+    scheme_name = large_cap_alloc["scheme_name"].upper()
+    assert "DIRECT" in scheme_name, "Should be Direct plan"
+    # Should contain index/nifty/sensex for large cap index fund
+    is_index_fund = any(kw in scheme_name for kw in ["INDEX", "NIFTY", "SENSEX"])
+    assert is_index_fund, f"Expected index fund, got: {large_cap_alloc['scheme_name']}"
+    
+    # Check debt allocation using dynamic selection
+    debt_alloc = next((a for a in allocations if a["sleeve"] == "Debt & Capital Preservation"), None)
+    assert debt_alloc is not None
+    # Should be a valid liquid/debt fund with Direct plan
+    assert "Direct" in debt_alloc["scheme_name"] or "DIRECT" in debt_alloc["scheme_name"].upper(), "Should be Direct plan"
+    # Dynamic selection should pick high-AUM debt fund - verify it has a valid name
+    assert len(debt_alloc["scheme_name"]) > 20, "Should have a proper scheme name"
+    
+    # Verify allocations are properly sized
+    total_allocated = sum(a["amount_inr"] for a in allocations)
+    # Should have reconciled to the budget (allowing for rounding)
+    assert abs(total_allocated - 25000) < 0.1, "Total allocation should match budget"
+
+
+def test_generate_fiduciary_sip_blueprint_confidence_score():
+    """Verify confidence score calculation reflects portfolio completeness."""
+    # High confidence: client has matching funds
+    funds_complete = [
+        {"scheme": "UTI Nifty 50 Index Fund - Direct Plan - Growth", "category": "Large Cap", "plan_type": "Direct", "current_value": 200000.0, "folio_no": "1111/01"},
+        {"scheme": "HDFC Mid Cap Fund - Direct Plan - Growth", "category": "Mid Cap", "plan_type": "Direct", "current_value": 100000.0, "folio_no": "2222/02"},
+        {"scheme": "ICICI Prudential Liquid Fund - Direct Plan - Growth", "category": "Debt", "plan_type": "Direct", "current_value": 100000.0, "folio_no": "3333/03"},
+    ]
+    blueprint_complete = generate_fiduciary_sip_blueprint(
+        monthly_budget_inr=25000.0,
+        funds=funds_complete,
+        target_saa={"large_cap_pct": 50.0, "mid_small_cap_pct": 25.0, "debt_pct": 25.0},
+    )
+    assert blueprint_complete["status"] == "DETERMINISTIC_SIP_READY"
+    assert blueprint_complete["sip_selection_confidence_pct"] >= 88.0  # No high/medium alerts
+    
+    # Lower confidence: client has no Direct plans (falls back to market nom)
+    blueprint_no_funds = generate_fiduciary_sip_blueprint(
+        monthly_budget_inr=25000.0,
+        funds=[],
+        target_saa={"large_cap_pct": 50.0, "mid_small_cap_pct": 25.0, "debt_pct": 25.0},
+    )
+    assert blueprint_no_funds["status"] == "DETERMINISTIC_SIP_READY"
+    # Confidence should be reduced due to no existing Direct plans
+    assert blueprint_no_funds["sip_selection_confidence_pct"] <= 65.0  # 100 - 35 = 65
+
+
