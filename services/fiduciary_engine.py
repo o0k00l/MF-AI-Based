@@ -5,12 +5,240 @@ and Financial Goals) into rigorous mathematical models and deterministic SAA pla
 """
 from __future__ import annotations
 
+import json
 from decimal import Decimal, ROUND_HALF_UP
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from core.math_engine import calculate_saa_drift, quantize_inr
 from core.models import AssetClass, HoldingItem, PlanType, SAADriftAnalysis
 from services.risk_profiler import TargetSaa, SebiRiskTier, RiskProfileResult
+
+
+# Market Nominations - Selection rules defined by category; actual funds selected dynamically from fund universe
+_MARKET_NOMINATIONS_PATH = Path(__file__).resolve().parent.parent / "data" / "policy" / "market_nominations.json"
+_SCHEME_MASTER_PATH = Path(__file__).resolve().parent.parent / "data" / "policy" / "scheme_master.json"
+
+
+def _load_market_nominations() -> Dict[str, Dict[str, Any]]:
+    """Load market nomination selection rules for SIP blueprint selection."""
+    try:
+        data = json.loads(_MARKET_NOMINATIONS_PATH.read_text(encoding="utf-8"))
+        return data.get("selection_rules", data)  # Handle both formats
+    except Exception:
+        # Fallback to embedded rules if file unavailable
+        return {
+            "large_cap_index": {
+                "category": "Large Cap",
+                "plan_type": "Direct",
+                "is_passive": True,
+                "sort_by": "ter_direct_pct",
+                "sort_order": "asc",
+            },
+            "mid_cap_active": {
+                "category": "Mid Cap",
+                "plan_type": "Direct",
+                "is_passive": False,
+                "sort_by": "sharpe_3y",
+                "sort_order": "desc",
+            },
+            "debt_liquid": {
+                "category": "Debt",
+                "plan_type": "Direct",
+                "is_passive": False,
+                "sort_by": "aum_crore",
+                "sort_order": "desc",
+            },
+        }
+
+
+def _load_fund_universe() -> List[Dict[str, Any]]:
+    """Load the unified fund universe from scheme_master.json for dynamic selection.
+    
+    Returns a list of fund dictionaries with metrics suitable for _select_market_nom_fund.
+    """
+    try:
+        data = json.loads(_SCHEME_MASTER_PATH.read_text(encoding="utf-8"))
+        schemes = data.get("schemes", {})
+        
+        # Transform scheme master format to fund universe format
+        fund_universe = []
+        for scheme_id, scheme_data in schemes.items():
+            # Get scheme name
+            scheme_name = scheme_data.get("canonical_name") or scheme_data.get("scheme_name") or scheme_id
+            
+            # Category inference: try category, cat, then infer from name
+            category = scheme_data.get("category") or scheme_data.get("cat") or ""
+            if not category:
+                # Infer category from scheme name
+                name_lower = scheme_name.lower()
+                if "index" in name_lower or ("nifty" in name_lower):
+                    category = "Index - Large Cap"
+                elif "mid cap" in name_lower or "emerging equity" in name_lower:
+                    category = "Mid Cap"
+                elif "large cap" in name_lower and "index" not in name_lower:
+                    category = "Large Cap"
+                elif "debt" in name_lower or "liquid" in name_lower:
+                    category = "Debt"
+            
+            # Get equity allocation - use portfolio_large_cap_pct or eq (total equity percentage)
+            # For the equity filter, we need total equity exposure, not just large cap
+            eq_pct = scheme_data.get("eq") or scheme_data.get("portfolio_large_cap_pct") or 0
+            
+            # For index funds with no explicit equity data, infer 100% for large cap index
+            # and 0% for non-equity indexes
+            name_lower = scheme_name.lower()
+            if eq_pct == 0:
+                if "index" in name_lower or "nifty 50" in name_lower:
+                    # Check if it's a debt/liquidity index
+                    if "debt" not in name_lower and "liquid" not in name_lower and "money market" not in name_lower:
+                        eq_pct = 100.0
+            
+            fund_entry = {
+                "scheme": scheme_name,
+                "id": scheme_id,
+                "category": category,
+                "plan_type": scheme_data.get("plan_type", "Direct"),
+                "is_passive": scheme_data.get("is_passive", False),
+                "ter_direct_pct": scheme_data.get("ter_direct_pct"),
+                "ter_regular_pct": scheme_data.get("ter_regular_pct"),
+                "aum_crore": scheme_data.get("aum_crore"),
+                "sharpe_3y": scheme_data.get("sharpe_3y"),
+                "alpha_3y": scheme_data.get("alpha_3y"),
+                "equity_pct": eq_pct,
+                "eq": eq_pct,
+                "debt": scheme_data.get("portfolio_debt_pct") or scheme_data.get("debt"),
+                "sc": scheme_data.get("portfolio_small_cap_pct") or scheme_data.get("sc"),
+                "mc": scheme_data.get("portfolio_mid_cap_pct") or scheme_data.get("mc"),
+            }
+            fund_universe.append(fund_entry)
+        
+        return fund_universe
+    except Exception:
+        return []
+
+
+def _select_market_nom_fund(
+    rules: Dict[str, Any],
+    fund_universe: List[Dict[str, Any]],
+    nom_key: str = "",
+) -> str:
+    """Dynamically select the best fund based on market nomination rules.
+    
+    Args:
+        rules: Selection rules including category, sort_by, sort_order, and filters
+        fund_universe: List of available funds with metrics (from fund_metrics.json or similar)
+        nom_key: The key identifying this nomination (for fallback)
+    
+    Returns:
+        Scheme name of the selected fund, or a safe fallback name
+    """
+    if not fund_universe:
+        # Return fallback if no universe available
+        fallback_map = {
+            "large_cap_index": "Nippon India Index Nifty 50 - Direct Plan - Growth",
+            "mid_cap_active": "Mirae Asset Tax Saver Fund - Direct Plan - Growth",
+            "debt_liquid": "Axis Liquid Fund - Direct Plan - Growth",
+            "equity_generic": "HDFC Flexi Cap Fund - Direct Plan - Growth",
+        }
+        return fallback_map.get(nom_key, "Selected Fund - Direct Plan - Growth")
+    
+    category = rules.get("category", "")
+    is_passive = rules.get("is_passive", False)
+    sort_by = rules.get("sort_by", "aum_crore")
+    sort_order = rules.get("sort_order", "desc")
+    
+    # Filter funds by category and plan type
+    filtered = []
+    for fund in fund_universe:
+        fund_cat = fund.get("category", "") or fund.get("cat", "")
+        
+        # Match category (case-insensitive, handle variations)
+        if isinstance(fund_cat, str):
+            cat_match = category.lower() in fund_cat.lower()
+        else:
+            cat_match = False
+        
+        if not cat_match:
+            continue
+        
+        # Apply plan type filter
+        rule_plan_type = rules.get("plan_type", "Direct")
+        fund_plan_type = fund.get("plan_type", "Direct")
+        if fund_plan_type and rule_plan_type and rule_plan_type.lower() not in str(fund_plan_type).lower():
+            continue
+        
+        # Apply TER filter for all categories
+        ter = fund.get("ter_direct_pct")
+        max_ter = rules.get("max_ter_pct", 1.0)
+        if ter is not None and ter > max_ter:
+            continue
+        
+        # Apply equity exposure filter for large cap index
+        equity_pct_min = rules.get("equity_pct_min", 0)
+        if equity_pct_min > 0:
+            eq = fund.get("eq", fund.get("portfolio_large_cap_pct", 0)) or 0
+            if eq < equity_pct_min:
+                continue
+        
+        # Apply Sharpe filter for mid-cap active
+        if sort_by == "sharpe_3y":
+            sharpe = fund.get("sharpe_3y")
+            min_sharpe = rules.get("min_sharpe", 0.0)
+            if sharpe is None or (isinstance(sharpe, (int, float)) and sharpe < min_sharpe):
+                continue
+            alpha = fund.get("alpha_3y")
+            min_alpha = rules.get("min_alpha", -10.0)
+            if alpha is not None and (isinstance(alpha, (int, float)) and alpha < min_alpha):
+                continue
+        
+        # Apply AUM filter for debt/liquid funds
+        if sort_by == "aum_crore":
+            aum = fund.get("aum_crore")
+            min_aum = rules.get("min_aum_crore", 0)
+            if aum is None:
+                continue
+            if aum < min_aum:
+                continue
+        
+        # For passive funds, check if it's an index fund
+        if is_passive:
+            fund_name = fund.get("scheme", fund.get("id", "")).lower()
+            if "index" not in fund_name and "nifty" not in fund_name and "sensex" not in fund_name:
+                continue
+        
+        filtered.append(fund)
+    
+    if not filtered:
+        fallback_map = {
+            "large_cap_index": "Nippon India Index Nifty 50 - Direct Plan - Growth",
+            "mid_cap_active": "Mirae Asset Tax Saver Fund - Direct Plan - Growth",
+            "debt_liquid": "Axis Liquid Fund - Direct Plan - Growth",
+            "equity_generic": "HDFC Flexi Cap Fund - Direct Plan - Growth",
+        }
+        return fallback_map.get(nom_key, "Selected Fund - Direct Plan - Growth")
+    
+    # Sort by the specified metric
+    reverse = sort_order == "desc"
+    try:
+        def sort_key(f):
+            val = f.get(sort_by)
+            if val is None:
+                # For ascending sort (lowest first), None should be at the end
+                # For descending sort (highest first), None should be at the end
+                return float('inf')
+            return val
+        
+        filtered.sort(key=sort_key, reverse=reverse)
+        # Get scheme name from the best fund
+        best = filtered[0]
+        scheme_name = best.get("scheme") or best.get("canonical_name") or best.get("id", "Selected Fund")
+        # Ensure Direct plan
+        if "Direct" not in scheme_name and "Direct Plan" not in scheme_name:
+            scheme_name = scheme_name + " - Direct Plan - Growth"
+        return scheme_name
+    except Exception:
+        return filtered[0].get("scheme", "Selected Fund - Direct Plan - Growth")
 
 
 def convert_cas_funds_to_holdings(funds: List[Dict[str, Any]]) -> List[HoldingItem]:
@@ -194,26 +422,75 @@ def generate_fiduciary_sip_blueprint(
     ]
     allocations = []
 
+    # Load market-nominated funds for fallback selection
+    market_noms = _load_market_nominations()
+    
+    # Load fund universe for dynamic selection
+    fund_universe = _load_fund_universe()
+
     def _match_kw(f_obj: Dict[str, Any], kws: List[str]) -> bool:
         s_name = str(f_obj.get("scheme") or "").lower()
         return any(k in s_name for k in kws)
 
+    def _get_market_nom_fund(nom_key: str, default_scheme: str, fund_universe_list: List[Dict[str, Any]] = None) -> str:
+        """Get scheme name from market nominations using dynamic selection logic."""
+        rules = market_noms.get(nom_key, {})
+        if fund_universe_list:
+            # Use dynamic selection from fund universe
+            return _select_market_nom_fund(rules, fund_universe_list, nom_key)
+        # Fallback to embedded selection rules or default scheme
+        return rules.get("scheme", default_scheme)
+
     if direct_funds:
-        # Match schemes to sleeves
-        lc_fund = next((f for f in direct_funds if _match_kw(f, ["large", "index", "nifty"])), None)
-        ms_fund = next((f for f in direct_funds if _match_kw(f, ["mid", "small"])), None)
+        # Match schemes to sleeves - prioritize client's existing funds
+        # Strategy: Prefer pure category funds over blended category funds
+        
+        # Large Cap: first look for pure large cap/index funds, then fallback
+        lc_pure = next((
+            f for f in direct_funds 
+            if _match_kw(f, ["index", "nifty"]) or 
+               (str(f.get("category", "")).lower() == "large cap")
+        ), None)
+        lc_blended = next((
+            f for f in direct_funds 
+            if "large & mid" in str(f.get("scheme", "")).lower()
+        ), None)
+        lc_fund = lc_pure or lc_blended
+        
+        # Mid/Small-Cap: prefer mid cap/small cap, exclude pure large cap index
+        ms_fund = next((
+            f for f in direct_funds 
+            if str(f.get("category", "")).lower() in ["mid cap", "small cap"]
+        ), None)
+        
+        # Debt: match by category or keywords
         db_fund = next((f for f in direct_funds if str(f.get("category") or "") == "Debt" or _match_kw(f, ["liquid", "arbitrage", "money market"])), None)
 
         # Fallbacks for equity sleeves if specific cap categories not held
         if not lc_fund:
-            lc_fund = next((f for f in direct_funds if str(f.get("category") or "") == "Equity"), None)
+            # Use any Direct equity fund
+            lc_fund = next((
+                f for f in direct_funds 
+                if f != ms_fund and str(f.get("category") or "") in ["Equity", "Large Cap", "Mid Cap"] and
+                   str(f.get("plan_type") or "Direct").upper() == "DIRECT"
+            ), None)
         if not ms_fund:
-            ms_fund = next((f for f in direct_funds if f != lc_fund and str(f.get("category") or "") == "Equity"), None)
+            # Use any other Direct equity fund for mid/small cap (different from lc_fund)
+            ms_fund = next((
+                f for f in direct_funds 
+                if f != lc_fund and str(f.get("category") or "") in ["Equity", "Mid Cap", "Large Cap", "Large & Mid Cap"] and
+                   str(f.get("plan_type") or "Direct").upper() == "DIRECT"
+            ), None)
 
         # Large-Cap Sleeve
         if lc_target > Decimal("0.00"):
-            s_name = lc_fund.get("scheme") if lc_fund else "Nifty 50 Index Fund (Direct - Growth)"
-            f_num = lc_fund.get("folio_no", "Existing Direct Folio") if lc_fund else "New Direct Folio Mandate"
+            # Use client's fund, or dynamically select from fund universe
+            selected_fund = lc_fund
+            if not lc_fund:
+                selected_name = _get_market_nom_fund("large_cap_index", "UTI Nifty 50 Index Fund - Direct Plan - Growth", fund_universe)
+                selected_fund = {"scheme": selected_name, "folio_no": "New Direct Folio Mandate"}
+            s_name = selected_fund.get("scheme")
+            f_num = selected_fund.get("folio_no", "Existing Direct Folio") if selected_fund.get("folio_no") != "New Direct Folio Mandate" else "New Direct Folio Mandate"
             allocations.append({
                 "sleeve": "Large-Cap Core Index",
                 "scheme_name": s_name,
@@ -221,13 +498,18 @@ def generate_fiduciary_sip_blueprint(
                 "amount_inr": lc_target,
                 "allocation_pct": float(lc_pct),
                 "plan_type": "Direct-Growth",
-                "rationale": "Anchor core equity compounding in lowest-cost Direct large cap index scheme (0.20% TER).",
+                "rationale": "Anchor core equity compounding in lowest-cost Direct large cap index scheme.",
             })
 
         # Mid/Small-Cap Sleeve
         if ms_target > Decimal("0.00"):
-            s_name = ms_fund.get("scheme") if ms_fund else "Active Quality Mid/Small Cap Fund (Direct - Growth)"
-            f_num = ms_fund.get("folio_no", "Existing Direct Folio") if ms_fund else "New Direct Folio Mandate"
+            # Use client's fund, or dynamically select from fund universe
+            selected_fund = ms_fund
+            if not ms_fund:
+                selected_name = _get_market_nom_fund("mid_cap_active", "HDFC Mid Cap Fund - Direct Plan - Growth", fund_universe)
+                selected_fund = {"scheme": selected_name, "folio_no": "New Direct Folio Mandate"}
+            s_name = selected_fund.get("scheme")
+            f_num = selected_fund.get("folio_no", "Existing Direct Folio") if selected_fund.get("folio_no") != "New Direct Folio Mandate" else "New Direct Folio Mandate"
             allocations.append({
                 "sleeve": "Mid/Small-Cap Alpha",
                 "scheme_name": s_name,
@@ -235,13 +517,18 @@ def generate_fiduciary_sip_blueprint(
                 "amount_inr": ms_target,
                 "allocation_pct": float(ms_pct),
                 "plan_type": "Direct-Growth",
-                "rationale": "Long-term alpha accumulation aligned with investor risk tolerance without distributor trail drag.",
+                "rationale": "Long-term alpha accumulation aligned with investor risk tolerance.",
             })
 
-        # Debt Sleeve (Strict Fiduciary Separation: Pure Debt/Liquid only, NEVER route debt into hybrid equity)
+        # Debt Sleeve (Strict Fiduciary Separation: Pure Debt/Liquid only)
         if db_target > Decimal("0.00"):
-            s_name = db_fund.get("scheme") if db_fund else "Liquid / Capital Preservation Fund (Direct - Growth)"
-            f_num = db_fund.get("folio_no", "Existing Direct Folio") if db_fund else "New Direct Folio Mandate"
+            # Use client's fund, or dynamically select from fund universe
+            selected_fund = db_fund
+            if not db_fund:
+                selected_name = _get_market_nom_fund("debt_liquid", "ICICI Prudential Liquid Fund - Direct Plan - Growth", fund_universe)
+                selected_fund = {"scheme": selected_name, "folio_no": "New Direct Folio Mandate"}
+            s_name = selected_fund.get("scheme")
+            f_num = selected_fund.get("folio_no", "Existing Direct Folio") if selected_fund.get("folio_no") != "New Direct Folio Mandate" else "New Direct Folio Mandate"
             allocations.append({
                 "sleeve": "Debt & Capital Preservation",
                 "scheme_name": s_name,
@@ -249,14 +536,19 @@ def generate_fiduciary_sip_blueprint(
                 "amount_inr": db_target,
                 "allocation_pct": float(db_pct),
                 "plan_type": "Direct-Growth",
-                "rationale": "Statutory capital preservation floor (100% Sovereign T-Bills/Repo). Dedicated liquid buffer separate from equities.",
+                "rationale": "Statutory capital preservation floor (100% Sovereign T-Bills/Repo).",
             })
     else:
-        # Client has no Direct schemes yet (or 100% regular) — provide canonical sleeve blueprint
+        # Client has no Direct schemes yet (or 100% regular) — provide canonical sleeve blueprint with market nominations
+        # Use dynamic selection from fund universe
+        market_lc = _get_market_nom_fund("large_cap_index", "UTI Nifty 50 Index Fund - Direct Plan - Growth", fund_universe)
+        market_ms = _get_market_nom_fund("mid_cap_active", "HDFC Mid Cap Fund - Direct Plan - Growth", fund_universe)
+        market_db = _get_market_nom_fund("debt_liquid", "ICICI Prudential Liquid Fund - Direct Plan - Growth", fund_universe)
+        
         if lc_target > Decimal("0.00"):
             allocations.append({
                 "sleeve": "Large-Cap Core Index",
-                "scheme_name": "Nifty 50 Index Fund (Direct - Growth)",
+                "scheme_name": market_lc,
                 "folio_no": "New Direct Folio Mandate",
                 "amount_inr": lc_target,
                 "allocation_pct": float(lc_pct),
@@ -266,7 +558,7 @@ def generate_fiduciary_sip_blueprint(
         if ms_target > Decimal("0.00"):
             allocations.append({
                 "sleeve": "Mid/Small-Cap Alpha",
-                "scheme_name": "Active Quality Mid/Small Cap Fund (Direct - Growth)",
+                "scheme_name": market_ms,
                 "folio_no": "New Direct Folio Mandate",
                 "amount_inr": ms_target,
                 "allocation_pct": float(ms_pct),
@@ -276,7 +568,7 @@ def generate_fiduciary_sip_blueprint(
         if db_target > Decimal("0.00"):
             allocations.append({
                 "sleeve": "Debt & Capital Preservation",
-                "scheme_name": "Liquid / Money Market Fund (Direct - Growth)",
+                "scheme_name": market_db,
                 "folio_no": "New Direct Folio Mandate",
                 "amount_inr": db_target,
                 "allocation_pct": float(db_pct),
@@ -302,8 +594,17 @@ def generate_fiduciary_sip_blueprint(
     # Portfolio Completion Alerts & Scheme Replacements
     # Returns structured alerts with slot/action for proper display
     completion_alerts: List[dict] = []
-    has_large = any(_match_kw(f, ["large", "index", "nifty"]) for f in (direct_funds or []))
-    has_mid_small = any(_match_kw(f, ["mid", "small"]) for f in (direct_funds or []))
+    
+    # Consistent detection with fund selection logic
+    has_large = any(
+        (f.get("category", "").lower() in ["large cap", "index - large cap", "equity"] or 
+         _match_kw(f, ["index", "nifty"])) 
+        for f in (direct_funds or [])
+    )
+    has_mid_small = any(
+        f.get("category", "").lower() in ["mid cap", "small cap"] 
+        for f in (direct_funds or [])
+    )
     has_debt = any(str(f.get("category") or "") == "Debt" or _match_kw(f, ["liquid", "arbitrage", "money market"]) for f in (direct_funds or []))
     regular_count = sum(1 for f in (funds or []) if str(f.get("plan_type", "Direct")).strip().upper() == "REGULAR")
 
@@ -346,16 +647,58 @@ def generate_fiduciary_sip_blueprint(
         f"{db_pct:.0f}% Debt/Liquid Buffer (Capital stability) in strict compliance with your target SAA."
     )
 
+    # Compute SIP Selection Confidence Score
+    # Factors: 1) Direct plans present, 2) Sleeve completeness, 3) No regular plan migration needed
+    confidence_score = 100.0
+    confidence_baselines = ["Direct plan baseline established", "All fiduciary sleeves present", "No Regular-to-Direct migration pending"]
+    
+    if not direct_funds:
+        confidence_score -= 35.0
+        confidence_baselines = ["No existing Direct plans"]
+    elif len(completion_alerts) >= 1:
+        # Each alert reduces confidence proportionally
+        high_alerts = sum(1 for a in completion_alerts if a.get("severity") == "HIGH")
+        medium_alerts = sum(1 for a in completion_alerts if a.get("severity") == "MEDIUM")
+        confidence_score -= (high_alerts * 12.0 + medium_alerts * 5.0)
+    
+    # Cap at reasonable range
+    confidence_score = max(45.0, min(100.0, confidence_score))
+
+    # Build UI-compatible recommendations format
+    recommendations = []
+    for alloc in allocations:
+        sleeve = alloc.get("sleeve", "")
+        # Map sleeve to category
+        if "Large-Cap" in sleeve or "Core" in sleeve:
+            category = "Large Cap / Index"
+        elif "Mid" in sleeve or "Small" in sleeve or "Alpha" in sleeve:
+            category = "Mid/Small Cap"
+        elif "Debt" in sleeve or "Liquid" in sleeve or "Capital Preservation" in sleeve:
+            category = "Debt / Liquid"
+        else:
+            category = "Equity"
+        
+        recommendations.append({
+            "slot_name": sleeve,
+            "scheme_name": alloc.get("scheme_name", "N/A"),
+            "category": category,
+            "plan_type": alloc.get("plan_type", "Direct-Growth"),
+            "monthly_allocation_inr": float(alloc.get("amount_inr", 0)),
+            "allocation_pct": float(alloc.get("allocation_pct", 0)),
+        })
+
     return {
         "status": "DETERMINISTIC_SIP_READY",
         "monthly_budget_inr": budget_dec,
         "allocated_budget_inr": total_allocated,
         "unallocated_budget_inr": unallocated,
         "allocations": allocations,
+        "recommendations": recommendations,
         "reconciliation_valid": abs(unallocated) <= Decimal("0.01"),
         "optimal_tranche_timing": optimal_tranche_timing,
         "portfolio_completion_alerts": completion_alerts,
         "fiduciary_routing_rationale": routing_rationale,
+        "sip_selection_confidence_pct": confidence_score,
     }
 
 

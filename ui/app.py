@@ -420,7 +420,17 @@ with tab_audit:
         prov = seg_info.get("provenance", "AMC Factsheet")
         
         # Get numeric current value for sorting
-        current_val_num = float(f.get('current_value', 0))
+        # Handle both numeric values and formatted strings (e.g., "1,23,456.78" or "₹1,23,456")
+        current_val_raw = f.get('current_value', 0) or 0
+        try:
+            if isinstance(current_val_raw, str):
+                # Remove currency symbols, commas, and whitespace
+                current_val_clean = current_val_raw.replace('₹', '').replace(',', '').strip()
+                current_val_num = float(current_val_clean) if current_val_clean else 0.0
+            else:
+                current_val_num = float(current_val_raw)
+        except (ValueError, TypeError, AttributeError):
+            current_val_num = 0.0
 
         table_data.append({
             "Scheme Name": f.get("scheme", ""),
@@ -684,11 +694,15 @@ with tab_blueprint:
         if sip_res.get("portfolio_completion_alerts"):
             for al in sip_res["portfolio_completion_alerts"]:
                 if al and isinstance(al, dict):
-                    slot = al.get('slot', 'Unknown Slot')
-                    action = al.get('action', 'Review recommended')
-                    severity = al.get('severity', 'MEDIUM')
-                    emoji = "🔴" if severity == "HIGH" else ("🟡" if severity == "MEDIUM" else "⚪")
-                    st.warning(f"{emoji} **{slot}** - {action}")
+                    try:
+                        slot = al.get('slot', 'Unknown Slot') or 'Unknown Slot'
+                        action = al.get('action', 'Review recommended') or 'Review recommended'
+                        severity = al.get('severity', 'MEDIUM') or 'MEDIUM'
+                        emoji = "🔴" if severity == "HIGH" else ("🟡" if severity == "MEDIUM" else "⚪")
+                        st.warning(f"{emoji} **{slot}** - {action}")
+                    except (AttributeError, TypeError) as e:
+                        st.warning(f"⚠️ Alert processing error: {str(e)}")
+                        st.caption(f"Raw alert data: {al}")
 
         st.markdown("| Mandate Slot | Scheme Recommendation | Category | Plan | Monthly SIP | Allocation |")
         st.markdown("| :--- | :--- | :--- | :--- | :--- | :--- |")
@@ -698,8 +712,23 @@ with tab_blueprint:
                 scheme_name = rec.get('scheme_name', 'N/A')
                 category = rec.get('category', 'N/A')
                 plan_type = rec.get('plan_type', 'N/A')
-                monthly_alloc = float(rec.get('monthly_allocation_inr', 0))
-                alloc_pct = float(rec.get('allocation_pct', 0))
+                # Handle potential string values with commas
+                try:
+                    monthly_alloc_raw = rec.get('monthly_allocation_inr', 0)
+                    if isinstance(monthly_alloc_raw, str):
+                        monthly_alloc = float(monthly_alloc_raw.replace(',', '').replace('₹', '').strip())
+                    else:
+                        monthly_alloc = float(monthly_alloc_raw or 0)
+                except (ValueError, TypeError):
+                    monthly_alloc = 0.0
+                try:
+                    alloc_pct_raw = rec.get('allocation_pct', 0)
+                    if isinstance(alloc_pct_raw, str):
+                        alloc_pct = float(alloc_pct_raw.replace(',', '').strip())
+                    else:
+                        alloc_pct = float(alloc_pct_raw or 0)
+                except (ValueError, TypeError):
+                    alloc_pct = 0.0
                 st.markdown(f"| {slot_name} | **{scheme_name}** | {category} | {plan_type} | ₹{monthly_alloc:,.0f} | {alloc_pct:.1f}% |")
 
     st.markdown("---")

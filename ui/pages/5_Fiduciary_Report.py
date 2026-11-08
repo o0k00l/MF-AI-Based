@@ -19,6 +19,7 @@ import streamlit as st
 from services.sidebar import render_fiduciary_sidebar
 from services.fiduciary_engine import evaluate_portfolio_saa_audit, generate_fiduciary_sip_blueprint
 from services.ai_fund_classifier import enrich_funds_with_ai, generate_fiduciary_ai_narrative
+from services.report_generator import generate_fiduciary_pdf_report, build_report_data
 
 # --- Page Configuration ---
 st.set_page_config(
@@ -62,6 +63,7 @@ if not goals_alloc:
         lc_val = float(next((a["amount_inr"] for a in bp.get("allocations", []) if "Large" in a.get("sleeve", "")), 0.0))
         ms_val = float(next((a["amount_inr"] for a in bp.get("allocations", []) if "Mid" in a.get("sleeve", "")), 0.0))
         db_val = float(next((a["amount_inr"] for a in bp.get("allocations", []) if "Debt" in a.get("sleeve", "")), 0.0))
+        sip_confidence = bp.get("sip_selection_confidence_pct", 100.0)
         goals_alloc = {
             "goals": {
                 "sip_plan": {
@@ -77,6 +79,7 @@ if not goals_alloc:
             "total_required": float(bp["monthly_budget_inr"]),
             "total_allocated": float(bp["allocated_budget_inr"]),
             "total_gap": float(bp["unallocated_budget_inr"]),
+            "sip_selection_confidence_pct": sip_confidence,
             "surplus": 0.0,
             "use_step_up": False,
             "asset_sleeves": {
@@ -105,7 +108,7 @@ else:
     st.success("✅ All advisory milestones complete! Your review report is ready.")
 
     # High-level Summary
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3, col4 = st.columns(4)
     with col1:
         st.metric("Total Portfolio Value", f"₹{total_val:,.0f}")
     with col2:
@@ -113,6 +116,10 @@ else:
     with col3:
         sip_budget = goals_alloc.get("total_allocated", 0)
         st.metric("Monthly SIP Budget", f"₹{sip_budget:,.0f}/mo")
+    with col4:
+        sip_confidence = goals_alloc.get("sip_selection_confidence_pct", 100.0)
+        confidence_color = "green" if sip_confidence >= 80 else ("orange" if sip_confidence >= 60 else "red")
+        st.metric("SIP Confidence", f"{sip_confidence:.0f}%", delta=None, help="Confidence score based on portfolio completeness and fund alignment")
 
     # Group by canonical underlying strategy
     canonical_portfolio = {}
@@ -379,4 +386,60 @@ else:
             mime="text/html",
             use_container_width=True,
         )
+        
+        # PDF Download Button
+        if st.button("📥 Generate & Download Fiduciary Report (PDF)", type="primary", use_container_width=True):
+            with st.spinner("Generating professional PDF report..."):
+                # Build report data from session state
+                sip_plan = st.session_state.get("deterministic_sip_plan", {})
+                saa_analysis = st.session_state.get("saa_audit", {})
+                lumpsum_plan = st.session_state.get("deterministic_lumpsum_plan", {})
+                monte_carlo = st.session_state.get("monte_carlo_results", {})
+                
+                # Convert SIP plan to expected format
+                if sip_plan and "allocations" in sip_plan:
+                    recommendations = []
+                    for alloc in sip_plan.get("allocations", []):
+                        amt = alloc.get("amount_inr", 0)
+                        if isinstance(amt, str):
+                            amt = float(amt) if amt else 0.0
+                        recommendations.append({
+                            "slot_name": alloc.get("sleeve", ""),
+                            "scheme_name": alloc.get("scheme_name", ""),
+                            "category": alloc.get("category", ""),
+                            "plan_type": "Direct-Growth",
+                            "monthly_allocation_inr": amt,
+                            "allocation_pct": (amt / sip_plan.get("monthly_budget_inr", 1)) * 100 if sip_plan.get("monthly_budget_inr", 0) > 0 else 0,
+                        })
+                    sip_plan = {
+                        "status": "DETERMINISTIC_SIP_READY",
+                        "monthly_budget_inr": sip_plan.get("monthly_budget_inr", 0),
+                        "allocated_budget_inr": sip_plan.get("allocated_budget_inr", 0),
+                        "unallocated_budget_inr": sip_plan.get("unallocated_budget_inr", 0),
+                        "recommendations": recommendations,
+                        "optimal_tranche_timing": sip_plan.get("optimal_tranche_timing", {}),
+                        "portfolio_completion_alerts": sip_plan.get("portfolio_completion_alerts", []),
+                        "fiduciary_routing_rationale": sip_plan.get("fiduciary_routing_rationale", ""),
+                    }
+                
+                report_data = build_report_data(
+                    portfolio=portfolio,
+                    saa_analysis=saa_analysis,
+                    sip_plan=sip_plan,
+                    lumpsum_plan=lumpsum_plan,
+                    monte_carlo=monte_carlo,
+                    client_name=st.session_state.get("client_name", "Confidential Client"),
+                    risk_tier=risk_tier,
+                )
+                
+                pdf_bytes = generate_fiduciary_pdf_report(report_data)
+                
+                st.download_button(
+                    "⬇️ Download PDF Report",
+                    data=pdf_bytes,
+                    file_name="Executive_Fiduciary_Report.pdf",
+                    mime="application/pdf",
+                    use_container_width=True,
+                )
+                st.success("PDF report generated successfully!")
 
