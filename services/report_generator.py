@@ -3,12 +3,17 @@ Professional PDF Report Generator for Fiduciary Advisory Reports.
 
 Generates compliant, branded PDF reports from portfolio analysis data
 using reportlab for pixel-perfect output suitable for client delivery.
+
+Includes cryptographic provenance: UTC timestamp and SHA-256 payload hash
+in footer for regulatory audit trail and data integrity verification.
 """
 
 from __future__ import annotations
 
+import hashlib
 import io
-from datetime import date, datetime
+import json
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Any
 
@@ -560,19 +565,58 @@ def _build_monte_carlo(story, styles, data):
         story.append(Paragraph(f"<b>Guidance:</b> {action}", styles["BodyText"]))
     story.append(Spacer(1, 0.3*cm))
 
+def _generate_provenance_hash(data: dict[str, Any]) -> str:
+    """Generate a SHA-256 hash of report data for cryptographic integrity verification.
+    
+    The hash is computed over canonical JSON serialization with sorted keys,
+    providing proof of data integrity at report generation time for regulatory audit trail.
+    
+    Returns first 16 hex characters for compact footer display.
+    """
+    payload_str = json.dumps(data, sort_keys=True, default=str, ensure_ascii=False)
+    return hashlib.sha256(payload_str.encode('utf-8')).hexdigest()[:16]
 
-def _build_fiduciary_disclosures(story, styles, data):
+
+def _draw_page_with_provenance(canvas, doc, payload_hash: str):
+    """Page footer callback with UTC timestamp and payload integrity hash.
+    
+    Provides regulatory audit trail showing:
+    - Report run timestamp (UTC) for temporal verification
+    - Payload hash for data integrity verification
+    """
+    canvas.saveState()
+    canvas.setFont("Helvetica", 7)
+    canvas.setFillColor(colors.HexColor("#718096"))
+    
+    run_timestamp = datetime.now(timezone.utc).isoformat()
+    
+    # Left: Hash & Legal
+    canvas.drawString(
+        72, 20,
+        f"Integrity Hash: {payload_hash} | Non-executable analysis · Subject to human review"
+    )
+    # Right: Timestamp & Pagination
+    canvas.drawRightString(
+        523, 20,
+        f"Run: {run_timestamp[:19]}Z | Page {doc.page}"
+    )
+    canvas.restoreState()
+
+
+def _build_fiduciary_disclosures(story, styles, data, payload_hash=None):
     story.append(PageBreak())
     story.append(Paragraph("7. Fiduciary Disclosures & Compliance Statement", styles["SectionHeader"]))
     story.append(HRFlowable(width="100%", thickness=1, color=MEDIUM_BLUE, spaceAfter=0.5*cm))
     
+    # Build disclosures with integrity hash
+    integrity_info = f"Integrity Hash: {payload_hash or 'N/A'} · " if payload_hash else ""
     disclosures = [
         ("Statutory Mandate", "SEBI (Investment Advisers) Regulations, 2013 \u2014 Regulation 15(1) & Schedule III Code of Conduct."),
         ("Direct Plan Enforcement", "All proposed switches and SIP allocations strictly mandate Direct Plans to eliminate intermediary commissions and distributor trail leakage."),
         ("Conflict of Interest Prohibition", "The adviser receives zero consideration, referral fees, or commissions from any Asset Management Company (AMC) or intermediary."),
         ("Non-Execution Authority", "The adviser operates solely on a fee-only, non-execution advisory basis; order execution remains exclusively in client control via MFCentral, AMC portals, or RTAs."),
         ("Fee Transparency", "Advisory fees are agreed in writing upfront, deducted only from client\\'s bank account \u2014 never from portfolio assets."),
-        ("Data Provenance", f"Portfolio data sourced from CAS (CAMS/Karvy) with integrity verification. Report generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC."),
+        ("Data Provenance", f"{integrity_info}Portfolio data sourced from CAS (CAMS/Karvy) with integrity verification. Report generated: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')} UTC."),
     ]
     
     for title, text in disclosures:
@@ -585,8 +629,11 @@ def _build_fiduciary_disclosures(story, styles, data):
 
 
 def generate_fiduciary_pdf_report(data: dict[str, Any]) -> bytes:
-    """Generate a professional PDF fiduciary report from portfolio analysis data."""
+    """Generate a professional PDF fiduciary report from portfolio analysis data with cryptographic provenance."""
     buffer = io.BytesIO()
+    
+    # Compute provenance hash for audit trail
+    payload_hash = _generate_provenance_hash(data)
     
     doc = BaseDocTemplate(
         buffer,
@@ -605,8 +652,11 @@ def generate_fiduciary_pdf_report(data: dict[str, Any]) -> bytes:
     frame_cover = Frame(doc.leftMargin, doc.bottomMargin, doc.width, doc.height, id="cover")
     frame_content = Frame(doc.leftMargin, doc.bottomMargin, doc.width, doc.height, id="content")
     
-    cover_template = PageTemplate(id="cover", frames=[frame_cover])
-    content_template = PageTemplate(id="content", frames=[frame_content])
+    # Create provenance callback for footer
+    canvas_factory = lambda c, d: _draw_page_with_provenance(c, d, payload_hash)
+    
+    cover_template = PageTemplate(id="cover", frames=[frame_cover], onPage=canvas_factory)
+    content_template = PageTemplate(id="content", frames=[frame_content], onPage=canvas_factory)
     
     doc.addPageTemplates([cover_template, content_template])
     
@@ -622,99 +672,13 @@ def generate_fiduciary_pdf_report(data: dict[str, Any]) -> bytes:
     _build_sip_blueprint(story, styles, data)
     _build_lumpsum_plan(story, styles, data)
     _build_monte_carlo(story, styles, data)
-    _build_fiduciary_disclosures(story, styles, data)
+    _build_fiduciary_disclosures(story, styles, data, payload_hash)
     
+    # Build with provenance-enabled footer
     doc.build(story)
     
     pdf_bytes = buffer.getvalue()
     buffer.close()
     return pdf_bytes
 
-
-def generate_fiduciary_html_report(data: dict[str, Any]) -> str:
-    """Generate an HTML version of the fiduciary report for web viewing."""
-    portfolio = data.get("portfolio", [])
-    total_value = data.get("portfolio_value_inr", sum(float(h.get("current_value_inr", 0)) for h in portfolio))
-    saa = data.get("saa_analysis", {})
-    sip_plan = data.get("sip_plan", {})
-    mc = data.get("monte_carlo", {})
-    
-    html = f"""<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Executive Fiduciary Report</title>
-    <style>
-        body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 900px; margin: 0 auto; padding: 40px 20px; line-height: 1.6; color: #1e293b; background: #fff; }}
-        .cover {{ text-align: center; padding: 80px 0; background: linear-gradient(135deg, #0f172a 0%, #1e3a8a 100%); color: white; margin: -40px -20px 40px -20px; }}
-        .cover h1 {{ font-size: 2.5rem; margin-bottom: 1rem; }}
-        .cover p {{ font-size: 1.2rem; opacity: 0.9; }}
-        .badge {{ display: inline-block; background: #f59e0b; color: #0f172a; padding: 4px 12px; border-radius: 4px; font-size: 0.8rem; font-weight: 600; margin-top: 20px; }}
-        h2 {{ color: #0f172a; border-bottom: 2px solid #2563eb; padding-bottom: 8px; margin-top: 40px; }}
-        h3 {{ color: #1e3a8a; margin-top: 24px; }}
-        table {{ width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 0.9rem; }}
-        th {{ background: #1e293b; color: white; padding: 10px 8px; text-align: left; font-weight: 600; }}
-        td {{ padding: 8px; border-bottom: 1px solid #e2e8f0; }}
-        tr:nth-child(even) td {{ background: #f8fafc; }}
-        tr.total td {{ font-weight: bold; background: #e8eef7; }}
-        .metric-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin: 20px 0; }}
-        .metric-card {{ background: #f1f5f9; padding: 16px; border-radius: 8px; }}
-        .metric-label {{ font-size: 0.85rem; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; }}
-        .metric-value {{ font-size: 1.5rem; font-weight: 700; color: #0f172a; }}
-        .alert {{ padding: 12px 16px; border-radius: 6px; margin: 8px 0; }}
-        .alert-high {{ background: #fef2f2; border-left: 4px solid #ef4444; }}
-        .alert-medium {{ background: #fffbeb; border-left: 4px solid #f59e0b; }}
-        .alert-low {{ background: #f0fdf4; border-left: 4px solid #10b981; }}
-        .disclaimer {{ margin-top: 40px; padding: 20px; background: #f8fafc; border-radius: 8px; font-size: 0.8rem; color: #64748b; border: 1px solid #e2e8f0; }}
-        .footer {{ margin-top: 40px; text-align: center; color: #94a3b8; font-size: 0.8rem; }}
-    </style>
-</head>
-<body>
-    <div class="cover">
-        <h1>Executive Fiduciary Report</h1>
-        <p>Comprehensive Portfolio Diagnostic & Investment Advisory</p>
-        <p>Prepared for: <strong>{data.get('client_name', 'Confidential Client')}</strong></p>
-        <p>Report Date: {data.get('report_date', date.today().strftime('%B %d, %Y'))}</p>
-        <p>Portfolio Value: <strong>{_fmt_inr(total_value)}</strong></p>
-        <span class="badge">SEBI RIA \u2022 Fee-Only Fiduciary Standard</span>
-    </div>
-    
-    <h2>1. Executive Summary</h2>
-    <div class="metric-grid">
-        <div class="metric-card"><div class="metric-label">Portfolio Value</div><div class="metric-value">{_fmt_inr(total_value)}</div></div>
-        <div class="metric-card"><div class="metric-label">Holdings</div><div class="metric-value">{len(portfolio)}</div></div>
-        <div class="metric-card"><div class="metric-label">Equity</div><div class="metric-value">{_fmt_pct(saa.get('equity_pct', 0))}</div></div>
-        <div class="metric-card"><div class="metric-label">Debt</div><div class="metric-value">{_fmt_pct(saa.get('debt_pct', 0))}</div></div>
-        <div class="metric-card"><div class="metric-label">Monthly SIP</div><div class="metric-value">{_fmt_inr(sip_plan.get('monthly_budget_inr', 0))}</div></div>
-    </div>
-    <p>Risk Profile: <strong>{data.get('risk_tier', 'Moderate')}</strong> | Target SAA: {_fmt_pct(saa.get('equity_pct', 0))} Equity / {_fmt_pct(saa.get('debt_pct', 0))} Debt</p>
-"""
-    
-    return html
-
-
-
-def build_report_data(
-    portfolio: list[dict[str, Any]],
-    saa_analysis: dict[str, Any] | None = None,
-    sip_plan: dict[str, Any] | None = None,
-    lumpsum_plan: dict[str, Any] | None = None,
-    monte_carlo: dict[str, Any] | None = None,
-    client_name: str = "Confidential Client",
-    risk_tier: str = "Moderate",
-) -> dict[str, Any]:
-    """Build standardized report data dictionary from analysis components."""
-    total_value = sum(float(h.get("current_value_inr", 0)) for h in portfolio)
-    
-    return {
-        "client_name": client_name,
-        "report_date": date.today().strftime("%B %d, %Y"),
-        "portfolio_value_inr": total_value,
-        "portfolio": portfolio,
-        "saa_analysis": saa_analysis or {},
-        "sip_plan": sip_plan or {},
-        "lumpsum_plan": lumpsum_plan or {},
-        "monte_carlo": monte_carlo or {},
-        "risk_tier": risk_tier,
-    }
+ 

@@ -2,12 +2,18 @@
 
 HTML-to-PDF conversion is intentionally avoided. Report content is escaped
 before it reaches ReportLab's limited paragraph-markup parser.
+
+Includes cryptographic provenance: UTC timestamp and SHA-256 payload hash
+in footer for regulatory audit trail and data integrity verification.
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import re
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Callable
 from xml.sax.saxutils import escape
 
 from reportlab.lib import colors
@@ -238,7 +244,50 @@ def _markdown_story(md_content: str):
     return story
 
 
+def generate_provenance_hash(payload_dict: dict) -> str:
+    """Generates a reproducible SHA-256 hash of the input payload for audit trail.
+    
+    The hash is computed over canonical JSON serialization with sorted keys,
+    providing cryptographic proof of data integrity for regulatory compliance.
+    
+    Args:
+        payload_dict: The report data dictionary to hash
+        
+    Returns:
+        First 16 hexadecimal characters of SHA-256 hash for compact footer display
+    """
+    payload_str = json.dumps(payload_dict, sort_keys=True, default=str, ensure_ascii=False)
+    return hashlib.sha256(payload_str.encode('utf-8')).hexdigest()[:16]
+
+
+def _draw_page_with_provenance(canvas, doc, payload_hash: str):
+    """Page footer with UTC timestamp and payload integrity hash.
+    
+    Provides regulatory audit trail by showing:
+    - Report run timestamp (UTC) for temporal verification
+    - Payload hash for data integrity verification
+    """
+    canvas.saveState()
+    canvas.setFont("Helvetica", 7)
+    canvas.setFillColor(colors.HexColor("#718096"))
+    
+    run_timestamp = datetime.now(timezone.utc).isoformat()
+    
+    # Left: Hash & Legal
+    canvas.drawString(
+        72, 20,
+        f"Integrity Hash: {payload_hash} | Non-executable analysis · Subject to human review"
+    )
+    # Right: Timestamp & Pagination
+    canvas.drawRightString(
+        PAGE_WIDTH - 72, 20,
+        f"Run: {run_timestamp[:19]}Z | Page {doc.page}"
+    )
+    canvas.restoreState()
+
+
 def _draw_page(canvas, doc):
+    """Legacy footer for backward compatibility (no provenance)."""
     canvas.saveState()
     canvas.setFont("Helvetica", 7)
     canvas.setFillColor(colors.HexColor("#718096"))
@@ -248,8 +297,18 @@ def _draw_page(canvas, doc):
     canvas.restoreState()
 
 
-def markdown_to_pdf_bytes(md_content: str, title: str = "") -> bytes:
-    """Convert Markdown to A4 PDF bytes with escaped content."""
+def markdown_to_pdf_bytes(md_content: str, title: str = "", payload_hash: Optional[str] = None) -> bytes:
+    """Convert Markdown to A4 PDF bytes with escaped content and provenance footer.
+    
+    Args:
+        md_content: Markdown content to convert
+        title: Optional report title
+        payload_hash: Optional SHA-256 hash for provenance footer. If provided,
+                     footer includes timestamp and hash for regulatory audit trail.
+                     
+    Returns:
+        PDF bytes
+    """
     from io import BytesIO
 
     output = BytesIO()
@@ -264,12 +323,24 @@ def markdown_to_pdf_bytes(md_content: str, title: str = "") -> bytes:
         author="Investment Decision-Support Engine",
     )
     story = _markdown_story(md_content) or [Paragraph(" ", _styles()["body"])]
-    document.build(story, onFirstPage=_draw_page, onLaterPages=_draw_page)
+    
+    if payload_hash is not None:
+        # Use provenance-enabled footer
+        canvas_factory = lambda c, d: _draw_page_with_provenance(c, d, payload_hash)
+        document.build(story, onFirstPage=canvas_factory, onLaterPages=canvas_factory)
+    else:
+        document.build(story, onFirstPage=_draw_page, onLaterPages=_draw_page)
     return output.getvalue()
 
 
-def convert_markdown_file_to_pdf(md_path: Path, output_pdf_path: Optional[Path] = None) -> Path:
-    """Read a Markdown file, convert it to PDF and save the result."""
+def convert_markdown_file_to_pdf(md_path: Path, output_pdf_path: Optional[Path] = None, payload_hash: Optional[str] = None) -> Path:
+    """Read a Markdown file, convert it to PDF and save the result.
+    
+    Args:
+        md_path: Path to markdown file
+        output_pdf_path: Optional output path for PDF
+        payload_hash: Optional SHA-256 hash for provenance footer
+    """
     md_path = Path(md_path)
     if not md_path.is_file():
         raise FileNotFoundError(f"Markdown file not found: {md_path}")
@@ -279,6 +350,6 @@ def convert_markdown_file_to_pdf(md_path: Path, output_pdf_path: Optional[Path] 
         output_pdf_path = Path(output_pdf_path)
     output_pdf_path.parent.mkdir(parents=True, exist_ok=True)
     output_pdf_path.write_bytes(
-        markdown_to_pdf_bytes(md_path.read_text(encoding="utf-8"), title=md_path.stem.replace("_", " "))
+        markdown_to_pdf_bytes(md_path.read_text(encoding="utf-8"), title=md_path.stem.replace("_", " "), payload_hash=payload_hash)
     )
     return output_pdf_path

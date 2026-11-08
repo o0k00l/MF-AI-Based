@@ -1,21 +1,19 @@
-"""Tests for dynamic fund selection logic."""
-from __future__ import annotations
-
+import pytest
 from services.fiduciary_engine import (
     _load_market_nominations,
     _select_market_nom_fund,
 )
 
 
-def test_dynamic_fund_selection_falls_back_when_no_matches():
-    """Verify fallback selection when no funds match criteria."""
+def test_dynamic_fund_selection_raises_on_empty_universe():
+    """Verify that empty universe raises ValueError - no hardcoded fallbacks per fiduciary policy."""
     fund_universe = []
     market_noms = _load_market_nominations()
     rules = market_noms.get("large_cap_index", {})
-    selected = _select_market_nom_fund(rules, fund_universe, "large_cap_index")
-    # Fallback should return a valid index fund
-    assert "Index" in selected or "Nifty" in selected or "Sensex" in selected
-    assert "Direct Plan" in selected or "Direct" in selected
+    
+    # Should raise ValueError when universe is empty - cannot select blindly
+    with pytest.raises(ValueError, match="SPIVA PASSIVE FALLBACK FAILURE"):
+        _select_market_nom_fund(rules, fund_universe, "large_cap_index")
 
 
 def test_dynamic_fund_selection_with_realistic_rules():

@@ -3359,7 +3359,7 @@ def evaluate_candidate_portfolio_concentration_controls(
     *,
     security_master: Optional[Dict[str, Any]] = None,
     classifications: Optional[Dict[str, Any]] = None,
-    max_overlap_pct: float = 40.0,
+    max_overlap_pct: float = 30.0,
     max_issuer_pct: float = 10.0,
     max_sector_pct: float = 35.0,
     max_theme_pct: float = 15.0,
@@ -3373,7 +3373,7 @@ def evaluate_candidate_portfolio_concentration_controls(
     Issue #26: Comprehensive multi-dimensional concentration and overlap controls.
     Measures:
     1. Look-through completeness (>=99.5% required; missing returns HOLD)
-    2. Pairwise candidate overlap ceiling (<= max_overlap_pct, default 40%)
+    2. Pairwise candidate overlap ceiling (<= max_overlap_pct, default 30%)
     3. Total-portfolio issuer concentration cap (<= max_issuer_pct, default 10%)
     4. Total-portfolio sector concentration cap (<= max_sector_pct, default 35%)
     5. Thematic satellite cap (<= 15% for established, 0% for starter)

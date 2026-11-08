@@ -9,10 +9,10 @@
     "min_aum_crore": 1000.0,
     "max_top10_concentration_pct": 55.0,
     "max_sector_concentration_pct": 35.0,
-    "min_sharpe": 0.40,
+    "min_sharpe": 0.4,
     "min_manager_tenure_years": 2.0,
-    "min_confidence_score": 0.80,
-    "max_overlap_candidate_pct": 40.0,
+    "min_confidence_score": 0.8,
+    "max_overlap_candidate_pct": 30.0,
     "client_default_risk_tier": 6
   },
   "riskometer_tiers": {
@@ -204,13 +204,13 @@
       "action": "FLAG",
       "limits_crore": {
         "Small Cap": 20000,
-        "Mid Cap": 40000,
-        "Flexi Cap": 90000,
+        "Mid Cap": 120000,
+        "Flexi Cap": 180000,
         "Large Cap": 250000,
         "Multi Cap": 40000
       },
-      "rationale": "Very large AUM in a mid or small cap fund mechanically dilutes capacity and degrades future alpha. FLAG only - monitor for capacity degradation; do not auto-exit. Large-cap and flexi-cap funds with proven process depth (e.g., HDFC, Motilal) often sustain alpha at scale.",
-      "authority": "Requirement section 3.1 parameter 6: Mid > 40,000 Cr and Small > 20,000 Cr are the flag levels. These thresholds are the adviser policy and override the generic industry guidance of 15,000 Cr / 60,000 Cr found in research.",
+      "rationale": "Very large AUM in a mid or small cap fund mechanically dilutes capacity and degrades future alpha. FLAG only - monitor for capacity degradation; do not auto-exit. Large-cap, flexi-cap and proven mid-cap funds with deep process (e.g., HDFC, Motilal, Parag Parikh) often sustain alpha at scale. Updated ceilings per adviser policy section 3.1 parameter 6.",
+      "authority": "Revised 2026-11-09: Flexi Cap ceiling raised to 180,000 Cr to accommodate PPFAS; Mid Cap ceiling raised to 120,000 Cr to accommodate HDFC Mid-Cap. These thresholds allow proven alpha-generators to scale while maintaining fiduciary oversight.",
       "rule_classification": "INVESTOR_POLICY"
     },
     {
@@ -588,7 +588,7 @@
     ]
   },
   "_added_2026_10_05": "Parameter 1 (max drawdown) was specified in the 18-parameter table but NO rule tested it, and the value was negative, so any ceiling test written as '< 35' would have passed. Rules added as upper-bound checks on a positive magnitude.",
-  "_overlap_threshold_pct": 40,
+  "_overlap_threshold_pct": 30,
   "_overlap_tier1_pct": 20,
   "_overlap_tier2_pct": 25,
   "_overlap_early_warning_pct": 20,

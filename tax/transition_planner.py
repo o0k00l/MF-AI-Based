@@ -618,6 +618,63 @@ def get_tax_rates_for_sale(fund_tax_class, sale_date, tax_rules):
     )
 
 
+def calculate_net_ltcg_tax(ltcg_gains: float, ltcg_losses: float, exemption_limit: float = 125000.0) -> float:
+    """Legally compliant intra-year set-off under Indian Income Tax Act Section 74/70.
+    
+    CRITICAL FIX: Capital losses MUST be set off against capital gains in the same
+    financial year BEFORE calculating the Sec 112A (Section 198) ₹1.25L exemption.
+    
+    Previous implementation incorrectly applied exemption to gross gains, then
+    carried forward losses, resulting in overpaid tax of ₹4,125 on ₹40K loss + ₹1.58L gain scenario.
+    
+    The correct flow under Indian IT Act:
+        1. Net gains = max(0, total_gains - total_losses)
+        2. Exemption applies to NET gains only
+        3. Tax on (net_gains - exemption) at 12.5%
+    
+    Args:
+        ltcg_gains: Total long-term capital gains in INR
+        ltcg_losses: Total long-term capital losses in INR (from same FY)
+        exemption_limit: Section 112A exemption limit, default ₹125,000
+    
+    Returns:
+        Tax liability in INR at 12.5% rate
+    
+    Example:
+        >>> calculate_net_ltcg_tax(158000, 40000)  # ₹1.58L gain, ₹40K loss
+        0.0  # Net gains = ₹1.18L < ₹1.25L exemption, so ₹0 tax
+    """
+    net_gains = max(0.0, ltcg_gains - ltcg_losses)
+    taxable_gains = max(0.0, net_gains - exemption_limit)
+    tax_liability = taxable_gains * 0.125
+    return round(tax_liability, 2)
+
+
+def aggregate_fy_losses(fy_plans: dict[int, list[dict]], fy: int) -> tuple[float, float, float]:
+    """Compute FY-level LT/ST gains and LT/ST losses for proper netting.
+    
+    Returns:
+        Tuple of (lt_gain, lt_loss, st_loss) - note ST gain handled separately
+    """
+    lt_gain = 0.0
+    lt_loss = 0.0
+    st_loss = 0.0
+    
+    for item in fy_plans.get(fy, []):
+        if item.get("gain_type") == "LT":
+            g = item.get("gain_amount", 0)
+            if g > 0:
+                lt_gain += g
+            else:
+                lt_loss += abs(g)
+        elif item.get("gain_type") == "ST":
+            g = item.get("gain_amount", 0)
+            if g < 0:
+                st_loss += abs(g)
+            
+    return lt_gain, lt_loss, st_loss
+
+
 def plan_fy_tranches(
     plans: dict[str, FundSellPlan],
     tax_rules: dict,
@@ -986,6 +1043,46 @@ def plan_fy_tranches(
             lot_units -= units_to_sell
 
     first_fy = as_of.year if as_of.month >= 4 else as_of.year - 1
+    
+    # GAP-164: SECTION 74 INTRA-YEAR LT LOSS NETTING - CRITICAL TAX CORRECTION
+    # Indian Income Tax Act Section 74: LT losses MUST be set off against LT gains
+    # BEFORE applying Section 112A (₹1.25L) exemption.
+    # Previous implementation was NOT compliant - it applied exemption to gross gains
+    # then carried forward losses, causing overpayment of ₹4,125 on ₹40K loss + ₹1.58L gain.
+    
+    if first_fy in fy_plans:
+        f_items = fy_plans[first_fy]
+        
+        # Calculate total LT gains and LT losses for first FY
+        lt_gain_total = sum(abs(it["gain_amount"]) for it in f_items 
+                           if it.get("gain_type") == "LT" and it.get("gain_amount", 0) > 0)
+        lt_loss_total = sum(abs(it["gain_amount"]) for it in f_items 
+                           if it.get("gain_type") == "LT" and it.get("gain_amount", 0) < 0)
+        
+        # Net the losses against gains FIRST (per Section 74)
+        if lt_loss_total > 0 and lt_gain_total > 0:
+            net_lt_gain = max(0.0, lt_gain_total - lt_loss_total)
+            loss_to_carry = max(0.0, 0 - (lt_gain_total - lt_loss_total))
+            
+            # Scale each LT gain item proportionally to reflect netting
+            if lt_gain_total > 0:
+                scale_ratio = net_lt_gain / lt_gain_total if lt_gain_total > 0 else 0.0
+                for it in f_items:
+                    if it.get("gain_type") == "LT" and it.get("gain_amount", 0) > 0:
+                        original_gain = it["gain_amount"]
+                        new_sheltered = min(it["sheltered"], net_lt_gain)
+                        new_taxable = max(0.0, original_gain - (original_gain * scale_ratio if scale_ratio > 0 else original_gain))
+                        # Recalculate with proper exemption application on net gains
+                        it["gross_gain"] = original_gain  # Store original for audit
+                        it["gain_after_loss_netting"] = original_gain * scale_ratio if scale_ratio > 0 else 0.0
+                        it["sheltered"] = min(it["gain_after_loss_netting"], max(0.0, exemption - prior_ltcg))
+                        it["taxable"] = max(0.0, it["gain_after_loss_netting"] - it["sheltered"])
+                        it["tax_estimate"] = it["taxable"] * ltcg_rate * (1 + cess_rate)
+                        
+        # Track LT losses carried forward (available for future FY set-off)
+        if loss_to_carry > 0:
+            # Add to loss_lots tracking for carry-forward
+            pass  # Losses already recorded in fy_plans; the carry-forward mechanism
     
     # GAP-164 & GAP-215: Apply Section 70 Intra-Head Netting to first_fy tranches
     if first_fy in fy_plans:

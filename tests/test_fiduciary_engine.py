@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from decimal import Decimal
 import pytest
+import json
+from pathlib import Path
 
 from services.fiduciary_engine import (
     convert_cas_funds_to_holdings,
@@ -11,6 +13,11 @@ from services.fiduciary_engine import (
     evaluate_fiduciary_lumpsum_blueprint,
 )
 from services.risk_profiler import TargetSaa
+from core.eligibility import check_eligibility_gates, load_fund_screening_policy
+from core.math_engine import (
+    compute_candidate_portfolio_overlap,
+    evaluate_candidate_portfolio_concentration_controls,
+)
 
 
 def test_convert_cas_funds_and_saa_audit():
