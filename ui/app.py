@@ -461,17 +461,29 @@ with tab_audit:
         st.caption(f"{(total_debt/total_value*100):.1f}% (Bonds, T-Bills, TREPS)")
         st.markdown('</div>', unsafe_allow_html=True)
 
-    with st.expander("🔍 True Debt & Liquid Cash Holdings", expanded=False):
-        st.caption("Bonds, T-Bills, TREPS, and stable cash equivalents.")
-        if total_debt > 0:
-            debt_data = [
-                {"Name": "Debt/Cash Reserve", "Value": f"₹{total_debt:,.0f}", "% of Portfolio": f"{(total_debt/total_value*100):.1f}%"},
-                {"Name": "Large Cap Equity", "Value": f"₹{total_lc:,.0f}", "% of Portfolio": f"{(total_lc/total_value*100):.1f}%"},
-                {"Name": "Mid Cap Equity", "Value": f"₹{total_mc:,.0f}", "% of Portfolio": f"{(total_mc/total_value*100):.1f}%"},
-                {"Name": "Small Cap Equity", "Value": f"₹{total_sc:,.0f}", "% of Portfolio": f"{(total_sc/total_value*100):.1f}%"},
-                {"Name": "Gold Holdings", "Value": f"₹{total_gold:,.0f}", "% of Portfolio": f"{(total_gold/total_value*100):.1f}%" if total_value else "0.0%"},
+    with st.expander("📊 Complete Asset Allocation DNA Summary", expanded=False):
+        st.caption("Unbundled multi-asset breakdown: bonds, T-Bills, TREPS, large cap, mid cap, small cap, and gold reserves.")
+        if total_value > 0:
+            alloc_summary = [
+                {"Asset Segment": "Large Cap Bluechips", "Value (₹)": total_lc, "Portfolio Weight": (total_lc / total_value * 100.0)},
+                {"Asset Segment": "Mid Cap Growth", "Value (₹)": total_mc, "Portfolio Weight": (total_mc / total_value * 100.0)},
+                {"Asset Segment": "Small Cap Alpha", "Value (₹)": total_sc, "Portfolio Weight": (total_sc / total_value * 100.0)},
+                {"Asset Segment": "True Debt & Liquid Cash", "Value (₹)": total_debt, "Portfolio Weight": (total_debt / total_value * 100.0)},
             ]
-            st.table(debt_data)
+            if total_gold > 0:
+                alloc_summary.append({"Asset Segment": "Domestic Physical Gold", "Value (₹)": total_gold, "Portfolio Weight": (total_gold / total_value * 100.0)})
+            if total_intl > 0:
+                alloc_summary.append({"Asset Segment": "International Equity", "Value (₹)": total_intl, "Portfolio Weight": (total_intl / total_value * 100.0)})
+            st.dataframe(
+                alloc_summary,
+                column_config={
+                    "Asset Segment": st.column_config.TextColumn("Asset Segment", width="medium"),
+                    "Value (₹)": st.column_config.NumberColumn("Value (₹)", format="₹%d"),
+                    "Portfolio Weight": st.column_config.ProgressColumn("Portfolio Weight", format="%.1f%%", min_value=0, max_value=100),
+                },
+                use_container_width=True,
+                hide_index=True,
+            )
 
     # 2.1 Factor-Aware Attribution & Concentration Index
     from services.ai_fund_classifier import evaluate_factor_attribution
@@ -519,19 +531,15 @@ with tab_audit:
         action_text = sig.get("action", "—").replace("_", " ").title()
         saving_text = f"+₹{sig.get('annual_saving_inr', 0):,.0f}/yr" if sig.get("annual_saving_inr") else "—"
         
-        # Format segment allocations
-        lc = seg_info.get("large_cap_pct", 0)
-        mc = seg_info.get("mid_cap_pct", 0)
-        sc = seg_info.get("small_cap_pct", 0)
-        debt = seg_info.get("debt_pct", 0)
+        lc = float(seg_info.get("large_cap_pct", 0) or 0)
+        mc = float(seg_info.get("mid_cap_pct", 0) or 0)
+        sc = float(seg_info.get("small_cap_pct", 0) or 0)
+        debt = float(seg_info.get("debt_pct", 0) or 0)
         prov = seg_info.get("provenance", "AMC Factsheet")
         
-        # Get numeric current value for sorting
-        # Handle both numeric values and formatted strings (e.g., "1,23,456.78" or "₹1,23,456")
         current_val_raw = f.get('current_value', 0) or 0
         try:
             if isinstance(current_val_raw, str):
-                # Remove currency symbols, commas, and whitespace
                 current_val_clean = current_val_raw.replace('₹', '').replace(',', '').strip()
                 current_val_num = float(current_val_clean) if current_val_clean else 0.0
             else:
@@ -541,55 +549,43 @@ with tab_audit:
 
         table_data.append({
             "Scheme Name": f.get("scheme", ""),
-            "Current Value (₹)": f"₹{current_val_num:,.0f}",
-            "_sort_key": current_val_num,
+            "Current Value": current_val_num,
             "Category": f.get("category", ""),
             "Plan": f.get("plan_type", "Direct"),
-            "Large Cap": f"{lc:.1f}%",
-            "Mid Cap": f"{mc:.1f}%",
-            "Small Cap": f"{sc:.1f}%",
-            "Debt/Cash": f"{debt:.1f}%",
-            "Provenance": prov,
-            "Direct TER": f"{f.get('ter_direct', 0):.2f}%",
+            "Large Cap": lc,
+            "Mid Cap": mc,
+            "Small Cap": sc,
+            "Debt/Cash": debt,
+            "Look-Through": prov,
+            "Direct TER": float(f.get('ter_direct', 0) or 0),
             "Benchmark": f.get("benchmark", ""),
-            "Action": f"{badge} {action_text}",
+            "Action": f"{badge} {action_text}".strip() if badge else action_text,
             "Savings": saving_text,
         })
     
-    # Sort by Current Value (₹) descending using numeric sort key
-    table_data.sort(key=lambda x: x.get("_sort_key", 0), reverse=True)
+    # Sort by Current Value descending
+    table_data.sort(key=lambda x: x.get("Current Value", 0), reverse=True)
     
-    # Remove the hidden sort key before displaying
-    for row in table_data:
-        row.pop("_sort_key", None)
-    
-    st.dataframe(table_data, use_container_width=True, hide_index=False)
-    
-    with st.expander("🔍 Scheme-by-Scheme Segment Allocation (AMC Factsheet Look-Through)", expanded=False):
-        st.caption("Detailed segment allocation for each fund from AMC factsheets.")
-        if seg_breakdown.get("scheme_rows"):
-            scheme_rows = seg_breakdown.get("scheme_rows", [])
-            scheme_segment_data = []
-            for row in scheme_rows:
-                scheme_name = row.get("scheme", "")
-                large_cap = row.get("large_cap_pct", 0)
-                mid_cap = row.get("mid_cap_pct", 0)
-                small_cap = row.get("small_cap_pct", 0)
-                debt = row.get("debt_pct", 0)
-                total_seg = large_cap + mid_cap + small_cap + debt
-                if total_seg > 0:
-                    scheme_segment_data.append({
-                        "Scheme": scheme_name,
-                        "Large Cap": f"{large_cap:.1f}%",
-                        "Mid Cap": f"{mid_cap:.1f}%",
-                        "Small Cap": f"{small_cap:.1f}%",
-                        "Debt/Cash": f"{debt:.1f}%",
-                        "Total": f"{total_seg:.1f}%"
-                    })
-            if scheme_segment_data:
-                st.dataframe(scheme_segment_data, use_container_width=True, hide_index=False)
-        else:
-            st.info("Segment allocation data not yet available.")
+    st.dataframe(
+        table_data,
+        column_config={
+            "Scheme Name": st.column_config.TextColumn("Scheme Name", width="large"),
+            "Current Value": st.column_config.NumberColumn("Current Value", format="₹%d"),
+            "Category": st.column_config.TextColumn("Category", width="small"),
+            "Plan": st.column_config.TextColumn("Plan", width="small"),
+            "Large Cap": st.column_config.ProgressColumn("Large Cap", format="%.1f%%", min_value=0, max_value=100),
+            "Mid Cap": st.column_config.ProgressColumn("Mid Cap", format="%.1f%%", min_value=0, max_value=100),
+            "Small Cap": st.column_config.ProgressColumn("Small Cap", format="%.1f%%", min_value=0, max_value=100),
+            "Debt/Cash": st.column_config.ProgressColumn("Debt/Cash", format="%.1f%%", min_value=0, max_value=100),
+            "Look-Through": st.column_config.TextColumn("Look-Through", width="small"),
+            "Direct TER": st.column_config.NumberColumn("Direct TER", format="%.2f%%"),
+            "Benchmark": st.column_config.TextColumn("Benchmark", width="medium"),
+            "Action": st.column_config.TextColumn("Fiduciary Action", width="medium"),
+            "Savings": st.column_config.TextColumn("Annual Savings", width="small"),
+        },
+        use_container_width=True,
+        hide_index=True,
+    )
 
 with tab_ai_tax:
     # 1. AI Executive Fiduciary Portfolio Diagnosis
@@ -668,6 +664,10 @@ with tab_ai_tax:
             st.metric("Realized STCG (§111A)", f"₹{stcg:,.2f}")
         with tax_c3:
             st.metric("§112A Annual Headroom", f"₹{rem_headroom:,.2f}", f"of ₹1.25L Tax-Free Limit")
+        
+        ltcg_ratio = min(1.0, max(0.0, ltcg / 125000.0))
+        st.progress(ltcg_ratio)
+        st.caption(f"📊 Section 112A Exemption: ₹{ltcg:,.0f} utilized of ₹1,25,000 statutory limit ({rem_headroom:,.0f} remaining tax-free headroom).")
 
         from services.cgs_parser import evaluate_tax_harvesting_strategy
         tax_adv = evaluate_tax_harvesting_strategy(cgs_info, funds, use_live_ai=False)
@@ -686,7 +686,7 @@ with tab_ai_tax:
     quick_cols = st.columns(5)
     preset_q = None
     with quick_cols[0]:
-        if st.button("💸 **Fee Bleed Detector**", use_container_width=True):
+        if st.button("💸 **Fee Bleed**", use_container_width=True):
             preset_q = "What is my total annual distributor fee bleed and 10-year compounded drag, and how much could I save?"
     with quick_cols[1]:
         if st.button("📊 **Segment Truth**", use_container_width=True):
@@ -695,19 +695,24 @@ with tab_ai_tax:
         if st.button("⚖️ **SAA Radar**", use_container_width=True):
             preset_q = "How far am I from my target strategic asset allocation, and what's the drift cost me?"
     with quick_cols[3]:
-        if st.button("📑 **Tax Harvest Pro**", use_container_width=True):
+        if st.button("📑 **Tax Harvest**", use_container_width=True):
             preset_q = "How can I harvest capital gains tax-free under Section 112A this financial year?"
     with quick_cols[4]:
         if st.button("🚨 **Prune & Save**", use_container_width=True):
             preset_q = "Which funds should I exit or consolidate first to stop commission leakage and save taxes?"
 
-    from services.ai_fund_classifier import answer_fiduciary_query
-    user_query = st.text_input("🗣️ Ask your portfolio question:", value=preset_q if preset_q else "", placeholder="e.g. How much trail commission am I losing in regular funds every year?", key="fiduciary_nl_query_box")
+    if preset_q:
+        st.session_state["active_preset_query"] = preset_q
 
-    if user_query:
+    from services.ai_fund_classifier import answer_fiduciary_query
+    current_q_val = st.session_state.get("active_preset_query", "")
+    user_query = st.text_input("🗣️ Ask your portfolio question:", value=current_q_val, placeholder="e.g. How much trail commission am I losing in regular funds every year?", key="fiduciary_nl_query_box")
+
+    active_query = user_query or preset_q
+    if active_query:
         with st.spinner("🔍 Analyzing portfolio facts through the SEBI fiduciary lens..."):
             qa_res = answer_fiduciary_query(
-                query=user_query,
+                query=active_query,
                 portfolio_metrics=portfolio_metrics_summary,
                 funds=funds,
                 target_saa=st.session_state.get("saa_target"),
@@ -822,15 +827,13 @@ with tab_blueprint:
                         st.warning(f"⚠️ Alert processing error: {str(e)}")
                         st.caption(f"Raw alert data: {al}")
 
-        st.markdown("| Mandate Slot | Scheme Recommendation | Category | Plan | Monthly SIP | Allocation |")
-        st.markdown("| :--- | :--- | :--- | :--- | :--- | :--- |")
+        sip_table_data = []
         for rec in sip_res.get("recommendations", []):
             if rec and isinstance(rec, dict):
                 slot_name = rec.get('slot_name', 'N/A')
                 scheme_name = rec.get('scheme_name', 'N/A')
                 category = rec.get('category', 'N/A')
                 plan_type = rec.get('plan_type', 'N/A')
-                # Handle potential string values with commas
                 try:
                     monthly_alloc_raw = rec.get('monthly_allocation_inr', 0)
                     if isinstance(monthly_alloc_raw, str):
@@ -847,7 +850,28 @@ with tab_blueprint:
                         alloc_pct = float(alloc_pct_raw or 0)
                 except (ValueError, TypeError):
                     alloc_pct = 0.0
-                st.markdown(f"| {slot_name} | **{scheme_name}** | {category} | {plan_type} | ₹{monthly_alloc:,.0f} | {alloc_pct:.1f}% |")
+                sip_table_data.append({
+                    "Mandate Slot": slot_name,
+                    "Recommended Direct Scheme": scheme_name,
+                    "Category": category,
+                    "Plan Type": plan_type,
+                    "Monthly SIP": monthly_alloc,
+                    "Allocation": alloc_pct,
+                })
+        if sip_table_data:
+            st.dataframe(
+                sip_table_data,
+                column_config={
+                    "Mandate Slot": st.column_config.TextColumn("Mandate Slot", width="medium"),
+                    "Recommended Direct Scheme": st.column_config.TextColumn("Recommended Direct Scheme", width="large"),
+                    "Category": st.column_config.TextColumn("Category", width="small"),
+                    "Plan Type": st.column_config.TextColumn("Plan Type", width="small"),
+                    "Monthly SIP": st.column_config.NumberColumn("Monthly SIP (₹)", format="₹%d"),
+                    "Allocation": st.column_config.ProgressColumn("Allocation", format="%.1f%%", min_value=0, max_value=100),
+                },
+                use_container_width=True,
+                hide_index=True,
+            )
 
     st.markdown("---")
     # 3. Lump-Sum Capital Deployment & Systematic Transfer Plan (STP)

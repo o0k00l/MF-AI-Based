@@ -122,3 +122,11 @@ def render_fiduciary_sidebar(current_page: str = "app.py") -> None:
         st.page_link("pages/4_Debt_Allocation.py", label="True Debt Factsheet Matrix", icon="📈")
         st.page_link("pages/3_Financial_Goals.py", label="Financial Goals Wizard", icon="🎯")
         st.page_link("pages/1_Advisory_Flow.py", label="Advisory Roadmap", icon="🧭")
+
+        # Reset Session Action
+        if has_cas:
+            st.markdown("---")
+            if st.button("🔄 Reset Active Session", use_container_width=True, type="secondary", help="Clear current session data to upload a new statement"):
+                for key in list(st.session_state.keys()):
+                    del st.session_state[key]
+                st.rerun()

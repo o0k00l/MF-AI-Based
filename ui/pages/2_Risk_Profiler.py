@@ -39,7 +39,6 @@ st.set_page_config(
     layout="wide",
 )
 
-# --- Render Advisory Flow Sidebar ---
 # --- Render Unified Advisory Flow Sidebar (Single Source of Truth) ---
 render_fiduciary_sidebar(current_page="pages/2_Risk_Profiler.py")
 

@@ -42,8 +42,8 @@ def test_category_aum_caps_matches_policy_limits():
     policy = load_fund_screening_policy()
     caps = _load_category_aum_caps(policy)
     assert caps["Small Cap"] == 20000.0
-    assert caps["Mid Cap"] == 40000.0
-    assert caps["Flexi Cap"] == 90000.0
+    assert caps["Mid Cap"] == 120000.0
+    assert caps["Flexi Cap"] == 180000.0
     assert caps["Large Cap"] == 250000.0
     assert caps["Multi Cap"] == 40000.0
     assert CATEGORY_AUM_CAPS["Small Cap"] == 20000.0

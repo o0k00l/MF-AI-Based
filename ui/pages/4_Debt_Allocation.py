@@ -7,7 +7,6 @@ NO HARDCODING: Every value comes from user-uploaded CAS data.
 """
 from __future__ import annotations
 
-import json
 from pathlib import Path
 import sys
 
@@ -35,8 +34,7 @@ st.set_page_config(
     layout="wide",
 )
 
-# --- Render Advisory Flow Sidebar ---
-# --- Render Unified Advisory Flow Sidebar (Single Source of Truth) ---
+# --- Render Unified Advisory Flow Sidebar ---
 render_fiduciary_sidebar(current_page="pages/4_Debt_Allocation.py")
 
 # --- Custom CSS for Professional Styling ---
@@ -96,36 +94,14 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- Page Title ---
-st.markdown('<h1 class="section-title">📈 Debt Allocation Verification</h1>', unsafe_allow_html=True)
-st.markdown('<p style="color: var(--text-color, #64748b); opacity: 0.85; font-size: 1.1rem;">True portfolio debt allocation including internal debt in equity funds</p>', unsafe_allow_html=True)
-
-# Load fund metrics (REFERENCE DATA ONLY - for debt allocation percentages)
-METRICS_PATH = Path(__file__).parent.parent.parent / "data" / "policy" / "fund_metrics.json"
-
-
-@st.cache_data(ttl=3600, show_spinner=False)
-def load_fund_metrics() -> dict | None:
-    """Load fund metrics from the policy file. This is REFERENCE DATA for debt allocation percentages."""
-    if METRICS_PATH.exists():
-        with open(METRICS_PATH) as f:
-            return json.load(f)
-    return None
-
-
-# Get fund metrics (reference data)
-metrics = load_fund_metrics()
+# --- Page Header ---
+st.title("📈 Debt Allocation Verification")
+st.caption("True portfolio debt allocation including internal debt in equity funds")
 
 # Check if user has uploaded portfolio data (CAS data)
 if "user_portfolio" not in st.session_state or not st.session_state["user_portfolio"]:
-    st.title("Debt Allocation Verification")
     st.info("Please upload your CAS file on the Portfolio Dashboard page first to analyze your debt allocation.")
     st.stop()
-
-st.title("Debt Allocation Verification")
-st.caption("True portfolio debt allocation including internal debt in equity funds")
-
-# Reference metrics loaded if present; user CAS data is primary.
 
 # Get user's actual portfolio from session state
 user_portfolio = st.session_state["user_portfolio"]
@@ -212,11 +188,15 @@ if total_portfolio_value > 0:
     st.markdown("---", unsafe_allow_html=True)
     st.markdown('<h2 class="section-title">Allocation Breakdown</h2>', unsafe_allow_html=True)
 
-    # Create bar chart data
+    # Create multi-asset look-through breakdown
     chart_data = {
-        "Equity": seg["equity_value"],
-        "True Debt": seg["debt_value"],
+        "Large Cap": seg.get("large_cap_value", 0),
+        "Mid Cap": seg.get("mid_cap_value", 0),
+        "Small Cap": seg.get("small_cap_value", 0),
+        "True Debt / Cash": seg.get("debt_value", 0),
     }
+    if seg.get("gold_value", 0) > 0:
+        chart_data["Gold"] = seg["gold_value"]
 
     st.bar_chart(chart_data, use_container_width=True)
 
@@ -228,22 +208,36 @@ debt_table_rows = []
 for fund in sorted(funds, key=lambda f: -((f.get("current_value", 0) * f.get("debt", 0) / 100.0))):
     if fund.get("current_value", 0) <= 0:
         continue
-    c_val = fund.get("current_value", 0)
-    d_pct = fund.get("debt", 0)
+    c_val = float(fund.get("current_value", 0))
+    d_pct = float(fund.get("debt", 0))
     d_inr = c_val * (d_pct / 100.0)
     debt_table_rows.append({
         "Scheme Name": fund.get("scheme", "")[:50],
-        "Scheme Mandate": fund.get("scheme_type", fund.get("category", "")),
-        "Current Value": f"₹{c_val:,.0f}",
-        "Debt / Cash %": f"{d_pct:.2f}%",
-        "Debt Corpus (₹)": f"₹{d_inr:,.0f}",
-        "Equity %": f"{fund.get('eq', 0):.2f}%",
-        "Gold %": f"{fund.get('gold', 0):.1f}%" if fund.get("gold", 0) > 0 else "0.0%",
+        "Mandate": fund.get("scheme_type", fund.get("category", "")),
+        "Current Value": c_val,
+        "Debt / Cash %": d_pct,
+        "Debt Corpus": d_inr,
+        "Equity %": float(fund.get("eq", 0)),
+        "Gold %": float(fund.get("gold", 0) or 0.0),
         "Source": fund.get("classification_source", "AMC Factsheet"),
     })
 
 if debt_table_rows:
-    st.dataframe(debt_table_rows, use_container_width=True, hide_index=True)
+    st.dataframe(
+        debt_table_rows,
+        column_config={
+            "Scheme Name": st.column_config.TextColumn("Scheme Name", width="large"),
+            "Mandate": st.column_config.TextColumn("Mandate", width="small"),
+            "Current Value": st.column_config.NumberColumn("Current Value", format="₹%d"),
+            "Debt / Cash %": st.column_config.ProgressColumn("Debt / Cash %", format="%.2f%%", min_value=0, max_value=100),
+            "Debt Corpus": st.column_config.NumberColumn("Debt Corpus", format="₹%d"),
+            "Equity %": st.column_config.ProgressColumn("Equity %", format="%.2f%%", min_value=0, max_value=100),
+            "Gold %": st.column_config.ProgressColumn("Gold %", format="%.1f%%", min_value=0, max_value=100),
+            "Source": st.column_config.TextColumn("Source", width="small"),
+        },
+        use_container_width=True,
+        hide_index=True,
+    )
 
 st.markdown("""
 <div class="disclaimer-box">
@@ -254,7 +248,6 @@ before making investment decisions.
 </div>
 """, unsafe_allow_html=True)
 st.caption("All portfolio values parsed dynamically from your uploaded CAS. Reference metrics from AMFI factsheets.")
-
 
 # Navigation to next step
 st.markdown("---")
