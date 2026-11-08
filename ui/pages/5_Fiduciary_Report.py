@@ -60,25 +60,36 @@ if not goals_alloc:
         )
         st.session_state["deterministic_sip_plan"] = bp
     if bp:
-        lc_val = float(next((a["amount_inr"] for a in bp.get("allocations", []) if "Large" in a.get("sleeve", "")), 0.0))
-        ms_val = float(next((a["amount_inr"] for a in bp.get("allocations", []) if "Mid" in a.get("sleeve", "")), 0.0))
-        db_val = float(next((a["amount_inr"] for a in bp.get("allocations", []) if "Debt" in a.get("sleeve", "")), 0.0))
+        # Helper function for safe float conversion
+        def parse_amount(val):
+            if val is None:
+                return 0.0
+            try:
+                if isinstance(val, str):
+                    val = val.replace('₹', '').replace(',', '').strip()
+                return float(val) if val != '' else 0.0
+            except (ValueError, TypeError):
+                return 0.0
+        
+        lc_val = parse_amount(next((a["amount_inr"] for a in bp.get("allocations", []) if "Large" in a.get("sleeve", "")), 0.0))
+        ms_val = parse_amount(next((a["amount_inr"] for a in bp.get("allocations", []) if "Mid" in a.get("sleeve", "")), 0.0))
+        db_val = parse_amount(next((a["amount_inr"] for a in bp.get("allocations", []) if "Debt" in a.get("sleeve", "")), 0.0))
         sip_confidence = bp.get("sip_selection_confidence_pct", 100.0)
         goals_alloc = {
             "goals": {
                 "sip_plan": {
                     "goal_name": "Long-Term Wealth Accumulation & SAA Compounding",
                     "priority": 1,
-                    "required_monthly": float(bp["monthly_budget_inr"]),
-                    "allocated_monthly": float(bp["allocated_budget_inr"]),
-                    "gap_monthly": float(bp["unallocated_budget_inr"]),
+                    "required_monthly": parse_amount(bp["monthly_budget_inr"]),
+                    "allocated_monthly": parse_amount(bp["allocated_budget_inr"]),
+                    "gap_monthly": parse_amount(bp["unallocated_budget_inr"]),
                     "target_corpus": 0.0,
                     "horizon_years": 10,
                 }
             },
-            "total_required": float(bp["monthly_budget_inr"]),
-            "total_allocated": float(bp["allocated_budget_inr"]),
-            "total_gap": float(bp["unallocated_budget_inr"]),
+            "total_required": parse_amount(bp["monthly_budget_inr"]),
+            "total_allocated": parse_amount(bp["allocated_budget_inr"]),
+            "total_gap": parse_amount(bp["unallocated_budget_inr"]),
             "sip_selection_confidence_pct": sip_confidence,
             "surplus": 0.0,
             "use_step_up": False,
@@ -100,8 +111,20 @@ if missing:
         st.markdown(f"* {m}")
     st.info("👉 *Return to Step 1 (Portfolio Intake & Audit) to upload your statement.*")
 else:
-    total_val = sum(f.get("current_value", 0) for f in portfolio)
-    total_invested = sum(f.get("invested_value", 0) for f in portfolio)
+    # Handle current_value which might be numeric or formatted string
+    def safe_float(val):
+        """Convert value to float, handling strings with commas/currency symbols."""
+        if val is None:
+            return 0.0
+        try:
+            if isinstance(val, str):
+                val = val.replace('₹', '').replace(',', '').strip()
+            return float(val) if val != '' else 0.0
+        except (ValueError, TypeError):
+            return 0.0
+    
+    total_val = sum(safe_float(f.get("current_value", 0)) for f in portfolio)
+    total_invested = sum(safe_float(f.get("invested_value", 0)) for f in portfolio)
     total_gain = total_val - total_invested if total_invested > 0 else 0
     gain_pct = (total_gain / total_invested * 100) if total_invested > 0 else 0
 
@@ -215,17 +238,17 @@ else:
         name = f.get("scheme", "Unknown")
         cat = f.get("category", "N/A")
         plan = f.get("plan_type", "Direct")
-        val = f.get("current_value", 0)
-        eq = f.get("eq", 0)
-        debt = f.get("debt", 0)
+        val = safe_float(f.get("current_value", 0))
+        eq = safe_float(f.get("eq", 0))
+        debt = safe_float(f.get("debt", 0))
         report_lines.append(f"| {name} | {cat} | {plan} | ₹{val:,.0f} | {eq:.1f}% | {debt:.1f}% |")
 
     # Add CGS section if available
     cgs_data = st.session_state.get("cgs_data")
     if cgs_data and cgs_data.get("summary"):
         cg_s = cgs_data.get("summary", {})
-        ltcg = float(cg_s.get("ltcg_inr") or 0.0)
-        stcg = float(cg_s.get("stcg_inr") or 0.0)
+        ltcg = safe_float(cg_s.get("ltcg_inr") or 0.0)
+        stcg = safe_float(cg_s.get("stcg_inr") or 0.0)
         rem_hd = max(0.0, 125_000.0 - ltcg)
         report_lines.extend([
             "",
@@ -236,13 +259,13 @@ else:
             f"* **Statement Provenance:** SHA256 `{cgs_data.get('source_sha256', 'N/A')[:16]}...`",
         ])
 
-    # Commission Bleed & Direct Conversion Audit (Zero Hardcoding - AMC Factsheet Look-Through)
+    # Commission Bleed & Direct Conversion Audit
     regular_holdings = [f for f in portfolio if str(f.get("plan_type", "Direct")).upper() == "REGULAR"]
-    regular_val = sum(f.get("current_value", 0) for f in regular_holdings)
+    regular_val = sum(safe_float(f.get("current_value", 0)) for f in regular_holdings)
     regular_pct = (regular_val / total_val * 100.0) if total_val > 0 else 0.0
-    total_annual_bleed = sum(f.get("annual_commission_bleed", 0.0) for f in regular_holdings)
-    total_10y_linear = sum(f.get("ten_year_linear_commission", 0.0) for f in regular_holdings)
-    total_10y_compounded = sum(f.get("ten_year_compounded_drag", 0.0) for f in regular_holdings)
+    total_annual_bleed = sum(safe_float(f.get("annual_commission_bleed", 0.0)) for f in regular_holdings)
+    total_10y_linear = sum(safe_float(f.get("ten_year_linear_commission", 0.0)) for f in regular_holdings)
+    total_10y_compounded = sum(safe_float(f.get("ten_year_compounded_drag", 0.0)) for f in regular_holdings)
     avg_trail = (total_annual_bleed / regular_val * 100.0) if regular_val > 0 else 0.0
 
     report_lines.extend([
@@ -270,24 +293,24 @@ else:
                 "| :--- | :--- | :--- | :--- | :--- |",
             ])
             for c_name, flist in dual_schemes.items():
-                d_val = sum(f.get("current_value", 0) for f in flist if f.get("plan_type") == "Direct")
-                r_val = sum(f.get("current_value", 0) for f in flist if f.get("plan_type") == "Regular")
+                d_val = sum(safe_float(f.get("current_value", 0)) for f in flist if f.get("plan_type") == "Direct")
+                r_val = sum(safe_float(f.get("current_value", 0)) for f in flist if f.get("plan_type") == "Regular")
                 r_fund = next((f for f in flist if f.get("plan_type") == "Regular"), None)
-                bleed = r_fund.get("annual_commission_bleed", 0) if r_fund else 0
-                trail = r_fund.get("trail_commission_pct", 1.0) if r_fund else 1.0
+                bleed = safe_float(r_fund.get("annual_commission_bleed", 0)) if r_fund else 0.0
+                trail = safe_float(r_fund.get("trail_commission_pct", 1.0)) if r_fund else 1.0
                 report_lines.append(f"| **{c_name}** | ₹{d_val:,.0f} | ₹{r_val:,.0f} | ₹{d_val+r_val:,.0f} | ₹{bleed:,.0f}/yr ({trail:.2f}%) |")
             report_lines.extend([
                 "",
                 "* **Immediate Fiduciary Action:** Consolidate the Regular plan units of these schemes directly into your existing Direct folios of the same scheme to eliminate trail leakage without altering asset allocation.",
             ])
-        for rf in sorted(regular_holdings, key=lambda x: x.get("annual_commission_bleed", 0), reverse=True):
+        for rf in sorted(regular_holdings, key=lambda x: safe_float(x.get("annual_commission_bleed", 0)), reverse=True):
             r_name = rf.get("scheme", "Regular Scheme")
-            r_val = float(rf.get("current_value", 0))
-            r_td = float(rf.get("ter_direct", 0.75))
-            r_tr = float(rf.get("ter_regular", 1.75))
-            r_trail = float(rf.get("trail_commission_pct", 1.0))
-            r_yr = float(rf.get("annual_commission_bleed", 0))
-            r_10y = float(rf.get("ten_year_compounded_drag", 0))
+            r_val = safe_float(rf.get("current_value", 0))
+            r_td = safe_float(rf.get("ter_direct", 0.75))
+            r_tr = safe_float(rf.get("ter_regular", 1.75))
+            r_trail = safe_float(rf.get("trail_commission_pct", 1.0))
+            r_yr = safe_float(rf.get("annual_commission_bleed", 0))
+            r_10y = safe_float(rf.get("ten_year_compounded_drag", 0))
             report_lines.append(f"| {r_name} | ₹{r_val:,.0f} | {r_td:.2f}% | {r_tr:.2f}% | {r_trail:.2f}% | ₹{r_yr:,.0f}/yr | ₹{r_10y:,.0f} |")
     else:
         report_lines.extend([

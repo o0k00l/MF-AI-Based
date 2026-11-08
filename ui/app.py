@@ -539,8 +539,19 @@ with tab_ai_tax:
     cgs_info = st.session_state.get("cgs_data")
     if cgs_info and cgs_info.get("summary"):
         cg_s = cgs_info["summary"]
-        ltcg = float(cg_s.get("ltcg_inr") or 0.0)
-        stcg = float(cg_s.get("stcg_inr") or 0.0)
+        # Handle potential string values with commas/currency symbols
+        ltcg_raw = cg_s.get("ltcg_inr") or 0.0
+        stcg_raw = cg_s.get("stcg_inr") or 0.0
+        try:
+            if isinstance(ltcg_raw, str):
+                ltcg_raw = ltcg_raw.replace('₹', '').replace(',', '').strip()
+            if isinstance(stcg_raw, str):
+                stcg_raw = stcg_raw.replace('₹', '').replace(',', '').strip()
+            ltcg = float(ltcg_raw) if ltcg_raw else 0.0
+            stcg = float(stcg_raw) if stcg_raw else 0.0
+        except (ValueError, TypeError):
+            ltcg = 0.0
+            stcg = 0.0
         rem_headroom = max(0.0, 125000.0 - ltcg)
 
         tax_c1, tax_c2, tax_c3 = st.columns(3)
@@ -754,7 +765,15 @@ with tab_blueprint:
 
     lp = st.session_state.get("lumpsum_plan_result")
     if lp:
-        st.markdown(f"🛡️ **Staging Strategy:** Park capital in a zero-exit-load Direct liquid/arbitrage vehicle and stage ₹{float(lp.get('monthly_stp_amount_inr', 0)):,.0f}/month across equity sleeves over {stp_months} months.")
+        # Handle potential string values with commas/currency symbols
+        stp_amt_raw = lp.get('monthly_stp_amount_inr', 0)
+        try:
+            if isinstance(stp_amt_raw, str):
+                stp_amt_raw = stp_amt_raw.replace('₹', '').replace(',', '').strip()
+            stp_amount = float(stp_amt_raw) if stp_amt_raw else 0.0
+        except (ValueError, TypeError):
+            stp_amount = 0.0
+        st.markdown(f"🛡️ **Staging Strategy:** Park capital in a zero-exit-load Direct liquid/arbitrage vehicle and stage ₹{stp_amount:,.0f}/month across equity sleeves over {stp_months} months.")
 
     st.markdown("---")
     # 4. Monte Carlo Wealth Accumulation Stochastic Simulation
