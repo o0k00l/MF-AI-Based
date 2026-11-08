@@ -158,9 +158,9 @@ st.markdown("""
 # --- Page Title Banner ---
 st.markdown("""
 <div class="banner-intake">
-    <div style="font-size: 0.8rem; text-transform: uppercase; color: #38bdf8; letter-spacing: 0.08em; font-weight: 600;">Step 1: Portfolio Intake & Institutional Audit</div>
-    <h1 style="margin: 4px 0 6px 0; color: white; font-size: 1.85rem; font-weight: 800;">Fiduciary Portfolio Diagnostic Dashboard</h1>
-    <p style="margin: 0; color: #cbd5e1; font-size: 0.92rem;">Audit true underlying equity/debt exposure, eliminate distributor commission leakage, and establish your mathematical strategic asset allocation.</p>
+    <div style="font-size: 0.8rem; text-transform: uppercase; color: #38bdf8; letter-spacing: 0.08em; font-weight: 600;">⚡ Step 1: Portfolio Intake & Audit</div>
+    <h1 style="margin: 4px 0 6px 0; color: white; font-size: 1.85rem; font-weight: 800;">Fiduciary Portfolio Diagnostic</h1>
+    <p style="margin: 0; color: #cbd5e1; font-size: 0.92rem;">Uncover hidden commission bleed, eliminate duplicate overlaps, and reveal your true strategic asset allocation.</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -285,13 +285,14 @@ total_10y_compounded = sum(f.get("ten_year_compounded_drag", 0.0) for f in regul
 
 # --- Intuitive 3-Tab Structure (Eliminates Visual Clutter & Complexity) ---
 tab_audit, tab_ai_tax, tab_blueprint = st.tabs([
-    "📊 Portfolio Audit & Holdings",
-    "🤖 AI Fiduciary Health & Tax",
-    "🎯 SAA Drift & Capital Blueprint",
+    "📊 **PORTFOLIO AUDIT** – Fees, Drift & Truth",
+    "🤖 **AI TAX INSIGHTS** – Gains, Harvesting & Savings",
+    "🎯 **CAPITAL BLUEPRINT** – SIPs, Lumpsums & Simulations",
 ])
 
 with tab_audit:
     # 1. Overview KPI Cards
+    st.markdown("##### 🔍 **Portfolio Truth Engine** – Your Money, Unfiltered")
     col1, col2, col3, col4 = st.columns(4)
     with col1:
         st.markdown('<div class="metric-card">', unsafe_allow_html=True)
@@ -327,7 +328,7 @@ with tab_audit:
         st.markdown('</div>', unsafe_allow_html=True)
 
     # 2. Market Cap & Segment Allocation
-    st.markdown("##### 📈 Market Cap & Asset Class Look-Through")
+    st.markdown("##### 📈 **Equity DNA Mapping** – Large, Mid, Small Cap DNA Breakdown")
     seg1, seg2, seg3, seg4 = st.columns(4)
     with seg1:
         st.markdown('<div class="metric-card">', unsafe_allow_html=True)
@@ -385,7 +386,7 @@ with tab_audit:
             st.metric("Concentration (HHI)", f"{hhi:,.0f}", rating)
 
     # 3. Scheme-by-Scheme Holdings Table with Exit Signals & Segment Allocation
-    st.markdown("##### 📋 Fund Holdings Look-Through")
+    st.markdown("##### 📋 **Holdings Radar** – Scheme-Level Factsheet Audit with Exit Signals")
     st.caption("Scheme-level factsheet allocation audit with exit signals and actionable recommendations.")
     filter_search = st.text_input("Filter funds by name or AMC", "", key="holdings_search_query")
     filtered_funds = [f for f in funds if filter_search.lower() in str(f.get("scheme", "")).lower()] if filter_search else funds
@@ -486,14 +487,14 @@ with tab_audit:
 
 with tab_ai_tax:
     # 1. AI Executive Fiduciary Portfolio Diagnosis
-    st.markdown("##### 🤖 Institutional AI Fiduciary Diagnosis")
-    st.caption("Deep institutional synthesis across asset allocation drift, distributor commission bleed, and folio consolidation.")
+    st.markdown("##### 🤖 **Fiduciary AI Advisor** – Live Analysis with SEBI Statutory Lens")
+    st.caption("Institutional-grade synthesis of allocation drift, commission bleed, and folio consolidation opportunities.")
 
     ai_c1, ai_c2 = st.columns([3, 1])
     with ai_c1:
-        st.markdown("Generate a personalized fiduciary assessment combining live AI analysis with official SEBI & AMFI statutory benchmarks.")
+        st.markdown("Unlock your portfolio's untapped potential with AI-powered fiduciary insights, backed by SEBI & AMFI statutory benchmarks.")
     with ai_c2:
-        gen_ai_btn = st.button("🧠 Synthesize Diagnosis", use_container_width=True)
+        gen_ai_btn = st.button("🧠 **Synthesize Diagnosis**", use_container_width=True)
 
     portfolio_metrics_summary = {
         "total_value": total_value,
@@ -573,32 +574,32 @@ with tab_ai_tax:
 
     st.markdown("---")
     # 3. Interactive AI Fiduciary Assistant
-    st.markdown("##### 💬 Interactive AI Fiduciary Assistant")
-    st.caption("Ask natural language queries about your portfolio, fee leakage, tax harvesting, or rebalancing priorities.")
+    st.markdown("##### 💬 **AI Ask-Me-Anything** – Your Portfolio Questions, Instantly Answered")
+    st.caption("Query your investments in plain English – from commission bleed to optimal rebalancing strategies.")
 
     quick_cols = st.columns(5)
     preset_q = None
     with quick_cols[0]:
-        if st.button("💸 Fee Bleed?", use_container_width=True):
-            preset_q = "What is my total annual distributor fee bleed and 10-year compounded drag?"
+        if st.button("💸 **Fee Bleed Detector**", use_container_width=True):
+            preset_q = "What is my total annual distributor fee bleed and 10-year compounded drag, and how much could I save?"
     with quick_cols[1]:
-        if st.button("📊 Segments?", use_container_width=True):
-            preset_q = "What is my authentic Large Cap, Mid Cap, and Small Cap segment allocation across funds?"
+        if st.button("📊 **Segment Truth**", use_container_width=True):
+            preset_q = "Show me my authentic Large Cap, Mid Cap, and Small Cap exposure across all funds – warts and all?"
     with quick_cols[2]:
-        if st.button("⚖️ SAA Drift?", use_container_width=True):
-            preset_q = "What is my current net equity vs debt drift against my target SAA?"
+        if st.button("⚖️ **SAA Radar**", use_container_width=True):
+            preset_q = "How far am I from my target strategic asset allocation, and what's the drift cost me?"
     with quick_cols[3]:
-        if st.button("📑 Tax Harvesting?", use_container_width=True):
-            preset_q = "How can I harvest capital gains tax-free under Section 112A this year?"
+        if st.button("📑 **Tax Harvest Pro**", use_container_width=True):
+            preset_q = "How can I harvest capital gains tax-free under Section 112A this financial year?"
     with quick_cols[4]:
-        if st.button("🚨 Pruning Signals?", use_container_width=True):
-            preset_q = "Which funds should I exit or consolidate first to stop commission leakage?"
+        if st.button("🚨 **Prune & Save**", use_container_width=True):
+            preset_q = "Which funds should I exit or consolidate first to stop commission leakage and save taxes?"
 
     from services.ai_fund_classifier import answer_fiduciary_query
-    user_query = st.text_input("Ask anything about your mutual fund portfolio:", value=preset_q if preset_q else "", placeholder="e.g. How much trail commission am I losing in regular funds every year?", key="fiduciary_nl_query_box")
+    user_query = st.text_input("🗣️ Ask your portfolio question:", value=preset_q if preset_q else "", placeholder="e.g. How much trail commission am I losing in regular funds every year?", key="fiduciary_nl_query_box")
 
     if user_query:
-        with st.spinner("Analyzing portfolio facts per SEBI statutory rules..."):
+        with st.spinner("🔍 Analyzing portfolio facts through the SEBI fiduciary lens..."):
             qa_res = answer_fiduciary_query(
                 query=user_query,
                 portfolio_metrics=portfolio_metrics_summary,
@@ -618,7 +619,7 @@ with tab_ai_tax:
 
 with tab_blueprint:
     # 1. SAA Target Alignment & Drift
-    st.markdown("##### 🎯 Strategic Asset Allocation (SAA) Alignment")
+    st.markdown("##### 🎯 **SAA Drift Radar** – Where You Stand vs. Target")
     saa_options = {
         "Conservative (Tier 1 & 2: 30% Equity / 70% Debt)": (30.0, 70.0),
         "Moderate (Tier 3: 60% Equity / 40% Debt)": (60.0, 40.0),
@@ -637,7 +638,7 @@ with tab_blueprint:
         elif "TIER_6" in rt:
             preset_idx = 3
 
-    chosen_saa = st.selectbox("Select Target Risk Profile", list(saa_options.keys()), index=preset_idx)
+    chosen_saa = st.selectbox("🎯 Choose Your Target Risk DNA", list(saa_options.keys()), index=preset_idx)
     target_eq, target_debt = saa_options[chosen_saa]
 
     if "Conservative" in chosen_saa:
@@ -677,17 +678,17 @@ with tab_blueprint:
         else:
             st.warning(f"⚠️ Underweight Equity by {abs(eq_drift):.1f}%. Deploy incremental SIPs into core equity.")
 
-    st.caption("Need a formal suitability assessment? Visit the dedicated [Risk Profiler & SAA Page](pages/2_Risk_Profiler.py) for the complete 6-question SEBI test.")
+    st.caption("📝 Need a formal SEBI suitability test? Visit [Risk Profiler Page](pages/2_Risk_Profiler.py) for the 6-question benchmark.")
 
     st.markdown("---")
     # 2. Fiduciary SIP Recommendation Blueprint
-    st.markdown("##### 🚀 Fiduciary SIP Recommendation Blueprint")
-    st.caption("100% Direct Plan compliance with bi-weekly optimal tranche timing and portfolio completion alerts.")
+    st.markdown("##### 🚀 **SIP Blueprint Engine** – Direct-Plan Optimized with Timing Secrets")
+    st.caption("Bi-weekly tranche timing, 100% Direct compliance, and automated completion alerts.")
 
-    sip_budget_val = st.number_input("Monthly SIP Investment Budget (₹)", min_value=1000.0, max_value=10000000.0, value=25000.0, step=1000.0)
+    sip_budget_val = st.number_input("💰 Monthly SIP Budget (₹)", min_value=1000.0, max_value=10000000.0, value=25000.0, step=1000.0)
 
-    if st.button("Generate Fiduciary SIP Blueprint", type="primary", use_container_width=True):
-        with st.spinner("Generating deterministic SIP blueprint..."):
+    if st.button("🎯 **Generate SIP Blueprint**", type="primary", use_container_width=True):
+        with st.spinner("⚙️ Crafting your optimal SIP timing blueprint..."):
             bp = generate_fiduciary_sip_blueprint(monthly_budget_inr=sip_budget_val, target_saa=st.session_state.get("saa_target"), funds=funds)
             st.session_state["sip_blueprint_result"] = bp
 
@@ -749,12 +750,12 @@ with tab_blueprint:
 
     lump_c1, lump_c2 = st.columns(2)
     with lump_c1:
-        lump_in = st.number_input("Lump-Sum Capital Available (₹)", min_value=10000.0, max_value=100000000.0, value=500000.0, step=25000.0)
+        lump_in = st.number_input("💸 Lump-Sum Capital Available (₹)", min_value=10000.0, max_value=100000000.0, value=500000.0, step=25000.0)
     with lump_c2:
-        stp_months = st.slider("STP Staging Horizon (Months)", min_value=3, max_value=12, value=6, step=1)
+        stp_months = st.slider("⏳ STP Staging Horizon (Months)", min_value=3, max_value=12, value=6, step=1)
 
-    if st.button("Generate Lump-Sum STP Plan", use_container_width=True):
-        with st.spinner("Computing staging waterfall..."):
+    if st.button("🚀 **Deploy Lump-Sum via STP**", use_container_width=True):
+        with st.spinner("🔄 Computing optimal staging waterfall..."):
             l_plan = evaluate_fiduciary_lumpsum_blueprint(
                 lumpsum_amount_inr=float(lump_in),
                 stp_duration_months=int(stp_months),
@@ -777,14 +778,14 @@ with tab_blueprint:
 
     st.markdown("---")
     # 4. Monte Carlo Wealth Accumulation Stochastic Simulation
-    st.markdown("##### 🎲 Monte Carlo Wealth Accumulation Stochastic Simulation")
-    st.caption("Simulates 1,000 randomized market trajectories to calculate your statistical probability of goal achievement.")
+    st.markdown("##### 🎲 **Monte Carlo Goal Simulator** – What-if Scenarios with 1,000 Market Paths")
+    st.caption("Stress-test your strategy against historical market volatility and find your success probability.")
     from services.goal_planner import run_monte_carlo_goal_simulation
     mc_c1, mc_c2 = st.columns(2)
     with mc_c1:
-        target_corpus_goal = st.number_input("Target Corpus Goal (₹)", min_value=100000.0, max_value=500000000.0, value=10000000.0, step=500000.0)
+        target_corpus_goal = st.number_input("🎯 Target Corpus Goal (₹)", min_value=100000.0, max_value=500000000.0, value=10000000.0, step=500000.0)
     with mc_c2:
-        goal_horizon = st.slider("Goal Horizon (Years)", min_value=1, max_value=30, value=15, step=1)
+        goal_horizon = st.slider("📅 Goal Horizon (Years)", min_value=1, max_value=30, value=15, step=1)
 
     mc_sim = run_monte_carlo_goal_simulation(
         monthly_sip_inr=float(sip_budget_val),
@@ -798,23 +799,23 @@ with tab_blueprint:
         prob = mc_sim.get("probability_of_success_pct", 0.0)
         mc_m1, mc_m2, mc_m3 = st.columns(3)
         with mc_m1:
-            st.metric("Success Probability", f"{prob:.1f}%", "Historical market paths")
+            st.metric("🏆 Success Probability", f"{prob:.1f}%", "Historical market paths")
         with mc_m2:
-            st.metric("Median Corpus (P50)", f"₹{mc_sim.get('p50_corpus_inr', 0)/100000:.2f}L", "Expected compounding")
+            st.metric("📈 Median Corpus (P50)", f"₹{mc_sim.get('p50_corpus_inr', 0)/100000:.2f}L", "Expected compounding")
         with mc_m3:
-            st.metric("Severe Bear Market (P05)", f"₹{mc_sim.get('p05_corpus_inr', 0)/100000:.2f}L", "Left-tail stress test")
-        st.info(f"💡 **Fiduciary Monte Carlo Guidance:** {mc_sim.get('recommended_action', '')}")
+            st.metric("🔥 Worst-Case (P05)", f"₹{mc_sim.get('p05_corpus_inr', 0)/100000:.2f}L", "Left-tail stress test")
+        st.success(f"💡 **Monte Carlo Verdict:** {mc_sim.get('recommended_action', '')}")
 
 # --- Step 2 Transition Banner ---
 st.markdown("---")
 st.markdown('''
 <div style="background: linear-gradient(135deg, #1e3a8a 0%, #0f172a 100%); color: white; padding: 20px 24px; border-radius: 12px; margin-top: 15px; margin-bottom: 20px;">
-    <div style="font-size: 0.8rem; text-transform: uppercase; color: #38bdf8; letter-spacing: 0.08em; font-weight: 600;">Ready for Step 2?</div>
-    <h3 style="margin: 4px 0 6px 0; color: white; font-size: 1.3rem;">📄 Generate Executive Fiduciary Report & Statutory Deliverable</h3>
-    <p style="margin: 0 0 12px 0; color: #cbd5e1; font-size: 0.92rem;">Your intake audit is complete. Proceed to Step 2 to generate, inspect, and export your official fee-only fiduciary report per SEBI (Investment Advisers) Regulations, 2013.</p>
+    <div style="font-size: 0.8rem; text-transform: uppercase; color: #38bdf8; letter-spacing: 0.08em; font-weight: 600;">🚀 Step 2 – Client-Ready Report</div>
+    <h3 style="margin: 4px 0 6px 0; color: white; font-size: 1.3rem;">📄 Executive Fiduciary Report & Statutory Deliverable</h3>
+    <p style="margin: 0 0 12px 0; color: #cbd5e1; font-size: 0.92rem;">Your intake audit is done. Generate your official SEBI-compliant fiduciary report with actionable recommendations, tax optimization strategies, and fee-recovery playbook.</p>
 </div>
 ''', unsafe_allow_html=True)
-st.page_link("pages/5_Fiduciary_Report.py", label="👉 Open Step 2: Executive Fiduciary Report & Download", icon="📄")
+st.page_link("pages/5_Fiduciary_Report.py", label="📄 **Open Step 2: Executive Fiduciary Report & Download**", icon="📄")
 
 # --- Disclaimer ---
-st.caption("SEBI Registered Investment Adviser (RIA) / Research Analyst (RA) Compliance Notice: This dashboard operates on a strict fee-only, non-execution fiduciary basis under SEBI (Investment Advisers) Regulations, 2013. Past performance does not guarantee future results.")
+st.caption("📝 **SEBI RIAs & RAs: Fee-only, non-execution fiduciary basis under SEBI (Investment Advisers) Regulations, 2013. Past performance ≠ future returns.**")

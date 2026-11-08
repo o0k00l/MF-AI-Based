@@ -33,8 +33,8 @@ st.set_page_config(
 render_fiduciary_sidebar(current_page="pages/5_Fiduciary_Report.py")
 
 
-st.title("📄 Executive Fiduciary Report & Action Plan")
-st.markdown("Your formal, comprehensive portfolio diagnostic and investment advisory report.")
+st.title("📄 **Executive Fiduciary Report & Action Plan**")
+st.markdown("Your comprehensive portfolio diagnostic, tax optimization playbook, and fee-bleed recovery strategy.")
 
 # Check prerequisites
 portfolio = st.session_state.get("user_portfolio", [])
