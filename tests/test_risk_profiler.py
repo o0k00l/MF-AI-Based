@@ -125,7 +125,7 @@ def test_evaluate_direct_tier():
 
     res_t2 = evaluate_direct_tier(2)
     assert res_t2.governing_tier == SebiRiskTier.TIER_2_LOW
-    assert res_t2.target_saa.debt_pct == 70.0
+    assert res_t2.target_saa.debt_pct == 60.0
 
 
 def test_evaluate_custom_saa():
@@ -142,3 +142,27 @@ def test_evaluate_custom_saa():
     # Sum must be 100%
     with pytest.raises(ValueError, match="must sum to 100.0%"):
         evaluate_custom_saa(large_cap_pct=50.0, mid_small_cap_pct=30.0, debt_pct=10.0)
+
+
+def test_short_horizon_policy_caps_equity_and_mid_small_allocation():
+    """The 3-5 year policy limiter caps total equity and mid/small exposure."""
+    res = evaluate_fiduciary_profile(
+        horizon_years=4.0,
+        max_drawdown_tolerance_pct=20.0,
+        emergency_fund_months=12.0,
+    )
+    assert res.target_saa.total_equity_pct <= 40.0
+    assert res.target_saa.mid_small_cap_pct <= 5.0
+    assert res.target_saa.debt_pct >= 60.0
+
+
+def test_policy_limiters_compose_without_bypassing_stricter_drawdown_cap():
+    """The strictest applicable limiter governs when horizon and drawdown overlap."""
+    res = evaluate_fiduciary_profile(
+        horizon_years=4.0,
+        max_drawdown_tolerance_pct=5.0,
+        emergency_fund_months=12.0,
+    )
+    assert res.target_saa.total_equity_pct <= 30.0
+    assert res.target_saa.mid_small_cap_pct == 0.0
+    assert res.target_saa.debt_pct >= 70.0
