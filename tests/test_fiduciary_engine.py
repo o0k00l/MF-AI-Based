@@ -390,8 +390,13 @@ def test_target_saa_object_preserves_zero_debt_and_zero_flexi():
     
     allocations = blueprint["allocations"]
     
-    # Find flexi allocation - should be 0 or not present
+    # Verify NO debt allocation exists
+    debt_allocs = [a for a in allocations if "Debt" in a.get("sleeve", "")]
+    assert len(debt_allocs) == 0, f"Should have NO debt allocation with zero debt_pct, found: {debt_allocs}"
+    
+    # Verify NO flexi allocation exists
     flexi_allocs = [a for a in allocations if "Flexi" in a.get("sleeve", "")]
+    assert len(flexi_allocs) == 0, f"Should have NO flexi allocation with zero flexi_pct, found: {flexi_allocs}"
     
     # Total should still reconcile to budget
     total_allocated = sum(float(a.get("amount_inr", 0)) for a in allocations)
@@ -399,39 +404,46 @@ def test_target_saa_object_preserves_zero_debt_and_zero_flexi():
 
 
 def test_flexi_drift_tracking_in_saa_analysis():
-    """Test that Flexi Multi-Cap drift is tracked in SAA analysis.
+    """Test that Flexi Multi-Cap scheme-category exposure drift is tracked in SAA analysis.
     
-    Verify that the calculate_saa_drift function properly computes and reports
-    flexi_multi_cap specific tracking fields.
+    This tracks the value of funds categorized as Flexi Cap/Multi-Cap (scheme-category exposure),
+    not verified underlying look-through equity exposure.
     """
-    from core.math_engine import calculate_saa_drift, HoldingItem
+    from core.math_engine import calculate_saa_drift
+    from decimal import Decimal
     
-    # Create proper HoldingItem objects
-    flexi_fund = HoldingItem(
+    # Create mock holding objects with the attributes needed by calculate_saa_drift
+    class MockHolding:
+        def __init__(self, **kwargs):
+            for k, v in kwargs.items():
+                setattr(self, k, v)
+    
+    # Portfolio with a flexi cap fund
+    flexi_fund = MockHolding(
         scheme='HDFC Flexi Cap Fund',
         category='Flexi Cap',
         plan_type='Direct',
-        current_value_inr=150000.0,
-        invested_value_inr=100000.0,
+        current_value_inr=Decimal('150000.00'),
+        invested_value_inr=Decimal('100000.00'),
         equity_pct=90.0,
         debt_pct=10.0,
-        units=0,
-        nav=0,
-        folio_no='',
+        units=Decimal('0'),
+        nav=Decimal('0'),
+        folio='',
         amc_name='HDFC',
     )
     
-    large_cap_fund = HoldingItem(
+    large_cap_fund = MockHolding(
         scheme='ICICI Large Cap Fund',
         category='Large Cap',
         plan_type='Direct',
-        current_value_inr=850000.0,
-        invested_value_inr=700000.0,
+        current_value_inr=Decimal('850000.00'),
+        invested_value_inr=Decimal('700000.00'),
         equity_pct=100.0,
         debt_pct=0.0,
-        units=0,
-        nav=0,
-        folio_no='',
+        units=Decimal('0'),
+        nav=Decimal('0'),
+        folio='',
         amc_name='ICICI',
     )
     
@@ -447,10 +459,13 @@ def test_flexi_drift_tracking_in_saa_analysis():
     assert hasattr(drift, 'target_flexi_pct'), "SAADriftAnalysis should have target_flexi_pct field"
     assert hasattr(drift, 'flexi_drift_pct'), "SAADriftAnalysis should have flexi_drift_pct field"
     
-    # Current flexi should reflect the flexi fund value
+    # Current flexi should reflect the flexi fund value (scheme-category exposure)
     assert drift.current_flexi_inr == 150000.0, f"Expected current_flexi_inr=150000, got {drift.current_flexi_inr}"
     
     # Target flexi should be 15%
     assert drift.target_flexi_pct == 15.0, f"Expected target_flexi_pct=15.0, got {drift.target_flexi_pct}"
+    
+    # Flexi drift should be 15% - 10% = 5% (150k / 1M * 100 = 15% current)
+    assert drift.flexi_drift_pct == 0.0, f"Expected flexi_drift_pct=0.0, got {drift.flexi_drift_pct}"
 
 

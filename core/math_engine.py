@@ -1714,10 +1714,14 @@ def calculate_saa_drift(
     target_saa: Optional[Dict[str, float]] = None,
     tolerance_band_pct: float = 5.0,
 ) -> SAADriftAnalysis:
-    """
-    Calculates current asset allocation vs target Strategic Asset Allocation (SAA).
+    """Calculate current asset allocation vs target Strategic Asset Allocation (SAA).
+    
     Incorporates underlying look-through stability buffer (debt + cash).
-    Includes Flexi Multi-Cap specific tracking and drift analysis.
+    Includes Flexi Multi-Cap scheme-category exposure tracking and drift analysis.
+    
+    Note: Flexi tracking measures scheme-category exposure (value of Flexi Cap funds),
+    not verified look-through equity exposure. A Flexi Cap fund's equity allocation
+    varies over time, so this tracks category membership rather than constituent overlap.
     """
     total_val = sum(h.current_value_inr for h in holdings)
     if total_val <= 0.0:
