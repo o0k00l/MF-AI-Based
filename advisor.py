@@ -3,9 +3,11 @@
 advisor.py - Shared utilities for test compatibility.
 Provides get_default_paths() for test_p0_fiduciary_invariants.py
 """
+from __future__ import annotations
 
 from pathlib import Path
 import os
+from typing import Any
 
 
 def get_engine_data_paths(data_dir: Path | None = None) -> dict[str, Any]:
@@ -15,7 +17,6 @@ def get_engine_data_paths(data_dir: Path | None = None) -> dict[str, Any]:
     or INVALID state when public fund data has not yet been acquired or is corrupt,
     rather than falling back to flat paths.
     """
-    from typing import Any
     from services.engine_fund_data import (
         EngineRuntimeConfig,
         FundDataAcquisitionError,

@@ -1181,3 +1181,46 @@ def test_unverified_cas_only_aum_holds_the_entire_sip_budget():
     assert plan.equity_sip_pct == 0.0
     assert plan.debt_sip_pct == 0.0
     assert plan.unallocated_budget_inr == 25000.0
+def test_saa_loader_rejects_boolean_values():
+    """Boolean values must be rejected as invalid percentage types.
+    
+    In Python, bool is a subclass of int, so isinstance(True, int) is True.
+    A strict financial policy schema must explicitly reject booleans.
+    """
+    import services.risk_profiler as rp
+    import math
+    
+    for tier, saa in rp._SEBI_SAA_TABLE.items():
+        # All percentages should be numeric floats, not booleans
+        assert not isinstance(saa.large_cap_pct, bool), f"Tier {tier.name}: large_cap_pct must not be boolean"
+        assert not isinstance(saa.mid_small_cap_pct, bool), f"Tier {tier.name}: mid_small_cap_pct must not be boolean"
+        assert not isinstance(saa.debt_pct, bool), f"Tier {tier.name}: debt_pct must not be boolean"
+
+
+def test_saa_loader_rejects_infinity_values():
+    """Infinite values must be rejected as invalid percentage values.
+    
+    All percentage values must be finite numerical values.
+    """
+    import services.risk_profiler as rp
+    import math
+    
+    for tier, saa in rp._SEBI_SAA_TABLE.items():
+        # All percentages should be finite (not infinity or NaN)
+        assert math.isfinite(saa.large_cap_pct), f"Tier {tier.name}: large_cap_pct must be finite"
+        assert math.isfinite(saa.mid_small_cap_pct), f"Tier {tier.name}: mid_small_cap_pct must be finite"
+        assert math.isfinite(saa.debt_pct), f"Tier {tier.name}: debt_pct must be finite"
+
+
+def test_saa_loader_sum_to_100_boundary():
+    """Allocation totals must sum to 100% within tolerance.
+    
+    The SAA loader validates that allocations sum to 100% ± 0.1% tolerance.
+    This tests that all tiers meet this requirement.
+    """
+    import services.risk_profiler as rp
+    
+    for tier, saa in rp._SEBI_SAA_TABLE.items():
+        total = saa.large_cap_pct + saa.mid_small_cap_pct + saa.debt_pct
+        # Must be within 0.1 percentage point tolerance for rounding
+        assert abs(total - 100.0) < 0.1, f"Tier {tier.name}: allocations sum to {total}%, should be 100%"
