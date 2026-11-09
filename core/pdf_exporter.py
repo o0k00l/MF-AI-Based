@@ -16,28 +16,37 @@ from pathlib import Path
 from typing import Optional, Callable
 from xml.sax.saxutils import escape
 
-from reportlab.lib import colors
-from reportlab.lib.enums import TA_LEFT
-from reportlab.lib.pagesizes import A4
-from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
-from reportlab.lib.units import cm
-from reportlab.platypus import (
-    HRFlowable,
-    Paragraph,
-    Preformatted,
-    SimpleDocTemplate,
-    Spacer,
-    Table,
-    TableStyle,
-)
-
-
-PAGE_WIDTH, PAGE_HEIGHT = A4
-LEFT_MARGIN = 1.8 * cm
-RIGHT_MARGIN = 1.8 * cm
-TOP_MARGIN = 1.9 * cm
-BOTTOM_MARGIN = 2.0 * cm
-AVAILABLE_WIDTH = PAGE_WIDTH - LEFT_MARGIN - RIGHT_MARGIN
+try:
+    from reportlab.lib import colors
+    from reportlab.lib.enums import TA_LEFT
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+    from reportlab.lib.units import cm
+    from reportlab.platypus import (
+        HRFlowable,
+        Paragraph,
+        Preformatted,
+        SimpleDocTemplate,
+        Spacer,
+        Table,
+        TableStyle,
+    )
+    HAS_REPORTLAB = True
+    PAGE_WIDTH, PAGE_HEIGHT = A4
+    LEFT_MARGIN = 1.8 * cm
+    RIGHT_MARGIN = 1.8 * cm
+    TOP_MARGIN = 1.9 * cm
+    BOTTOM_MARGIN = 2.0 * cm
+    AVAILABLE_WIDTH = PAGE_WIDTH - LEFT_MARGIN - RIGHT_MARGIN
+except (ImportError, ModuleNotFoundError):
+    HAS_REPORTLAB = False
+    colors = None
+    TA_LEFT = None
+    A4 = None
+    ParagraphStyle = getSampleStyleSheet = None
+    cm = None
+    HRFlowable = Paragraph = Preformatted = SimpleDocTemplate = Spacer = Table = TableStyle = None
+    PAGE_WIDTH = PAGE_HEIGHT = LEFT_MARGIN = RIGHT_MARGIN = TOP_MARGIN = BOTTOM_MARGIN = AVAILABLE_WIDTH = 0
 TICK = chr(96)
 
 
@@ -309,6 +318,8 @@ def markdown_to_pdf_bytes(md_content: str, title: str = "", payload_hash: Option
     Returns:
         PDF bytes
     """
+    if not HAS_REPORTLAB:
+        raise RuntimeError("PDF generation requires the 'reportlab' package.")
     from io import BytesIO
 
     output = BytesIO()

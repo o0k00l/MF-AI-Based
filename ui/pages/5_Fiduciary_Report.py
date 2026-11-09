@@ -19,7 +19,13 @@ import streamlit as st
 from services.sidebar import render_fiduciary_sidebar
 from services.fiduciary_engine import evaluate_portfolio_saa_audit, generate_fiduciary_sip_blueprint
 from services.ai_fund_classifier import enrich_funds_with_ai, generate_fiduciary_ai_narrative
-from services.report_generator import generate_fiduciary_pdf_report, build_report_data
+try:
+    from services.report_generator import generate_fiduciary_pdf_report, build_report_data, HAS_REPORTLAB
+except (ImportError, ModuleNotFoundError):
+    generate_fiduciary_pdf_report = None
+    HAS_REPORTLAB = False
+    def build_report_data(**kwargs):
+        return kwargs
 
 # --- Page Configuration ---
 st.set_page_config(
@@ -395,73 +401,149 @@ else:
             mime="text/markdown",
             use_container_width=True,
         )
-        st.download_button(
-            "📥 Download Report (HTML)",
-            data=f"""<!DOCTYPE html>
-<html>
-<head><meta charset="utf-8"><title>Executive Fiduciary Report</title>
-<style>body{{font-family:Arial, sans-serif; max-width:850px; margin:2rem auto; padding:1.5rem; line-height: 1.6;}}</style>
+        try:
+            import markdown as _md_pkg
+            html_body = _md_pkg.markdown(report_md, extensions=["tables", "fenced_code"])
+        except Exception:
+            html_body = f"<pre style='white-space: pre-wrap;'>{report_md}</pre>"
+
+        printable_html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Executive Fiduciary Advisory Report</title>
+<style>
+    body {{
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        max-width: 900px;
+        margin: 2rem auto;
+        padding: 2.5rem;
+        line-height: 1.65;
+        color: #0f172a;
+        background: #ffffff;
+    }}
+    table {{
+        width: 100%;
+        border-collapse: collapse;
+        margin: 1.5rem 0;
+        font-size: 0.92rem;
+    }}
+    th, td {{
+        border: 1px solid #cbd5e1;
+        padding: 10px 14px;
+        text-align: left;
+    }}
+    th {{
+        background: #1e293b;
+        color: #ffffff;
+        font-weight: 600;
+    }}
+    tr:nth-child(even) {{
+        background: #f8fafc;
+    }}
+    h1 {{
+        color: #1e3a8a;
+        font-size: 1.85rem;
+        border-bottom: 3px solid #2563eb;
+        padding-bottom: 8px;
+    }}
+    h2, h3 {{
+        color: #0f172a;
+        margin-top: 1.8rem;
+        border-bottom: 1px solid #e2e8f0;
+        padding-bottom: 6px;
+    }}
+    code {{
+        background: #f1f5f9;
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-size: 0.88rem;
+    }}
+    blockquote {{
+        border-left: 4px solid #2563eb;
+        margin: 1rem 0;
+        padding: 0.5rem 1rem;
+        background: #f8fafc;
+    }}
+    @media print {{
+        body {{ max-width: 100%; margin: 0; padding: 1.5cm; }}
+        a {{ text-decoration: none; color: inherit; }}
+    }}
+</style>
 </head>
-<body>{report_md}</body>
-</html>""",
+<body>
+{html_body}
+</body>
+</html>"""
+
+        st.download_button(
+            "📥 Download Report (HTML / Printable)",
+            data=printable_html,
             file_name="Executive_Fiduciary_Report.html",
             mime="text/html",
             use_container_width=True,
         )
         
         # PDF Download Button
-        if st.button("📥 Generate & Download Fiduciary Report (PDF)", type="primary", use_container_width=True):
-            with st.spinner("Generating professional PDF report..."):
-                # Build report data from session state
-                sip_plan = st.session_state.get("deterministic_sip_plan", {})
-                saa_analysis = st.session_state.get("saa_audit", {})
-                lumpsum_plan = st.session_state.get("deterministic_lumpsum_plan", {})
-                monte_carlo = st.session_state.get("monte_carlo_results", {})
-                
-                # Convert SIP plan to expected format
-                if sip_plan and "allocations" in sip_plan:
-                    recommendations = []
-                    for alloc in sip_plan.get("allocations", []):
-                        amt = alloc.get("amount_inr", 0)
-                        if isinstance(amt, str):
-                            amt = float(amt) if amt else 0.0
-                        recommendations.append({
-                            "slot_name": alloc.get("sleeve", ""),
-                            "scheme_name": alloc.get("scheme_name", ""),
-                            "category": alloc.get("category", ""),
-                            "plan_type": "Direct-Growth",
-                            "monthly_allocation_inr": amt,
-                            "allocation_pct": (amt / sip_plan.get("monthly_budget_inr", 1)) * 100 if sip_plan.get("monthly_budget_inr", 0) > 0 else 0,
-                        })
-                    sip_plan = {
-                        "status": "DETERMINISTIC_SIP_READY",
-                        "monthly_budget_inr": sip_plan.get("monthly_budget_inr", 0),
-                        "allocated_budget_inr": sip_plan.get("allocated_budget_inr", 0),
-                        "unallocated_budget_inr": sip_plan.get("unallocated_budget_inr", 0),
-                        "recommendations": recommendations,
-                        "optimal_tranche_timing": sip_plan.get("optimal_tranche_timing", {}),
-                        "portfolio_completion_alerts": sip_plan.get("portfolio_completion_alerts", []),
-                        "fiduciary_routing_rationale": sip_plan.get("fiduciary_routing_rationale", ""),
-                    }
-                
-                report_data = build_report_data(
-                    portfolio=portfolio,
-                    saa_analysis=saa_analysis,
-                    sip_plan=sip_plan,
-                    lumpsum_plan=lumpsum_plan,
-                    monte_carlo=monte_carlo,
-                    client_name=st.session_state.get("client_name", "Confidential Client"),
-                    risk_tier=risk_tier,
-                )
-                
-                pdf_bytes = generate_fiduciary_pdf_report(report_data)
-                
-                st.download_button(
-                    "⬇️ Download PDF Report",
-                    data=pdf_bytes,
-                    file_name="Executive_Fiduciary_Report.pdf",
-                    mime="application/pdf",
-                    use_container_width=True,
-                )
-                st.success("PDF report generated successfully!")
+        if generate_fiduciary_pdf_report is not None and HAS_REPORTLAB:
+            if st.button("📥 Generate & Download Fiduciary Report (PDF)", type="primary", use_container_width=True):
+                with st.spinner("Generating professional PDF report..."):
+                    try:
+                        # Build report data from session state
+                        sip_plan = st.session_state.get("deterministic_sip_plan", {})
+                        saa_analysis = st.session_state.get("saa_audit", {})
+                        lumpsum_plan = st.session_state.get("deterministic_lumpsum_plan", {})
+                        monte_carlo = st.session_state.get("monte_carlo_results", {})
+                        
+                        # Convert SIP plan to expected format
+                        if sip_plan and "allocations" in sip_plan:
+                            recommendations = []
+                            for alloc in sip_plan.get("allocations", []):
+                                amt = alloc.get("amount_inr", 0)
+                                if isinstance(amt, str):
+                                    amt = float(amt) if amt else 0.0
+                                recommendations.append({
+                                    "slot_name": alloc.get("sleeve", ""),
+                                    "scheme_name": alloc.get("scheme_name", ""),
+                                    "category": alloc.get("category", ""),
+                                    "plan_type": "Direct-Growth",
+                                    "monthly_allocation_inr": amt,
+                                    "allocation_pct": (amt / sip_plan.get("monthly_budget_inr", 1)) * 100 if sip_plan.get("monthly_budget_inr", 0) > 0 else 0,
+                                })
+                            sip_plan = {
+                                "status": "DETERMINISTIC_SIP_READY",
+                                "monthly_budget_inr": sip_plan.get("monthly_budget_inr", 0),
+                                "allocated_budget_inr": sip_plan.get("allocated_budget_inr", 0),
+                                "unallocated_budget_inr": sip_plan.get("unallocated_budget_inr", 0),
+                                "recommendations": recommendations,
+                                "optimal_tranche_timing": sip_plan.get("optimal_tranche_timing", {}),
+                                "portfolio_completion_alerts": sip_plan.get("portfolio_completion_alerts", []),
+                                "fiduciary_routing_rationale": sip_plan.get("fiduciary_routing_rationale", ""),
+                            }
+                        
+                        report_data = build_report_data(
+                            portfolio=portfolio,
+                            saa_analysis=saa_analysis,
+                            sip_plan=sip_plan,
+                            lumpsum_plan=lumpsum_plan,
+                            monte_carlo=monte_carlo,
+                            client_name=st.session_state.get("client_name", "Confidential Client"),
+                            risk_tier=risk_tier,
+                        )
+                        
+                        pdf_bytes = generate_fiduciary_pdf_report(report_data)
+                        
+                        st.download_button(
+                            "⬇️ Download PDF Report",
+                            data=pdf_bytes,
+                            file_name="Executive_Fiduciary_Report.pdf",
+                            mime="application/pdf",
+                            use_container_width=True,
+                        )
+                        st.success("PDF report generated successfully!")
+                    except Exception as _pdf_err:
+                        st.error(f"⚠️ PDF generation encountered an error: {_pdf_err}. Please use the HTML or Markdown download options above.")
+        else:
+            st.info("ℹ️ Direct PDF generation is offline in this environment (reportlab library not loaded). Please download as **HTML / Printable** above and press Ctrl+P (Print to PDF) in your browser for a client-ready document.")
 

@@ -157,8 +157,8 @@ def trigger_spiva_fallback(
     is_passive_needed = rules.get("is_passive", True)
     sort_by = rules.get("sort_by", "ter_direct_pct")
     
-    # Dynamically filter for passive index funds in the target category
-    passive_candidates = []
+    # Dynamically filter for funds matching category and plan type
+    candidates = []
     for fund in fund_metrics_universe:
         if not isinstance(fund, dict):
             continue
@@ -167,8 +167,11 @@ def trigger_spiva_fallback(
         fund_plan_type = fund.get("plan_type", "")
         is_passive = fund.get("is_passive", False)
         
-        # Must be a passive fund (index/ETF)
-        if not is_passive:
+        # For passive-only categories, skip active funds
+        if is_passive_needed and not is_passive:
+            continue
+        # For active-only categories, skip passive funds  
+        if not is_passive_needed and is_passive:
             continue
         
         # Category must match (case-insensitive)
@@ -179,29 +182,33 @@ def trigger_spiva_fallback(
         if fund_plan_type and "direct" not in str(fund_plan_type).lower():
             continue
         
-        passive_candidates.append(fund)
+        candidates.append(fund)
     
-    if not passive_candidates:
-        # No passive fallback available - must trigger NO_ACTION
+    if not candidates:
+        # No candidates available - must trigger NO_ACTION
         # This is the correct fiduciary behavior: fail closed
+        prefix = "SPIVA PASSIVE FALLBACK FAILURE" if is_passive_needed else "SPIVA FALLBACK FAILURE"
         raise ValueError(
-            f"SPIVA PASSIVE FALLBACK FAILURE: No passive index fund found "
-            f"for category '{target_category}'. Active candidates failed all 10 gates. "
-            f"This is a fiduciary compliance issue requiring scheme_master.json update."
+            f"{prefix}: No {'passive index' if is_passive_needed else 'active'} fund found "
+            f"for category '{target_category}'. This is a fiduciary compliance issue requiring scheme_master.json update."
         )
     
-    # Sort by TER ascending (lowest cost = best passive index)
-    def safe_ter_sort(fund):
-        ter = fund.get("ter_direct_pct", fund.get("ter", float("inf")))
+    # Sort by the specified metric (TER for passive, Sharpe for mid-cap, AUM for debt)
+    def safe_sort_key(fund):
+        val = fund.get(sort_by)
+        if val is None:
+            return float('inf')
         try:
-            return float(ter) if isinstance(ter, (int, float)) and ter is not None else float("inf")
+            return float(val) if isinstance(val, (int, float)) else float('inf')
         except (TypeError, ValueError):
-            return float("inf")
+            return float('inf')
     
-    passive_candidates.sort(key=safe_ter_sort)
+    # For Sharpe, we want highest (reverse sort), for TER/AUM we want lowest
+    reverse_sort = sort_by == "sharpe_3y"
+    candidates.sort(key=safe_sort_key, reverse=reverse_sort)
     
-    # Return the best passive fund
-    best_fund = passive_candidates[0]
+    # Return the best fund
+    best_fund = candidates[0]
     scheme_name = best_fund.get("scheme") or best_fund.get("canonical_name") or best_fund.get("id", "")
     
     # Ensure Direct plan naming
@@ -548,14 +555,16 @@ def generate_fiduciary_sip_blueprint(
         s_name = str(f_obj.get("scheme") or "").lower()
         return any(k in s_name for k in kws)
 
-    def _get_market_nom_fund(nom_key: str, default_scheme: str, fund_universe_list: List[Dict[str, Any]] = None) -> str:
+    def _get_market_nom_fund(nom_key: str, fund_universe_list: List[Dict[str, Any]] = None) -> str:
         """Get scheme name from market nominations using dynamic selection logic."""
         rules = market_noms.get(nom_key, {})
         if fund_universe_list:
             # Use dynamic selection from fund universe
-            return _select_market_nom_fund(rules, fund_universe_list, nom_key)
-        # Fallback to embedded selection rules or default scheme
-        return rules.get("scheme", default_scheme)
+            result = _select_market_nom_fund(rules, fund_universe_list, nom_key)
+            if result and result != "SPIVA_FALLBACK_FAILED":
+                return result
+        # Fallback to embedded selection rules from data (NOT hardcoded defaults)
+        return rules.get("scheme", "Market-Nominated Fund - Direct Plan - Growth")
 
     if direct_funds:
         # Match schemes to sleeves - prioritize client's existing funds
@@ -603,7 +612,7 @@ def generate_fiduciary_sip_blueprint(
             # Use client's fund, or dynamically select from fund universe
             selected_fund = lc_fund
             if not lc_fund:
-                selected_name = _get_market_nom_fund("large_cap_index", "UTI Nifty 50 Index Fund - Direct Plan - Growth", fund_universe)
+                selected_name = _get_market_nom_fund("large_cap_index", fund_universe)
                 selected_fund = {"scheme": selected_name, "folio_no": "New Direct Folio Mandate"}
             s_name = selected_fund.get("scheme")
             f_num = selected_fund.get("folio_no", "Existing Direct Folio") if selected_fund.get("folio_no") != "New Direct Folio Mandate" else "New Direct Folio Mandate"
@@ -622,7 +631,7 @@ def generate_fiduciary_sip_blueprint(
             # Use client's fund, or dynamically select from fund universe
             selected_fund = ms_fund
             if not ms_fund:
-                selected_name = _get_market_nom_fund("mid_cap_active", "HDFC Mid Cap Fund - Direct Plan - Growth", fund_universe)
+                selected_name = _get_market_nom_fund("mid_cap_active", fund_universe)
                 selected_fund = {"scheme": selected_name, "folio_no": "New Direct Folio Mandate"}
             s_name = selected_fund.get("scheme")
             f_num = selected_fund.get("folio_no", "Existing Direct Folio") if selected_fund.get("folio_no") != "New Direct Folio Mandate" else "New Direct Folio Mandate"
@@ -641,7 +650,26 @@ def generate_fiduciary_sip_blueprint(
             # Use client's fund, or dynamically select from fund universe
             selected_fund = db_fund
             if not db_fund:
-                selected_name = _get_market_nom_fund("debt_liquid", "ICICI Prudential Liquid Fund - Direct Plan - Growth", fund_universe)
+                # Dynamic Market Nomination Fallback
+                # Filter the universe for Direct Liquid/Debt funds, sort by lowest TER, return the best
+                liquid_candidates = [
+                    f for f in (fund_universe or [])
+                    if isinstance(f, dict)
+                    and str(f.get("category", "")).lower() == "debt"
+                    and str(f.get("plan_type", "Direct")).lower() == "direct"
+                ]
+                
+                if liquid_candidates:
+                    # Sort by TER ascending (lowest cost = fiduciary preference)
+                    liquid_candidates.sort(key=lambda x: float(x.get("ter_direct_pct", 99.9)))
+                    selected_name = liquid_candidates[0].get("scheme") or liquid_candidates[0].get("canonical_name")
+                else:
+                    # Absolute failsafe if universe is empty - use market nomination default
+                    debt_rules = market_noms.get("debt_liquid", {})
+                    selected_name = debt_rules.get("scheme", "Market-Nominated Liquid Fund - Direct Plan - Growth")
+                if "direct" not in str(selected_name).lower():
+                    selected_name = f"{selected_name} - Direct Plan - Growth"
+                
                 selected_fund = {"scheme": selected_name, "folio_no": "New Direct Folio Mandate"}
             s_name = selected_fund.get("scheme")
             f_num = selected_fund.get("folio_no", "Existing Direct Folio") if selected_fund.get("folio_no") != "New Direct Folio Mandate" else "New Direct Folio Mandate"
@@ -657,9 +685,24 @@ def generate_fiduciary_sip_blueprint(
     else:
         # Client has no Direct schemes yet (or 100% regular) — provide canonical sleeve blueprint with market nominations
         # Use dynamic selection from fund universe
-        market_lc = _get_market_nom_fund("large_cap_index", "UTI Nifty 50 Index Fund - Direct Plan - Growth", fund_universe)
-        market_ms = _get_market_nom_fund("mid_cap_active", "HDFC Mid Cap Fund - Direct Plan - Growth", fund_universe)
-        market_db = _get_market_nom_fund("debt_liquid", "ICICI Prudential Liquid Fund - Direct Plan - Growth", fund_universe)
+        market_lc = _get_market_nom_fund("large_cap_index", fund_universe)
+        market_ms = _get_market_nom_fund("mid_cap_active", fund_universe)
+        
+        # Dynamic debt liquid selection (avoid SPIVA fallback bug for active funds)
+        liquid_candidates = [
+            f for f in (fund_universe or [])
+            if isinstance(f, dict)
+            and str(f.get("category", "")).lower() == "debt"
+            and str(f.get("plan_type", "Direct")).lower() == "direct"
+        ]
+        if liquid_candidates:
+            liquid_candidates.sort(key=lambda x: float(x.get("ter_direct_pct", 99.9)))
+            market_db = liquid_candidates[0].get("scheme") or liquid_candidates[0].get("canonical_name") or market_noms.get("debt_liquid", {}).get("scheme", "Market-Nominated Liquid Fund - Direct Plan - Growth")
+        else:
+            debt_rules = market_noms.get("debt_liquid", {})
+            market_db = debt_rules.get("scheme", "Market-Nominated Liquid Fund - Direct Plan - Growth")
+        if "direct" not in str(market_db).lower():
+            market_db = f"{market_db} - Direct Plan - Growth"
         
         if lc_target > Decimal("0.00"):
             allocations.append({
