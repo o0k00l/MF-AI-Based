@@ -21,10 +21,12 @@
   "as_of": "2026-10-30",
   "risk_profile_limiters": {
     "drawdown_5pct": {
+      "max_tolerated_drawdown_pct": 5,
       "max_equity_pct": 30,
       "max_mid_small_pct": 0
     },
     "ultra_short_horizon": {
+      "max_horizon_years_exclusive": 3,
       "max_equity_pct": 0,
       "max_mid_small_pct": 0
     },
