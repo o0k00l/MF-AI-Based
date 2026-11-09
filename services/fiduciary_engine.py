@@ -480,6 +480,7 @@ def generate_fiduciary_sip_blueprint(
     # Extract target percentages safely
     lc_pct = Decimal("50.0")
     ms_pct = Decimal("25.0")
+    flexi_pct = Decimal("0.0")
     db_pct = Decimal("25.0")
 
     if target_saa is not None:
@@ -487,19 +488,22 @@ def generate_fiduciary_sip_blueprint(
             try:
                 lc_pct = Decimal(str(getattr(target_saa, "large_cap_pct", 50.0) or 50.0))
                 ms_pct = Decimal(str(getattr(target_saa, "mid_small_cap_pct", 25.0) or 25.0))
+                flexi_pct = Decimal(str(getattr(target_saa, "flexi_multi_cap_pct", 0.0) or 0.0))
                 db_pct = Decimal(str(getattr(target_saa, "debt_pct", 25.0) or 25.0))
             except Exception:
-                lc_pct, ms_pct, db_pct = Decimal("50.0"), Decimal("25.0"), Decimal("25.0")
+                lc_pct, ms_pct, flexi_pct, db_pct = Decimal("50.0"), Decimal("25.0"), Decimal("0.0"), Decimal("25.0")
         elif isinstance(target_saa, dict):
             try:
                 lc_val = target_saa.get("large_cap_pct")
                 lc_pct = Decimal(str(lc_val if lc_val is not None else 50.0))
                 ms_val = target_saa.get("mid_small_cap_pct")
                 ms_pct = Decimal(str(ms_val if ms_val is not None else 25.0))
+                flexi_val = target_saa.get("flexi_multi_cap_pct", 0.0)
+                flexi_pct = Decimal(str(flexi_val if flexi_val is not None else 0.0))
                 db_val = target_saa.get("debt_pct")
                 db_pct = Decimal(str(db_val if db_val is not None else 25.0))
             except Exception:
-                lc_pct, ms_pct, db_pct = Decimal("50.0"), Decimal("25.0"), Decimal("25.0")
+                lc_pct, ms_pct, flexi_pct, db_pct = Decimal("50.0"), Decimal("25.0"), Decimal("0.0"), Decimal("25.0")
 
     # Stability Buffer Override (per POL-SIP-001):
     # If current portfolio debt >= target debt, redirect all SIP debt allocation to equity.
@@ -522,11 +526,12 @@ def generate_fiduciary_sip_blueprint(
             if current_debt_pct >= db_pct:
                 # Debt is already at or above target — redirect SIP debt to equity
                 debt_to_add = db_pct
-                # Split the redirected debt across existing equity sleeves proportionally
-                total_equity_pct = lc_pct + ms_pct
+                # Split the redirected debt across existing equity sleeves proportionally (large, mid/small, flexi)
+                total_equity_pct = lc_pct + ms_pct + flexi_pct
                 if total_equity_pct > Decimal("0.0"):
                     lc_pct = lc_pct + (debt_to_add * (lc_pct / total_equity_pct))
                     ms_pct = ms_pct + (debt_to_add * (ms_pct / total_equity_pct))
+                    flexi_pct = flexi_pct + (debt_to_add * (flexi_pct / total_equity_pct))
                 else:
                     lc_pct = lc_pct + debt_to_add
                 db_pct = Decimal("0.0")
@@ -535,8 +540,9 @@ def generate_fiduciary_sip_blueprint(
     # Quantized target sleeve allocations
     lc_target = (budget_dec * (lc_pct / Decimal("100.0"))).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     ms_target = (budget_dec * (ms_pct / Decimal("100.0"))).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    flexi_target = (budget_dec * (flexi_pct / Decimal("100.0"))).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     # Reconcile exact paisa difference onto debt/stability buffer
-    db_target = (budget_dec - lc_target - ms_target).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    db_target = (budget_dec - lc_target - ms_target - flexi_target).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
     # Identify eligible Direct funds in client portfolio safely
     direct_funds = [

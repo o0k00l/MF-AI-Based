@@ -254,25 +254,28 @@ with tab3:
     st.caption("Specify your bespoke target asset allocation. Percentages must sum to exactly 100.0%.")
 
     with st.form("mode3_custom_form"):
-        col_c1, col_c2, col_c3 = st.columns(3)
+        col_c1, col_c2, col_c3, col_c4 = st.columns(4)
         with col_c1:
             c_lc = st.number_input("Large-Cap Core Target (%):", min_value=0.0, max_value=100.0, value=50.0, step=5.0)
         with col_c2:
             c_ms = st.number_input("Mid/Small-Cap Alpha Target (%):", min_value=0.0, max_value=100.0, value=25.0, step=5.0)
         with col_c3:
+            c_flexi = st.number_input("Flexi-Multi-Cap Target (%):", min_value=0.0, max_value=100.0, value=0.0, step=5.0)
+        with col_c4:
             c_db = st.number_input("Debt & Liquidity Cushion Target (%):", min_value=0.0, max_value=100.0, value=25.0, step=5.0)
 
         custom_notes = st.text_input("Investment Policy Statement (IPS) Mandate Reference / Notes:", value="Client-Directed Asset Allocation")
         submit_mode3 = st.form_submit_button("🎯 Save Custom Asset Allocation Target", type="primary", use_container_width=True)
 
     if submit_mode3:
-        total_p = c_lc + c_ms + c_db
+        total_p = c_lc + c_ms + c_flexi + c_db
         if abs(total_p - 100.0) > 0.01:
             st.error(f"❌ Allocations must sum to exactly 100.0% (Current sum: {total_p:.1f}%). Please adjust values.")
         else:
             p_result = evaluate_custom_saa(
                 large_cap_pct=c_lc,
                 mid_small_cap_pct=c_ms,
+                flexi_multi_cap_pct=c_flexi,
                 debt_pct=c_db,
                 rationale=custom_notes,
             )

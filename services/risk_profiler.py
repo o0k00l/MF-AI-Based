@@ -42,19 +42,28 @@ _TIER_NAME_MAP = {
 
 @dataclass(frozen=True)
 class TargetSaa:
-    """Strategic Asset Allocation target percentages (sum to 100.0%)."""
+    """Strategic Asset Allocation target percentages (sum to 100.0%).
+    
+    Note: flexi_multi_cap_pct is tracked separately from mid_small_cap_pct because:
+    - Flexi-multi-cap funds are a distinct asset class (can hold large, mid, or small cap)
+    - mid_small_cap_pct represents pure mid-cap + small-cap exposure only
+    - Total equity = large_cap_pct + mid_small_cap_pct + flexi_multi_cap_pct
+    - Risk limiters (max_mid_small_pct) apply only to true mid/small exposure
+    """
     large_cap_pct: float
     mid_small_cap_pct: float
     debt_pct: float
+    flexi_multi_cap_pct: float = 0.0
 
     @property
     def total_equity_pct(self) -> float:
-        return self.large_cap_pct + self.mid_small_cap_pct
+        return self.large_cap_pct + self.mid_small_cap_pct + self.flexi_multi_cap_pct
 
     def as_dict(self) -> dict[str, float]:
         return {
             "large_cap_pct": round(self.large_cap_pct, 1),
             "mid_small_cap_pct": round(self.mid_small_cap_pct, 1),
+            "flexi_multi_cap_pct": round(self.flexi_multi_cap_pct, 1),
             "debt_pct": round(self.debt_pct, 1),
             "total_equity_pct": round(self.total_equity_pct, 1),
         }
@@ -121,17 +130,17 @@ def _load_saa_from_policy() -> dict[SebiRiskTier, TargetSaa]:
                     f"Policy tier '{tier_name}' field '{field}' must be finite, got {value}"
                 )
         
-        # Calculate derived values
+        # Calculate derived values - separate mid/small from flexi-multi-cap
         mid_cap = float(saa_targets['mid_cap_pct'])
         small_cap = float(saa_targets['small_cap_pct'])
         flexi_cap = float(saa_targets['flexi_multi_cap_pct'])
-        mid_small_total = mid_cap + small_cap + flexi_cap
+        mid_small_total = mid_cap + small_cap  # Only mid + small, NOT flexi
         
         large_cap = float(saa_targets['large_cap_pct'])
         debt_pct = float(saa_targets['debt_liquid_pct'])
         
         # Validate allocation totals sum to 100%
-        total = large_cap + mid_small_total + debt_pct
+        total = large_cap + mid_small_total + flexi_cap + debt_pct
         if abs(total - 100.0) > 0.1:  # Inclusive 0.1 percentage-point tolerance
             raise ValueError(
                 f"Policy tier '{tier_name}' allocations sum to {total:.1f}%, should be 100%"
@@ -139,7 +148,8 @@ def _load_saa_from_policy() -> dict[SebiRiskTier, TargetSaa]:
         
         saa_table[tier] = TargetSaa(
             large_cap_pct=large_cap,
-            mid_small_cap_pct=mid_small_total,
+            mid_small_cap_pct=mid_small_total,  # Pure mid + small cap only
+            flexi_multi_cap_pct=flexi_cap,  # Separate flexi-multi-cap tracking
             debt_pct=debt_pct,
         )
     
@@ -214,19 +224,32 @@ def _apply_saa_caps(
     max_equity_pct: float | None = None,
     max_mid_small_pct: float | None = None,
 ) -> TargetSaa:
-    """Apply binding allocation caps by transferring excess exposure to debt."""
+    """Apply binding allocation caps by transferring excess exposure to debt.
+    
+    Note: mid_small_cap_pct and flexi_multi_cap_pct are capped independently.
+    max_mid_small_pct applies only to true mid/small exposure, NOT flexi-multi-cap.
+    Flexi-multi-cap funds are a distinct asset class that can hold any market cap segment.
+    """
     large = base_saa.large_cap_pct
     mid_small = base_saa.mid_small_cap_pct
-
+    flexi = base_saa.flexi_multi_cap_pct
+    
+    # Apply mid/small cap limiter only to mid_small, NOT flexi
     if max_mid_small_pct is not None:
         mid_small = min(mid_small, max_mid_small_pct)
-    if max_equity_pct is not None and large + mid_small > max_equity_pct:
-        large = max(0.0, max_equity_pct - mid_small)
-
+    
+    # Apply total equity cap to all equity (large + mid_small + flexi)
+    total_eq = large + mid_small + flexi
+    if max_equity_pct is not None and total_eq > max_equity_pct:
+        # Reduce from large cap first (to preserve mid/small and flexi exposure)
+        excess = total_eq - max_equity_pct
+        large = max(0.0, large - excess)
+    
     return TargetSaa(
         large_cap_pct=round(large, 6),
         mid_small_cap_pct=round(mid_small, 6),
-        debt_pct=round(100.0 - large - mid_small, 6),
+        flexi_multi_cap_pct=round(flexi, 6),
+        debt_pct=round(100.0 - large - mid_small - flexi, 6),
     )
 
 
@@ -456,7 +479,7 @@ def evaluate_direct_tier(tier: SebiRiskTier | int) -> RiskProfileResult:
         fiduciary_rationale=(
             f"**Governing Profile:** {_TIER_LABELS[tier]}\n"
             f"* **Mode:** Direct Regulatory Declaration (Informed Investor)\n"
-            f"* **Asset Allocation:** Equity {base_saa.total_equity_pct:.1f}% (Large Cap {base_saa.large_cap_pct:.1f}%, Mid/Small Cap {base_saa.mid_small_cap_pct:.1f}%) | Debt {base_saa.debt_pct:.1f}%\n"
+            f"* **Asset Allocation:** Equity {base_saa.total_equity_pct:.1f}% (Large Cap {base_saa.large_cap_pct:.1f}%, Mid/Small Cap {base_saa.mid_small_cap_pct:.1f}%, Flexi-Multi Cap {base_saa.flexi_multi_cap_pct:.1f}%) | Debt {base_saa.debt_pct:.1f}%\n"
             f"* **Regulatory Alignment:** Directly mapped to SEBI 6-Tier risk governance framework."
         ),
         expected_drawdown_range=_DRAWDOWN_RANGES[tier],
@@ -468,19 +491,26 @@ def evaluate_custom_saa(
     large_cap_pct: float,
     mid_small_cap_pct: float,
     debt_pct: float,
+    flexi_multi_cap_pct: float = 0.0,
     rationale: str = "",
 ) -> RiskProfileResult:
     """Evaluate custom SAA target defined by investor or RIA (Mode 3: Expert / IPS)."""
     lc = float(large_cap_pct)
     ms = float(mid_small_cap_pct)
     db = float(debt_pct)
-    total = lc + ms + db
+    flexi = float(flexi_multi_cap_pct)
+    total = lc + ms + flexi + db
     if abs(total - 100.0) > 0.01:
         raise ValueError(f"Custom asset allocation must sum to 100.0% (got {total:.2f}%).")
-    if lc < 0 or ms < 0 or db < 0:
+    if lc < 0 or ms < 0 or db < 0 or flexi < 0:
         raise ValueError("Asset allocation percentages cannot be negative.")
 
-    target_saa = TargetSaa(large_cap_pct=round(lc, 1), mid_small_cap_pct=round(ms, 1), debt_pct=round(db, 1))
+    target_saa = TargetSaa(
+        large_cap_pct=round(lc, 1),
+        mid_small_cap_pct=round(ms, 1),
+        flexi_multi_cap_pct=round(flexi, 1),
+        debt_pct=round(db, 1),
+    )
     total_eq = target_saa.total_equity_pct
 
     # Map to closest regulatory equivalent tier
@@ -500,7 +530,7 @@ def evaluate_custom_saa(
     custom_rationale = (
         f"**Governing Profile:** Custom IPS Allocation (Closest SEBI Equivalent: {_TIER_LABELS[equiv_tier]})\n"
         f"* **Mode:** Expert Bespoke Target (HNIs / RIAs / Institutional Mandate)\n"
-        f"* **Custom SAA:** Large Cap {lc:.1f}%, Mid/Small Cap {ms:.1f}%, Debt/Cash {db:.1f}%\n"
+        f"* **Custom SAA:** Large Cap {lc:.1f}%, Mid/Small Cap {ms:.1f}%, Flexi-Multi Cap {flexi:.1f}%, Debt/Cash {db:.1f}%\n"
         f"* **Client Notes:** {rationale or 'Bespoke mandate specified by investor.'}"
     )
 
