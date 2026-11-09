@@ -42,6 +42,14 @@ def _load_market_nominations() -> Dict[str, Dict[str, Any]]:
                 "sort_by": "sharpe_3y",
                 "sort_order": "desc",
             },
+            "flexi_multi_cap": {
+                "category": "Flexi Cap",
+                "plan_type": "Direct",
+                "is_passive": False,
+                "sort_by": "sharpe_3y",
+                "sort_order": "desc",
+                "scheme": "Parag Parikh Flexi Cap Fund - Direct Plan - Growth",
+            },
             "debt_liquid": {
                 "category": "Debt",
                 "plan_type": "Direct",
@@ -594,6 +602,14 @@ def generate_fiduciary_sip_blueprint(
             if str(f.get("category", "")).lower() in ["mid cap", "small cap"]
         ), None)
         
+        # Flexi-Multi-Cap: prefer flexi/multi-cap category funds
+        flexi_fund = next((
+            f for f in direct_funds 
+            if str(f.get("category", "")).lower() in ["flexi cap", "multi cap", "flexi-multi cap"] or
+               "flexi" in str(f.get("scheme", "")).lower() or
+               "multi cap" in str(f.get("scheme", "")).lower()
+        ), None)
+        
         # Debt: match by category or keywords
         db_fund = next((f for f in direct_funds if str(f.get("category") or "") == "Debt" or _match_kw(f, ["liquid", "arbitrage", "money market"])), None)
 
@@ -649,6 +665,32 @@ def generate_fiduciary_sip_blueprint(
                 "allocation_pct": float(ms_pct),
                 "plan_type": "Direct-Growth",
                 "rationale": "Long-term alpha accumulation aligned with investor risk tolerance.",
+            })
+
+        # Flexi-Multi-Cap Sleeve (Distinct Asset Class for Tactical Allocation)
+        if flexi_target > Decimal("0.00"):
+            selected_fund = flexi_fund
+            if not flexi_fund:
+                # Try market nomination for flexi-cap
+                market_flexi_rules = market_noms.get("flexi_multi_cap", {})
+                selected_name = market_flexi_rules.get("scheme", "Market-Nominated Flexi-Multi Cap Fund - Direct Plan - Growth")
+                if "direct" not in str(selected_name).lower():
+                    selected_name = f"{selected_name} - Direct Plan - Growth"
+                selected_fund = {"scheme": selected_name, "folio_no": "New Direct Folio Mandate"}
+            if selected_fund:
+                s_name = selected_fund.get("scheme")
+                f_num = selected_fund.get("folio_no", "Existing Direct Folio") if selected_fund.get("folio_no") != "New Direct Folio Mandate" else "New Direct Folio Mandate"
+            else:
+                s_name = "Market-Nominated Flexi-Multi Cap Fund - Direct Plan - Growth"
+                f_num = "New Direct Folio Mandate"
+            allocations.append({
+                "sleeve": "Flexi-Multi Cap",
+                "scheme_name": s_name,
+                "folio_no": f_num,
+                "amount_inr": flexi_target,
+                "allocation_pct": float(flexi_pct),
+                "plan_type": "Direct-Growth",
+                "rationale": "Flexible multi-cap exposure for growth enhancement with automatic rebalancing across market caps.",
             })
 
         # Debt Sleeve (Strict Fiduciary Separation: Pure Debt/Liquid only)
@@ -729,6 +771,18 @@ def generate_fiduciary_sip_blueprint(
                 "allocation_pct": float(ms_pct),
                 "plan_type": "Direct-Growth",
                 "rationale": "Diversified growth engine aligned with SAA policy.",
+            })
+        # Flexi-Multi-Cap Sleeve (Market Nomination Fallback)
+        if flexi_target > Decimal("0.00"):
+            market_flexi = _get_market_nom_fund("flexi_multi_cap", fund_universe)
+            allocations.append({
+                "sleeve": "Flexi-Multi Cap",
+                "scheme_name": market_flexi,
+                "folio_no": "New Direct Folio Mandate",
+                "amount_inr": flexi_target,
+                "allocation_pct": float(flexi_pct),
+                "plan_type": "Direct-Growth",
+                "rationale": "Flexible multi-cap exposure for growth enhancement with automatic rebalancing across market caps.",
             })
         if db_target > Decimal("0.00"):
             allocations.append({

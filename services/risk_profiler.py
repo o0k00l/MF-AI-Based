@@ -229,6 +229,9 @@ def _apply_saa_caps(
     Note: mid_small_cap_pct and flexi_multi_cap_pct are capped independently.
     max_mid_small_pct applies only to true mid/small exposure, NOT flexi-multi-cap.
     Flexi-multi-cap funds are a distinct asset class that can hold any market cap segment.
+    
+    When total equity exceeds max_equity_pct, all equity sleeves are reduced proportionally
+    to maintain the cap. This ensures flexi-multi-cap is not exempt from equity limits.
     """
     large = base_saa.large_cap_pct
     mid_small = base_saa.mid_small_cap_pct
@@ -241,9 +244,14 @@ def _apply_saa_caps(
     # Apply total equity cap to all equity (large + mid_small + flexi)
     total_eq = large + mid_small + flexi
     if max_equity_pct is not None and total_eq > max_equity_pct:
-        # Reduce from large cap first (to preserve mid/small and flexi exposure)
-        excess = total_eq - max_equity_pct
-        large = max(0.0, large - excess)
+        if total_eq > 0:
+            # Scale all equity sleeves proportionally to meet the cap
+            scale = max_equity_pct / total_eq
+            large = large * scale
+            mid_small = mid_small * scale
+            flexi = flexi * scale
+        else:
+            large = mid_small = flexi = 0.0
     
     return TargetSaa(
         large_cap_pct=round(large, 6),
@@ -495,6 +503,22 @@ def evaluate_custom_saa(
     rationale: str = "",
 ) -> RiskProfileResult:
     """Evaluate custom SAA target defined by investor or RIA (Mode 3: Expert / IPS)."""
+    # Validate inputs: reject booleans, NaN, Infinity
+    for name, val in [
+        ("large_cap_pct", large_cap_pct),
+        ("mid_small_cap_pct", mid_small_cap_pct),
+        ("debt_pct", debt_pct),
+        ("flexi_multi_cap_pct", flexi_multi_cap_pct),
+    ]:
+        if isinstance(val, bool):
+            raise ValueError(f"{name} cannot be a boolean value")
+        if not isinstance(val, (int, float)):
+            raise ValueError(f"{name} must be a numeric value")
+        if not math.isfinite(val):
+            raise ValueError(f"{name} must be finite (no NaN or Infinity)")
+        if not 0.0 <= val <= 100.0:
+            raise ValueError(f"{name} must be between 0 and 100 (got {val})")
+    
     lc = float(large_cap_pct)
     ms = float(mid_small_cap_pct)
     db = float(debt_pct)

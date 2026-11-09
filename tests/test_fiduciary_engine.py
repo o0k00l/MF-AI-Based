@@ -200,6 +200,7 @@ def test_generate_fiduciary_sip_blueprint_uses_market_nominations():
     based on criteria like lowest TER for large cap index, highest Sharpe for mid cap, etc.
     """
     # Case 1: No direct funds - should use market nominations
+    # When target_saa=None, default fallback is 50% large, 25% mid_small, 0% flexi, 25% debt
     blueprint = generate_fiduciary_sip_blueprint(
         monthly_budget_inr=25000.0,
         funds=[],
@@ -208,6 +209,7 @@ def test_generate_fiduciary_sip_blueprint_uses_market_nominations():
     assert blueprint["status"] == "DETERMINISTIC_SIP_READY"
     
     allocations = blueprint["allocations"]
+    # With default target (0% flexi), expect 3 sleeves: Large-Cap, Mid/Small, Debt
     assert len(allocations) == 3
     
     # Check that market-nominated funds are used for large cap
@@ -259,5 +261,64 @@ def test_generate_fiduciary_sip_blueprint_confidence_score():
     assert blueprint_no_funds["status"] == "DETERMINISTIC_SIP_READY"
     # Confidence should be reduced due to no existing Direct plans
     assert blueprint_no_funds["sip_selection_confidence_pct"] <= 65.0  # 100 - 35 = 65
+
+
+def test_generate_fiduciary_sip_blueprint_includes_flexi_sleeve():
+    """Verify SIP blueprint includes Flexi-Multi Cap sleeve when target_saa specifies it.
+    
+    This is a critical regression test for the defect where flexi_target was calculated
+    but never added to the allocations output - the amount was silently dropped.
+    """
+    # Test 1: Target with flexi-multi-cap allocation
+    blueprint = generate_fiduciary_sip_blueprint(
+        monthly_budget_inr=25000.0,
+        funds=[],  # No existing funds - use market nominations
+        target_saa={"large_cap_pct": 50.0, "mid_small_cap_pct": 25.0, "flexi_multi_cap_pct": 15.0, "debt_pct": 10.0},
+    )
+    assert blueprint["status"] == "DETERMINISTIC_SIP_READY"
+    
+    allocations = blueprint["allocations"]
+    
+    # Must have 4 sleeves: Large-Cap, Mid/Small, Flexi-Multi Cap, Debt
+    sleeve_types = [a["sleeve"] for a in allocations]
+    assert "Large-Cap Core Index" in sleeve_types, "Missing Large-Cap sleeve"
+    assert "Mid/Small-Cap Alpha" in sleeve_types, "Missing Mid/Small-Cap sleeve"
+    assert "Flexi-Multi Cap" in sleeve_types, "Missing Flexi-Multi Cap sleeve - THIS WAS THE BUG"
+    assert "Debt & Capital Preservation" in sleeve_types, "Missing Debt sleeve"
+    
+    # Verify flexi allocation amount
+    flexi_alloc = next((a for a in allocations if a["sleeve"] == "Flexi-Multi Cap"), None)
+    assert flexi_alloc is not None, "Flexi-Multi Cap allocation missing"
+    expected_flexi_amount = 25000.0 * 0.15  # 15% of budget
+    assert abs(float(flexi_alloc["amount_inr"]) - expected_flexi_amount) < 1.0
+    
+    # Test 2: Zero flexi allocation
+    blueprint_zero_flexi = generate_fiduciary_sip_blueprint(
+        monthly_budget_inr=15000.0,
+        funds=[],
+        target_saa={"large_cap_pct": 60.0, "mid_small_cap_pct": 40.0, "flexi_multi_cap_pct": 0.0, "debt_pct": 0.0},
+    )
+    allocations_zero = blueprint_zero_flexi["allocations"]
+    # Even with zero flexi, the blueprint should handle it gracefully
+    total = sum(float(a["amount_inr"]) for a in allocations_zero)
+    assert abs(total - 15000.0) < 1.0, "Budget reconciliation must still work with zero flexi"
+
+    # Test 3: With existing Direct funds including flexi
+    funds_with_flexi = [
+        {"scheme": "HDFC Flexi Cap Fund - Direct Plan - Growth", "category": "Flexi Cap", "plan_type": "Direct", "current_value": 50000, "folio_no": "4444/04"},
+        {"scheme": "ICICI Prudential Large Cap Fund - Direct Plan - Growth", "category": "Large Cap", "plan_type": "Direct", "current_value": 100000, "folio_no": "1111/01"},
+        {"scheme": "HDFC Mid Cap Fund - Direct Plan - Growth", "category": "Mid Cap", "plan_type": "Direct", "current_value": 50000, "folio_no": "2222/02"},
+    ]
+    blueprint_with_flexi = generate_fiduciary_sip_blueprint(
+        monthly_budget_inr=20000.0,
+        funds=funds_with_flexi,
+        target_saa={"large_cap_pct": 50.0, "mid_small_cap_pct": 25.0, "flexi_multi_cap_pct": 15.0, "debt_pct": 10.0},
+    )
+    assert blueprint_with_flexi["status"] == "DETERMINISTIC_SIP_READY"
+    
+    # Should have 4 allocations including the existing flexi fund
+    allocations_existing = blueprint_with_flexi["allocations"]
+    sleeve_types_existing = [a["sleeve"] for a in allocations_existing]
+    assert "Flexi-Multi Cap" in sleeve_types_existing, "Should include existing flexi fund"
 
 

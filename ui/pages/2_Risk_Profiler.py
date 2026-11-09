@@ -295,15 +295,17 @@ if p_res:
     st.subheader(f"🎯 Fiduciary Strategic Asset Allocation: {p_res.tier_label}")
     st.caption(f"**Expected Bear Market Drawdown:** {p_res.expected_drawdown_range} | **Governing Tier:** Tier {int(p_res.governing_tier)}")
 
-    col_m1, col_m2, col_m3, col_m4 = st.columns(4)
+    col_m1, col_m2, col_m3, col_m4, col_m5 = st.columns(5)
     with col_m1:
         st.metric("Large-Cap Core", f"{p_res.target_saa.large_cap_pct:.1f}%", "Index / Bluechip Anchor")
     with col_m2:
         st.metric("Mid/Small-Cap Alpha", f"{p_res.target_saa.mid_small_cap_pct:.1f}%", "Growth Engine")
     with col_m3:
-        st.metric("Total Equity SAA", f"{p_res.target_saa.total_equity_pct:.1f}%", "Max Equity Target")
+        st.metric("Flexi-Multi Cap", f"{p_res.target_saa.flexi_multi_cap_pct:.1f}%", "Multi-cap Flexibility")
     with col_m4:
-        st.metric("Debt & Stability Cushion", f"{p_res.target_saa.debt_pct:.1f}%", "Capital Preservation")
+        st.metric("Total Equity", f"{p_res.target_saa.total_equity_pct:.1f}%", "Max Equity Target")
+    with col_m5:
+        st.metric("Debt & Stability", f"{p_res.target_saa.debt_pct:.1f}%", "Capital Preservation")
 
     if p_res.binding_constraints:
         st.markdown("#### 🔒 Active Fiduciary Constraints & Disclosures")
