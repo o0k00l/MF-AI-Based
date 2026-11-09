@@ -48,7 +48,6 @@ def _load_market_nominations() -> Dict[str, Dict[str, Any]]:
                 "is_passive": False,
                 "sort_by": "sharpe_3y",
                 "sort_order": "desc",
-                "scheme": "Parag Parikh Flexi Cap Fund - Direct Plan - Growth",
             },
             "debt_liquid": {
                 "category": "Debt",
@@ -494,10 +493,15 @@ def generate_fiduciary_sip_blueprint(
     if target_saa is not None:
         if hasattr(target_saa, "large_cap_pct") and hasattr(target_saa, "mid_small_cap_pct"):
             try:
-                lc_pct = Decimal(str(getattr(target_saa, "large_cap_pct", 50.0) or 50.0))
-                ms_pct = Decimal(str(getattr(target_saa, "mid_small_cap_pct", 25.0) or 25.0))
-                flexi_pct = Decimal(str(getattr(target_saa, "flexi_multi_cap_pct", 0.0) or 0.0))
-                db_pct = Decimal(str(getattr(target_saa, "debt_pct", 25.0) or 25.0))
+                # Use explicit None check - never use 'or' for numeric values (0 is valid)
+                lc_val = getattr(target_saa, "large_cap_pct", None)
+                ms_val = getattr(target_saa, "mid_small_cap_pct", None)
+                flexi_val = getattr(target_saa, "flexi_multi_cap_pct", None)
+                db_val = getattr(target_saa, "debt_pct", None)
+                lc_pct = Decimal(str(lc_val if lc_val is not None else 50.0))
+                ms_pct = Decimal(str(ms_val if ms_val is not None else 25.0))
+                flexi_pct = Decimal(str(flexi_val if flexi_val is not None else 0.0))
+                db_pct = Decimal(str(db_val if db_val is not None else 25.0))
             except Exception:
                 lc_pct, ms_pct, flexi_pct, db_pct = Decimal("50.0"), Decimal("25.0"), Decimal("0.0"), Decimal("25.0")
         elif isinstance(target_saa, dict):
@@ -506,7 +510,7 @@ def generate_fiduciary_sip_blueprint(
                 lc_pct = Decimal(str(lc_val if lc_val is not None else 50.0))
                 ms_val = target_saa.get("mid_small_cap_pct")
                 ms_pct = Decimal(str(ms_val if ms_val is not None else 25.0))
-                flexi_val = target_saa.get("flexi_multi_cap_pct", 0.0)
+                flexi_val = target_saa.get("flexi_multi_cap_pct")
                 flexi_pct = Decimal(str(flexi_val if flexi_val is not None else 0.0))
                 db_val = target_saa.get("debt_pct")
                 db_pct = Decimal(str(db_val if db_val is not None else 25.0))

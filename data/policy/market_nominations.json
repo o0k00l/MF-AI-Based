@@ -6,6 +6,7 @@
     "selection_criteria": {
       "large_cap_index": "lowest TER among Passive Large Cap funds with 100% large cap exposure",
       "mid_cap_active": "highest Sharpe 3Y among Mid Cap funds with positive alpha",
+      "flexi_multi_cap": "highest Sharpe 3Y among Flexi Cap funds with positive alpha",
       "debt_liquid": "lowest TER among Liquid/Debt funds with AUM > 5000 crore"
     }
   },
@@ -29,6 +30,15 @@
       "min_alpha": 0,
       "min_sharpe": 0.4,
       "scheme": "Mirae Asset Tax Saver Fund - Direct Plan - Growth"
+    },
+    "flexi_multi_cap": {
+      "category": "Flexi Cap",
+      "plan_type": "Direct",
+      "is_passive": false,
+      "sort_by": "sharpe_3y",
+      "sort_order": "desc",
+      "min_alpha": 0,
+      "min_sharpe": 0.4
     },
     "debt_liquid": {
       "category": "Debt",

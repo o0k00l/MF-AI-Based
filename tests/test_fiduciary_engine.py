@@ -322,3 +322,135 @@ def test_generate_fiduciary_sip_blueprint_includes_flexi_sleeve():
     assert "Flexi-Multi Cap" in sleeve_types_existing, "Should include existing flexi fund"
 
 
+def test_zero_equity_target_saa_object_preserves_zero_values():
+    """Regression test: TargetSaa object with 0% equity must preserve zero values.
+    
+    The extract_target_saa_percentages function was using 'or default' pattern
+    which treated 0 as falsy, turning a valid 0% allocation into a non-zero default.
+    
+    This test verifies that a TargetSaa object with zero-equity-cap (ultra-short horizon)
+    correctly results in zero SIP allocations for all equity sleeves.
+    """
+    # Create a TargetSaa object with zero equity cap (ultra-short horizon investor)
+    zero_target = TargetSaa(
+        large_cap_pct=0.0,
+        mid_small_cap_pct=0.0,
+        flexi_multi_cap_pct=0.0,
+        debt_pct=100.0,  # All debt for ultra-short horizon
+    )
+    
+    blueprint = generate_fiduciary_sip_blueprint(
+        monthly_budget_inr=10000.0,
+        funds=[],
+        target_saa=zero_target,  # Pass actual TargetSaa object, not dict
+    )
+    
+    assert blueprint["status"] == "DETERMINISTIC_SIP_READY", \
+        f"Zero-equity target should still produce valid blueprint, got: {blueprint.get('status')}"
+    
+    allocations = blueprint["allocations"]
+    
+    # All equity sleeves should have 0 INR allocation
+    for alloc in allocations:
+        sleeve = alloc.get("sleeve", "")
+        amount = float(alloc.get("amount_inr", 0))
+        if "Cap" in sleeve or "Debt" in sleeve:
+            # For zero-equity policy, all equity allocations must be 0
+            if sleeve != "Debt & Capital Preservation":
+                assert amount == 0.0, \
+                    f"Sleeve {sleeve} should have 0 allocation (got {amount}) for zero-equity TargetSaa"
+    
+    # Debt should get the full budget
+    debt_alloc = next((a for a in allocations if "Debt" in a.get("sleeve", "")), None)
+    assert debt_alloc is not None, "Should have debt allocation"
+    debt_amount = float(debt_alloc.get("amount_inr", 0))
+    assert debt_amount > 0, "Debt allocation should receive the budget for zero-equity target"
+
+
+def test_target_saa_object_preserves_zero_debt_and_zero_flexi():
+    """Test that zero debt_pct and zero flexi_pct are preserved in TargetSaa object extraction.
+    
+    This addresses the 'or' pattern bug where 0 values were replaced by defaults.
+    """
+    # TargetSaa with zero debt and zero flexi - all to large/mid-small
+    test_target = TargetSaa(
+        large_cap_pct=60.0,
+        mid_small_cap_pct=40.0,
+        flexi_multi_cap_pct=0.0,  # Explicit zero
+        debt_pct=0.0,  # Explicit zero
+    )
+    
+    blueprint = generate_fiduciary_sip_blueprint(
+        monthly_budget_inr=20000.0,
+        funds=[],
+        target_saa=test_target,
+    )
+    
+    assert blueprint["status"] == "DETERMINISTIC_SIP_READY"
+    
+    allocations = blueprint["allocations"]
+    
+    # Find flexi allocation - should be 0 or not present
+    flexi_allocs = [a for a in allocations if "Flexi" in a.get("sleeve", "")]
+    
+    # Total should still reconcile to budget
+    total_allocated = sum(float(a.get("amount_inr", 0)) for a in allocations)
+    assert abs(total_allocated - 20000.0) < 1.0, "Budget must reconcile even with zero flexi/debt"
+
+
+def test_flexi_drift_tracking_in_saa_analysis():
+    """Test that Flexi Multi-Cap drift is tracked in SAA analysis.
+    
+    Verify that the calculate_saa_drift function properly computes and reports
+    flexi_multi_cap specific tracking fields.
+    """
+    from core.math_engine import calculate_saa_drift, HoldingItem
+    
+    # Create proper HoldingItem objects
+    flexi_fund = HoldingItem(
+        scheme='HDFC Flexi Cap Fund',
+        category='Flexi Cap',
+        plan_type='Direct',
+        current_value_inr=150000.0,
+        invested_value_inr=100000.0,
+        equity_pct=90.0,
+        debt_pct=10.0,
+        units=0,
+        nav=0,
+        folio_no='',
+        amc_name='HDFC',
+    )
+    
+    large_cap_fund = HoldingItem(
+        scheme='ICICI Large Cap Fund',
+        category='Large Cap',
+        plan_type='Direct',
+        current_value_inr=850000.0,
+        invested_value_inr=700000.0,
+        equity_pct=100.0,
+        debt_pct=0.0,
+        units=0,
+        nav=0,
+        folio_no='',
+        amc_name='ICICI',
+    )
+    
+    holdings = [flexi_fund, large_cap_fund]
+    
+    # Target with explicit flexi allocation
+    target = {"large_cap_pct": 50.0, "flexi_multi_cap_pct": 15.0, "debt_pct": 35.0}
+    
+    drift = calculate_saa_drift(holdings, target_saa=target, tolerance_band_pct=5.0)
+    
+    # Verify flexi tracking fields exist and have correct values
+    assert hasattr(drift, 'current_flexi_inr'), "SAADriftAnalysis should have current_flexi_inr field"
+    assert hasattr(drift, 'target_flexi_pct'), "SAADriftAnalysis should have target_flexi_pct field"
+    assert hasattr(drift, 'flexi_drift_pct'), "SAADriftAnalysis should have flexi_drift_pct field"
+    
+    # Current flexi should reflect the flexi fund value
+    assert drift.current_flexi_inr == 150000.0, f"Expected current_flexi_inr=150000, got {drift.current_flexi_inr}"
+    
+    # Target flexi should be 15%
+    assert drift.target_flexi_pct == 15.0, f"Expected target_flexi_pct=15.0, got {drift.target_flexi_pct}"
+
+

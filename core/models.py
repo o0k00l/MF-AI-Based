@@ -331,6 +331,10 @@ class SAADriftAnalysis(BaseModel):
     look_through_debt_inr: Optional[Union[Decimal, float]] = None
     look_through_cash_inr: Optional[Union[Decimal, float]] = None
     look_through_stability_buffer_pct: Optional[float] = None
+    # Flexi Multi-Cap specific tracking (look-through exposure vs target)
+    current_flexi_inr: Optional[float] = None
+    target_flexi_pct: Optional[float] = None
+    flexi_drift_pct: Optional[float] = None
 
 
 class CashDeploymentPlan(BaseModel):
