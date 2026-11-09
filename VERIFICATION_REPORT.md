@@ -14,25 +14,41 @@ No production approval is granted by this report. A green unit-test run alone is
 
 | Gate | Required evidence | Current assessment |
 |---|---|---|
-| P0 invariant tests | Complete test run, no unexplained skips | Passed on verified `main` SHA `bbeea07f677bd340f2d6958997766e97fce948c0` (CI run `41763762140`) |
-| Correctness regressions | Complete test run and passing property/boundary tests | Regression suite passed on current SHA `bbeea07f677bd340f2d6958997766e97fce948c0`; broader property/boundary coverage remains incomplete |
-| Universal policy validation | All checks run against the authoritative policy, no contradictory hardcoded values | Passed on current SHA `bbeea07f677bd340f2d6958997766e97fce948c0` |
+| P0 invariant tests | Complete test run, no unexplained skips | **Pending** - CI evidence for implementation baseline not verified |
+| Correctness regressions | Complete test run and passing property/boundary tests | **Pending** - CI evidence for implementation baseline not verified |
+| Universal policy validation | All checks run against the authoritative policy, no contradictory hardcoded values | **Not verified** - SAA now loads from policy at runtime, but CI evidence not validated |
 | Tax classification | Versioned statutory rules, verified source documents, scheme structure, acquisition/transfer dates and complete observation evidence | Provisional; not tax-advice ready |
 | Benchmark alpha | Authenticated daily TRI observations and independently sourced NSE session calendar | **Blocked** |
 | Portfolio look-through | Dated scheme constituents, identifiers, cash/derivative treatment and independently reconciled weights | Not established |
 | Client-data protection | Private data excluded from the working tree and historical Git objects purged | Working-tree cleanup performed; history purge not established |
-| Reproducible build | Locked dependencies, clean checkout, deterministic release artifact | Hash-locked install, `pip check`, `pip-audit` and clean-checkout tests passed on current SHA; deterministic release artifact not established |
+| Reproducible build | Locked dependencies, clean checkout, deterministic release artifact | **Pending** - CI evidence for implementation baseline not verified |
 | Release controls | Protected `main`, mandatory status checks and controlled release approval | Not established; branch protection was not enabled at last inspection |
 
-## 2. Verification evidence for current `main`
+## 2. CI Evidence Status — CRITICAL DEFECT
 
-Latest fully verified implementation baseline at report preparation: `bbeea07f677bd340f2d6958997766e97fce948c0`.
+**Critical CI Evidence Defect Identified:** The report previously claimed CI run `41763762140` and Security run `41763762165` verified implementation baseline `bbeea07f677bd340f2d6958997766e97fce948c0`.
 
-- CI run `41763762140` completed successfully with all six jobs: dependency-lock consistency, P0 fiduciary invariants, correctness regressions, full repository test suite, policy/static validation (including compileall, PDF export and clean-checkout privacy tests), and TRI fixture integrity / expected fail-closed release gate.
-- Security run `41763762165` completed successfully: hash-locked dependency installation, `pip check`, `pip-audit`, CycloneDX SBOM generation and artifact retention. The retained SBOM artifact digest is `sha256:598b6ce85ad8d02cbc6b11cea447d84f2a768d4925a764aa93514f1af6d5a9ef`.
-- Full-suite result: **131 passed, 2 skipped**. Both skips are the private-CAS integration checks at `test_p0_fiduciary_invariants.py:427` and `:915`; they require an externally supplied `MF_CLIENT_DATA_DIR` and intentionally do not run in CI without investor data. The Security workflow used pinned `pip-audit==2.9.0`, passed dependency audit and generated the retained CycloneDX SBOM. Artifact digest: `sha256:598b6ce85ad8d02cbc6b11cea447d84f2a768d4925a764aa93514f1af6d5a9ef. These runs establish that the listed automated jobs passed on that SHA. They do not establish legal correctness, production data readiness, complete property-test coverage, independent security review, or production approval.
+**Investigation findings:**
+- Actual CI run `41763762140` SHA: `025ded618d0dbc9787a9ccfe271c10331c13b566` (November 4, 2026)
+- Actual Security run `41763762165` SHA: `025ded618d0dbc9787a9ccfe271c10331c13b566` (November 4, 2026)
 
-## 3. Non-negotiable safety controls
+These runs verify `025ded6...`, **not** the implementation baseline `bbeea07f...`.
+
+**Verification status:**
+- **Verified baseline (from CI):** `025ded618d0dbc9787a9ccfe271c10331c13b566`
+- **Implementation baseline (requires CI verification):** `bbeea07f677bd340f2d6958997766e97fce948c0`
+
+**No CI/Security evidence exists for the implementation baseline SHA.** A new CI run is required to establish verification.
+
+## 3. Implementation Changes Since Verified Baseline
+
+Between verified baseline (`025ded618...`) and implementation baseline (`bbeea07f...`):
+
+- **SAA Table Architecture**: Removed hardcoded `*_SEBI_SAA_TABLE`; now loads dynamically from `data/policy/asset_allocation.json` with fail-fast validation on import
+- **Legacy FIFO Helper**: Both `*_fifo_redeem()` and `TaxLot.is_long_term()`/`is_short_term()` remain disabled
+- **Verification Report**: Document updated to accurately reflect CI evidence status
+
+## 4. Non-negotiable safety controls
 
 1. Missing, stale, conflicting or incomplete financial inputs must produce a structured unavailable / NO ACTION state. They must never be replaced with fabricated values, scheme names, exposure estimates or inferred tax classifications.
 2. An allocation target is not a fund recommendation. A selected fund requires a current, complete, source-backed candidate record and every applicable eligibility gate.

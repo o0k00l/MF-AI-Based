@@ -15,6 +15,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import IntEnum
 from typing import Any
+from pathlib import Path
+import json
 
 
 class SebiRiskTier(IntEnum):
@@ -25,6 +27,16 @@ class SebiRiskTier(IntEnum):
     TIER_4_MODERATE_HIGH = 4         # Moderately High (Orange)
     TIER_5_HIGH = 5                  # High (Dark Orange)
     TIER_6_VERY_HIGH = 6             # Very High (Red)
+
+# Tier name mapping for policy lookup
+_TIER_NAME_MAP = {
+    SebiRiskTier.TIER_1_CAPITAL_PRESERVATION: "low",
+    SebiRiskTier.TIER_2_LOW: "low_to_moderate",
+    SebiRiskTier.TIER_3_MODERATE: "moderate",
+    SebiRiskTier.TIER_4_MODERATE_HIGH: "moderately_high",
+    SebiRiskTier.TIER_5_HIGH: "high",
+    SebiRiskTier.TIER_6_VERY_HIGH: "very_high",
+}
 
 
 @dataclass(frozen=True)
@@ -47,6 +59,60 @@ class TargetSaa:
         }
 
 
+# Canonical SEBI SAA Policy Mapping - loaded from policy file at runtime
+# No hardcoding: values come from data/policy/asset_allocation.json
+_POLICY_PATH = Path(__file__).parent.parent / "data" / "policy" / "asset_allocation.json"
+
+def _load_saa_from_policy() -> dict[SebiRiskTier, TargetSaa]:
+    """Load SAA targets from the authoritative policy file.
+    
+    Raises:
+        FileNotFoundError: If policy file is missing
+        ValueError: If policy is malformed or tier mapping is incomplete
+    """
+    if not _POLICY_PATH.exists():
+        raise FileNotFoundError(
+            f"SAA policy file not found at {_POLICY_PATH}. "
+            "Cannot compute asset allocation without policy."
+        )
+    
+    with open(_POLICY_PATH, 'r', encoding='utf-8') as f:
+        policy = json.load(f)
+    
+    profiles = policy.get('behavioral_risk_profiles', {})
+    if not profiles:
+        raise ValueError("Policy file missing 'behavioral_risk_profiles' section")
+    
+    saa_table = {}
+    for tier, tier_name in _TIER_NAME_MAP.items():
+        profile = profiles.get(tier_name)
+        if profile is None:
+            raise ValueError(f"Policy missing profile for tier {tier_name}")
+        
+        saa_targets = profile.get('saa_targets', {})
+        # Calculate mid_small_cap_pct as sum of mid_cap + small_cap + flexi_multi_cap
+        mid_cap = saa_targets.get('mid_cap_pct', 0)
+        small_cap = saa_targets.get('small_cap_pct', 0)
+        flexi_cap = saa_targets.get('flexi_multi_cap_pct', 0)
+        mid_small_total = mid_cap + small_cap + flexi_cap
+        
+        # Verify debt percentage
+        debt_pct = saa_targets.get('debt_liquid_pct', 0)
+        
+        saa_table[tier] = TargetSaa(
+            large_cap_pct=float(saa_targets.get('large_cap_pct', 0)),
+            mid_small_cap_pct=mid_small_total,
+            debt_pct=float(debt_pct),
+        )
+    
+    return saa_table
+
+
+# Load SAA table from policy at module import time
+# Application fails fast if policy is missing/malformed
+_SEBI_SAA_TABLE: dict[SebiRiskTier, TargetSaa] = _load_saa_from_policy()
+
+
 @dataclass(frozen=True)
 class RiskProfileResult:
     """Complete diagnostic result from SEBI fiduciary risk profiling."""
@@ -59,18 +125,6 @@ class RiskProfileResult:
     fiduciary_rationale: str
     expected_drawdown_range: str
 
-
-# Canonical SEBI SAA Policy Mapping (Baseline Targets)
-# Updated to match data/policy/asset_allocation.json (2026-10-30)
-# Note: mid_small_cap_pct combines mid_cap + small_cap + flexi_multi_cap
-_SEBI_SAA_TABLE: dict[SebiRiskTier, TargetSaa] = {
-    SebiRiskTier.TIER_1_CAPITAL_PRESERVATION: TargetSaa(large_cap_pct=15.0, mid_small_cap_pct=5.0, debt_pct=80.0),   # 20% equity (15% large + 5% flexi)
-    SebiRiskTier.TIER_2_LOW: TargetSaa(large_cap_pct=25.0, mid_small_cap_pct=15.0, debt_pct=60.0),  # 40% equity (25% large + 15% mid)
-    SebiRiskTier.TIER_3_MODERATE: TargetSaa(large_cap_pct=35.0, mid_small_cap_pct=35.0, debt_pct=30.0),   # 70% equity (35% large + 15% mid + 5% small + 15% flexi)
-    SebiRiskTier.TIER_4_MODERATE_HIGH: TargetSaa(large_cap_pct=30.0, mid_small_cap_pct=45.0, debt_pct=25.0),  # 75% equity (30% large + 45% mid/small/flexi)
-    SebiRiskTier.TIER_5_HIGH: TargetSaa(large_cap_pct=25.0, mid_small_cap_pct=65.0, debt_pct=15.0),   # 90% equity (25% large + 65% mid/small/flexi)
-    SebiRiskTier.TIER_6_VERY_HIGH: TargetSaa(large_cap_pct=20.0, mid_small_cap_pct=75.0, debt_pct=5.0),  # 95% equity (20% large + 75% mid/small/flexi)
-}
 
 _TIER_LABELS: dict[SebiRiskTier, str] = {
     SebiRiskTier.TIER_1_CAPITAL_PRESERVATION: "Tier 1: Capital Preservation (Low Risk)",
