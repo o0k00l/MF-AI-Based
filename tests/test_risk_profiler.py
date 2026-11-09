@@ -118,8 +118,8 @@ def test_evaluate_direct_tier():
 
     res_t4 = evaluate_direct_tier(SebiRiskTier.TIER_4_MODERATE_HIGH)
     assert res_t4.governing_tier == SebiRiskTier.TIER_4_MODERATE_HIGH
-    assert res_t4.target_saa.large_cap_pct == 50.0
-    assert res_t4.target_saa.mid_small_cap_pct == 25.0
+    assert res_t4.target_saa.large_cap_pct == 30.0
+    assert res_t4.target_saa.mid_small_cap_pct == 45.0
     assert res_t4.target_saa.debt_pct == 25.0
     assert res_t4.target_saa.total_equity_pct == 75.0
 
