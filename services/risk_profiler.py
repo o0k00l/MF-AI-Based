@@ -150,6 +150,8 @@ def _load_risk_profile_limiters() -> dict[str, dict[str, float]]:
     """Load and validate hard risk constraints from the authoritative policy."""
     with open(_POLICY_PATH, "r", encoding="utf-8") as policy_file:
         policy = json.load(policy_file)
+    if not isinstance(policy, dict):
+        raise ValueError("Risk policy root must be a JSON object")
     limiters = policy.get("risk_profile_limiters")
     if not isinstance(limiters, dict):
         raise ValueError("Policy missing 'risk_profile_limiters' object")
@@ -190,8 +192,18 @@ def _load_risk_profile_limiters() -> dict[str, dict[str, float]]:
                 )
             validated_config[field_name] = numeric
         if limiter_name == "short_horizon":
+            if validated_config["min_horizon_years"] < 0.0:
+                raise ValueError("Policy short_horizon minimum cannot be negative")
             if validated_config["min_horizon_years"] >= validated_config["max_horizon_years"]:
                 raise ValueError("Policy short_horizon minimum must be below its maximum")
+        else:
+            horizon_key = "max_horizon_years_exclusive" if limiter_name == "ultra_short_horizon" else None
+            if horizon_key and validated_config[horizon_key] <= 0.0:
+                raise ValueError("Policy ultra-short horizon threshold must be positive")
+        if validated_config["max_mid_small_pct"] > validated_config["max_equity_pct"]:
+            raise ValueError(
+                f"Policy risk_profile_limiters.{limiter_name} mid/small cap cannot exceed total equity cap"
+            )
         validated[limiter_name] = validated_config
     return validated
 
