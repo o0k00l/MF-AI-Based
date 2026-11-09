@@ -17,6 +17,7 @@ from enum import IntEnum
 from typing import Any
 from pathlib import Path
 import json
+import math
 
 
 class SebiRiskTier(IntEnum):
@@ -79,18 +80,20 @@ def _load_saa_from_policy() -> dict[SebiRiskTier, TargetSaa]:
     with open(_POLICY_PATH, 'r', encoding='utf-8') as f:
         policy = json.load(f)
     
-    profiles = policy.get('behavioral_risk_profiles', {})
-    if not profiles:
+    if not isinstance(policy, dict):
+        raise ValueError("SAA policy root must be a JSON object")
+    profiles = policy.get('behavioral_risk_profiles')
+    if not isinstance(profiles, dict) or not profiles:
         raise ValueError("Policy file missing 'behavioral_risk_profiles' section")
     
     saa_table = {}
     for tier, tier_name in _TIER_NAME_MAP.items():
         profile = profiles.get(tier_name)
-        if profile is None:
+        if not isinstance(profile, dict):
             raise ValueError(f"Policy missing profile for tier '{tier_name}'")
         
-        saa_targets = profile.get('saa_targets', {})
-        if not saa_targets:
+        saa_targets = profile.get('saa_targets')
+        if not isinstance(saa_targets, dict) or not saa_targets:
             raise ValueError(f"Policy tier '{tier_name}' missing 'saa_targets' section")
         
         # Extract and validate required fields
@@ -105,7 +108,7 @@ def _load_saa_from_policy() -> dict[SebiRiskTier, TargetSaa]:
         # Validate all values are non-negative, finite numbers
         for field in required_fields:
             value = saa_targets[field]
-            if not isinstance(value, (int, float)):
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
                 raise ValueError(
                     f"Policy tier '{tier_name}' field '{field}' must be numeric, got {type(value).__name__}"
                 )
@@ -113,7 +116,7 @@ def _load_saa_from_policy() -> dict[SebiRiskTier, TargetSaa]:
                 raise ValueError(
                     f"Policy tier '{tier_name}' field '{field}' must be non-negative, got {value}"
                 )
-            if not float('inf') > value > float('-inf'):  # Check finite
+            if not math.isfinite(float(value)):  # Reject NaN and infinities
                 raise ValueError(
                     f"Policy tier '{tier_name}' field '{field}' must be finite, got {value}"
                 )
@@ -152,8 +155,8 @@ def _load_risk_profile_limiters() -> dict[str, dict[str, float]]:
         raise ValueError("Policy missing 'risk_profile_limiters' object")
 
     required = {
-        "drawdown_5pct": {"max_equity_pct", "max_mid_small_pct"},
-        "ultra_short_horizon": {"max_equity_pct", "max_mid_small_pct"},
+        "drawdown_5pct": {"max_tolerated_drawdown_pct", "max_equity_pct", "max_mid_small_pct"},
+        "ultra_short_horizon": {"max_horizon_years_exclusive", "max_equity_pct", "max_mid_small_pct"},
         "short_horizon": {
             "min_horizon_years", "max_horizon_years",
             "max_equity_pct", "max_mid_small_pct",
@@ -177,7 +180,7 @@ def _load_risk_profile_limiters() -> dict[str, dict[str, float]]:
                     f"Policy risk_profile_limiters.{limiter_name}.{field_name} must be numeric"
                 )
             numeric = float(value)
-            if not __import__("math").isfinite(numeric):
+            if not math.isfinite(numeric):
                 raise ValueError(
                     f"Policy risk_profile_limiters.{limiter_name}.{field_name} must be finite"
                 )
@@ -323,7 +326,8 @@ def evaluate_fiduciary_profile(
     # -------------------------------------------------------------------------
     # 2. Evaluate Risk Tolerance (Psychological Willingness to Bear Drawdowns)
     # -------------------------------------------------------------------------
-    if max_drawdown_tolerance_pct <= 5.0:
+    drawdown_limiter = _RISK_PROFILE_LIMITERS["drawdown_5pct"]
+    if max_drawdown_tolerance_pct <= drawdown_limiter["max_tolerated_drawdown_pct"]:
         tolerance_tier = SebiRiskTier.TIER_2_LOW
     elif max_drawdown_tolerance_pct <= 10.0:
         tolerance_tier = SebiRiskTier.TIER_3_MODERATE
@@ -364,7 +368,8 @@ def evaluate_fiduciary_profile(
             "cyclical mid/small-cap drawdowns. Governing tier adjusted to Moderate."
         )
 
-    if horizon_years < 3.0:
+    ultra_short = _RISK_PROFILE_LIMITERS["ultra_short_horizon"]
+    if horizon_years < ultra_short["max_horizon_years_exclusive"]:
         governing_tier = SebiRiskTier.TIER_1_CAPITAL_PRESERVATION
         constraints.append(
             f"Capital Preservation Limiter: Goal horizon is only {horizon_years:.1f} years. "
@@ -376,13 +381,13 @@ def evaluate_fiduciary_profile(
     # -------------------------------------------------------------------------
     base_saa = _SEBI_SAA_TABLE[governing_tier]
     applicable_caps: list[dict[str, float]] = []
-    if horizon_years < 3.0:
-        applicable_caps.append(_RISK_PROFILE_LIMITERS["ultra_short_horizon"])
+    if horizon_years < ultra_short["max_horizon_years_exclusive"]:
+        applicable_caps.append(ultra_short)
     elif (short_horizon["min_horizon_years"] <= horizon_years
           <= short_horizon["max_horizon_years"]):
         applicable_caps.append(short_horizon)
-    if max_drawdown_tolerance_pct <= 5.0:
-        applicable_caps.append(_RISK_PROFILE_LIMITERS["drawdown_5pct"])
+    if max_drawdown_tolerance_pct <= drawdown_limiter["max_tolerated_drawdown_pct"]:
+        applicable_caps.append(drawdown_limiter)
 
     adjusted_saa = _apply_saa_caps(
         base_saa,
@@ -391,7 +396,7 @@ def evaluate_fiduciary_profile(
         max_mid_small_pct=min(cap["max_mid_small_pct"] for cap in applicable_caps)
             if applicable_caps else None,
     )
-    if max_drawdown_tolerance_pct <= 5.0:
+    if max_drawdown_tolerance_pct <= drawdown_limiter["max_tolerated_drawdown_pct"]:
         constraints.append(
             "Mid/Small Cap allocation eliminated by the 5% drawdown policy limiter."
         )
