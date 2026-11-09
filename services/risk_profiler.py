@@ -68,7 +68,7 @@ def _load_saa_from_policy() -> dict[SebiRiskTier, TargetSaa]:
     
     Raises:
         FileNotFoundError: If policy file is missing
-        ValueError: If policy is malformed or tier mapping is incomplete
+        ValueError: If policy is malformed, incomplete, or contains invalid values
     """
     if not _POLICY_PATH.exists():
         raise FileNotFoundError(
@@ -87,22 +87,57 @@ def _load_saa_from_policy() -> dict[SebiRiskTier, TargetSaa]:
     for tier, tier_name in _TIER_NAME_MAP.items():
         profile = profiles.get(tier_name)
         if profile is None:
-            raise ValueError(f"Policy missing profile for tier {tier_name}")
+            raise ValueError(f"Policy missing profile for tier '{tier_name}'")
         
         saa_targets = profile.get('saa_targets', {})
-        # Calculate mid_small_cap_pct as sum of mid_cap + small_cap + flexi_multi_cap
-        mid_cap = saa_targets.get('mid_cap_pct', 0)
-        small_cap = saa_targets.get('small_cap_pct', 0)
-        flexi_cap = saa_targets.get('flexi_multi_cap_pct', 0)
+        if not saa_targets:
+            raise ValueError(f"Policy tier '{tier_name}' missing 'saa_targets' section")
+        
+        # Extract and validate required fields
+        required_fields = ['large_cap_pct', 'mid_cap_pct', 'small_cap_pct', 
+                          'flexi_multi_cap_pct', 'debt_liquid_pct']
+        missing_fields = [f for f in required_fields if f not in saa_targets]
+        if missing_fields:
+            raise ValueError(
+                f"Policy tier '{tier_name}' saa_targets missing required fields: {missing_fields}"
+            )
+        
+        # Validate all values are non-negative, finite numbers
+        for field in required_fields:
+            value = saa_targets[field]
+            if not isinstance(value, (int, float)):
+                raise ValueError(
+                    f"Policy tier '{tier_name}' field '{field}' must be numeric, got {type(value).__name__}"
+                )
+            if value < 0:
+                raise ValueError(
+                    f"Policy tier '{tier_name}' field '{field}' must be non-negative, got {value}"
+                )
+            if not float('inf') > value > float('-inf'):  # Check finite
+                raise ValueError(
+                    f"Policy tier '{tier_name}' field '{field}' must be finite, got {value}"
+                )
+        
+        # Calculate derived values
+        mid_cap = float(saa_targets['mid_cap_pct'])
+        small_cap = float(saa_targets['small_cap_pct'])
+        flexi_cap = float(saa_targets['flexi_multi_cap_pct'])
         mid_small_total = mid_cap + small_cap + flexi_cap
         
-        # Verify debt percentage
-        debt_pct = saa_targets.get('debt_liquid_pct', 0)
+        large_cap = float(saa_targets['large_cap_pct'])
+        debt_pct = float(saa_targets['debt_liquid_pct'])
+        
+        # Validate allocation totals sum to 100%
+        total = large_cap + mid_small_total + debt_pct
+        if not abs(total - 100.0) < 0.1:  # Allow 0.1% tolerance for rounding
+            raise ValueError(
+                f"Policy tier '{tier_name}' allocations sum to {total:.1f}%, should be 100%"
+            )
         
         saa_table[tier] = TargetSaa(
-            large_cap_pct=float(saa_targets.get('large_cap_pct', 0)),
+            large_cap_pct=large_cap,
             mid_small_cap_pct=mid_small_total,
-            debt_pct=float(debt_pct),
+            debt_pct=debt_pct,
         )
     
     return saa_table
