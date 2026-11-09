@@ -39,7 +39,7 @@ jobs:
       matrix:
         include:
           - suite: fiduciary-invariants
-            command: python -m pytest test_p0_fiduciary_invariants.py -v --tb=short
+            command: python -m pytest tests/test_p0_fiduciary_invariants.py -v --tb=short
           - suite: correctness-regressions
             command: python -m pytest tests/test_p0_correctness_regressions.py -v --tb=short
     steps:
@@ -90,7 +90,7 @@ jobs:
       - name: Test PDF export
         run: python -m pytest tests/test_pdf_exporter.py -v --tb=short
       - name: Test clean-checkout privacy boundary
-        run: python -m pytest test_clean_checkout.py -v --tb=short
+        run: python -m pytest tests/test_clean_checkout.py -v --tb=short
 
   tri-fixture-integrity:
     timeout-minutes: 5
