@@ -166,3 +166,52 @@ def test_policy_limiters_compose_without_bypassing_stricter_drawdown_cap():
     assert res.target_saa.total_equity_pct <= 30.0
     assert res.target_saa.mid_small_cap_pct == 0.0
     assert res.target_saa.debt_pct >= 70.0
+
+
+@pytest.mark.parametrize("bad_value", [True, False])
+def test_saa_policy_loader_rejects_boolean_percentages(tmp_path, monkeypatch, bad_value):
+    """The loader must reject bool even though bool subclasses int in Python."""
+    import json
+    import services.risk_profiler as rp
+
+    policy = json.loads(rp._POLICY_PATH.read_text(encoding="utf-8"))
+    policy["behavioral_risk_profiles"]["low"]["saa_targets"]["large_cap_pct"] = bad_value
+    policy_path = tmp_path / "asset_allocation.json"
+    policy_path.write_text(json.dumps(policy), encoding="utf-8")
+    monkeypatch.setattr(rp, "_POLICY_PATH", policy_path)
+
+    with pytest.raises(ValueError, match="must be numeric"):
+        rp._load_saa_from_policy()
+
+
+def test_saa_policy_loader_rejects_nonfinite_percentages(tmp_path, monkeypatch):
+    """NaN and infinity must never enter a financial allocation."""
+    import json
+    import services.risk_profiler as rp
+
+    policy = json.loads(rp._POLICY_PATH.read_text(encoding="utf-8"))
+    policy["behavioral_risk_profiles"]["low"]["saa_targets"]["large_cap_pct"] = float("inf")
+    policy_path = tmp_path / "asset_allocation.json"
+    policy_path.write_text(json.dumps(policy), encoding="utf-8")
+    monkeypatch.setattr(rp, "_POLICY_PATH", policy_path)
+
+    with pytest.raises(ValueError, match="must be finite"):
+        rp._load_saa_from_policy()
+
+
+def test_saa_policy_loader_enforces_inclusive_sum_tolerance(tmp_path, monkeypatch):
+    """Exactly 0.1 percentage point is accepted; values outside are rejected."""
+    import json
+    import services.risk_profiler as rp
+
+    policy = json.loads(rp._POLICY_PATH.read_text(encoding="utf-8"))
+    policy["behavioral_risk_profiles"]["low"]["saa_targets"]["debt_liquid_pct"] += 0.1
+    policy_path = tmp_path / "asset_allocation.json"
+    policy_path.write_text(json.dumps(policy), encoding="utf-8")
+    monkeypatch.setattr(rp, "_POLICY_PATH", policy_path)
+    rp._load_saa_from_policy()
+
+    policy["behavioral_risk_profiles"]["low"]["saa_targets"]["debt_liquid_pct"] += 0.001
+    policy_path.write_text(json.dumps(policy), encoding="utf-8")
+    with pytest.raises(ValueError, match="allocations sum"):
+        rp._load_saa_from_policy()
