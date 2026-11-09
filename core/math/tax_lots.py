@@ -59,41 +59,20 @@ class TaxLotSummary:
 
 
 def _fifo_redeem(lots: List[TaxLot], units_to_remove: float) -> List[TaxLot]:
-    """Remove units from lot pool using FIFO method."""
-    remaining = units_to_remove
-    new_lots = []
-    for lot in lots:
-        if remaining <= 0:
-            new_lots.append(lot)
-            continue
-        if lot.units <= remaining:
-            remaining -= lot.units
-        else:
-            remaining_units = lot.units - remaining
-            redeemed_units = remaining
-            redeemed_lot = TaxLot(
-                fund_id=lot.fund_id,
-                scheme_name=lot.scheme_name,
-                folio=lot.folio,
-                purchase_date=lot.purchase_date,
-                units=redeemed_units,
-                nav=lot.nav,
-                cost=lot.cost * (redeemed_units / lot.units),
-                source=lot.source
-            )
-            remaining_lot = TaxLot(
-                fund_id=lot.fund_id,
-                scheme_name=lot.scheme_name,
-                folio=lot.folio,
-                purchase_date=lot.purchase_date,
-                units=remaining_units,
-                nav=lot.nav,
-                cost=lot.cost * (remaining_units / lot.units),
-                source=lot.source
-            )
-            new_lots.append(remaining_lot)
-            remaining = 0
-    return new_lots
+    """
+    Remove units from lot pool using FIFO method.
+    
+    NOTE: This legacy helper is disabled pending regulatory approval.
+    DO NOT USE for tax classification purposes.
+    Use approved tax-engine pathways for statutory compliance.
+    """
+    from core.math_engine import TaxClassificationDisabledError
+    
+    raise TaxClassificationDisabledError(
+        "Legacy FIFO redemption helper is disabled. Use approved tax-engine pathways "
+        "for statutory compliance. Direct tax-lot maturity classification requires "
+        "independent Indian tax/legal approval."
+    )
 
 def _tax_lot_maturity_classification_disabled(*args, **kwargs):
     from core.math_engine import TaxClassificationDisabledError
