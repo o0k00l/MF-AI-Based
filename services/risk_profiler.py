@@ -143,6 +143,81 @@ def _load_saa_from_policy() -> dict[SebiRiskTier, TargetSaa]:
     return saa_table
 
 
+def _load_risk_profile_limiters() -> dict[str, dict[str, float]]:
+    """Load and validate hard risk constraints from the authoritative policy."""
+    with open(_POLICY_PATH, "r", encoding="utf-8") as policy_file:
+        policy = json.load(policy_file)
+    limiters = policy.get("risk_profile_limiters")
+    if not isinstance(limiters, dict):
+        raise ValueError("Policy missing 'risk_profile_limiters' object")
+
+    required = {
+        "drawdown_5pct": {"max_equity_pct", "max_mid_small_pct"},
+        "ultra_short_horizon": {"max_equity_pct", "max_mid_small_pct"},
+        "short_horizon": {
+            "min_horizon_years", "max_horizon_years",
+            "max_equity_pct", "max_mid_small_pct",
+        },
+    }
+    validated: dict[str, dict[str, float]] = {}
+    for limiter_name, fields in required.items():
+        config = limiters.get(limiter_name)
+        if not isinstance(config, dict):
+            raise ValueError(f"Policy risk_profile_limiters.{limiter_name} must be an object")
+        missing = fields.difference(config)
+        if missing:
+            raise ValueError(
+                f"Policy risk_profile_limiters.{limiter_name} missing fields: {sorted(missing)}"
+            )
+        validated_config: dict[str, float] = {}
+        for field_name in fields:
+            value = config[field_name]
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise ValueError(
+                    f"Policy risk_profile_limiters.{limiter_name}.{field_name} must be numeric"
+                )
+            numeric = float(value)
+            if not __import__("math").isfinite(numeric):
+                raise ValueError(
+                    f"Policy risk_profile_limiters.{limiter_name}.{field_name} must be finite"
+                )
+            if field_name.endswith("_pct") and not 0.0 <= numeric <= 100.0:
+                raise ValueError(
+                    f"Policy risk_profile_limiters.{limiter_name}.{field_name} must be between 0 and 100"
+                )
+            validated_config[field_name] = numeric
+        if limiter_name == "short_horizon":
+            if validated_config["min_horizon_years"] >= validated_config["max_horizon_years"]:
+                raise ValueError("Policy short_horizon minimum must be below its maximum")
+        validated[limiter_name] = validated_config
+    return validated
+
+
+def _apply_saa_caps(
+    base_saa: TargetSaa,
+    *,
+    max_equity_pct: float | None = None,
+    max_mid_small_pct: float | None = None,
+) -> TargetSaa:
+    """Apply binding allocation caps by transferring excess exposure to debt."""
+    large = base_saa.large_cap_pct
+    mid_small = base_saa.mid_small_cap_pct
+
+    if max_mid_small_pct is not None:
+        mid_small = min(mid_small, max_mid_small_pct)
+    if max_equity_pct is not None and large + mid_small > max_equity_pct:
+        large = max(0.0, max_equity_pct - mid_small)
+
+    return TargetSaa(
+        large_cap_pct=round(large, 6),
+        mid_small_cap_pct=round(mid_small, 6),
+        debt_pct=round(100.0 - large - mid_small, 6),
+    )
+
+
+_RISK_PROFILE_LIMITERS = _load_risk_profile_limiters()
+
+
 # Load SAA table from policy at module import time
 # Application fails fast if policy is missing/malformed
 _SEBI_SAA_TABLE: dict[SebiRiskTier, TargetSaa] = _load_saa_from_policy()
@@ -269,55 +344,57 @@ def evaluate_fiduciary_profile(
     # -------------------------------------------------------------------------
     # 4. Enforce Hard Boundary Limiter Overrides
     # -------------------------------------------------------------------------
-    # Hard Limiter A: 5% Max Drop Limiter
-    if max_drawdown_tolerance_pct <= 5.0 and governing_tier > SebiRiskTier.TIER_2_LOW:
-        governing_tier = SebiRiskTier.TIER_2_LOW
+    # Hard limiters determine the governing tier; allocation caps are applied
+    # independently below so one limiter can never bypass another.
+    if max_drawdown_tolerance_pct <= 5.0:
+        if governing_tier > SebiRiskTier.TIER_2_LOW:
+            governing_tier = SebiRiskTier.TIER_2_LOW
         constraints.append(
-            "Drawdown Hard Limiter: You indicated a max loss tolerance of 5% or less. "
-            "To prevent panic selling, equity is capped at 30% and allocated to stable assets."
+            "Drawdown Hard Limiter: Maximum tolerated loss is 5% or less; "
+            "the policy-defined equity and mid/small allocation caps apply."
         )
 
-    # Hard Limiter B: Short Horizon Mid/Small Cap Limiter
-    if horizon_years <= 5.0 and governing_tier >= SebiRiskTier.TIER_4_MODERATE_HIGH:
+    short_horizon = _RISK_PROFILE_LIMITERS["short_horizon"]
+    if (short_horizon["min_horizon_years"] <= horizon_years
+            <= short_horizon["max_horizon_years"]
+            and governing_tier >= SebiRiskTier.TIER_4_MODERATE_HIGH):
         governing_tier = SebiRiskTier.TIER_3_MODERATE
         constraints.append(
             f"Time Horizon Limiter: A {horizon_years:.0f}-year horizon cannot safely absorb "
             "cyclical mid/small-cap drawdowns. Governing tier adjusted to Moderate."
         )
 
-    # Hard Limiter C: Ultra-Short Horizon (< 3 years)
     if horizon_years < 3.0:
         governing_tier = SebiRiskTier.TIER_1_CAPITAL_PRESERVATION
         constraints.append(
             f"Capital Preservation Limiter: Goal horizon is only {horizon_years:.1f} years. "
-            "Equity deployment is prohibited under SEBI guidelines to prevent capital loss."
+            "The policy prohibits equity deployment for this horizon."
         )
 
     # -------------------------------------------------------------------------
     # 5. Determine Strategic Asset Allocation (SAA)
     # -------------------------------------------------------------------------
     base_saa = _SEBI_SAA_TABLE[governing_tier]
+    applicable_caps: list[dict[str, float]] = []
+    if horizon_years < 3.0:
+        applicable_caps.append(_RISK_PROFILE_LIMITERS["ultra_short_horizon"])
+    elif (short_horizon["min_horizon_years"] <= horizon_years
+          <= short_horizon["max_horizon_years"]):
+        applicable_caps.append(short_horizon)
+    if max_drawdown_tolerance_pct <= 5.0:
+        applicable_caps.append(_RISK_PROFILE_LIMITERS["drawdown_5pct"])
 
-    # Special adjustment: If horizon is 3-5 years, eliminate or strictly minimize Mid/Small caps
-    if 3.0 <= horizon_years <= 5.0 and base_saa.mid_small_cap_pct > 5.0:
-        reallocated_mid_small = base_saa.mid_small_cap_pct - 5.0
-        # Shift excess mid/small into large cap and debt
-        adjusted_saa = TargetSaa(
-            large_cap_pct=base_saa.large_cap_pct + (reallocated_mid_small * 0.5),
-            mid_small_cap_pct=5.0,
-            debt_pct=base_saa.debt_pct + (reallocated_mid_small * 0.5),
+    adjusted_saa = _apply_saa_caps(
+        base_saa,
+        max_equity_pct=min(cap["max_equity_pct"] for cap in applicable_caps)
+            if applicable_caps else None,
+        max_mid_small_pct=min(cap["max_mid_small_pct"] for cap in applicable_caps)
+            if applicable_caps else None,
+    )
+    if max_drawdown_tolerance_pct <= 5.0:
+        constraints.append(
+            "Mid/Small Cap allocation eliminated by the 5% drawdown policy limiter."
         )
-    elif max_drawdown_tolerance_pct <= 5.0:
-        # Zero mid/small cap for strict 5% loss limit
-        adjusted_saa = TargetSaa(
-            large_cap_pct=25.0,
-            mid_small_cap_pct=0.0,
-            debt_pct=75.0,
-        )
-        if "Zero Mid/Small Cap Mandate" not in " ".join(constraints):
-            constraints.append("Mid/Small Cap allocation eliminated (0%) to maintain <= 5% portfolio drawdown floor.")
-    else:
-        adjusted_saa = base_saa
 
     # -------------------------------------------------------------------------
     # 6. Build Comprehensive Fiduciary Rationale
