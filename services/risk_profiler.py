@@ -132,7 +132,7 @@ def _load_saa_from_policy() -> dict[SebiRiskTier, TargetSaa]:
         
         # Validate allocation totals sum to 100%
         total = large_cap + mid_small_total + debt_pct
-        if not abs(total - 100.0) < 0.1:  # Allow 0.1% tolerance for rounding
+        if abs(total - 100.0) > 0.1:  # Inclusive 0.1 percentage-point tolerance
             raise ValueError(
                 f"Policy tier '{tier_name}' allocations sum to {total:.1f}%, should be 100%"
             )
@@ -350,7 +350,7 @@ def evaluate_fiduciary_profile(
     # -------------------------------------------------------------------------
     # Hard limiters determine the governing tier; allocation caps are applied
     # independently below so one limiter can never bypass another.
-    if max_drawdown_tolerance_pct <= 5.0:
+    if max_drawdown_tolerance_pct <= drawdown_limiter["max_tolerated_drawdown_pct"]:
         if governing_tier > SebiRiskTier.TIER_2_LOW:
             governing_tier = SebiRiskTier.TIER_2_LOW
         constraints.append(
