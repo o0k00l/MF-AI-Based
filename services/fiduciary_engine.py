@@ -455,6 +455,7 @@ def generate_fiduciary_sip_blueprint(
     - 100% Direct Plan enforcement
     - Allocation amounts sum to exactly the monthly budget (within 1 paisa)
     - Directly routes capital to Large Cap, Mid/Small, and Debt sleeves per evaluated SAA
+    - Stability Buffer Override: If current debt >= target debt, redirects all SIP debt to equity
     """
     try:
         b_float = float(monthly_budget_inr) if monthly_budget_inr is not None else 0.0
@@ -492,6 +493,37 @@ def generate_fiduciary_sip_blueprint(
                 db_pct = Decimal(str(db_val if db_val is not None else 25.0))
             except Exception:
                 lc_pct, ms_pct, db_pct = Decimal("50.0"), Decimal("25.0"), Decimal("25.0")
+
+    # Stability Buffer Override (per POL-SIP-001):
+    # If current portfolio debt >= target debt, redirect all SIP debt allocation to equity.
+    # Existing debt holdings are maintained for rebalancing ammunition but receive no new SIP inflows.
+    # This prevents a Tier 6 investor with 9.3% current debt from adding more debt via SIP
+    # when the target SAA only allows 5% debt in the total portfolio.
+    stability_override_applied = False
+    if db_pct > Decimal("0.0") and funds:
+        total_value = sum(
+            float(f.get("current_value", 0) or 0) for f in funds if isinstance(f, dict)
+        )
+        debt_value = sum(
+            float(f.get("current_value", 0) or 0) for f in funds
+            if isinstance(f, dict)
+            and (str(f.get("category", "")).lower() == "debt"
+                 or any(kw in str(f.get("scheme", "")).lower() for kw in ["liquid", "arbitrage", "money market"]))
+        )
+        if total_value > 0:
+            current_debt_pct = Decimal(str(debt_value / total_value * 100.0))
+            if current_debt_pct >= db_pct:
+                # Debt is already at or above target — redirect SIP debt to equity
+                debt_to_add = db_pct
+                # Split the redirected debt across existing equity sleeves proportionally
+                total_equity_pct = lc_pct + ms_pct
+                if total_equity_pct > Decimal("0.0"):
+                    lc_pct = lc_pct + (debt_to_add * (lc_pct / total_equity_pct))
+                    ms_pct = ms_pct + (debt_to_add * (ms_pct / total_equity_pct))
+                else:
+                    lc_pct = lc_pct + debt_to_add
+                db_pct = Decimal("0.0")
+                stability_override_applied = True
 
     # Quantized target sleeve allocations
     lc_target = (budget_dec * (lc_pct / Decimal("100.0"))).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
@@ -724,12 +756,21 @@ def generate_fiduciary_sip_blueprint(
         })
 
     # Personalized Routing Rationale
-    routing_rationale = (
-        f"SIP budget of INR {budget_dec:,.2f}/mo is routed across 3 fiduciary sleeves: "
-        f"{lc_pct:.0f}% Large-Cap Core (Index compounding), "
-        f"{ms_pct:.0f}% Mid/Small-Cap Alpha (Growth engine), and "
-        f"{db_pct:.0f}% Debt/Liquid Buffer (Capital stability) in strict compliance with your target SAA."
-    )
+    if stability_override_applied:
+        routing_rationale = (
+            f"SIP budget of INR {budget_dec:,.2f}/mo is routed 100% to Equity sleeves: "
+            f"{lc_pct:.0f}% Large-Cap Core (Index compounding), "
+            f"{ms_pct:.0f}% Mid/Small-Cap Alpha (Growth engine). "
+            f"Stability Buffer Override: Current debt already at or above target — "
+            f"all SIP debt allocation redirected to equity (per POL-SIP-001)."
+        )
+    else:
+        routing_rationale = (
+            f"SIP budget of INR {budget_dec:,.2f}/mo is routed across 3 fiduciary sleeves: "
+            f"{lc_pct:.0f}% Large-Cap Core (Index compounding), "
+            f"{ms_pct:.0f}% Mid/Small-Cap Alpha (Growth engine), and "
+            f"{db_pct:.0f}% Debt/Liquid Buffer (Capital stability) in strict compliance with your target SAA."
+        )
 
     # Compute SIP Selection Confidence Score
     # Factors: 1) Direct plans present, 2) Sleeve completeness, 3) No regular plan migration needed
@@ -783,6 +824,7 @@ def generate_fiduciary_sip_blueprint(
         "portfolio_completion_alerts": completion_alerts,
         "fiduciary_routing_rationale": routing_rationale,
         "sip_selection_confidence_pct": confidence_score,
+        "stability_override_applied": stability_override_applied,
     }
 
 
