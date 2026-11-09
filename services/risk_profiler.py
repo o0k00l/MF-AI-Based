@@ -61,13 +61,15 @@ class RiskProfileResult:
 
 
 # Canonical SEBI SAA Policy Mapping (Baseline Targets)
+# Updated to match data/policy/asset_allocation.json (2026-10-30)
+# Note: mid_small_cap_pct combines mid_cap + small_cap + flexi_multi_cap
 _SEBI_SAA_TABLE: dict[SebiRiskTier, TargetSaa] = {
-    SebiRiskTier.TIER_1_CAPITAL_PRESERVATION: TargetSaa(large_cap_pct=0.0, mid_small_cap_pct=0.0, debt_pct=100.0),
-    SebiRiskTier.TIER_2_LOW: TargetSaa(large_cap_pct=25.0, mid_small_cap_pct=5.0, debt_pct=70.0),
-    SebiRiskTier.TIER_3_MODERATE: TargetSaa(large_cap_pct=45.0, mid_small_cap_pct=15.0, debt_pct=40.0),
-    SebiRiskTier.TIER_4_MODERATE_HIGH: TargetSaa(large_cap_pct=50.0, mid_small_cap_pct=25.0, debt_pct=25.0),
-    SebiRiskTier.TIER_5_HIGH: TargetSaa(large_cap_pct=45.0, mid_small_cap_pct=40.0, debt_pct=15.0),
-    SebiRiskTier.TIER_6_VERY_HIGH: TargetSaa(large_cap_pct=45.0, mid_small_cap_pct=50.0, debt_pct=5.0),
+    SebiRiskTier.TIER_1_CAPITAL_PRESERVATION: TargetSaa(large_cap_pct=15.0, mid_small_cap_pct=5.0, debt_pct=80.0),   # 20% equity (15% large + 5% flexi)
+    SebiRiskTier.TIER_2_LOW: TargetSaa(large_cap_pct=25.0, mid_small_cap_pct=15.0, debt_pct=60.0),  # 40% equity (25% large + 15% mid)
+    SebiRiskTier.TIER_3_MODERATE: TargetSaa(large_cap_pct=35.0, mid_small_cap_pct=35.0, debt_pct=30.0),   # 70% equity (35% large + 15% mid + 5% small + 15% flexi)
+    SebiRiskTier.TIER_4_MODERATE_HIGH: TargetSaa(large_cap_pct=30.0, mid_small_cap_pct=45.0, debt_pct=25.0),  # 75% equity (30% large + 45% mid/small/flexi)
+    SebiRiskTier.TIER_5_HIGH: TargetSaa(large_cap_pct=25.0, mid_small_cap_pct=65.0, debt_pct=15.0),   # 90% equity (25% large + 65% mid/small/flexi)
+    SebiRiskTier.TIER_6_VERY_HIGH: TargetSaa(large_cap_pct=20.0, mid_small_cap_pct=75.0, debt_pct=5.0),  # 95% equity (20% large + 75% mid/small/flexi)
 }
 
 _TIER_LABELS: dict[SebiRiskTier, str] = {
