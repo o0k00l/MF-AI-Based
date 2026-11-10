@@ -129,7 +129,7 @@ def trigger_spiva_fallback(
     category_key: str,
     rules: Dict[str, Any],
     fund_metrics_universe: List[Dict[str, Any]],
-) -> str:
+) -> Dict[str, Any]:
     """SPIVA Passive Fallback Trigger - Gate 4 Critical Compliance Fix.
     
     When no active candidates pass the 10 binary gates, dynamically select
@@ -147,10 +147,10 @@ def trigger_spiva_fallback(
         fund_metrics_universe: The verified list of funds from fund_metrics.json
     
     Returns:
-        Scheme name of the selected passive index fund
+        Dict with: scheme (str), source ("fallback"), validation ("valid"|"failed")
     
     Raises:
-        NoActionRecommended: If no passive fallback fund is available
+        ValueError: If no valid passive fallback fund is available (NO_ACTION)
     """
     # Map category_key to expected category names
     category_mapping = {
@@ -215,22 +215,39 @@ def trigger_spiva_fallback(
     reverse_sort = sort_by == "sharpe_3y"
     candidates.sort(key=safe_sort_key, reverse=reverse_sort)
     
-    # Return the best fund
-    best_fund = candidates[0]
+    # BLOCKER #5 FIX: Check if ALL candidates have invalid metrics for the ranking key
+    # If all candidates have None/invalid for sort_by, we cannot make a valid selection
+    valid_candidates = [f for f in candidates if f.get(sort_by) is not None]
+    if not valid_candidates:
+        # All candidates have invalid ranking metrics - must fail closed (NO_ACTION)
+        prefix = "SPIVA PASSIVE FALLBACK FAILURE" if is_passive_needed else "SPIVA FALLBACK FAILURE"
+        raise ValueError(
+            f"{prefix}: All candidate funds for category '{target_category}' have invalid "
+            f"ranking metric '{sort_by}'. Cannot select without valid metrics. "
+            f"This is a fiduciary compliance issue requiring fund_metrics.json update."
+        )
+    
+    # Return the best fund from VALID candidates only
+    best_fund = valid_candidates[0]
     scheme_name = best_fund.get("scheme") or best_fund.get("canonical_name") or best_fund.get("id", "")
     
     # Ensure Direct plan naming
     if "Direct" not in scheme_name and "Direct Plan" not in scheme_name:
         scheme_name = scheme_name + " - Direct Plan - Growth"
     
-    return scheme_name
+    # Return dict with provenance info (source="fallback" for SPIVA fallback)
+    return {
+        "scheme": scheme_name,
+        "source": "fallback",
+        "validation": "valid"
+    }
 
 
 def _select_market_nom_fund(
     rules: Dict[str, Any],
     fund_universe: List[Dict[str, Any]],
     nom_key: str = "",
-) -> str:
+) -> Dict[str, Any]:
     """Dynamically select the best fund based on market nomination rules.
     
     Args:
@@ -239,11 +256,15 @@ def _select_market_nom_fund(
         nom_key: The key identifying this nomination (for fallback)
     
     Returns:
-        Scheme name of the selected fund, or a safe fallback name
+        Dict with: scheme (str), source ("dynamic"|"fallback"|"unavailable"), validation ("valid"|"failed")
     """
     # SPIVA PASSIVE FALLBACK: Handle empty universe case
     if not fund_universe:
-        return trigger_spiva_fallback(nom_key, rules, fund_universe)
+        try:
+            fallback_result = trigger_spiva_fallback(nom_key, rules, fund_universe)
+            return fallback_result  # Already returns dict with source="fallback"
+        except ValueError:
+            return {"scheme": "SPIVA_FALLBACK_FAILED", "source": "unavailable", "validation": "failed"}
 
     
     category = rules.get("category", "")
@@ -315,7 +336,11 @@ def _select_market_nom_fund(
     if not filtered:
         # SPIVA PASSIVE FALLBACK: Dynamic selection from verified universe
         # No brand hardcoding - selection is data-driven
-        return trigger_spiva_fallback(nom_key, rules, fund_universe)
+        try:
+            fallback_result = trigger_spiva_fallback(nom_key, rules, fund_universe)
+            return fallback_result  # Already returns dict with source="fallback"
+        except ValueError:
+            return {"scheme": "SPIVA_FALLBACK_FAILED", "source": "unavailable", "validation": "failed"}
     
     # Sort by the specified metric
     reverse = sort_order == "desc"
@@ -329,15 +354,32 @@ def _select_market_nom_fund(
             return val
         
         filtered.sort(key=sort_key, reverse=reverse)
-        # Get scheme name from the best fund
-        best = filtered[0]
+        
+        # BLOCKER #5 FIX: Check if ALL filtered candidates have invalid metrics for the ranking key
+        valid_filtered = [f for f in filtered if f.get(sort_by) is not None]
+        if not valid_filtered:
+            # All filtered candidates have invalid ranking metrics - trigger SPIVA fallback
+            try:
+                fallback_result = trigger_spiva_fallback(nom_key, rules, fund_universe)
+                return fallback_result
+            except ValueError:
+                return {"scheme": "SPIVA_FALLBACK_FAILED", "source": "unavailable", "validation": "failed"}
+        
+        # Get scheme name from the best fund (from VALID filtered only)
+        best = valid_filtered[0]
         scheme_name = best.get("scheme") or best.get("canonical_name") or best.get("id", "Selected Fund")
         # Ensure Direct plan
         if "Direct" not in scheme_name and "Direct Plan" not in scheme_name:
             scheme_name = scheme_name + " - Direct Plan - Growth"
-        return scheme_name
+        
+        # Return dict with provenance info (source="dynamic" for dynamic selection)
+        return {
+            "scheme": scheme_name,
+            "source": "dynamic",
+            "validation": "valid"
+        }
     except Exception:
-        return filtered[0].get("scheme", "Selected Fund - Direct Plan - Growth")
+        return {"scheme": "SPIVA_FALLBACK_FAILED", "source": "unavailable", "validation": "failed"}
 
 
 def convert_cas_funds_to_holdings(funds: List[Dict[str, Any]]) -> List[HoldingItem]:
@@ -574,16 +616,24 @@ def generate_fiduciary_sip_blueprint(
         s_name = str(f_obj.get("scheme") or "").lower()
         return any(k in s_name for k in kws)
 
-    def _get_market_nom_fund(nom_key: str, fund_universe_list: List[Dict[str, Any]] = None) -> str:
-        """Get scheme name from market nominations using dynamic selection logic."""
+    def _get_market_nom_fund(nom_key: str, fund_universe_list: List[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Get scheme name from market nominations using dynamic selection logic.
+        
+        Returns a dict with:
+        - scheme: the selected scheme name
+        - source: 'dynamic' (verified from universe), 'fallback' (from config rules), or 'unavailable'
+        - validation: 'valid' or 'failed' if selection failed
+        """
         rules = market_noms.get(nom_key, {})
         if fund_universe_list:
-            # Use dynamic selection from fund universe
             result = _select_market_nom_fund(rules, fund_universe_list, nom_key)
-            if result and result != "SPIVA_FALLBACK_FAILED":
-                return result
+            if isinstance(result, dict) and result.get("scheme") and result.get("scheme") != "SPIVA_FALLBACK_FAILED":
+                return result  # Already returns dict with scheme, source, validation
         # Fallback to embedded selection rules from data (NOT hardcoded defaults)
-        return rules.get("scheme", "Market-Nominated Fund - Direct Plan - Growth")
+        fallback_scheme = rules.get("scheme")
+        if fallback_scheme:
+            return {"scheme": fallback_scheme, "source": "fallback", "validation": "valid"}
+        return {"scheme": "SPIVA_FALLBACK_FAILED", "source": "unavailable", "validation": "failed"}
 
     if direct_funds:
         # Match schemes to sleeves - prioritize client's existing funds
@@ -640,8 +690,9 @@ def generate_fiduciary_sip_blueprint(
             # Use client's fund, or dynamically select from fund universe
             selected_fund = lc_fund
             if not lc_fund:
-                selected_name = _get_market_nom_fund("large_cap_index", fund_universe)
-                selected_fund = {"scheme": selected_name, "folio_no": "New Direct Folio Mandate"}
+                selection_result = _get_market_nom_fund("large_cap_index", fund_universe)
+                selected_name = selection_result.get("scheme", "SPIVA_FALLBACK_FAILED")
+                selected_fund = {"scheme": selected_name, "folio_no": "New Direct Folio Mandate", "_validation": selection_result.get("validation", "failed")}
             s_name = selected_fund.get("scheme")
             f_num = selected_fund.get("folio_no", "Existing Direct Folio") if selected_fund.get("folio_no") != "New Direct Folio Mandate" else "New Direct Folio Mandate"
             allocations.append({
@@ -659,8 +710,9 @@ def generate_fiduciary_sip_blueprint(
             # Use client's fund, or dynamically select from fund universe
             selected_fund = ms_fund
             if not ms_fund:
-                selected_name = _get_market_nom_fund("mid_cap_active", fund_universe)
-                selected_fund = {"scheme": selected_name, "folio_no": "New Direct Folio Mandate"}
+                selection_result = _get_market_nom_fund("mid_cap_active", fund_universe)
+                selected_name = selection_result.get("scheme", "SPIVA_FALLBACK_FAILED")
+                selected_fund = {"scheme": selected_name, "folio_no": "New Direct Folio Mandate", "_validation": selection_result.get("validation", "failed")}
             s_name = selected_fund.get("scheme")
             f_num = selected_fund.get("folio_no", "Existing Direct Folio") if selected_fund.get("folio_no") != "New Direct Folio Mandate" else "New Direct Folio Mandate"
             allocations.append({
@@ -674,15 +726,20 @@ def generate_fiduciary_sip_blueprint(
             })
 
         # Flexi-Multi-Cap Sleeve (Distinct Asset Class for Tactical Allocation)
+        # Track selection for allocation integrity check
+        flexi_selection_result = {"validation": "valid", "scheme": None}
         if flexi_target > Decimal("0.00"):
             selected_fund = flexi_fund
             if not flexi_fund:
                 # Use dynamic market nomination selection for flexi-cap
-                selected_name = _get_market_nom_fund("flexi_multi_cap", fund_universe)
-                if selected_name and selected_name != "SPIVA_FALLBACK_FAILED":
+                selection_result = _get_market_nom_fund("flexi_multi_cap", fund_universe)
+                flexi_selection_result = selection_result
+                selected_name = selection_result.get("scheme", "SPIVA_FALLBACK_FAILED")
+                if selection_result.get("validation") == "valid" and selected_name != "SPIVA_FALLBACK_FAILED":
                     selected_fund = {"scheme": selected_name, "folio_no": "New Direct Folio Mandate"}
             
-            if selected_fund:
+            # Only add allocation if we have a valid selection
+            if selected_fund and selected_fund.get("scheme") != "SPIVA_FALLBACK_FAILED":
                 s_name = selected_fund.get("scheme")
                 f_num = selected_fund.get("folio_no", "Existing Direct Folio") if selected_fund.get("folio_no") != "New Direct Folio Mandate" else "New Direct Folio Mandate"
                 allocations.append({
@@ -694,57 +751,43 @@ def generate_fiduciary_sip_blueprint(
                     "plan_type": "Direct-Growth",
                     "rationale": "Flexible multi-cap exposure for growth enhancement with automatic rebalancing across market caps.",
                 })
-            # If no flexi fund available, allocation is skipped (debt will absorb via stability buffer)
+            elif selected_fund:
+                # Selection failed - mark for integrity check
+                flexi_selection_result = {"validation": "failed", "scheme": selected_name}
 
-        # Debt Sleeve (Strict Fiduciary Separation: Pure Debt/Liquid only)
+        # Debt Sleeve - unified with dynamic selection
         if db_target > Decimal("0.00"):
-            # Use client's fund, or dynamically select from fund universe
             selected_fund = db_fund
             if not db_fund:
-                # Dynamic Market Nomination Fallback
-                # Filter the universe for Direct Liquid/Debt funds, sort by lowest TER, return the best
-                liquid_candidates = [
-                    f for f in (fund_universe or [])
-                    if isinstance(f, dict)
-                    and str(f.get("category", "")).lower() == "debt"
-                    and str(f.get("plan_type", "Direct")).lower() == "direct"
-                ]
-                
-                if liquid_candidates:
-                    # Sort by TER ascending (lowest cost = fiduciary preference)
-                    liquid_candidates.sort(key=lambda x: float(x.get("ter_direct_pct", 99.9)))
-                    selected_name = liquid_candidates[0].get("scheme") or liquid_candidates[0].get("canonical_name")
-                else:
-                    # Absolute failsafe if universe is empty - use market nomination default
-                    debt_rules = market_noms.get("debt_liquid", {})
-                    selected_name = debt_rules.get("scheme", "Market-Nominated Liquid Fund - Direct Plan - Growth")
-                if "direct" not in str(selected_name).lower():
-                    selected_name = f"{selected_name} - Direct Plan - Growth"
-                
-                selected_fund = {"scheme": selected_name, "folio_no": "New Direct Folio Mandate"}
-            s_name = selected_fund.get("scheme")
-            f_num = selected_fund.get("folio_no", "Existing Direct Folio") if selected_fund.get("folio_no") != "New Direct Folio Mandate" else "New Direct Folio Mandate"
-            allocations.append({
-                "sleeve": "Debt & Capital Preservation",
-                "scheme_name": s_name,
-                "folio_no": f_num,
-                "amount_inr": db_target,
-                "allocation_pct": float(db_pct),
-                "plan_type": "Direct-Growth",
-                "rationale": "Statutory capital preservation floor (100% Sovereign T-Bills/Repo).",
-            })
+                selection_result = _get_market_nom_fund("debt_liquid", fund_universe)
+                selected_name = selection_result.get("scheme", "SPIVA_FALLBACK_FAILED")
+                if selection_result.get("validation") == "valid" and selected_name != "SPIVA_FALLBACK_FAILED":
+                    selected_fund = {"scheme": selected_name, "folio_no": "New Direct Folio Mandate"}
+            
+            if selected_fund:
+                s_name = selected_fund.get("scheme")
+                f_num = selected_fund.get("folio_no", "Existing Direct Folio") if selected_fund.get("folio_no") != "New Direct Folio Mandate" else "New Direct Folio Mandate"
+                allocations.append({
+                    "sleeve": "Debt & Capital Preservation",
+                    "scheme_name": s_name,
+                    "folio_no": f_num,
+                    "amount_inr": db_target,
+                    "allocation_pct": float(db_pct),
+                    "plan_type": "Direct-Growth",
+                    "rationale": "Statutory capital preservation floor (100% Sovereign T-Bills/Repo).",
+                })
     else:
         # Client has no Direct schemes yet (or 100% regular) — provide canonical sleeve blueprint with market nominations
         # Use dynamic selection from fund universe
-        market_lc = _get_market_nom_fund("large_cap_index", fund_universe)
-        market_ms = _get_market_nom_fund("mid_cap_active", fund_universe)
-        market_flexi = _get_market_nom_fund("flexi_multi_cap", fund_universe)
-        market_db = _get_market_nom_fund("debt_liquid", fund_universe)
+        market_lc_result = _get_market_nom_fund("large_cap_index", fund_universe)
+        market_ms_result = _get_market_nom_fund("mid_cap_active", fund_universe)
+        market_flexi_result = _get_market_nom_fund("flexi_multi_cap", fund_universe)
+        market_db_result = _get_market_nom_fund("debt_liquid", fund_universe)
         
         if lc_target > Decimal("0.00"):
             allocations.append({
                 "sleeve": "Large-Cap Core Index",
-                "scheme_name": market_lc,
+                "scheme_name": market_lc_result.get("scheme", "SPIVA_FALLBACK_FAILED"),
                 "folio_no": "New Direct Folio Mandate",
                 "amount_inr": lc_target,
                 "allocation_pct": float(lc_pct),
@@ -754,7 +797,7 @@ def generate_fiduciary_sip_blueprint(
         if ms_target > Decimal("0.00"):
             allocations.append({
                 "sleeve": "Mid/Small-Cap Alpha",
-                "scheme_name": market_ms,
+                "scheme_name": market_ms_result.get("scheme", "SPIVA_FALLBACK_FAILED"),
                 "folio_no": "New Direct Folio Mandate",
                 "amount_inr": ms_target,
                 "allocation_pct": float(ms_pct),
@@ -765,7 +808,7 @@ def generate_fiduciary_sip_blueprint(
         if flexi_target > Decimal("0.00"):
             allocations.append({
                 "sleeve": "Flexi-Multi Cap",
-                "scheme_name": market_flexi,
+                "scheme_name": market_flexi_result.get("scheme", "SPIVA_FALLBACK_FAILED"),
                 "folio_no": "New Direct Folio Mandate",
                 "amount_inr": flexi_target,
                 "allocation_pct": float(flexi_pct),
@@ -775,7 +818,7 @@ def generate_fiduciary_sip_blueprint(
         if db_target > Decimal("0.00"):
             allocations.append({
                 "sleeve": "Debt & Capital Preservation",
-                "scheme_name": market_db,
+                "scheme_name": market_db_result.get("scheme", "SPIVA_FALLBACK_FAILED"),
                 "folio_no": "New Direct Folio Mandate",
                 "amount_inr": db_target,
                 "allocation_pct": float(db_pct),
@@ -902,7 +945,110 @@ def generate_fiduciary_sip_blueprint(
             "monthly_allocation_inr": float(alloc.get("amount_inr", 0)),
             "allocation_pct": float(alloc.get("allocation_pct", 0)),
         })
-
+    
+    total_allocated = sum(a["amount_inr"] for a in allocations)
+    unallocated = budget_dec - total_allocated
+    reconciliation_valid = abs(unallocated) <= Decimal("0.01")
+    
+    # Build tranche timing and alerts
+    biweekly_tranche = (budget_dec / Decimal("2.0")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    weekly_tranche = (budget_dec / Decimal("4.0")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    optimal_tranche_timing = {
+        "recommended_cadence": "Bi-Weekly (Dual-Tranche)",
+        "dates": "5th and 20th of each month",
+        "biweekly_amount_inr": biweekly_tranche,
+        "weekly_amount_inr": weekly_tranche,
+        "rationale": "Splitting monthly deployment into two equal tranches (5th post-payroll, 20th pre-derivatives expiry) smooths intraday volatility and avoids month-end illiquidity spreads on NSE/BSE.",
+        "weekly_alternative": f"4 weekly tranches of INR {weekly_tranche:,.2f} every Wednesday.",
+    }
+    
+    # Portfolio Completion Alerts & Scheme Replacements
+    completion_alerts: List[dict] = []
+    
+    # Allocation Integrity Check: Fail-closed if required sleeve is missing or unreconciled
+    # A DETERMINISTIC_SIP_READY result is only valid when all budget is allocated to paisa
+    
+    confidence_score = 100.0
+    confidence_baselines = ["Direct plan baseline established", "All fiduciary sleeves present", "No Regular-to-Direct migration pending"]
+    
+    # Consistent detection with fund selection logic
+    has_large = any(
+        (f.get("category", "").lower() in ["large cap", "index - large cap", "equity"] or 
+         _match_kw(f, ["index", "nifty"])) 
+        for f in (direct_funds or [])
+    )
+    has_mid_small = any(
+        f.get("category", "").lower() in ["mid cap", "small cap"] 
+        for f in (direct_funds or [])
+    )
+    has_debt = any(str(f.get("category") or "") == "Debt" or _match_kw(f, ["liquid", "arbitrage", "money market"]) for f in (direct_funds or []))
+    regular_count = sum(1 for f in (funds or []) if str(f.get("plan_type", "Direct")).strip().upper() == "REGULAR")
+    
+    if not direct_funds:
+        confidence_score -= 35.0
+        confidence_baselines = ["No existing Direct plans"]
+    
+    if not has_large:
+        if not direct_funds:
+            pass  # Already high severity alert
+        else:
+            pass
+    
+    if not has_mid_small:
+        pass
+    
+    if not has_debt and db_target > Decimal("0.00"):
+        pass
+    
+    if regular_count > 0:
+        confidence_score -= (regular_count * 5.0)
+    
+    confidence_score = max(45.0, min(100.0, confidence_score))
+    
+    # Portfolio Completion Alerts
+    portfolio_completion_alerts = []
+    if not direct_funds:
+        portfolio_completion_alerts.append({"slot": "Direct Plans", "action": "Initiate new Direct Plan folios", "severity": "HIGH"})
+    if not has_large:
+        portfolio_completion_alerts.append({"slot": "Core Equity", "action": "Add large-cap index fund", "severity": "HIGH"})
+    if not has_mid_small:
+        portfolio_completion_alerts.append({"slot": "Alpha Engine", "action": "Add mid/small-cap fund", "severity": "MEDIUM"})
+    if not has_debt and db_target > Decimal("0.00"):
+        portfolio_completion_alerts.append({"slot": "Debt/Stable", "action": "Add debt fund", "severity": "HIGH"})
+    if regular_count > 0:
+        portfolio_completion_alerts.append({"slot": "Plan Optimization", "action": f"Replace {regular_count} Regular plans", "severity": "MEDIUM"})
+    
+    # Personalized Routing Rationale
+    if stability_override_applied:
+        routing_rationale = (
+            f"SIP budget of INR {budget_dec:,.2f}/mo routed 100% to Equity sleeves: "
+            f"{lc_pct:.0f}% Large-Cap Core, {ms_pct:.0f}% Mid/Small-Cap Alpha. "
+            f"Stability Buffer Override applied."
+        )
+    else:
+        routing_rationale = (
+            f"SIP budget of INR {budget_dec:,.2f}/mo routed across 3 fiduciary sleeves: "
+            f"{lc_pct:.0f}% Large-Cap Core, {ms_pct:.0f}% Mid/Small-Cap Alpha, and "
+            f"{db_pct:.0f}% Debt/Liquid Buffer."
+        )
+    
+    # Check allocation reconciliation
+    if not reconciliation_valid:
+        return {
+            "status": "NO_ACTION",
+            "monthly_budget_inr": budget_dec,
+            "allocated_budget_inr": total_allocated,
+            "unallocated_budget_inr": unallocated,
+            "allocations": allocations,
+            "recommendations": recommendations,
+            "reconciliation_valid": reconciliation_valid,
+            "optimal_tranche_timing": optimal_tranche_timing,
+            "portfolio_completion_alerts": portfolio_completion_alerts + [{"slot": "Fiduciary Allocation Failure", "action": f"Unallocated ₹{unallocated:,.2f} - selection integrity check failed", "severity": "HIGH"}],
+            "fiduciary_routing_rationale": f"SIP blueprint incomplete: ₹{unallocated:,.2f} unallocated after fund selection. Dynamic flexi or debt selection may have failed. Audit required.",
+            "sip_selection_confidence_pct": confidence_score,
+            "stability_override_applied": stability_override_applied,
+        }
+    
     return {
         "status": "DETERMINISTIC_SIP_READY",
         "monthly_budget_inr": budget_dec,
@@ -910,9 +1056,9 @@ def generate_fiduciary_sip_blueprint(
         "unallocated_budget_inr": unallocated,
         "allocations": allocations,
         "recommendations": recommendations,
-        "reconciliation_valid": abs(unallocated) <= Decimal("0.01"),
+        "reconciliation_valid": reconciliation_valid,
         "optimal_tranche_timing": optimal_tranche_timing,
-        "portfolio_completion_alerts": completion_alerts,
+        "portfolio_completion_alerts": portfolio_completion_alerts,
         "fiduciary_routing_rationale": routing_rationale,
         "sip_selection_confidence_pct": confidence_score,
         "stability_override_applied": stability_override_applied,
