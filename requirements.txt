@@ -21,7 +21,7 @@ pypdf>=4.0.0                  # Fallback PDF parsing and text stream extraction
 # --- Numerical Math & Tabular Processing ---
 pandas>=3.1.0                 # Tabular data manipulation for Streamlit views and reports
 scipy>=1.10.0                 # Brent's method root-finding for XIRR & portfolio math
-python-dateutil>=2.8.0        # Robust financial date parsing and calendar math
+python-dateutil>=4.0.0        # Robust financial date parsing and calendar math
 
 # --- Web UI & Dashboard ---
 streamlit==1.66.1  # Pillow 13 compatible; 1.65.0 pins Pillow below 13             # Interactive advisory wizard and client inspection UI
