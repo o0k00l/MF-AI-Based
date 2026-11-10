@@ -217,7 +217,19 @@ def trigger_spiva_fallback(
     
     # BLOCKER #5 FIX: Check if ALL candidates have invalid metrics for the ranking key
     # If all candidates have None/invalid for sort_by, we cannot make a valid selection
-    valid_candidates = [f for f in candidates if f.get(sort_by) is not None]
+    def _is_valid_metric(val):
+        """Check if metric is a finite numeric value (not None, NaN, infinity, or string)."""
+        if val is None:
+            return False
+        if isinstance(val, str):
+            return False
+        try:
+            fval = float(val)
+            return fval == fval and fval != float('inf') and fval != float('-inf')  # Not NaN, not infinity
+        except (TypeError, ValueError):
+            return False
+    
+    valid_candidates = [f for f in candidates if _is_valid_metric(f.get(sort_by))]
     if not valid_candidates:
         # All candidates have invalid ranking metrics - must fail closed (NO_ACTION)
         prefix = "SPIVA PASSIVE FALLBACK FAILURE" if is_passive_needed else "SPIVA FALLBACK FAILURE"
@@ -345,18 +357,30 @@ def _select_market_nom_fund(
     # Sort by the specified metric
     reverse = sort_order == "desc"
     try:
+        def _is_valid_metric(val):
+            """Check if metric is a finite numeric value (not None, NaN, infinity, or string)."""
+            if val is None:
+                return False
+            if isinstance(val, str):
+                return False
+            try:
+                fval = float(val)
+                return fval == fval and fval != float('inf') and fval != float('-inf')  # Not NaN, not infinity
+            except (TypeError, ValueError):
+                return False
+
         def sort_key(f):
             val = f.get(sort_by)
-            if val is None:
-                # For ascending sort (lowest first), None should be at the end
-                # For descending sort (highest first), None should be at the end
+            if not _is_valid_metric(val):
+                # For ascending sort (lowest first), invalid should be at the end
+                # For descending sort (highest first), invalid should be at the end
                 return float('inf')
-            return val
-        
+            return float(val)
+
         filtered.sort(key=sort_key, reverse=reverse)
-        
+
         # BLOCKER #5 FIX: Check if ALL filtered candidates have invalid metrics for the ranking key
-        valid_filtered = [f for f in filtered if f.get(sort_by) is not None]
+        valid_filtered = [f for f in filtered if _is_valid_metric(f.get(sort_by))]
         if not valid_filtered:
             # All filtered candidates have invalid ranking metrics - trigger SPIVA fallback
             try:
@@ -364,7 +388,7 @@ def _select_market_nom_fund(
                 return fallback_result
             except ValueError:
                 return {"scheme": "SPIVA_FALLBACK_FAILED", "source": "unavailable", "validation": "failed"}
-        
+
         # Get scheme name from the best fund (from VALID filtered only)
         best = valid_filtered[0]
         scheme_name = best.get("scheme") or best.get("canonical_name") or best.get("id", "Selected Fund")
@@ -629,10 +653,39 @@ def generate_fiduciary_sip_blueprint(
             result = _select_market_nom_fund(rules, fund_universe_list, nom_key)
             if isinstance(result, dict) and result.get("scheme") and result.get("scheme") != "SPIVA_FALLBACK_FAILED":
                 return result  # Already returns dict with scheme, source, validation
+        
         # Fallback to embedded selection rules from data (NOT hardcoded defaults)
+        # Validate that the configured fallback scheme exists in the fund universe 
+        # and matches the required category/plan_type before marking it valid
         fallback_scheme = rules.get("scheme")
-        if fallback_scheme:
-            return {"scheme": fallback_scheme, "source": "fallback", "validation": "valid"}
+        if fallback_scheme and fund_universe_list:
+            expected_category = rules.get("category", "")
+            expected_plan_type = rules.get("plan_type", "Direct")
+            expected_is_passive = rules.get("is_passive", False)
+            
+            # Search for the fallback scheme in the fund universe
+            for fund in fund_universe_list:
+                if not isinstance(fund, dict):
+                    continue
+                fund_scheme = fund.get("scheme") or fund.get("canonical_name") or fund.get("id", "")
+                if fallback_scheme.lower() in fund_scheme.lower() or fund_scheme.lower() in fallback_scheme.lower():
+                    # Verify category match (case-insensitive)
+                    fund_cat = fund.get("category", "") or fund.get("cat", "")
+                    if expected_category and expected_category.lower() not in str(fund_cat).lower():
+                        continue
+                    # Verify plan type
+                    fund_plan_type = fund.get("plan_type", "")
+                    if expected_plan_type and expected_plan_type.lower() not in str(fund_plan_type).lower():
+                        continue
+                    # Verify passive/active match
+                    fund_is_passive = fund.get("is_passive", False)
+                    if expected_is_passive != fund_is_passive:
+                        continue
+                    # All checks passed - fallback is valid
+                    return {"scheme": fallback_scheme, "source": "fallback", "validation": "valid"}
+            # Fallback scheme not found or doesn't match criteria in universe
+            return {"scheme": "SPIVA_FALLBACK_FAILED", "source": "unavailable", "validation": "failed"}
+        
         return {"scheme": "SPIVA_FALLBACK_FAILED", "source": "unavailable", "validation": "failed"}
 
     if direct_funds:
@@ -784,7 +837,7 @@ def generate_fiduciary_sip_blueprint(
         market_flexi_result = _get_market_nom_fund("flexi_multi_cap", fund_universe)
         market_db_result = _get_market_nom_fund("debt_liquid", fund_universe)
         
-        if lc_target > Decimal("0.00"):
+        if lc_target > Decimal("0.00") and market_lc_result.get("validation") == "valid":
             allocations.append({
                 "sleeve": "Large-Cap Core Index",
                 "scheme_name": market_lc_result.get("scheme", "SPIVA_FALLBACK_FAILED"),
@@ -794,7 +847,7 @@ def generate_fiduciary_sip_blueprint(
                 "plan_type": "Direct-Growth",
                 "rationale": "Low-cost index foundation (zero commission leakage).",
             })
-        if ms_target > Decimal("0.00"):
+        if ms_target > Decimal("0.00") and market_ms_result.get("validation") == "valid":
             allocations.append({
                 "sleeve": "Mid/Small-Cap Alpha",
                 "scheme_name": market_ms_result.get("scheme", "SPIVA_FALLBACK_FAILED"),
@@ -805,7 +858,7 @@ def generate_fiduciary_sip_blueprint(
                 "rationale": "Diversified growth engine aligned with SAA policy.",
             })
         # Flexi-Multi-Cap Sleeve (Market Nomination Fallback)
-        if flexi_target > Decimal("0.00"):
+        if flexi_target > Decimal("0.00") and market_flexi_result.get("validation") == "valid":
             allocations.append({
                 "sleeve": "Flexi-Multi Cap",
                 "scheme_name": market_flexi_result.get("scheme", "SPIVA_FALLBACK_FAILED"),
@@ -815,7 +868,7 @@ def generate_fiduciary_sip_blueprint(
                 "plan_type": "Direct-Growth",
                 "rationale": "Flexible multi-cap exposure for growth enhancement with automatic rebalancing across market caps.",
             })
-        if db_target > Decimal("0.00"):
+        if db_target > Decimal("0.00") and market_db_result.get("validation") == "valid":
             allocations.append({
                 "sleeve": "Debt & Capital Preservation",
                 "scheme_name": market_db_result.get("scheme", "SPIVA_FALLBACK_FAILED"),

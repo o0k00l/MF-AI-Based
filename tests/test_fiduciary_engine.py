@@ -643,8 +643,9 @@ def test_direct_holdings_with_positive_flexi_target_exercises_dynamic_selection(
     """
     from services.fiduciary_engine import generate_fiduciary_sip_blueprint
     from services.risk_profiler import TargetSaa
-    
-    # Client has direct holdings (index fund + flexi cap)
+
+    # Client has direct holdings but NO flexi cap fund (only large cap index)
+    # This forces dynamic selection for the flexi allocation
     funds = [
         {
             "scheme": "UTI Nifty 50 Index Fund - Direct Plan - Growth",
@@ -653,15 +654,9 @@ def test_direct_holdings_with_positive_flexi_target_exercises_dynamic_selection(
             "current_value": 300000.0,
             "folio_no": "1111/01",
         },
-        {
-            "scheme": "HDFC Flexi Cap Fund - Direct Plan - Growth",
-            "category": "Equity",
-            "plan_type": "Direct",
-            "current_value": 200000.0,
-            "folio_no": "2222/02",
-        },
+        # NO flexi fund - client needs dynamic selection for flexi allocation
     ]
-    
+
     # Target with positive flexi allocation
     target = TargetSaa(large_cap_pct=40.0, mid_small_cap_pct=0.0, flexi_multi_cap_pct=30.0, debt_pct=30.0)
     blueprint = generate_fiduciary_sip_blueprint(
@@ -669,12 +664,21 @@ def test_direct_holdings_with_positive_flexi_target_exercises_dynamic_selection(
         funds=funds,
         target_saa=target,
     )
-    
+
     # Should exercise dynamic selection (DYNAMIC_SELECTION_REQUIRED or similar status)
     # or at minimum allocate to flexi category appropriately
     assert blueprint["status"] in ("DETERMINISTIC_SIP_READY", "DYNAMIC_SELECTION_REQUIRED")
     assert blueprint["reconciliation_valid"] is True
     assert blueprint["allocated_budget_inr"] == Decimal("50000.00")
+    
+    # Verify flexi allocation was attempted via dynamic selection
+    flexi_allocated = sum(
+        Decimal(str(a["amount_inr"])) 
+        for a in blueprint["allocations"] 
+        if "flexi" in a.get("sleeve", "").lower() or "multi" in a.get("sleeve", "").lower()
+    )
+    # With positive flexi target and no existing flexi fund, dynamic selection should allocate to flexi
+    assert flexi_allocated > Decimal("0.00"), f"Expected flexi allocation > 0, got {flexi_allocated}"
 
 
 def test_dynamic_flexi_selection_when_client_has_no_flexi_fund():
@@ -719,7 +723,7 @@ def test_dynamic_flexi_selection_when_client_has_no_flexi_fund():
     flexi_allocated = sum(
         Decimal(str(a["amount_inr"])) 
         for a in blueprint["allocations"] 
-        if "flexi" in a.get("category", "").lower() or "multi" in a.get("category", "").lower()
+        if "flexi" in a.get("sleeve", "").lower() or "multi" in a.get("sleeve", "").lower()
     )
     # With positive flexi target, some allocation should go to flexi
     assert flexi_allocated >= Decimal("0.00")  # May be 0 if no fund selected, but status should reflect need
