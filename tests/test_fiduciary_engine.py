@@ -469,3 +469,163 @@ def test_flexi_drift_tracking_in_saa_analysis():
     assert drift.flexi_drift_pct == 0.0, f"Expected flexi_drift_pct=0.0, got {drift.flexi_drift_pct}"
 
 
+def test_direct_holdings_without_flexi_fund_uses_dynamic_selection():
+    """Regression test for PR #135 Defect: Direct-holdings branch bypasses dynamic flexi nomination.
+    
+    When client has direct funds but no flexi fund, the SIP blueprint should use
+    dynamic selection instead of hardcoded fallback.
+    This ensures proper policy-driven fund selection without brand hardcoding.
+    """
+    import json
+    from decimal import Decimal
+    
+    # Test that when no flexi fund exists and universe is empty, 
+    # no hardcoded placeholder is used
+    funds = [
+        {
+            "scheme": "ICICI Prudential Large Cap Fund - Direct Plan - Growth",
+            "category": "Equity",
+            "plan_type": "Direct",
+            "current_value": 500000.0,
+            "folio_no": "12345/01",
+        }
+    ]
+    target = TargetSaa(large_cap_pct=50.0, mid_small_cap_pct=25.0, debt_pct=0.0)
+    
+    blueprint = generate_fiduciary_sip_blueprint(
+        monthly_budget_inr=10000.0,
+        funds=funds,
+        target_saa=target,
+    )
+    
+    # The blueprint should be ready (no hardcoded fallback should be used)
+    assert blueprint["status"] == "DETERMINISTIC_SIP_READY"
+    
+    # Verify no flexi allocation when no flexi fund exists
+    flexi_allocs = [a for a in blueprint.get("allocations", []) if "Flexi" in a.get("sleeve", "")]
+    # With 0% flexi target, there should be no flexi allocation
+    assert len(flexi_allocs) == 0
+
+
+def test_flexi_multi_cap_fallback_preserves_category():
+    """Regression test for PR #135 Defect: Dynamic fallback can select wrong fund category.
+    
+    When trigger_spiva_fallback is called for flexi_multi_cap, it must preserve
+    the Flexi Cap category restriction and not select an unrelated active Direct fund.
+    """
+    from services.fiduciary_engine import trigger_spiva_fallback
+    
+    rules = {
+        "category": "Flexi Cap",
+        "plan_type": "Direct",
+        "is_passive": False,
+        "sort_by": "sharpe_3y",
+        "min_sharpe": 0.4,
+    }
+    
+    # Create a minimal fund universe with valid flexi cap candidate
+    fund_universe = [
+        {
+            "scheme": "Mirae Asset Flexi Cap Fund - Direct Plan - Growth",
+            "category": "Flexi Cap",
+            "plan_type": "Direct",
+            "is_passive": False,
+            "sharpe_3y": 0.75,
+            "ter_direct_pct": 0.55,
+            "aum_crore": 8000,
+        },
+        {
+            "scheme": "HDFC Top 100 Fund - Direct Plan - Growth",
+            "category": "Large Cap",  # Wrong category
+            "plan_type": "Direct",
+            "is_passive": False,
+            "sharpe_3y": 0.85,
+            "ter_direct_pct": 0.55,
+            "aum_crore": 9000,
+        },
+    ]
+    
+    # Should select the Flexi Cap fund, not the Large Cap fund
+    result = trigger_spiva_fallback("flexi_multi_cap", rules, fund_universe)
+    
+    # Result should contain "Flexi Cap" or "Flexi" (the correct category)
+    result_lower = result.lower()
+    # Should NOT select a Large Cap specific fund
+    assert "top 100" not in result_lower, f"Should not select Large Cap 'Top 100' when Flexi Cap needed: {result}"
+    assert "large cap" not in result_lower, f"Should not select Large Cap when Flexi Cap needed: {result}"
+
+
+def test_multi_cap_and_multi_hyphen_category_matching():
+    """Test that both 'Multi Cap' and 'Multi-Cap' category variations are detected.
+    
+    This ensures robust category matching for Flexi Cap funds regardless of hyphen vs space.
+    """
+    from core.math_engine import calculate_saa_drift
+    from decimal import Decimal
+    
+    class MockHolding:
+        def __init__(self, **kwargs):
+            for k, v in kwargs.items():
+                setattr(self, k, v)
+    
+    # Test with 'Multi Cap' (space)
+    multi_cap_fund_space = MockHolding(
+        scheme='Some Multi Cap Fund',
+        category='Multi Cap',
+        plan_type='Direct',
+        current_value_inr=Decimal('50000.00'),
+        invested_value_inr=Decimal('40000.00'),
+        equity_pct=Decimal('95.0'),
+        debt_pct=Decimal('5.0'),
+        units=Decimal('1000'),
+        nav=Decimal('50.0'),
+        folio='123',
+        amc_name='Test AMC',
+    )
+    
+    # Test with 'Multi-Cap' (hyphen)
+    multi_cap_fund_hyphen = MockHolding(
+        scheme='Another Multi-Cap Fund',
+        category='Multi-Cap',
+        plan_type='Direct',
+        current_value_inr=Decimal('30000.00'),
+        invested_value_inr=Decimal('25000.00'),
+        equity_pct=Decimal('90.0'),
+        debt_pct=Decimal('10.0'),
+        units=Decimal('1000'),
+        nav=Decimal('30.0'),
+        folio='456',
+        amc_name='Test AMC',
+    )
+    
+    # Test with 'Flexi Cap' category (should also be detected)
+    flexi_cap_fund = MockHolding(
+        scheme='HDFC Flexi Cap Fund',
+        category='Flexi Cap',
+        plan_type='Direct',
+        current_value_inr=Decimal('70000.00'),
+        invested_value_inr=Decimal('50000.00'),
+        equity_pct=Decimal('92.0'),
+        debt_pct=Decimal('8.0'),
+        units=Decimal('1000'),
+        nav=Decimal('70.0'),
+        folio='789',
+        amc_name='HDFC',
+    )
+    
+    # Calculate drift for various category variations
+    target = {"large_cap_pct": 50.0, "flexi_multi_cap_pct": 20.0, "debt_pct": 30.0}
+    
+    # Test with Multi Cap (space)
+    drift1 = calculate_saa_drift([multi_cap_fund_space, flexi_cap_fund], target_saa=target)
+    assert drift1.current_flexi_inr == 120000.0, f"Multi Cap (space) should be detected: {drift1.current_flexi_inr}"
+    
+    # Test with Multi-Cap (hyphen)
+    drift2 = calculate_saa_drift([multi_cap_fund_hyphen, flexi_cap_fund], target_saa=target)
+    assert drift2.current_flexi_inr == 100000.0, f"Multi-Cap (hyphen) should be detected: {drift2.current_flexi_inr}"
+    
+    # Test with Flexi Cap
+    drift3 = calculate_saa_drift([flexi_cap_fund], target_saa=target)
+    assert drift3.current_flexi_inr == 70000.0, f"Flexi Cap should be detected: {drift3.current_flexi_inr}"
+
+

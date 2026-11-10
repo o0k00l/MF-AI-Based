@@ -158,6 +158,7 @@ def trigger_spiva_fallback(
         "mid_cap_active": "Mid Cap", 
         "debt_liquid": "Debt",
         "equity_generic": "Flexi Cap",
+        "flexi_multi_cap": "Flexi Cap",
     }
     
     target_category = category_mapping.get(category_key, "")
@@ -609,9 +610,10 @@ def generate_fiduciary_sip_blueprint(
         # Flexi-Multi-Cap: prefer flexi/multi-cap category funds
         flexi_fund = next((
             f for f in direct_funds 
-            if str(f.get("category", "")).lower() in ["flexi cap", "multi cap", "flexi-multi cap"] or
+            if str(f.get("category", "")).lower() in ["flexi cap", "multi cap", "flexi-multi cap", "multi-cap"] or
                "flexi" in str(f.get("scheme", "")).lower() or
-               "multi cap" in str(f.get("scheme", "")).lower()
+               "multi cap" in str(f.get("scheme", "")).lower() or
+               "multi-cap" in str(f.get("scheme", "")).lower()
         ), None)
         
         # Debt: match by category or keywords
@@ -675,27 +677,24 @@ def generate_fiduciary_sip_blueprint(
         if flexi_target > Decimal("0.00"):
             selected_fund = flexi_fund
             if not flexi_fund:
-                # Try market nomination for flexi-cap
-                market_flexi_rules = market_noms.get("flexi_multi_cap", {})
-                selected_name = market_flexi_rules.get("scheme", "Market-Nominated Flexi-Multi Cap Fund - Direct Plan - Growth")
-                if "direct" not in str(selected_name).lower():
-                    selected_name = f"{selected_name} - Direct Plan - Growth"
-                selected_fund = {"scheme": selected_name, "folio_no": "New Direct Folio Mandate"}
+                # Use dynamic market nomination selection for flexi-cap
+                selected_name = _get_market_nom_fund("flexi_multi_cap", fund_universe)
+                if selected_name and selected_name != "SPIVA_FALLBACK_FAILED":
+                    selected_fund = {"scheme": selected_name, "folio_no": "New Direct Folio Mandate"}
+            
             if selected_fund:
                 s_name = selected_fund.get("scheme")
                 f_num = selected_fund.get("folio_no", "Existing Direct Folio") if selected_fund.get("folio_no") != "New Direct Folio Mandate" else "New Direct Folio Mandate"
-            else:
-                s_name = "Market-Nominated Flexi-Multi Cap Fund - Direct Plan - Growth"
-                f_num = "New Direct Folio Mandate"
-            allocations.append({
-                "sleeve": "Flexi-Multi Cap",
-                "scheme_name": s_name,
-                "folio_no": f_num,
-                "amount_inr": flexi_target,
-                "allocation_pct": float(flexi_pct),
-                "plan_type": "Direct-Growth",
-                "rationale": "Flexible multi-cap exposure for growth enhancement with automatic rebalancing across market caps.",
-            })
+                allocations.append({
+                    "sleeve": "Flexi-Multi Cap",
+                    "scheme_name": s_name,
+                    "folio_no": f_num,
+                    "amount_inr": flexi_target,
+                    "allocation_pct": float(flexi_pct),
+                    "plan_type": "Direct-Growth",
+                    "rationale": "Flexible multi-cap exposure for growth enhancement with automatic rebalancing across market caps.",
+                })
+            # If no flexi fund available, allocation is skipped (debt will absorb via stability buffer)
 
         # Debt Sleeve (Strict Fiduciary Separation: Pure Debt/Liquid only)
         if db_target > Decimal("0.00"):
@@ -739,22 +738,8 @@ def generate_fiduciary_sip_blueprint(
         # Use dynamic selection from fund universe
         market_lc = _get_market_nom_fund("large_cap_index", fund_universe)
         market_ms = _get_market_nom_fund("mid_cap_active", fund_universe)
-        
-        # Dynamic debt liquid selection (avoid SPIVA fallback bug for active funds)
-        liquid_candidates = [
-            f for f in (fund_universe or [])
-            if isinstance(f, dict)
-            and str(f.get("category", "")).lower() == "debt"
-            and str(f.get("plan_type", "Direct")).lower() == "direct"
-        ]
-        if liquid_candidates:
-            liquid_candidates.sort(key=lambda x: float(x.get("ter_direct_pct", 99.9)))
-            market_db = liquid_candidates[0].get("scheme") or liquid_candidates[0].get("canonical_name") or market_noms.get("debt_liquid", {}).get("scheme", "Market-Nominated Liquid Fund - Direct Plan - Growth")
-        else:
-            debt_rules = market_noms.get("debt_liquid", {})
-            market_db = debt_rules.get("scheme", "Market-Nominated Liquid Fund - Direct Plan - Growth")
-        if "direct" not in str(market_db).lower():
-            market_db = f"{market_db} - Direct Plan - Growth"
+        market_flexi = _get_market_nom_fund("flexi_multi_cap", fund_universe)
+        market_db = _get_market_nom_fund("debt_liquid", fund_universe)
         
         if lc_target > Decimal("0.00"):
             allocations.append({
@@ -778,7 +763,6 @@ def generate_fiduciary_sip_blueprint(
             })
         # Flexi-Multi-Cap Sleeve (Market Nomination Fallback)
         if flexi_target > Decimal("0.00"):
-            market_flexi = _get_market_nom_fund("flexi_multi_cap", fund_universe)
             allocations.append({
                 "sleeve": "Flexi-Multi Cap",
                 "scheme_name": market_flexi,

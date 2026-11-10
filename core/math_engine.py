@@ -1757,9 +1757,11 @@ def calculate_saa_drift(
         c_pct = (Decimal("100") - Decimal(str(h.equity_pct)) - Decimal(str(h.debt_pct))).max(Decimal("0"))
         c_amt = h.current_value_inr * (c_pct / Decimal("100"))
         # Detect Flexi Cap funds for look-through tracking
+        # Note: This tracks scheme-category exposure, not verified look-through equity exposure.
+        # A Flexi Cap fund's equity allocation varies over time, so this measures category membership.
         cat = str(getattr(h, 'category', '')).lower()
         scheme = str(getattr(h, 'scheme', '')).lower()
-        is_flexi = 'flexi' in cat or 'flexi' in scheme or 'multi-cap' in cat
+        is_flexi = 'flexi' in cat or 'flexi' in scheme or 'multi-cap' in cat or 'multi cap' in cat
         if is_flexi:
             flexi_val += h.current_value_inr
         equity_val += eq_amt
