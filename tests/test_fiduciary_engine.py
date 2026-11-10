@@ -119,14 +119,14 @@ def test_generate_fiduciary_sip_blueprint():
     funds = [
         {
             "scheme": "UTI Nifty 50 Index Fund - Direct Plan - Growth",
-            "category": "Equity",
+            "category": "Large Cap",
             "plan_type": "Direct",
             "current_value": 200000.0,
             "folio_no": "1111/01",
         },
         {
             "scheme": "Kotak Emerging Equity Fund - Direct Plan - Growth",
-            "category": "Equity",
+            "category": "Mid Cap",
             "plan_type": "Direct",
             "current_value": 100000.0,
             "folio_no": "2222/02",
@@ -900,21 +900,21 @@ def test_every_recommendation_amounts_sum_to_monthly_budget():
         funds = [
             {
                 "scheme": "UTI Nifty 50 Index Fund - Direct Plan - Growth",
-                "category": "Equity",
+                "category": "Large Cap",
                 "plan_type": "Direct",
                 "current_value": 200000.0,
                 "folio_no": "1111/01",
             },
             {
                 "scheme": "HDFC Mid-Cap Opportunities Fund - Direct Plan - Growth",
-                "category": "Equity",
+                "category": "Mid Cap",
                 "plan_type": "Direct",
                 "current_value": 100000.0,
                 "folio_no": "2222/02",
             },
             {
                 "scheme": "Parag Parikh Flexi Cap Fund - Direct Plan - Growth",
-                "category": "Equity",
+                "category": "Flexi Cap",
                 "plan_type": "Direct",
                 "current_value": 50000.0,
                 "folio_no": "3333/03",
@@ -942,8 +942,7 @@ def test_every_recommendation_amounts_sum_to_monthly_budget():
         
         # Must equal monthly budget exactly (within Decimal precision)
         assert total_allocated == Decimal(str(budget)), (
-            f"Budget {budget}: Sum of allocations {total_allocated} != budget {budget}. "
-            f"Allocations: {[(a['category'], a['amount_inr']) for a in blueprint['allocations']]}"
+            f"Allocations: {[(a['sleeve'], a['amount_inr']) for a in blueprint['allocations']]}"
         )
         
         # Also verify the blueprint's allocated_budget_inr matches
