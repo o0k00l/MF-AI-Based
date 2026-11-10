@@ -814,6 +814,8 @@ def generate_fiduciary_sip_blueprint(
                     "sleeve": "Large-Cap Core Index",
                     "scheme_name": s_name,
                     "folio_no": f_num,
+                    "source": validation.get("source", "existing"),
+                    "validation": validation.get("validation", "valid"),
                     "amount_inr": lc_target,
                     "allocation_pct": float(lc_pct),
                     "plan_type": "Direct-Growth",
@@ -850,6 +852,8 @@ def generate_fiduciary_sip_blueprint(
                     "sleeve": "Mid/Small-Cap Alpha",
                     "scheme_name": s_name,
                     "folio_no": f_num,
+                    "source": validation.get("source", "existing"),
+                    "validation": validation.get("validation", "valid"),
                     "amount_inr": ms_target,
                     "allocation_pct": float(ms_pct),
                     "plan_type": "Direct-Growth",
@@ -891,6 +895,8 @@ def generate_fiduciary_sip_blueprint(
                     "sleeve": "Flexi-Multi Cap",
                     "scheme_name": s_name,
                     "folio_no": f_num,
+                    "source": validation.get("source", "existing"),
+                    "validation": validation.get("validation", "valid"),
                     "amount_inr": flexi_target,
                     "allocation_pct": float(flexi_pct),
                     "plan_type": "Direct-Growth",
@@ -924,9 +930,10 @@ def generate_fiduciary_sip_blueprint(
             validation = _validate_scheme_for_sleeve(
                 selected_fund,
                 "Debt & Capital Preservation",
-                ["debt", "liquid", "arbitrage", "money market"]
+                ["debt", "liquid", "arbitrage", "money market"],
+                require_provenance=True, allowed_provenance=["dynamic", "fallback"]
             )
-            
+
             # Only add allocation if validation passes
             if validation["validation"] == "valid":
                 s_name = validation["scheme"]
@@ -935,6 +942,8 @@ def generate_fiduciary_sip_blueprint(
                     "sleeve": "Debt & Capital Preservation",
                     "scheme_name": s_name,
                     "folio_no": f_num,
+                    "source": validation.get("source", "dynamic"),
+                    "validation": validation.get("validation", "valid"),
                     "amount_inr": db_target,
                     "allocation_pct": float(db_pct),
                     "plan_type": "Direct-Growth",
@@ -978,6 +987,8 @@ def generate_fiduciary_sip_blueprint(
                 "sleeve": "Flexi-Multi Cap",
                 "scheme_name": market_flexi_result.get("scheme", "SPIVA_FALLBACK_FAILED"),
                 "folio_no": "New Direct Folio Mandate",
+                "source": market_flexi_result.get("source", "fallback"),
+                "validation": market_flexi_result.get("validation", "failed"),
                 "amount_inr": flexi_target,
                 "allocation_pct": float(flexi_pct),
                 "plan_type": "Direct-Growth",
@@ -988,6 +999,8 @@ def generate_fiduciary_sip_blueprint(
                 "sleeve": "Debt & Capital Preservation",
                 "scheme_name": market_db_result.get("scheme", "SPIVA_FALLBACK_FAILED"),
                 "folio_no": "New Direct Folio Mandate",
+                "source": market_db_result.get("source", "fallback"),
+                "validation": market_db_result.get("validation", "failed"),
                 "amount_inr": db_target,
                 "allocation_pct": float(db_pct),
                 "plan_type": "Direct-Growth",
