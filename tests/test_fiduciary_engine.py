@@ -686,12 +686,25 @@ def test_multi_cap_and_multi_hyphen_category_matching():
 
 def test_direct_holdings_with_positive_flexi_target_exercises_dynamic_selection():
     """Verify that when client holds direct funds and flexi target > 0, dynamic selection is exercised.
-    
+
     This tests the regression where direct holdings with positive flexi target
     should trigger dynamic fund selection logic rather than deterministic allocation.
     """
-    from services.fiduciary_engine import generate_fiduciary_sip_blueprint
+    from services.fiduciary_engine import generate_fiduciary_sip_blueprint, _load_fund_universe
     from services.risk_profiler import TargetSaa
+
+    # Load real fund universe (has all required metric fields)
+    fund_universe = _load_fund_universe()
+    
+    # Known acceptable flexi cap base names from the universe (Direct plan, Flexi Cap category)
+    # The selection function appends " - Direct Plan - Growth" to these base names
+    acceptable_flexi_base_names = {
+        "HDFC Flexi Cap",
+        "PPFAS Flexi Cap",
+        "JM Flexi Cap Fund",
+        "Kotak Flexicap",
+        "UTI Flexi Cap",
+    }
 
     # Client has direct holdings but NO flexi cap fund (only large cap index)
     # This forces dynamic selection for the flexi allocation
@@ -712,37 +725,63 @@ def test_direct_holdings_with_positive_flexi_target_exercises_dynamic_selection(
         monthly_budget_inr=50000.0,
         funds=funds,
         target_saa=target,
+        fund_universe=fund_universe,
     )
 
     # Should exercise dynamic selection - status is DETERMINISTIC_SIP_READY when selection succeeds
     assert blueprint["status"] in ("DETERMINISTIC_SIP_READY", "DYNAMIC_SELECTION_REQUIRED")
     assert blueprint["reconciliation_valid"] is True
     assert blueprint["allocated_budget_inr"] == Decimal("50000.00")
-    
+
     # Verify flexi allocation was made via dynamic selection with exact assertions
     flexi_allocations = [
-        a for a in blueprint["allocations"] 
+        a for a in blueprint["allocations"]
         if "flexi" in a.get("sleeve", "").lower() or "multi" in a.get("sleeve", "").lower()
     ]
     assert len(flexi_allocations) == 1, f"Expected exactly 1 flexi allocation, got {len(flexi_allocations)}"
-    
+
     flexi_alloc = flexi_allocations[0]
     # Exact assertions on sleeve, scheme, amount, and provenance
     assert flexi_alloc["sleeve"] == "Flexi-Multi Cap", f"Expected sleeve 'Flexi-Multi Cap', got '{flexi_alloc['sleeve']}'"
     assert flexi_alloc["amount_inr"] == Decimal("15000.00"), f"Expected amount 15000.00, got {flexi_alloc['amount_inr']}"
     assert flexi_alloc["scheme_name"] != "SPIVA_FALLBACK_FAILED", f"Expected valid scheme, got {flexi_alloc['scheme_name']}"
-    assert flexi_alloc.get("selection_provenance") == "dynamic" or flexi_alloc.get("folio_no") == "New Direct Folio Mandate",         f"Expected dynamic selection provenance, got {flexi_alloc.get('selection_provenance')} / {flexi_alloc.get('folio_no')}"
-
-
+    
+    # Verify the selected scheme base name is from our acceptable list (proves dynamic selection from controlled universe)
+    # The selection function appends " - Direct Plan - Growth" to the base name
+    selected_scheme = flexi_alloc["scheme_name"]
+    # Extract base name (remove appended suffix)
+    base_name = selected_scheme.replace(" - Direct Plan - Growth", "")
+    assert base_name in acceptable_flexi_base_names, f"Selected scheme '{selected_scheme}' (base: '{base_name}') not in acceptable flexi base names"
+    assert flexi_alloc["folio_no"] == "New Direct Folio Mandate", f"Expected new folio for dynamic selection, got {flexi_alloc['folio_no']}"
+    
+    # Verify the scheme's category and plan_type from the universe
+    # Match by base name (universe has base names, selection returns base + suffix)
+    matching_fund = next((f for f in fund_universe if f.get("scheme") == base_name or f.get("id") == base_name), None)
+    assert matching_fund is not None, f"Selected scheme base '{base_name}' not found in fund universe"
+    assert matching_fund.get("category") == "Flexi Cap", f"Expected category 'Flexi Cap', got '{matching_fund.get('category')}'"
+    assert matching_fund.get("plan_type") == "Direct", f"Expected plan_type 'Direct', got '{matching_fund.get('plan_type')}'"
 def test_dynamic_flexi_selection_when_client_has_no_flexi_fund():
     """Verify dynamic flexi selection triggers when client has zero flexi holdings but target > 0.
-    
+
     This tests the regression where absence of flexi funds in portfolio
     with positive flexi target should require dynamic fund selection.
     """
-    from services.fiduciary_engine import generate_fiduciary_sip_blueprint
+    from services.fiduciary_engine import generate_fiduciary_sip_blueprint, _load_fund_universe
     from services.risk_profiler import TargetSaa
+
+    # Load real fund universe (has all required metric fields)
+    fund_universe = _load_fund_universe()
     
+    # Known acceptable flexi cap base names from the universe (Direct plan, Flexi Cap category)
+    # The selection function appends " - Direct Plan - Growth" to these base names
+    acceptable_flexi_base_names = {
+        "HDFC Flexi Cap",
+        "PPFAS Flexi Cap",
+        "JM Flexi Cap Fund",
+        "Kotak Flexicap",
+        "UTI Flexi Cap",
+    }
+
     # Client has NO flexi funds - only large cap and debt
     funds = [
         {
@@ -760,26 +799,27 @@ def test_dynamic_flexi_selection_when_client_has_no_flexi_fund():
             "folio_no": "2222/02",
         },
     ]
-    
+
     # Target requires 30% flexi but client has 0% flexi (30% of 40000 = 12000)
     target = TargetSaa(large_cap_pct=50.0, mid_small_cap_pct=0.0, flexi_multi_cap_pct=30.0, debt_pct=20.0)
     blueprint = generate_fiduciary_sip_blueprint(
         monthly_budget_inr=40000.0,
         funds=funds,
         target_saa=target,
+        fund_universe=fund_universe,
     )
-    
+
     # Should require dynamic selection for flexi category
     assert blueprint["status"] in ("DETERMINISTIC_SIP_READY", "DYNAMIC_SELECTION_REQUIRED")
     assert blueprint["reconciliation_valid"] is True
-    
+
     # Verify flexi allocation is made via dynamic selection with exact assertions
     flexi_allocations = [
-        a for a in blueprint["allocations"] 
+        a for a in blueprint["allocations"]
         if "flexi" in a.get("sleeve", "").lower() or "multi" in a.get("sleeve", "").lower()
     ]
     assert len(flexi_allocations) == 1, f"Expected exactly 1 flexi allocation, got {len(flexi_allocations)}"
-    
+
     flexi_alloc = flexi_allocations[0]
     # Exact assertions on sleeve, scheme, amount, and provenance
     assert flexi_alloc["sleeve"] == "Flexi-Multi Cap", f"Expected sleeve 'Flexi-Multi Cap', got '{flexi_alloc['sleeve']}'"
@@ -787,9 +827,19 @@ def test_dynamic_flexi_selection_when_client_has_no_flexi_fund():
     # Flexi gets 30% + 7.5% (half of 20% debt redirected) = 37.5% = 15000
     assert flexi_alloc["amount_inr"] == Decimal("15000.00"), f"Expected amount 15000.00, got {flexi_alloc['amount_inr']}"
     assert flexi_alloc["scheme_name"] != "SPIVA_FALLBACK_FAILED", f"Expected valid scheme, got {flexi_alloc['scheme_name']}"
-    assert flexi_alloc.get("selection_provenance") == "dynamic" or flexi_alloc.get("folio_no") == "New Direct Folio Mandate",         f"Expected dynamic selection provenance, got {flexi_alloc.get('selection_provenance')} / {flexi_alloc.get('folio_no')}"
-
-
+    
+    # Verify the selected scheme base name is from our acceptable list (proves dynamic selection from controlled universe)
+    # The selection function appends " - Direct Plan - Growth" to the base name
+    selected_scheme = flexi_alloc["scheme_name"]
+    base_name = selected_scheme.replace(" - Direct Plan - Growth", "")
+    assert base_name in acceptable_flexi_base_names, f"Selected scheme '{selected_scheme}' (base: '{base_name}') not in acceptable flexi base names"
+    assert flexi_alloc["folio_no"] == "New Direct Folio Mandate", f"Expected new folio for dynamic selection, got {flexi_alloc['folio_no']}"
+    
+    # Verify the scheme's category and plan_type from the universe
+    matching_fund = next((f for f in fund_universe if f.get("scheme") == base_name or f.get("id") == base_name), None)
+    assert matching_fund is not None, f"Selected scheme base '{base_name}' not found in fund universe"
+    assert matching_fund.get("category") == "Flexi Cap", f"Expected category 'Flexi Cap', got '{matching_fund.get('category')}'"
+    assert matching_fund.get("plan_type") == "Direct", f"Expected plan_type 'Direct', got '{matching_fund.get('plan_type')}'"
 def test_allocation_integrity_prevents_deterministic_sip_ready_with_unreconciled():
     """Verify that DETERMINISTIC_SIP_READY status is never returned when reconciliation fails.
     
