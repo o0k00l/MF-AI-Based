@@ -529,6 +529,7 @@ def generate_fiduciary_sip_blueprint(
     monthly_budget_inr: float,
     funds: List[Dict[str, Any]],
     target_saa: Optional[Dict[str, float] | TargetSaa] = None,
+    fund_universe: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     """Generate paise-accurate, deterministic monthly SIP allocation mapped to Direct funds & SAA.
 
@@ -633,8 +634,9 @@ def generate_fiduciary_sip_blueprint(
     # Load market-nominated funds for fallback selection
     market_noms = _load_market_nominations()
     
-    # Load fund universe for dynamic selection
-    fund_universe = _load_fund_universe()
+    # Load fund universe for dynamic selection (use provided or load default)
+    if fund_universe is None:
+        fund_universe = _load_fund_universe()
 
     def _match_kw(f_obj: Dict[str, Any], kws: List[str]) -> bool:
         s_name = str(f_obj.get("scheme") or "").lower()
@@ -742,57 +744,78 @@ def generate_fiduciary_sip_blueprint(
         if lc_target > Decimal("0.00"):
             # Use client's fund, or dynamically select from fund universe
             selected_fund = lc_fund
+            lc_validation = "valid"  # Track validation status
             if not lc_fund:
                 selection_result = _get_market_nom_fund("large_cap_index", fund_universe)
                 selected_name = selection_result.get("scheme", "SPIVA_FALLBACK_FAILED")
-                selected_fund = {"scheme": selected_name, "folio_no": "New Direct Folio Mandate", "_validation": selection_result.get("validation", "failed")}
-            s_name = selected_fund.get("scheme")
-            f_num = selected_fund.get("folio_no", "Existing Direct Folio") if selected_fund.get("folio_no") != "New Direct Folio Mandate" else "New Direct Folio Mandate"
-            allocations.append({
-                "sleeve": "Large-Cap Core Index",
-                "scheme_name": s_name,
-                "folio_no": f_num,
-                "amount_inr": lc_target,
-                "allocation_pct": float(lc_pct),
-                "plan_type": "Direct-Growth",
-                "rationale": "Anchor core equity compounding in lowest-cost Direct large cap index scheme.",
-            })
+                lc_validation = selection_result.get("validation", "failed")
+                selected_fund = {"scheme": selected_name, "folio_no": "New Direct Folio Mandate", "_validation": lc_validation}
+            # Only add allocation if validation passes
+            if lc_validation == "valid":
+                s_name = selected_fund.get("scheme")
+                f_num = selected_fund.get("folio_no", "Existing Direct Folio") if selected_fund.get("folio_no") != "New Direct Folio Mandate" else "New Direct Folio Mandate"
+                allocations.append({
+                    "sleeve": "Large-Cap Core Index",
+                    "scheme_name": s_name,
+                    "folio_no": f_num,
+                    "amount_inr": lc_target,
+                    "allocation_pct": float(lc_pct),
+                    "plan_type": "Direct-Growth",
+                    "rationale": "Anchor core equity compounding in lowest-cost Direct large cap index scheme.",
+                })
+
 
         # Mid/Small-Cap Sleeve
         if ms_target > Decimal("0.00"):
             # Use client's fund, or dynamically select from fund universe
             selected_fund = ms_fund
+            ms_validation = "valid"  # Track validation status
             if not ms_fund:
                 selection_result = _get_market_nom_fund("mid_cap_active", fund_universe)
                 selected_name = selection_result.get("scheme", "SPIVA_FALLBACK_FAILED")
-                selected_fund = {"scheme": selected_name, "folio_no": "New Direct Folio Mandate", "_validation": selection_result.get("validation", "failed")}
-            s_name = selected_fund.get("scheme")
-            f_num = selected_fund.get("folio_no", "Existing Direct Folio") if selected_fund.get("folio_no") != "New Direct Folio Mandate" else "New Direct Folio Mandate"
-            allocations.append({
-                "sleeve": "Mid/Small-Cap Alpha",
-                "scheme_name": s_name,
-                "folio_no": f_num,
-                "amount_inr": ms_target,
-                "allocation_pct": float(ms_pct),
-                "plan_type": "Direct-Growth",
-                "rationale": "Long-term alpha accumulation aligned with investor risk tolerance.",
-            })
+                ms_validation = selection_result.get("validation", "failed")
+                selected_fund = {"scheme": selected_name, "folio_no": "New Direct Folio Mandate", "_validation": ms_validation}
+            # Only add allocation if validation passes
+            if ms_validation == "valid":
+                s_name = selected_fund.get("scheme")
+                f_num = selected_fund.get("folio_no", "Existing Direct Folio") if selected_fund.get("folio_no") != "New Direct Folio Mandate" else "New Direct Folio Mandate"
+                allocations.append({
+                    "sleeve": "Mid/Small-Cap Alpha",
+                    "scheme_name": s_name,
+                    "folio_no": f_num,
+                    "amount_inr": ms_target,
+                    "allocation_pct": float(ms_pct),
+                    "plan_type": "Direct-Growth",
+                    "rationale": "Long-term alpha accumulation aligned with investor risk tolerance.",
+                })
 
         # Flexi-Multi-Cap Sleeve (Distinct Asset Class for Tactical Allocation)
         # Track selection for allocation integrity check
         flexi_selection_result = {"validation": "valid", "scheme": None}
         if flexi_target > Decimal("0.00"):
             selected_fund = flexi_fund
+            flexi_validation = "valid"  # Track validation status
             if not flexi_fund:
                 # Use dynamic market nomination selection for flexi-cap
                 selection_result = _get_market_nom_fund("flexi_multi_cap", fund_universe)
                 flexi_selection_result = selection_result
                 selected_name = selection_result.get("scheme", "SPIVA_FALLBACK_FAILED")
+                flexi_validation = selection_result.get("validation", "failed")
                 if selection_result.get("validation") == "valid" and selected_name != "SPIVA_FALLBACK_FAILED":
                     selected_fund = {"scheme": selected_name, "folio_no": "New Direct Folio Mandate"}
+            # If using client's existing fund, we need to validate it
+            elif flexi_fund:
+                # For existing funds, check if they match the flexi category
+                fund_cat = str(flexi_fund.get("category", "")).lower()
+                fund_scheme = str(flexi_fund.get("scheme", "")).lower()
+                is_flexi = any(kw in fund_cat or kw in fund_scheme 
+                               for kw in ["flexi", "multi-cap", "multi cap", "multi-cap"])
+                if not is_flexi:
+                    flexi_validation = "failed"
+                    flexi_selection_result = {"validation": "failed", "scheme": flexi_fund.get("scheme", "UNKNOWN")}
             
-            # Only add allocation if we have a valid selection
-            if selected_fund and selected_fund.get("scheme") != "SPIVA_FALLBACK_FAILED":
+            # Only add allocation if validation passes
+            if flexi_validation == "valid":
                 s_name = selected_fund.get("scheme")
                 f_num = selected_fund.get("folio_no", "Existing Direct Folio") if selected_fund.get("folio_no") != "New Direct Folio Mandate" else "New Direct Folio Mandate"
                 allocations.append({
@@ -811,13 +834,25 @@ def generate_fiduciary_sip_blueprint(
         # Debt Sleeve - unified with dynamic selection
         if db_target > Decimal("0.00"):
             selected_fund = db_fund
+            db_validation = "valid"  # Track validation status
             if not db_fund:
                 selection_result = _get_market_nom_fund("debt_liquid", fund_universe)
                 selected_name = selection_result.get("scheme", "SPIVA_FALLBACK_FAILED")
+                db_validation = selection_result.get("validation", "failed")
                 if selection_result.get("validation") == "valid" and selected_name != "SPIVA_FALLBACK_FAILED":
                     selected_fund = {"scheme": selected_name, "folio_no": "New Direct Folio Mandate"}
+            # If using client's existing fund, we need to validate it
+            elif db_fund:
+                # For existing funds, check if they match the debt category
+                fund_cat = str(db_fund.get("category", "")).lower()
+                fund_scheme = str(db_fund.get("scheme", "")).lower()
+                is_debt = (fund_cat == "debt" or 
+                          any(kw in fund_scheme for kw in ["liquid", "arbitrage", "money market"]))
+                if not is_debt:
+                    db_validation = "failed"
             
-            if selected_fund:
+            # Only add allocation if validation passes
+            if db_validation == "valid":
                 s_name = selected_fund.get("scheme")
                 f_num = selected_fund.get("folio_no", "Existing Direct Folio") if selected_fund.get("folio_no") != "New Direct Folio Mandate" else "New Direct Folio Mandate"
                 allocations.append({

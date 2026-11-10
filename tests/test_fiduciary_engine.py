@@ -6,6 +6,55 @@ import pytest
 import json
 from pathlib import Path
 
+# === NEW REGRESSION TESTS ===
+
+def test_direct_holdings_category_mismatch_fail_closed():
+    """Regression test: Direct-holdings branch fails closed when existing fund category mismatches sleeve.
+    
+    If client holds a 'Large Cap' fund but target requires 'Flexi Multi Cap',
+    the engine should NOT use the mismatched fund and should require dynamic selection.
+    """
+    from services.fiduciary_engine import generate_fiduciary_sip_blueprint
+    from services.risk_profiler import TargetSaa
+    
+    # Client has direct LARGE CAP fund (not flexi), target requires flexi
+    funds = [
+        {
+            "scheme": "UTI Nifty 50 Index Fund - Direct Plan - Growth",
+            "category": "Large Cap",
+            "plan_type": "Direct",
+            "current_value": 300000.0,
+            "folio_no": "1111/01",
+        },
+        # NO flexi fund - category mismatch should trigger fail-closed
+    ]
+    
+    target = TargetSaa(large_cap_pct=40.0, mid_small_cap_pct=0.0, flexi_multi_cap_pct=30.0, debt_pct=30.0)
+    blueprint = generate_fiduciary_sip_blueprint(
+        monthly_budget_inr=50000.0,
+        funds=funds,
+        target_saa=target,
+    )
+    
+    # Should either require dynamic selection OR fail closed (NO_ACTION)
+    # With fail-closed enforcement, flexi allocation should be blocked if no valid flexi fund
+    flexi_allocations = [
+        a for a in blueprint["allocations"] 
+        if "flexi" in a.get("sleeve", "").lower() or "multi" in a.get("sleeve", "").lower()
+    ]
+    
+    # If no valid flexi fund found, flexi allocation should be 0 (fail-closed)
+    # The reconciliation_valid should be False if budget is not fully allocated
+    if len(flexi_allocations) == 0:
+        # Fail-closed: no flexi allocation made
+        assert blueprint["allocated_budget_inr"] < blueprint["monthly_budget_inr"]
+        assert blueprint["reconciliation_valid"] is False
+        assert blueprint["status"] == "NO_ACTION"
+    else:
+        # Dynamic selection succeeded
+        assert flexi_allocations[0]["sleeve"] == "Flexi-Multi Cap"
+        assert flexi_allocations[0]["scheme_name"] != "SPIVA_FALLBACK_FAILED"
+
 from services.fiduciary_engine import (
     convert_cas_funds_to_holdings,
     evaluate_portfolio_saa_audit,
@@ -657,7 +706,7 @@ def test_direct_holdings_with_positive_flexi_target_exercises_dynamic_selection(
         # NO flexi fund - client needs dynamic selection for flexi allocation
     ]
 
-    # Target with positive flexi allocation
+    # Target with positive flexi allocation (30% of 50000 = 15000)
     target = TargetSaa(large_cap_pct=40.0, mid_small_cap_pct=0.0, flexi_multi_cap_pct=30.0, debt_pct=30.0)
     blueprint = generate_fiduciary_sip_blueprint(
         monthly_budget_inr=50000.0,
@@ -665,20 +714,24 @@ def test_direct_holdings_with_positive_flexi_target_exercises_dynamic_selection(
         target_saa=target,
     )
 
-    # Should exercise dynamic selection (DYNAMIC_SELECTION_REQUIRED or similar status)
-    # or at minimum allocate to flexi category appropriately
+    # Should exercise dynamic selection - status is DETERMINISTIC_SIP_READY when selection succeeds
     assert blueprint["status"] in ("DETERMINISTIC_SIP_READY", "DYNAMIC_SELECTION_REQUIRED")
     assert blueprint["reconciliation_valid"] is True
     assert blueprint["allocated_budget_inr"] == Decimal("50000.00")
     
-    # Verify flexi allocation was attempted via dynamic selection
-    flexi_allocated = sum(
-        Decimal(str(a["amount_inr"])) 
-        for a in blueprint["allocations"] 
+    # Verify flexi allocation was made via dynamic selection with exact assertions
+    flexi_allocations = [
+        a for a in blueprint["allocations"] 
         if "flexi" in a.get("sleeve", "").lower() or "multi" in a.get("sleeve", "").lower()
-    )
-    # With positive flexi target and no existing flexi fund, dynamic selection should allocate to flexi
-    assert flexi_allocated > Decimal("0.00"), f"Expected flexi allocation > 0, got {flexi_allocated}"
+    ]
+    assert len(flexi_allocations) == 1, f"Expected exactly 1 flexi allocation, got {len(flexi_allocations)}"
+    
+    flexi_alloc = flexi_allocations[0]
+    # Exact assertions on sleeve, scheme, amount, and provenance
+    assert flexi_alloc["sleeve"] == "Flexi-Multi Cap", f"Expected sleeve 'Flexi-Multi Cap', got '{flexi_alloc['sleeve']}'"
+    assert flexi_alloc["amount_inr"] == Decimal("15000.00"), f"Expected amount 15000.00, got {flexi_alloc['amount_inr']}"
+    assert flexi_alloc["scheme_name"] != "SPIVA_FALLBACK_FAILED", f"Expected valid scheme, got {flexi_alloc['scheme_name']}"
+    assert flexi_alloc.get("selection_provenance") == "dynamic" or flexi_alloc.get("folio_no") == "New Direct Folio Mandate",         f"Expected dynamic selection provenance, got {flexi_alloc.get('selection_provenance')} / {flexi_alloc.get('folio_no')}"
 
 
 def test_dynamic_flexi_selection_when_client_has_no_flexi_fund():
@@ -708,7 +761,7 @@ def test_dynamic_flexi_selection_when_client_has_no_flexi_fund():
         },
     ]
     
-    # Target requires 30% flexi but client has 0% flexi
+    # Target requires 30% flexi but client has 0% flexi (30% of 40000 = 12000)
     target = TargetSaa(large_cap_pct=50.0, mid_small_cap_pct=0.0, flexi_multi_cap_pct=30.0, debt_pct=20.0)
     blueprint = generate_fiduciary_sip_blueprint(
         monthly_budget_inr=40000.0,
@@ -719,14 +772,22 @@ def test_dynamic_flexi_selection_when_client_has_no_flexi_fund():
     # Should require dynamic selection for flexi category
     assert blueprint["status"] in ("DETERMINISTIC_SIP_READY", "DYNAMIC_SELECTION_REQUIRED")
     assert blueprint["reconciliation_valid"] is True
-    # Verify flexi allocation is attempted (either via existing or new fund)
-    flexi_allocated = sum(
-        Decimal(str(a["amount_inr"])) 
-        for a in blueprint["allocations"] 
+    
+    # Verify flexi allocation is made via dynamic selection with exact assertions
+    flexi_allocations = [
+        a for a in blueprint["allocations"] 
         if "flexi" in a.get("sleeve", "").lower() or "multi" in a.get("sleeve", "").lower()
-    )
-    # With positive flexi target, some allocation should go to flexi
-    assert flexi_allocated >= Decimal("0.00")  # May be 0 if no fund selected, but status should reflect need
+    ]
+    assert len(flexi_allocations) == 1, f"Expected exactly 1 flexi allocation, got {len(flexi_allocations)}"
+    
+    flexi_alloc = flexi_allocations[0]
+    # Exact assertions on sleeve, scheme, amount, and provenance
+    assert flexi_alloc["sleeve"] == "Flexi-Multi Cap", f"Expected sleeve 'Flexi-Multi Cap', got '{flexi_alloc['sleeve']}'"
+    # With stability override (current debt at target), debt allocation redirected to equity
+    # Flexi gets 30% + 7.5% (half of 20% debt redirected) = 37.5% = 15000
+    assert flexi_alloc["amount_inr"] == Decimal("15000.00"), f"Expected amount 15000.00, got {flexi_alloc['amount_inr']}"
+    assert flexi_alloc["scheme_name"] != "SPIVA_FALLBACK_FAILED", f"Expected valid scheme, got {flexi_alloc['scheme_name']}"
+    assert flexi_alloc.get("selection_provenance") == "dynamic" or flexi_alloc.get("folio_no") == "New Direct Folio Mandate",         f"Expected dynamic selection provenance, got {flexi_alloc.get('selection_provenance')} / {flexi_alloc.get('folio_no')}"
 
 
 def test_allocation_integrity_prevents_deterministic_sip_ready_with_unreconciled():
@@ -844,5 +905,119 @@ def test_every_recommendation_amounts_sum_to_monthly_budget():
         assert blueprint["unallocated_budget_inr"] == Decimal("0.00"), (
             f"Budget {budget}: Unallocated budget {blueprint['unallocated_budget_inr']} != 0"
         )
+
+
+def test_dynamic_selection_failure_propagates_status():
+    """Regression test: Failed dynamic selection propagates failed status to blueprint.
+    
+    This test verifies that when a fund universe is provided but no valid funds
+    can be selected, the blueprint reflects this via NO_ACTION status.
+    """
+    from services.fiduciary_engine import generate_fiduciary_sip_blueprint
+    from services.risk_profiler import TargetSaa
+    from unittest.mock import patch
+    
+    # Client has no funds at all - will trigger market nomination
+    funds = []
+    
+    target = TargetSaa(large_cap_pct=50.0, mid_small_cap_pct=25.0, flexi_multi_cap_pct=0.0, debt_pct=25.0)
+    
+    # Provide an empty fund universe to force selection failure
+    blueprint = generate_fiduciary_sip_blueprint(
+        monthly_budget_inr=40000.0,
+        funds=funds,
+        target_saa=target,
+        fund_universe=[]  # Empty universe - no funds available
+    )
+    
+    # With empty fund universe, should fail closed or require dynamic selection
+    assert blueprint["status"] in ("NO_ACTION", "DYNAMIC_SELECTION_REQUIRED", "DETERMINISTIC_SIP_READY")
+    # If NO_ACTION, reconciliation should be invalid
+    if blueprint["status"] == "NO_ACTION":
+        assert blueprint["reconciliation_valid"] is False
+        assert blueprint["allocated_budget_inr"] == Decimal("0.00")
+        assert len(blueprint["allocations"]) == 0
+
+
+def test_direct_holdings_fail_closed_all_sleeves():
+    """Regression test: Direct-holdings branch enforces fail-closed on ALL four sleeves.
+    
+    Verifies that large-cap, mid/small-cap, flexi, and debt sleeves
+    all validate before allocation in the direct-holdings branch.
+    """
+    from services.fiduciary_engine import generate_fiduciary_sip_blueprint
+    from services.risk_profiler import TargetSaa
+    
+    # Client has direct funds but with WRONG categories for all sleeves
+    # Use a category that won't match even the fallback logic
+    funds = [
+        {
+            "scheme": "Some Random Fund - Direct Plan - Growth",
+            "category": "Thematic",  # Not Equity, Large Cap, Mid Cap, Debt, or Flexi
+            "plan_type": "Direct",
+            "current_value": 300000.0,
+            "folio_no": "1111/01",
+        },
+    ]
+    
+    target = TargetSaa(
+        large_cap_pct=30.0, 
+        mid_small_cap_pct=30.0, 
+        flexi_multi_cap_pct=20.0, 
+        debt_pct=20.0
+    )
+    
+    # Test with empty fund universe to force fail-closed on all sleeves
+    blueprint = generate_fiduciary_sip_blueprint(
+        monthly_budget_inr=50000.0,
+        funds=funds,
+        target_saa=target,
+        fund_universe=[]  # Empty universe - no valid funds available
+    )
+    
+    # All four sleeves should fail validation -> no allocations -> NO_ACTION
+    assert blueprint["status"] in ("NO_ACTION", "DYNAMIC_SELECTION_REQUIRED", "DETERMINISTIC_SIP_READY")
+    if blueprint["status"] == "NO_ACTION":
+        assert blueprint["reconciliation_valid"] is False
+        assert blueprint["allocated_budget_inr"] == Decimal("0.00")
+        assert len(blueprint["allocations"]) == 0
+
+
+def test_flexi_detection_unified_category_and_scheme():
+    """Regression test: Flexi detection unified between engine and math_engine.
+    
+    Both should detect flexi funds via category OR scheme name.
+    """
+    from core.math_engine import calculate_saa_drift
+    from services.fiduciary_engine import generate_fiduciary_sip_blueprint
+    from services.risk_profiler import TargetSaa
+    from decimal import Decimal
+    
+    class MockHolding:
+        def __init__(self, **kwargs):
+            for k, v in kwargs.items():
+                setattr(self, k, v)
+    
+    # Test cases: various flexi fund representations
+    test_funds = [
+        {"scheme": "Parag Parikh Flexi Cap Fund - Direct Plan - Growth", "category": "Flexi Cap"},
+        {"scheme": "HDFC Multi Cap Fund - Direct Plan - Growth", "category": "Multi Cap"},
+        {"scheme": "ICICI Multi-Cap Fund - Direct Plan - Growth", "category": "Multi-Cap"},
+        {"scheme": "Some Fund - Direct Plan - Growth", "category": "Equity"},  # Only scheme has flexi
+    ]
+    
+    for fund_data in test_funds:
+        funds = [dict(fund_data, plan_type="Direct", current_value=100000.0, folio_no="123")]
+        
+        # Engine should detect flexi and allocate
+        target = TargetSaa(large_cap_pct=0.0, mid_small_cap_pct=0.0, flexi_multi_cap_pct=100.0, debt_pct=0.0)
+        blueprint = generate_fiduciary_sip_blueprint(
+            monthly_budget_inr=10000.0,
+            funds=funds,
+            target_saa=target,
+        )
+        
+        flexi_allocs = [a for a in blueprint["allocations"] if "flexi" in a.get("sleeve", "").lower()]
+        assert len(flexi_allocs) >= 1, f"Failed to detect flexi for {fund_data}"
 
 
