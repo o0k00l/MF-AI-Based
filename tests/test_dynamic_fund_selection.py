@@ -6,14 +6,16 @@ from services.fiduciary_engine import (
 
 
 def test_dynamic_fund_selection_raises_on_empty_universe():
-    """Verify that empty universe raises ValueError - no hardcoded fallbacks per fiduciary policy."""
+    """Verify that empty universe returns unavailable dict - no hardcoded fallbacks per fiduciary policy."""
     fund_universe = []
     market_noms = _load_market_nominations()
     rules = market_noms.get("large_cap_index", {})
     
-    # Should raise ValueError when universe is empty - cannot select blindly
-    with pytest.raises(ValueError, match="SPIVA PASSIVE FALLBACK FAILURE"):
-        _select_market_nom_fund(rules, fund_universe, "large_cap_index")
+    # Should return unavailable dict when universe is empty - cannot select blindly
+    result = _select_market_nom_fund(rules, fund_universe, "large_cap_index")
+    assert result["scheme"] == "SPIVA_FALLBACK_FAILED"
+    assert result["source"] == "unavailable"
+    assert result["validation"] == "failed"
 
 
 def test_dynamic_fund_selection_with_realistic_rules():
@@ -32,17 +34,23 @@ def test_dynamic_fund_selection_with_realistic_rules():
     # Test large cap selection (lowest TER among index funds)
     selected = _select_market_nom_fund(market_noms.get("large_cap_index", {}), fund_universe, "large_cap_index")
     # Should select UTI (lower TER) - check for Nifty index fund
-    assert "Nifty" in selected or "Index" in selected, f"Expected index fund, got: {selected}"
+    assert "Nifty" in selected["scheme"] or "Index" in selected["scheme"], f"Expected index fund, got: {selected}"
+    assert selected["source"] == "dynamic"
+    assert selected["validation"] == "valid"
     
     # Test mid cap selection (highest Sharpe)
     selected = _select_market_nom_fund(market_noms.get("mid_cap_active", {}), fund_universe, "mid_cap_active")
     # Should select HDFC Mid Cap (Sharpe 0.7 > 0.5)
-    assert "HDFC Mid Cap" in selected, f"Expected HDFC Mid Cap, got: {selected}"
+    assert "HDFC Mid Cap" in selected["scheme"], f"Expected HDFC Mid Cap, got: {selected}"
+    assert selected["source"] == "dynamic"
+    assert selected["validation"] == "valid"
     
     # Test debt selection (highest AUM)
     selected = _select_market_nom_fund(market_noms.get("debt_liquid", {}), fund_universe, "debt_liquid")
     # Should select ICICI Prudential Liquid (AUM 35000 > 25000)
-    assert "Liquid" in selected, f"Expected Liquid fund, got: {selected}"
+    assert "Liquid" in selected["scheme"], f"Expected Liquid fund, got: {selected}"
+    assert selected["source"] == "dynamic"
+    assert selected["validation"] == "valid"
 
 
 def test_dynamic_selection_applies_ter_filter():
@@ -54,7 +62,9 @@ def test_dynamic_selection_applies_ter_filter():
     market_noms = _load_market_nominations()
     selected = _select_market_nom_fund(market_noms.get("large_cap_index", {}), fund_universe, "large_cap_index")
     # Should select the cheap one (TER 0.10 < max_ter_pct 0.5)
-    assert "Cheap" in selected, f"Expected Cheap Index Fund, got: {selected}"
+    assert "Cheap" in selected["scheme"], f"Expected Cheap Index Fund, got: {selected}"
+    assert selected["source"] == "dynamic"
+    assert selected["validation"] == "valid"
 
 
 def test_dynamic_selection_applies_equity_filter():
@@ -66,7 +76,9 @@ def test_dynamic_selection_applies_equity_filter():
     market_noms = _load_market_nominations()
     selected = _select_market_nom_fund(market_noms.get("large_cap_index", {}), fund_universe, "large_cap_index")
     # Should select the one with 95%+ equity (meets equity_pct_min requirement)
-    assert "Pure" in selected or "95" in selected, f"Expected pure large cap fund, got: {selected}"
+    assert "Pure" in selected["scheme"] or "95" in selected["scheme"], f"Expected pure large cap fund, got: {selected}"
+    assert selected["source"] == "dynamic"
+    assert selected["validation"] == "valid"
 
 
 def test_dynamic_selection_applies_aum_filter():
@@ -78,4 +90,40 @@ def test_dynamic_selection_applies_aum_filter():
     market_noms = _load_market_nominations()
     selected = _select_market_nom_fund(market_noms.get("debt_liquid", {}), fund_universe, "debt_liquid")
     # Should select the one with AUM >= 5000 crore
-    assert "Large AUM" in selected, f"Expected large AUM fund, got: {selected}"
+    assert "Large AUM" in selected["scheme"], f"Expected large AUM fund, got: {selected}"
+    assert selected["source"] == "dynamic"
+    assert selected["validation"] == "valid"
+
+
+def test_dynamic_selection_invalid_metrics_returns_unavailable():
+    """Verify that all candidates with invalid ranking metrics returns unavailable dict (Blocker #5 fix)."""
+    fund_universe = [
+        {"scheme": "Fund A", "category": "Large Cap", "is_passive": True, "aum_crore": 6000, "eq": 100},  # No ter_direct_pct
+        {"scheme": "Fund B", "category": "Large Cap", "is_passive": True, "aum_crore": 5000, "eq": 100},  # No ter_direct_pct
+    ]
+    market_noms = _load_market_nominations()
+    rules = market_noms.get("large_cap_index", {})
+    
+    # All candidates have None for ter_direct_pct - should return unavailable (SPIVA also fails)
+    result = _select_market_nom_fund(rules, fund_universe, "large_cap_index")
+    assert result["scheme"] == "SPIVA_FALLBACK_FAILED"
+    assert result["source"] == "unavailable"
+    assert result["validation"] == "failed"
+
+
+def test_dynamic_selection_fallback_with_invalid_metrics():
+    """Verify that dynamic selection with invalid metrics falls back to SPIVA when valid fallback exists."""
+    fund_universe = [
+        {"scheme": "Fund A", "category": "Large Cap", "is_passive": True, "aum_crore": 6000, "eq": 100},  # No ter_direct_pct
+        {"scheme": "Fund B", "category": "Large Cap", "is_passive": True, "aum_crore": 5000, "eq": 100},  # No ter_direct_pct
+        {"scheme": "UTI Nifty 50 Index Fund", "category": "Large Cap", "is_passive": True, "ter_direct_pct": 0.10, "aum_crore": 6000, "eq": 100},  # Valid fallback
+    ]
+    market_noms = _load_market_nominations()
+    rules = market_noms.get("large_cap_index", {})
+    
+    # Dynamic selection fails due to invalid metrics for first candidates, 
+    # but UTI has valid metrics so it gets selected dynamically
+    result = _select_market_nom_fund(rules, fund_universe, "large_cap_index")
+    assert result["source"] == "dynamic"
+    assert result["validation"] == "valid"
+    assert "Nifty" in result["scheme"] or "Index" in result["scheme"]

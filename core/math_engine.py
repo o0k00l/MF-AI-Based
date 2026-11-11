@@ -1714,9 +1714,14 @@ def calculate_saa_drift(
     target_saa: Optional[Dict[str, float]] = None,
     tolerance_band_pct: float = 5.0,
 ) -> SAADriftAnalysis:
-    """
-    Calculates current asset allocation vs target Strategic Asset Allocation (SAA).
+    """Calculate current asset allocation vs target Strategic Asset Allocation (SAA).
+    
     Incorporates underlying look-through stability buffer (debt + cash).
+    Includes Flexi Multi-Cap scheme-category exposure tracking and drift analysis.
+    
+    Note: Flexi tracking measures scheme-category exposure (value of Flexi Cap funds),
+    not verified look-through equity exposure. A Flexi Cap fund's equity allocation
+    varies over time, so this tracks category membership rather than constituent overlap.
     """
     total_val = sum(h.current_value_inr for h in holdings)
     if total_val <= 0.0:
@@ -1735,18 +1740,30 @@ def calculate_saa_drift(
             look_through_debt_inr=None,
             look_through_cash_inr=None,
             look_through_stability_buffer_pct=None,
+            current_flexi_inr=0.0,
+            target_flexi_pct=0.0,
+            flexi_drift_pct=0.0,
         )
 
     # Compute look-through equity, debt, and cash amounts
     equity_val = Decimal("0.00")
     debt_val = Decimal("0.00")
     cash_val = Decimal("0.00")
+    flexi_val = Decimal("0.00")
 
     for h in holdings:
         eq_amt = h.current_value_inr * (Decimal(str(h.equity_pct)) / Decimal("100"))
         db_amt = h.current_value_inr * (Decimal(str(h.debt_pct)) / Decimal("100"))
         c_pct = (Decimal("100") - Decimal(str(h.equity_pct)) - Decimal(str(h.debt_pct))).max(Decimal("0"))
         c_amt = h.current_value_inr * (c_pct / Decimal("100"))
+        # Detect Flexi Cap funds for look-through tracking
+        # Note: This tracks scheme-category exposure, not verified look-through equity exposure.
+        # A Flexi Cap fund's equity allocation varies over time, so this measures category membership.
+        cat = str(getattr(h, 'category', '')).lower()
+        scheme = str(getattr(h, 'scheme', '')).lower()
+        is_flexi = 'flexi' in cat or 'flexi' in scheme or 'multi-cap' in cat or 'multi cap' in cat
+        if is_flexi:
+            flexi_val += h.current_value_inr
         equity_val += eq_amt
         debt_val += db_amt
         cash_val += c_amt
@@ -1755,8 +1772,12 @@ def calculate_saa_drift(
     curr_db_pct = float((debt_val / total_val) * Decimal("100.0"))
     curr_cash_pct = float((cash_val / total_val) * Decimal("100.0"))
     stability_buffer_pct = curr_db_pct + curr_cash_pct
+    
+    # Current Flexi percentage for look-through tracking
+    curr_flexi_pct = float((flexi_val / total_val) * Decimal("100.0"))
 
     # Dynamic target resolution supporting Tier 6 and granular allocations
+    tgt_flexi_pct = 0.0
     if target_saa:
         tgt_db = target_saa.get("debt_pct", target_saa.get("debt_liquid_pct", target_saa.get("debt_global_pct", 5.0)))
         if "equity_pct" in target_saa:
@@ -1769,6 +1790,7 @@ def calculate_saa_drift(
                 + target_saa.get("flexi_multi_cap_pct", 0.0)
                 + target_saa.get("mid_small_cap_pct", 0.0)
             )
+            tgt_flexi_pct = float(target_saa.get("flexi_multi_cap_pct", 0.0))
         else:
             tgt_eq = 100.0 - tgt_db
     else:
@@ -1784,7 +1806,11 @@ def calculate_saa_drift(
     target_db_inr = total_val * (Decimal(str(tgt_db)) / Decimal("100"))
     equity_gap_inr = target_eq_inr - equity_val
     debt_gap_inr = 0.0 if stability_satisfied else (target_db_inr - debt_val)
-
+    
+    # Flexi drift calculation
+    flexi_drift_pct = curr_flexi_pct - tgt_flexi_pct
+    curr_flexi_inr = float(round(flexi_val, 2))
+    
     return SAADriftAnalysis(
         current_equity_pct=round(curr_eq_pct, 1),
         current_debt_pct=round(curr_db_pct, 1),
@@ -1800,6 +1826,9 @@ def calculate_saa_drift(
         look_through_debt_inr=float(round(debt_val, 2)),
         look_through_cash_inr=float(round(cash_val, 2)),
         look_through_stability_buffer_pct=round(stability_buffer_pct, 2),
+        current_flexi_inr=curr_flexi_inr,
+        target_flexi_pct=tgt_flexi_pct,
+        flexi_drift_pct=round(flexi_drift_pct, 2),
     )
 
 

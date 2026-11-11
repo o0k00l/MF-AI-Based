@@ -9,7 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from openpyxl import Workbook
 
-from services.cas_parser import parse_cas_file, classify_fund_by_name
+from services.cas_parser import parse_cas_file
 
 
 def _make_cas_bytes(sheet_name: str, rows: list[list]) -> io.BytesIO:
@@ -41,34 +41,27 @@ def test_parse_valid_cas():
     by_scheme = {f["scheme"]: f for f in funds}
 
     flexi = by_scheme["HDFC Flexi Cap Fund Direct Growth"]
-    assert flexi["category"] == "Equity"
-    assert flexi["eq"] == 100.0
-    assert flexi["debt"] == 2.0
+    assert flexi["asset_class"] == "Equity"
+    assert flexi["category"] == "Flexi Cap"
+    # Verified factsheet look-through exposure from scheme master
+    assert flexi["eq"] == 94.89
+    assert flexi["debt"] == 0.45
+    assert flexi["heuristic_display_allocations"] is None
     assert flexi["current_value"] == 180600.0
     assert flexi["plan_type"] == "Direct"
     assert flexi["option_type"] == "Growth"
 
-    mid = by_scheme["Axis Mid Cap Fund Direct Growth"]
-    assert mid["mc"] == 70.0
-
-    small = by_scheme["SBI Small Cap Fund Direct Growth"]
-    assert small["sc"] == 80.0
-
     ba = by_scheme["ICICI Pru Balanced Advantage Fund Direct Growth"]
     assert ba["category"] == "Hybrid"
-    assert ba["debt"] == 35.0
+    assert ba["heuristic_display_allocations"] is None
 
     liquid = by_scheme["HDFC Liquid Fund Direct Growth"]
     assert liquid["category"] == "Debt"
     assert liquid["eq"] == 0.0
     assert liquid["debt"] == 100.0
+    assert liquid["heuristic_display_allocations"] is None
 
     print(f"PASS: Parsed {len(funds)} funds correctly.")
-    for f in funds:
-        print(
-            f"  {f['scheme'][:55]:55s} | cat={f['category']:6s} "
-            f"| val={f['current_value']:>10,.0f} | eq={f['eq']:5.1f}% debt={f['debt']:5.1f}%"
-        )
 
 
 def test_parse_multiple_folios_aggregate():
@@ -134,22 +127,19 @@ def test_parse_empty_file():
     print("PASS: Empty portfolio sheet -> 0 funds.")
 
 
-def test_classify_various_names():
-    """Spot-check classify_fund_by_name for key patterns."""
-    cases = [
-        ("HDFC Flexi Cap Fund Direct Growth", 100.0, 2.0),
-        ("Nifty 50 Index Fund Direct Growth", 100.0, 2.0),  # default equity
-        ("Axis ELSS Tax Saver Fund Direct Growth", 100.0, 0.0),
-        ("SBI Debt Fund Direct Growth", 0.0, 100.0),
-        ("ICICI Liquid Fund Direct Growth", 0.0, 100.0),
-        ("Kotak Balanced Advantage Fund Direct Growth", 65.0, 35.0),
-        ("Nippon India Large Cap Fund Direct Growth", 100.0, 5.0),
-    ]
-    for name, expected_eq, expected_debt in cases:
-        result = classify_fund_by_name(name)
-        assert result["eq"] == expected_eq, f"{name}: eq={result['eq']}, expected {expected_eq}"
-        assert result["debt"] == expected_debt, f"{name}: debt={result['debt']}, expected {expected_debt}"
-    print(f"PASS: classify_fund_by_name correct for {len(cases)} patterns.")
+def test_unverified_scheme_preserves_unmeasured_allocations():
+    """Unverified / unindexed funds in CAS must preserve eq/debt as None, never manufactured."""
+    buf = _make_cas_bytes("Portfolio Details", [
+        ["Scheme Name", "Units", "NAV", "Current Value"],
+        ["Completely Nonexistent Obscure Scheme Direct Growth", 100.0, 50.0, 5000.0],
+    ])
+    funds = parse_cas_file(buf)
+    assert len(funds) == 1
+    f = funds[0]
+    assert f["portfolio_exposure_verified"] is False
+    assert f["eq"] is None, "Unverified fund eq must remain None"
+    assert f["debt"] is None, "Unverified fund debt must remain None"
+    assert f["heuristic_display_allocations"] is None
 
 
 if __name__ == "__main__":
@@ -158,5 +148,5 @@ if __name__ == "__main__":
     test_parse_skips_zero_balance_closed_folios()
     test_parse_no_matching_sheet()
     test_parse_empty_file()
-    test_classify_various_names()
+    test_unverified_scheme_preserves_unmeasured_allocations()
     print("\n=== ALL SMOKE TESTS PASSED ===")

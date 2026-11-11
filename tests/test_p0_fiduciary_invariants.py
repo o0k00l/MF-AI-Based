@@ -1217,10 +1217,12 @@ def test_saa_loader_sum_to_100_boundary():
     
     The SAA loader validates that allocations sum to 100% ± 0.1% tolerance.
     This tests that all tiers meet this requirement.
+    
+    Note: flexi_multi_cap_pct is now a separate field, so total = large + mid_small + flexi + debt
     """
     import services.risk_profiler as rp
     
     for tier, saa in rp._SEBI_SAA_TABLE.items():
-        total = saa.large_cap_pct + saa.mid_small_cap_pct + saa.debt_pct
+        total = saa.large_cap_pct + saa.mid_small_cap_pct + saa.flexi_multi_cap_pct + saa.debt_pct
         # Must be within 0.1 percentage point tolerance for rounding
         assert abs(total - 100.0) < 0.1, f"Tier {tier.name}: allocations sum to {total}%, should be 100%"

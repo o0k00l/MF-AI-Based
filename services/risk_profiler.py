@@ -17,6 +17,7 @@ from enum import IntEnum
 from typing import Any
 from pathlib import Path
 import json
+import math
 
 
 class SebiRiskTier(IntEnum):
@@ -41,19 +42,28 @@ _TIER_NAME_MAP = {
 
 @dataclass(frozen=True)
 class TargetSaa:
-    """Strategic Asset Allocation target percentages (sum to 100.0%)."""
+    """Strategic Asset Allocation target percentages (sum to 100.0%).
+    
+    Note: flexi_multi_cap_pct is tracked separately from mid_small_cap_pct because:
+    - Flexi-multi-cap funds are a distinct asset class (can hold large, mid, or small cap)
+    - mid_small_cap_pct represents pure mid-cap + small-cap exposure only
+    - Total equity = large_cap_pct + mid_small_cap_pct + flexi_multi_cap_pct
+    - Risk limiters (max_mid_small_pct) apply only to true mid/small exposure
+    """
     large_cap_pct: float
     mid_small_cap_pct: float
     debt_pct: float
+    flexi_multi_cap_pct: float = 0.0
 
     @property
     def total_equity_pct(self) -> float:
-        return self.large_cap_pct + self.mid_small_cap_pct
+        return self.large_cap_pct + self.mid_small_cap_pct + self.flexi_multi_cap_pct
 
     def as_dict(self) -> dict[str, float]:
         return {
             "large_cap_pct": round(self.large_cap_pct, 1),
             "mid_small_cap_pct": round(self.mid_small_cap_pct, 1),
+            "flexi_multi_cap_pct": round(self.flexi_multi_cap_pct, 1),
             "debt_pct": round(self.debt_pct, 1),
             "total_equity_pct": round(self.total_equity_pct, 1),
         }
@@ -79,18 +89,20 @@ def _load_saa_from_policy() -> dict[SebiRiskTier, TargetSaa]:
     with open(_POLICY_PATH, 'r', encoding='utf-8') as f:
         policy = json.load(f)
     
-    profiles = policy.get('behavioral_risk_profiles', {})
-    if not profiles:
+    if not isinstance(policy, dict):
+        raise ValueError("SAA policy root must be a JSON object")
+    profiles = policy.get('behavioral_risk_profiles')
+    if not isinstance(profiles, dict) or not profiles:
         raise ValueError("Policy file missing 'behavioral_risk_profiles' section")
     
     saa_table = {}
     for tier, tier_name in _TIER_NAME_MAP.items():
         profile = profiles.get(tier_name)
-        if profile is None:
+        if not isinstance(profile, dict):
             raise ValueError(f"Policy missing profile for tier '{tier_name}'")
         
-        saa_targets = profile.get('saa_targets', {})
-        if not saa_targets:
+        saa_targets = profile.get('saa_targets')
+        if not isinstance(saa_targets, dict) or not saa_targets:
             raise ValueError(f"Policy tier '{tier_name}' missing 'saa_targets' section")
         
         # Extract and validate required fields
@@ -105,7 +117,7 @@ def _load_saa_from_policy() -> dict[SebiRiskTier, TargetSaa]:
         # Validate all values are non-negative, finite numbers
         for field in required_fields:
             value = saa_targets[field]
-            if not isinstance(value, (int, float)):
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
                 raise ValueError(
                     f"Policy tier '{tier_name}' field '{field}' must be numeric, got {type(value).__name__}"
                 )
@@ -113,34 +125,143 @@ def _load_saa_from_policy() -> dict[SebiRiskTier, TargetSaa]:
                 raise ValueError(
                     f"Policy tier '{tier_name}' field '{field}' must be non-negative, got {value}"
                 )
-            if not float('inf') > value > float('-inf'):  # Check finite
+            if not math.isfinite(float(value)):  # Reject NaN and infinities
                 raise ValueError(
                     f"Policy tier '{tier_name}' field '{field}' must be finite, got {value}"
                 )
         
-        # Calculate derived values
+        # Calculate derived values - separate mid/small from flexi-multi-cap
         mid_cap = float(saa_targets['mid_cap_pct'])
         small_cap = float(saa_targets['small_cap_pct'])
         flexi_cap = float(saa_targets['flexi_multi_cap_pct'])
-        mid_small_total = mid_cap + small_cap + flexi_cap
+        mid_small_total = mid_cap + small_cap  # Only mid + small, NOT flexi
         
         large_cap = float(saa_targets['large_cap_pct'])
         debt_pct = float(saa_targets['debt_liquid_pct'])
         
         # Validate allocation totals sum to 100%
-        total = large_cap + mid_small_total + debt_pct
-        if not abs(total - 100.0) < 0.1:  # Allow 0.1% tolerance for rounding
+        total = large_cap + mid_small_total + flexi_cap + debt_pct
+        if abs(total - 100.0) > 0.1:  # Inclusive 0.1 percentage-point tolerance
             raise ValueError(
                 f"Policy tier '{tier_name}' allocations sum to {total:.1f}%, should be 100%"
             )
         
         saa_table[tier] = TargetSaa(
             large_cap_pct=large_cap,
-            mid_small_cap_pct=mid_small_total,
+            mid_small_cap_pct=mid_small_total,  # Pure mid + small cap only
+            flexi_multi_cap_pct=flexi_cap,  # Separate flexi-multi-cap tracking
             debt_pct=debt_pct,
         )
     
     return saa_table
+
+
+def _load_risk_profile_limiters() -> dict[str, dict[str, float]]:
+    """Load and validate hard risk constraints from the authoritative policy."""
+    with open(_POLICY_PATH, "r", encoding="utf-8") as policy_file:
+        policy = json.load(policy_file)
+    if not isinstance(policy, dict):
+        raise ValueError("Risk policy root must be a JSON object")
+    limiters = policy.get("risk_profile_limiters")
+    if not isinstance(limiters, dict):
+        raise ValueError("Policy missing 'risk_profile_limiters' object")
+
+    required = {
+        "drawdown_5pct": {"max_tolerated_drawdown_pct", "max_equity_pct", "max_mid_small_pct"},
+        "ultra_short_horizon": {"max_horizon_years_exclusive", "max_equity_pct", "max_mid_small_pct"},
+        "short_horizon": {
+            "min_horizon_years", "max_horizon_years",
+            "max_equity_pct", "max_mid_small_pct",
+        },
+    }
+    validated: dict[str, dict[str, float]] = {}
+    for limiter_name, fields in required.items():
+        config = limiters.get(limiter_name)
+        if not isinstance(config, dict):
+            raise ValueError(f"Policy risk_profile_limiters.{limiter_name} must be an object")
+        missing = fields.difference(config)
+        if missing:
+            raise ValueError(
+                f"Policy risk_profile_limiters.{limiter_name} missing fields: {sorted(missing)}"
+            )
+        validated_config: dict[str, float] = {}
+        for field_name in fields:
+            value = config[field_name]
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise ValueError(
+                    f"Policy risk_profile_limiters.{limiter_name}.{field_name} must be numeric"
+                )
+            numeric = float(value)
+            if not math.isfinite(numeric):
+                raise ValueError(
+                    f"Policy risk_profile_limiters.{limiter_name}.{field_name} must be finite"
+                )
+            if field_name.endswith("_pct") and not 0.0 <= numeric <= 100.0:
+                raise ValueError(
+                    f"Policy risk_profile_limiters.{limiter_name}.{field_name} must be between 0 and 100"
+                )
+            validated_config[field_name] = numeric
+        if limiter_name == "short_horizon":
+            if validated_config["min_horizon_years"] < 0.0:
+                raise ValueError("Policy short_horizon minimum cannot be negative")
+            if validated_config["min_horizon_years"] >= validated_config["max_horizon_years"]:
+                raise ValueError("Policy short_horizon minimum must be below its maximum")
+        else:
+            horizon_key = "max_horizon_years_exclusive" if limiter_name == "ultra_short_horizon" else None
+            if horizon_key and validated_config[horizon_key] <= 0.0:
+                raise ValueError("Policy ultra-short horizon threshold must be positive")
+        if validated_config["max_mid_small_pct"] > validated_config["max_equity_pct"]:
+            raise ValueError(
+                f"Policy risk_profile_limiters.{limiter_name} mid/small cap cannot exceed total equity cap"
+            )
+        validated[limiter_name] = validated_config
+    return validated
+
+
+def _apply_saa_caps(
+    base_saa: TargetSaa,
+    *,
+    max_equity_pct: float | None = None,
+    max_mid_small_pct: float | None = None,
+) -> TargetSaa:
+    """Apply binding allocation caps by transferring excess exposure to debt.
+    
+    Note: mid_small_cap_pct and flexi_multi_cap_pct are capped independently.
+    max_mid_small_pct applies only to true mid/small exposure, NOT flexi-multi-cap.
+    Flexi-multi-cap funds are a distinct asset class that can hold any market cap segment.
+    
+    When total equity exceeds max_equity_pct, all equity sleeves are reduced proportionally
+    to maintain the cap. This ensures flexi-multi-cap is not exempt from equity limits.
+    """
+    large = base_saa.large_cap_pct
+    mid_small = base_saa.mid_small_cap_pct
+    flexi = base_saa.flexi_multi_cap_pct
+    
+    # Apply mid/small cap limiter only to mid_small, NOT flexi
+    if max_mid_small_pct is not None:
+        mid_small = min(mid_small, max_mid_small_pct)
+    
+    # Apply total equity cap to all equity (large + mid_small + flexi)
+    total_eq = large + mid_small + flexi
+    if max_equity_pct is not None and total_eq > max_equity_pct:
+        if total_eq > 0:
+            # Scale all equity sleeves proportionally to meet the cap
+            scale = max_equity_pct / total_eq
+            large = large * scale
+            mid_small = mid_small * scale
+            flexi = flexi * scale
+        else:
+            large = mid_small = flexi = 0.0
+    
+    return TargetSaa(
+        large_cap_pct=round(large, 6),
+        mid_small_cap_pct=round(mid_small, 6),
+        flexi_multi_cap_pct=round(flexi, 6),
+        debt_pct=round(100.0 - large - mid_small - flexi, 6),
+    )
+
+
+_RISK_PROFILE_LIMITERS = _load_risk_profile_limiters()
 
 
 # Load SAA table from policy at module import time
@@ -248,7 +369,8 @@ def evaluate_fiduciary_profile(
     # -------------------------------------------------------------------------
     # 2. Evaluate Risk Tolerance (Psychological Willingness to Bear Drawdowns)
     # -------------------------------------------------------------------------
-    if max_drawdown_tolerance_pct <= 5.0:
+    drawdown_limiter = _RISK_PROFILE_LIMITERS["drawdown_5pct"]
+    if max_drawdown_tolerance_pct <= drawdown_limiter["max_tolerated_drawdown_pct"]:
         tolerance_tier = SebiRiskTier.TIER_2_LOW
     elif max_drawdown_tolerance_pct <= 10.0:
         tolerance_tier = SebiRiskTier.TIER_3_MODERATE
@@ -269,55 +391,58 @@ def evaluate_fiduciary_profile(
     # -------------------------------------------------------------------------
     # 4. Enforce Hard Boundary Limiter Overrides
     # -------------------------------------------------------------------------
-    # Hard Limiter A: 5% Max Drop Limiter
-    if max_drawdown_tolerance_pct <= 5.0 and governing_tier > SebiRiskTier.TIER_2_LOW:
-        governing_tier = SebiRiskTier.TIER_2_LOW
+    # Hard limiters determine the governing tier; allocation caps are applied
+    # independently below so one limiter can never bypass another.
+    if max_drawdown_tolerance_pct <= drawdown_limiter["max_tolerated_drawdown_pct"]:
+        if governing_tier > SebiRiskTier.TIER_2_LOW:
+            governing_tier = SebiRiskTier.TIER_2_LOW
         constraints.append(
-            "Drawdown Hard Limiter: You indicated a max loss tolerance of 5% or less. "
-            "To prevent panic selling, equity is capped at 30% and allocated to stable assets."
+            "Drawdown Hard Limiter: Maximum tolerated loss is 5% or less; "
+            "the policy-defined equity and mid/small allocation caps apply."
         )
 
-    # Hard Limiter B: Short Horizon Mid/Small Cap Limiter
-    if horizon_years <= 5.0 and governing_tier >= SebiRiskTier.TIER_4_MODERATE_HIGH:
+    short_horizon = _RISK_PROFILE_LIMITERS["short_horizon"]
+    if (short_horizon["min_horizon_years"] <= horizon_years
+            <= short_horizon["max_horizon_years"]
+            and governing_tier >= SebiRiskTier.TIER_4_MODERATE_HIGH):
         governing_tier = SebiRiskTier.TIER_3_MODERATE
         constraints.append(
             f"Time Horizon Limiter: A {horizon_years:.0f}-year horizon cannot safely absorb "
             "cyclical mid/small-cap drawdowns. Governing tier adjusted to Moderate."
         )
 
-    # Hard Limiter C: Ultra-Short Horizon (< 3 years)
-    if horizon_years < 3.0:
+    ultra_short = _RISK_PROFILE_LIMITERS["ultra_short_horizon"]
+    if horizon_years < ultra_short["max_horizon_years_exclusive"]:
         governing_tier = SebiRiskTier.TIER_1_CAPITAL_PRESERVATION
         constraints.append(
             f"Capital Preservation Limiter: Goal horizon is only {horizon_years:.1f} years. "
-            "Equity deployment is prohibited under SEBI guidelines to prevent capital loss."
+            "The policy prohibits equity deployment for this horizon."
         )
 
     # -------------------------------------------------------------------------
     # 5. Determine Strategic Asset Allocation (SAA)
     # -------------------------------------------------------------------------
     base_saa = _SEBI_SAA_TABLE[governing_tier]
+    applicable_caps: list[dict[str, float]] = []
+    if horizon_years < ultra_short["max_horizon_years_exclusive"]:
+        applicable_caps.append(ultra_short)
+    elif (short_horizon["min_horizon_years"] <= horizon_years
+          <= short_horizon["max_horizon_years"]):
+        applicable_caps.append(short_horizon)
+    if max_drawdown_tolerance_pct <= drawdown_limiter["max_tolerated_drawdown_pct"]:
+        applicable_caps.append(drawdown_limiter)
 
-    # Special adjustment: If horizon is 3-5 years, eliminate or strictly minimize Mid/Small caps
-    if 3.0 <= horizon_years <= 5.0 and base_saa.mid_small_cap_pct > 5.0:
-        reallocated_mid_small = base_saa.mid_small_cap_pct - 5.0
-        # Shift excess mid/small into large cap and debt
-        adjusted_saa = TargetSaa(
-            large_cap_pct=base_saa.large_cap_pct + (reallocated_mid_small * 0.5),
-            mid_small_cap_pct=5.0,
-            debt_pct=base_saa.debt_pct + (reallocated_mid_small * 0.5),
+    adjusted_saa = _apply_saa_caps(
+        base_saa,
+        max_equity_pct=min(cap["max_equity_pct"] for cap in applicable_caps)
+            if applicable_caps else None,
+        max_mid_small_pct=min(cap["max_mid_small_pct"] for cap in applicable_caps)
+            if applicable_caps else None,
+    )
+    if max_drawdown_tolerance_pct <= drawdown_limiter["max_tolerated_drawdown_pct"]:
+        constraints.append(
+            "Mid/Small Cap allocation eliminated by the 5% drawdown policy limiter."
         )
-    elif max_drawdown_tolerance_pct <= 5.0:
-        # Zero mid/small cap for strict 5% loss limit
-        adjusted_saa = TargetSaa(
-            large_cap_pct=25.0,
-            mid_small_cap_pct=0.0,
-            debt_pct=75.0,
-        )
-        if "Zero Mid/Small Cap Mandate" not in " ".join(constraints):
-            constraints.append("Mid/Small Cap allocation eliminated (0%) to maintain <= 5% portfolio drawdown floor.")
-    else:
-        adjusted_saa = base_saa
 
     # -------------------------------------------------------------------------
     # 6. Build Comprehensive Fiduciary Rationale
@@ -362,7 +487,7 @@ def evaluate_direct_tier(tier: SebiRiskTier | int) -> RiskProfileResult:
         fiduciary_rationale=(
             f"**Governing Profile:** {_TIER_LABELS[tier]}\n"
             f"* **Mode:** Direct Regulatory Declaration (Informed Investor)\n"
-            f"* **Asset Allocation:** Equity {base_saa.total_equity_pct:.1f}% (Large Cap {base_saa.large_cap_pct:.1f}%, Mid/Small Cap {base_saa.mid_small_cap_pct:.1f}%) | Debt {base_saa.debt_pct:.1f}%\n"
+            f"* **Asset Allocation:** Equity {base_saa.total_equity_pct:.1f}% (Large Cap {base_saa.large_cap_pct:.1f}%, Mid/Small Cap {base_saa.mid_small_cap_pct:.1f}%, Flexi-Multi Cap {base_saa.flexi_multi_cap_pct:.1f}%) | Debt {base_saa.debt_pct:.1f}%\n"
             f"* **Regulatory Alignment:** Directly mapped to SEBI 6-Tier risk governance framework."
         ),
         expected_drawdown_range=_DRAWDOWN_RANGES[tier],
@@ -374,19 +499,42 @@ def evaluate_custom_saa(
     large_cap_pct: float,
     mid_small_cap_pct: float,
     debt_pct: float,
+    flexi_multi_cap_pct: float = 0.0,
     rationale: str = "",
 ) -> RiskProfileResult:
     """Evaluate custom SAA target defined by investor or RIA (Mode 3: Expert / IPS)."""
+    # Validate inputs: reject booleans, NaN, Infinity
+    for name, val in [
+        ("large_cap_pct", large_cap_pct),
+        ("mid_small_cap_pct", mid_small_cap_pct),
+        ("debt_pct", debt_pct),
+        ("flexi_multi_cap_pct", flexi_multi_cap_pct),
+    ]:
+        if isinstance(val, bool):
+            raise ValueError(f"{name} cannot be a boolean value")
+        if not isinstance(val, (int, float)):
+            raise ValueError(f"{name} must be a numeric value")
+        if not math.isfinite(val):
+            raise ValueError(f"{name} must be finite (no NaN or Infinity)")
+        if not 0.0 <= val <= 100.0:
+            raise ValueError(f"{name} must be between 0 and 100 (got {val})")
+    
     lc = float(large_cap_pct)
     ms = float(mid_small_cap_pct)
     db = float(debt_pct)
-    total = lc + ms + db
+    flexi = float(flexi_multi_cap_pct)
+    total = lc + ms + flexi + db
     if abs(total - 100.0) > 0.01:
         raise ValueError(f"Custom asset allocation must sum to 100.0% (got {total:.2f}%).")
-    if lc < 0 or ms < 0 or db < 0:
+    if lc < 0 or ms < 0 or db < 0 or flexi < 0:
         raise ValueError("Asset allocation percentages cannot be negative.")
 
-    target_saa = TargetSaa(large_cap_pct=round(lc, 1), mid_small_cap_pct=round(ms, 1), debt_pct=round(db, 1))
+    target_saa = TargetSaa(
+        large_cap_pct=round(lc, 1),
+        mid_small_cap_pct=round(ms, 1),
+        flexi_multi_cap_pct=round(flexi, 1),
+        debt_pct=round(db, 1),
+    )
     total_eq = target_saa.total_equity_pct
 
     # Map to closest regulatory equivalent tier
@@ -406,7 +554,7 @@ def evaluate_custom_saa(
     custom_rationale = (
         f"**Governing Profile:** Custom IPS Allocation (Closest SEBI Equivalent: {_TIER_LABELS[equiv_tier]})\n"
         f"* **Mode:** Expert Bespoke Target (HNIs / RIAs / Institutional Mandate)\n"
-        f"* **Custom SAA:** Large Cap {lc:.1f}%, Mid/Small Cap {ms:.1f}%, Debt/Cash {db:.1f}%\n"
+        f"* **Custom SAA:** Large Cap {lc:.1f}%, Mid/Small Cap {ms:.1f}%, Flexi-Multi Cap {flexi:.1f}%, Debt/Cash {db:.1f}%\n"
         f"* **Client Notes:** {rationale or 'Bespoke mandate specified by investor.'}"
     )
 

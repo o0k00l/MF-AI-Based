@@ -47,6 +47,9 @@ def calculate_allocations(funds: list) -> dict:
         "large_cap_value": seg["large_cap_value"],
         "mid_cap_value": seg["mid_cap_value"],
         "small_cap_value": seg["small_cap_value"],
+        "unmeasured_value": seg.get("unmeasured_value", 0.0),
+        "unmeasured_pct": seg.get("unmeasured_pct", 0.0),
+        "is_fully_measured": seg.get("is_fully_measured", True),
     }
 
 

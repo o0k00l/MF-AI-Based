@@ -78,6 +78,7 @@ if not goals_alloc:
         
         lc_val = parse_amount(next((a["amount_inr"] for a in bp.get("allocations", []) if "Large" in a.get("sleeve", "")), 0.0))
         ms_val = parse_amount(next((a["amount_inr"] for a in bp.get("allocations", []) if "Mid" in a.get("sleeve", "")), 0.0))
+        flexi_val = parse_amount(next((a["amount_inr"] for a in bp.get("allocations", []) if "Flexi" in a.get("sleeve", "")), 0.0))
         db_val = parse_amount(next((a["amount_inr"] for a in bp.get("allocations", []) if "Debt" in a.get("sleeve", "")), 0.0))
         sip_confidence = bp.get("sip_selection_confidence_pct", 100.0)
         goals_alloc = {
@@ -101,6 +102,7 @@ if not goals_alloc:
             "asset_sleeves": {
                 "large_cap_inr": lc_val,
                 "mid_small_cap_inr": ms_val,
+                "flexi_multi_cap_inr": flexi_val,
                 "debt_inr": db_val,
             },
         }

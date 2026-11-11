@@ -331,6 +331,12 @@ class SAADriftAnalysis(BaseModel):
     look_through_debt_inr: Optional[Union[Decimal, float]] = None
     look_through_cash_inr: Optional[Union[Decimal, float]] = None
     look_through_stability_buffer_pct: Optional[float] = None
+    # Flexi Multi-Cap scheme-category exposure tracking (value of funds in Flexi Cap category)
+    # Note: This tracks scheme-category exposure, not verified look-through equity exposure.
+    # A Flexi Cap fund's equity allocation varies over time, so this measures category membership.
+    current_flexi_inr: Optional[float] = None
+    target_flexi_pct: Optional[float] = None
+    flexi_drift_pct: Optional[float] = None
 
 
 class CashDeploymentPlan(BaseModel):

@@ -421,6 +421,7 @@ def _build_saa_analysis(story, styles, data):
         ("Total Equity", target.get("total_equity_pct", 0), current.get("equity_pct", 0), drift.get("equity_drift_pct", 0)),
         ("  Large Cap", target.get("large_cap_pct", 0), current.get("large_cap_pct", 0), drift.get("large_cap_drift_pct", 0)),
         ("  Mid/Small Cap", target.get("mid_small_cap_pct", 0), current.get("mid_small_cap_pct", 0), drift.get("mid_small_drift_pct", 0)),
+        ("  Flexi-Multi Cap", target.get("flexi_multi_cap_pct", 0), current.get("flexi_multi_cap_pct", 0), drift.get("flexi_multi_cap_drift_pct", 0)),
         ("Total Debt", target.get("debt_pct", 0), current.get("debt_pct", 0), drift.get("debt_drift_pct", 0)),
         ("Gold / Other", target.get("gold_pct", 0), current.get("gold_pct", 0), drift.get("gold_drift_pct", 0)),
     ]
