@@ -6,6 +6,7 @@ and Financial Goals) into rigorous mathematical models and deterministic SAA pla
 from __future__ import annotations
 
 import json
+import math
 from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -565,10 +566,11 @@ def validate_scheme_for_sleeve(
     if plan_type != "DIRECT":
         return {"validation": "failed", "scheme": scheme, "folio_no": folio, "is_new": False}
     
-    # Validate category/scheme if expected keywords provided
+    # Validate category - authoritative category field MUST match expected keywords
+    # Scheme-name text must NOT override or substitute for a non-matching, generic, or contradictory category
     if expected_category_keywords:
-        is_valid_category = any(kw.lower() in category or kw.lower() in scheme_lower for kw in expected_category_keywords)
-        if not is_valid_category:
+        category_match = any(kw.lower() in category for kw in expected_category_keywords)
+        if not category_match:
             return {"validation": "failed", "scheme": scheme, "folio_no": folio, "is_new": False}
     
     # CRITICAL: Provenance gate enforcement
@@ -618,61 +620,142 @@ def generate_fiduciary_sip_blueprint(
             "allocations": [],
         }
 
-    # Extract target percentages safely
+    # SAA Target Extraction & Validation
+    # Default baseline if target_saa is explicitly None:
     lc_pct = Decimal("50.0")
     ms_pct = Decimal("25.0")
     flexi_pct = Decimal("0.0")
     db_pct = Decimal("25.0")
 
     if target_saa is not None:
+        raw_vals = {}
         if hasattr(target_saa, "large_cap_pct") and hasattr(target_saa, "mid_small_cap_pct"):
-            try:
-                # Use explicit None check - never use 'or' for numeric values (0 is valid)
-                lc_val = getattr(target_saa, "large_cap_pct", None)
-                ms_val = getattr(target_saa, "mid_small_cap_pct", None)
-                flexi_val = getattr(target_saa, "flexi_multi_cap_pct", None)
-                db_val = getattr(target_saa, "debt_pct", None)
-                lc_pct = Decimal(str(lc_val if lc_val is not None else 50.0))
-                ms_pct = Decimal(str(ms_val if ms_val is not None else 25.0))
-                flexi_pct = Decimal(str(flexi_val if flexi_val is not None else 0.0))
-                db_pct = Decimal(str(db_val if db_val is not None else 25.0))
-            except Exception:
-                lc_pct, ms_pct, flexi_pct, db_pct = Decimal("50.0"), Decimal("25.0"), Decimal("0.0"), Decimal("25.0")
+            raw_vals = {
+                "large_cap": getattr(target_saa, "large_cap_pct", None),
+                "mid_small": getattr(target_saa, "mid_small_cap_pct", None),
+                "flexi": getattr(target_saa, "flexi_multi_cap_pct", None),
+                "debt": getattr(target_saa, "debt_pct", None),
+            }
         elif isinstance(target_saa, dict):
+            raw_vals = {
+                "large_cap": target_saa.get("large_cap_pct"),
+                "mid_small": target_saa.get("mid_small_cap_pct"),
+                "flexi": target_saa.get("flexi_multi_cap_pct"),
+                "debt": target_saa.get("debt_pct"),
+            }
+        else:
+            return {
+                "status": "INVALID_SAA_TARGET",
+                "monthly_budget_inr": budget_dec,
+                "allocated_budget_inr": Decimal("0.00"),
+                "unallocated_budget_inr": budget_dec,
+                "allocations": [],
+                "recommendations": [],
+                "reconciliation_valid": False,
+                "error": f"Invalid target_saa input type: {type(target_saa).__name__}. Must be TargetSaa object or dict.",
+            }
+
+        # Boundary Check: Booleans are rejected
+        for k, v in raw_vals.items():
+            if type(v) is bool:
+                return {
+                    "status": "INVALID_SAA_TARGET",
+                    "monthly_budget_inr": budget_dec,
+                    "allocated_budget_inr": Decimal("0.00"),
+                    "unallocated_budget_inr": budget_dec,
+                    "allocations": [],
+                    "recommendations": [],
+                    "reconciliation_valid": False,
+                    "error": f"Target SAA '{k}' cannot be boolean: {v}",
+                }
+
+        # If all keys are None, use default baseline
+        if all(v is None for v in raw_vals.values()):
+            lc_pct, ms_pct, flexi_pct, db_pct = Decimal("50.0"), Decimal("25.0"), Decimal("0.0"), Decimal("25.0")
+        else:
+            # Parse finite numeric percentages
             try:
-                lc_val = target_saa.get("large_cap_pct")
-                lc_pct = Decimal(str(lc_val if lc_val is not None else 50.0))
-                ms_val = target_saa.get("mid_small_cap_pct")
-                ms_pct = Decimal(str(ms_val if ms_val is not None else 25.0))
-                flexi_val = target_saa.get("flexi_multi_cap_pct")
-                flexi_pct = Decimal(str(flexi_val if flexi_val is not None else 0.0))
-                db_val = target_saa.get("debt_pct")
-                db_pct = Decimal(str(db_val if db_val is not None else 25.0))
-            except Exception:
-                lc_pct, ms_pct, flexi_pct, db_pct = Decimal("50.0"), Decimal("25.0"), Decimal("0.0"), Decimal("25.0")
+                def _parse_pct(name, val, default=0.0):
+                    if val is None:
+                        return Decimal(str(default))
+                    fval = float(val)
+                    if math.isnan(fval) or math.isinf(fval):
+                        raise ValueError(f"Target SAA '{name}' must be finite: {val}")
+                    if fval < 0.0 or fval > 100.0:
+                        raise ValueError(f"Target SAA '{name}' must be between 0 and 100: {val}")
+                    return Decimal(str(fval))
+
+                lc_pct = _parse_pct("large_cap", raw_vals["large_cap"], default=0.0)
+                ms_pct = _parse_pct("mid_small", raw_vals["mid_small"], default=0.0)
+                flexi_pct = _parse_pct("flexi", raw_vals["flexi"], default=0.0)
+                db_pct = _parse_pct("debt", raw_vals["debt"], default=0.0)
+            except Exception as e:
+                return {
+                    "status": "INVALID_SAA_TARGET",
+                    "monthly_budget_inr": budget_dec,
+                    "allocated_budget_inr": Decimal("0.00"),
+                    "unallocated_budget_inr": budget_dec,
+                    "allocations": [],
+                    "recommendations": [],
+                    "reconciliation_valid": False,
+                    "error": str(e),
+                }
+
+            # Enforce 100% sum tolerance (inclusive 0.1 percentage point)
+            saa_sum = lc_pct + ms_pct + flexi_pct + db_pct
+            if abs(saa_sum - Decimal("100.0")) > Decimal("0.1"):
+                return {
+                    "status": "INVALID_SAA_TARGET",
+                    "monthly_budget_inr": budget_dec,
+                    "allocated_budget_inr": Decimal("0.00"),
+                    "unallocated_budget_inr": budget_dec,
+                    "allocations": [],
+                    "recommendations": [],
+                    "reconciliation_valid": False,
+                    "error": f"Target SAA allocations sum to {saa_sum}%, expected 100.0% (±0.1%)",
+                }
 
     # Stability Buffer Override (per POL-SIP-001):
     # If current portfolio debt >= target debt, redirect all SIP debt allocation to equity.
     # Existing debt holdings are maintained for rebalancing ammunition but receive no new SIP inflows.
-    # This prevents a Tier 6 investor with 9.3% current debt from adding more debt via SIP
-    # when the target SAA only allows 5% debt in the total portfolio.
+    # Look-through debt calculation: accurately includes pure debt AND debt component of hybrid funds.
     stability_override_applied = False
     if db_pct > Decimal("0.0") and funds:
         total_value = sum(
             float(f.get("current_value", 0) or 0) for f in funds if isinstance(f, dict)
         )
-        debt_value = sum(
-            float(f.get("current_value", 0) or 0) for f in funds
-            if isinstance(f, dict)
-            and (str(f.get("category", "")).lower() == "debt"
-                 or any(kw in str(f.get("scheme", "")).lower() for kw in ["liquid", "arbitrage", "money market"]))
-        )
         if total_value > 0:
-            current_debt_pct = Decimal(str(debt_value / total_value * 100.0))
+            debt_value = 0.0
+            for f in funds:
+                if not isinstance(f, dict):
+                    continue
+                c_val = float(f.get("current_value", 0) or 0)
+                if c_val <= 0:
+                    continue
+                # Look-through debt percentage
+                raw_debt = f.get("debt") if f.get("debt") is not None else f.get("debt_pct")
+                if raw_debt is not None:
+                    try:
+                        f_debt_pct = max(0.0, min(100.0, float(raw_debt)))
+                    except (ValueError, TypeError):
+                        f_debt_pct = 0.0
+                else:
+                    cat_lower = str(f.get("category", "")).lower()
+                    sch_lower = str(f.get("scheme", "")).lower()
+                    if cat_lower in ["debt", "liquid", "money market", "overnight", "arbitrage"] or any(
+                        kw in sch_lower for kw in ["liquid", "arbitrage", "money market", "overnight", "treasury", "gilt"]
+                    ):
+                        f_debt_pct = 100.0
+                    elif "hybrid" in cat_lower or any(kw in sch_lower for kw in ["hybrid", "balanced", "advantage", "equity savings"]):
+                        f_debt_pct = 35.0
+                    else:
+                        f_debt_pct = 0.0
+                debt_value += c_val * (f_debt_pct / 100.0)
+
+            current_debt_pct = Decimal(str(round((debt_value / total_value) * 100.0, 4)))
             if current_debt_pct >= db_pct:
                 # Debt is already at or above target — redirect SIP debt to equity
                 debt_to_add = db_pct
-                # Split the redirected debt across existing equity sleeves proportionally (large, mid/small, flexi)
                 total_equity_pct = lc_pct + ms_pct + flexi_pct
                 if total_equity_pct > Decimal("0.0"):
                     lc_pct = lc_pct + (debt_to_add * (lc_pct / total_equity_pct))
@@ -1371,8 +1454,20 @@ def generate_fiduciary_sip_blueprint(
             f"{db_pct:.0f}% Debt/Liquid Buffer."
         )
     
+    # Allocation Completeness & Explicit Omission Reasons
+    omission_reasons: List[str] = []
+    if lc_target > Decimal("0.00") and not any("Large-Cap" in a.get("sleeve", "") for a in allocations):
+        omission_reasons.append("Large-Cap Core Index: No verified Direct fund passing large-cap index criteria was available.")
+    if ms_target > Decimal("0.00") and not any("Mid/Small" in a.get("sleeve", "") for a in allocations):
+        omission_reasons.append("Mid/Small-Cap Alpha: No verified Direct fund passing mid/small-cap criteria was available.")
+    if flexi_target > Decimal("0.00") and not any("Flexi" in a.get("sleeve", "") for a in allocations):
+        omission_reasons.append("Flexi-Multi Cap: No verified Direct fund passing flexi/multi-cap criteria was available.")
+    if db_target > Decimal("0.00") and not any("Debt" in a.get("sleeve", "") for a in allocations):
+        omission_reasons.append("Debt & Capital Preservation: No verified Direct fund passing debt/liquid criteria was available.")
+
     # Check allocation reconciliation
     if not reconciliation_valid:
+        omission_summary = "; ".join(omission_reasons) if omission_reasons else "selection integrity check failed"
         return {
             "status": "NO_ACTION",
             "monthly_budget_inr": budget_dec,
@@ -1381,9 +1476,10 @@ def generate_fiduciary_sip_blueprint(
             "allocations": allocations,
             "recommendations": recommendations,
             "reconciliation_valid": reconciliation_valid,
+            "omission_reasons": omission_reasons,
             "optimal_tranche_timing": optimal_tranche_timing,
-            "portfolio_completion_alerts": portfolio_completion_alerts + [{"slot": "Fiduciary Allocation Failure", "action": f"Unallocated ₹{unallocated:,.2f} - selection integrity check failed", "severity": "HIGH"}],
-            "fiduciary_routing_rationale": f"SIP blueprint incomplete: ₹{unallocated:,.2f} unallocated after fund selection. Dynamic flexi or debt selection may have failed. Audit required.",
+            "portfolio_completion_alerts": portfolio_completion_alerts + [{"slot": "Fiduciary Allocation Failure", "action": f"Unallocated ₹{unallocated:,.2f} - {omission_summary}", "severity": "HIGH"}],
+            "fiduciary_routing_rationale": f"SIP blueprint incomplete: ₹{unallocated:,.2f} unallocated after fund selection. {omission_summary}",
             "sip_selection_confidence_pct": confidence_score,
             "stability_override_applied": stability_override_applied,
         }
@@ -1396,6 +1492,7 @@ def generate_fiduciary_sip_blueprint(
         "allocations": allocations,
         "recommendations": recommendations,
         "reconciliation_valid": reconciliation_valid,
+        "omission_reasons": omission_reasons,
         "optimal_tranche_timing": optimal_tranche_timing,
         "portfolio_completion_alerts": portfolio_completion_alerts,
         "fiduciary_routing_rationale": routing_rationale,

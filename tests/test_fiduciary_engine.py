@@ -539,7 +539,7 @@ def test_direct_holdings_without_flexi_fund_uses_dynamic_selection():
             "folio_no": "12345/01",
         }
     ]
-    target = TargetSaa(large_cap_pct=50.0, mid_small_cap_pct=25.0, debt_pct=0.0)
+    target = TargetSaa(large_cap_pct=50.0, mid_small_cap_pct=25.0, debt_pct=25.0)
     
     blueprint = generate_fiduciary_sip_blueprint(
         monthly_budget_inr=10000.0,

@@ -50,6 +50,38 @@ def _estimate_allocations(scheme_name: str) -> dict:
     return {"eq": 100.0, "debt": 2.0, "lc": 30.0, "mc": 40.0, "sc": 30.0}
 
 
+def _infer_sebi_category(scheme_name: str) -> str:
+    """Infer AMFI/SEBI scheme category from scheme name during ingestion."""
+    nl = scheme_name.lower()
+    if "arbitrage" in nl:
+        return "Arbitrage"
+    if "liquid" in nl or "overnight" in nl or "money market" in nl or "ultra short" in nl:
+        return "Debt"
+    if "debt" in nl or "fixed income" in nl or "gilt" in nl or "treasury" in nl:
+        return "Debt"
+    if "balanced advantage" in nl or "dynamic asset" in nl or "equity savings" in nl:
+        return "Hybrid"
+    if "hybrid" in nl or "aggressive hybrid" in nl or "conservative hybrid" in nl:
+        return "Hybrid"
+    if "flexi cap" in nl or "flexicap" in nl:
+        return "Flexi Cap"
+    if "multi cap" in nl or "multicap" in nl:
+        return "Multi Cap"
+    if "mid cap" in nl or "midcap" in nl or "emerging equity" in nl:
+        return "Mid Cap"
+    if "small cap" in nl or "smallcap" in nl:
+        return "Small Cap"
+    if "large & mid" in nl or "large and mid" in nl:
+        return "Large & Mid Cap"
+    if "large cap" in nl or "largecap" in nl or "nifty" in nl or "sensex" in nl or "index" in nl:
+        return "Large Cap"
+    if "elss" in nl or "tax saver" in nl:
+        return "ELSS"
+    if "contra" in nl or "value" in nl:
+        return "Contra"
+    return "Equity"
+
+
 classify_fund_by_name = _estimate_allocations
 
 
@@ -388,7 +420,8 @@ def parse_cas_file(file_obj: BinaryIO) -> list[dict]:
             continue
 
         alloc = classify_fund_by_name(scheme)
-        category = "Debt" if alloc["eq"] == 0 else ("Hybrid" if alloc["debt"] > 10 else "Equity")
+        category = _infer_sebi_category(scheme)
+        broad_asset_class = "Debt" if alloc["eq"] == 0 else ("Hybrid" if alloc["debt"] > 10 else "Equity")
         plan_type = "Direct" if "direct" in scheme.lower() else "Regular"
         option_type = "IDCW" if "idcw" in scheme.lower() else "Growth"
 
@@ -414,9 +447,20 @@ def parse_cas_file(file_obj: BinaryIO) -> list[dict]:
             unrealized_stcg = None
             is_fully_mature = None
 
+        # Record integrity verification at ingestion boundary
+        is_valid_row = (
+            bool(scheme.strip())
+            and math.isfinite(val)
+            and math.isfinite(inv)
+            and math.isfinite(u)
+            and math.isfinite(n)
+        )
+        validation_status = "valid" if is_valid_row else "failed"
+
         funds.append({
             "scheme": scheme,
             "category": category,
+            "asset_class": broad_asset_class,
             "plan_type": plan_type,
             "option_type": option_type,
             "eq": alloc["eq"],
@@ -435,7 +479,8 @@ def parse_cas_file(file_obj: BinaryIO) -> list[dict]:
             "nav": n,
             "folio_no": ", ".join(folios) if folios else "",
             "source": "existing",
-            "validation": "valid",
+            "ingestion_status": "parsed_valid" if is_valid_row else "parsed_corrupted",
+            "validation": validation_status,
         })
 
     return funds

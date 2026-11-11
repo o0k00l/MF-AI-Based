@@ -493,3 +493,146 @@ def test_spiva_fallback_preserves_fallback_source_in_blueprint():
     for alloc in blueprint["allocations"]:
         assert alloc["source"] in ["dynamic", "fallback"]
         assert alloc["validation"] == "valid"
+
+
+# =====================================================================
+# 7. FINANCIAL CORRECTNESS AUDIT: SAA Boundaries, Look-Through & Omission
+# =====================================================================
+
+def test_scheme_name_text_cannot_substitute_for_category():
+    """Authoritative category matching: Scheme-name keywords cannot override a contradictory or generic category."""
+    # Contradictory category: Thematic-Energy fund with 'Large Cap' in name
+    contradictory_fund = {
+        "scheme": "Nippon India Power & Large Cap Fund - Direct Plan - Growth",
+        "category": "Thematic-Energy",  # Contradictory category
+        "plan_type": "Direct",
+        "folio_no": "1111/01",
+        "source": "existing",
+        "validation": "valid",
+    }
+    res = validate_scheme_for_sleeve(
+        contradictory_fund,
+        sleeve="Large-Cap Core Index",
+        expected_category_keywords=["large cap", "large-cap", "largecap", "large & mid"],
+        require_provenance=True,
+        allowed_provenance=["existing"],
+    )
+    assert res["validation"] == "failed", "Scheme name keywords must NOT override contradictory category"
+
+    # Generic 'Equity' with 'Mid Cap' in scheme name
+    generic_fund = {
+        "scheme": "Kotak Emerging Equity Mid Cap Fund - Direct Plan - Growth",
+        "category": "Equity",  # Generic unclassified category
+        "plan_type": "Direct",
+        "folio_no": "2222/02",
+        "source": "existing",
+        "validation": "valid",
+    }
+    res_generic = validate_scheme_for_sleeve(
+        generic_fund,
+        sleeve="Mid/Small-Cap Alpha",
+        expected_category_keywords=["mid cap", "small cap", "mid-cap", "small-cap", "midcap", "smallcap", "emerging equity", "mid & small"],
+        require_provenance=True,
+        allowed_provenance=["existing"],
+    )
+    assert res_generic["validation"] == "failed", "Generic 'Equity' category must NOT pass Mid/Small-Cap sleeve"
+
+
+def test_sip_target_validation_rejects_invalid_saa_inputs():
+    """SIP Target Validation: SAA inputs must be finite numbers summing to 100% (rejects bool, NaN, non-100 sum)."""
+    # 1. Rejects boolean in target
+    res_bool = generate_fiduciary_sip_blueprint(
+        monthly_budget_inr=10000.0,
+        funds=[],
+        target_saa={"large_cap_pct": True, "mid_small_cap_pct": 25.0, "debt_pct": 25.0, "flexi_multi_cap_pct": 0.0},
+    )
+    assert res_bool["status"] == "INVALID_SAA_TARGET"
+    assert "boolean" in res_bool["error"].lower()
+
+    # 2. Rejects NaN in target
+    res_nan = generate_fiduciary_sip_blueprint(
+        monthly_budget_inr=10000.0,
+        funds=[],
+        target_saa={"large_cap_pct": float("nan"), "mid_small_cap_pct": 25.0, "debt_pct": 25.0, "flexi_multi_cap_pct": 50.0},
+    )
+    assert res_nan["status"] == "INVALID_SAA_TARGET"
+    assert "finite" in res_nan["error"].lower()
+
+    # 3. Rejects negative percentages
+    res_neg = generate_fiduciary_sip_blueprint(
+        monthly_budget_inr=10000.0,
+        funds=[],
+        target_saa={"large_cap_pct": -10.0, "mid_small_cap_pct": 50.0, "debt_pct": 60.0, "flexi_multi_cap_pct": 0.0},
+    )
+    assert res_neg["status"] == "INVALID_SAA_TARGET"
+
+    # 4. Rejects percentages not summing to 100%
+    res_bad_sum = generate_fiduciary_sip_blueprint(
+        monthly_budget_inr=10000.0,
+        funds=[],
+        target_saa={"large_cap_pct": 40.0, "mid_small_cap_pct": 20.0, "debt_pct": 20.0, "flexi_multi_cap_pct": 0.0},  # Sum = 80%
+    )
+    assert res_bad_sum["status"] == "INVALID_SAA_TARGET"
+    assert "100.0%" in res_bad_sum["error"]
+
+
+def test_stability_buffer_override_hybrid_debt_look_through():
+    """Stability Buffer Override: Correctly includes look-through debt component of hybrid funds."""
+    # Client holds an aggressive hybrid fund (65% equity, 35% debt look-through)
+    hybrid_funds = [
+        {
+            "scheme": "ICICI Prudential Equity & Debt Fund - Direct Plan - Growth",
+            "category": "Hybrid",
+            "plan_type": "Direct",
+            "current_value": 1000000.0,  # 10 Lakhs
+            "debt": 35.0,  # 35% debt look-through = 3.5 Lakhs debt
+            "folio_no": "1111/01",
+            "source": "existing",
+            "validation": "valid",
+        }
+    ]
+
+    # Target SAA with 10% debt: Since current debt is 35% >= 10%, Stability Override MUST trigger
+    target_low_debt = TargetSaa(large_cap_pct=50.0, mid_small_cap_pct=25.0, flexi_multi_cap_pct=15.0, debt_pct=10.0)
+    bp_override = generate_fiduciary_sip_blueprint(
+        monthly_budget_inr=10000.0,
+        funds=hybrid_funds,
+        target_saa=target_low_debt,
+    )
+    assert bp_override["stability_override_applied"] is True, "Stability Buffer Override must trigger when hybrid debt >= target debt"
+    # All debt SIP budget is redirected to equity
+    debt_allocs = [a for a in bp_override["allocations"] if "Debt" in a["sleeve"]]
+    assert len(debt_allocs) == 0, "No new debt allocation should be added under Stability Override"
+
+    # Target SAA with 50% debt: Since current debt is 35% < 50%, Stability Override must NOT trigger
+    target_high_debt = TargetSaa(large_cap_pct=30.0, mid_small_cap_pct=20.0, flexi_multi_cap_pct=0.0, debt_pct=50.0)
+    bp_no_override = generate_fiduciary_sip_blueprint(
+        monthly_budget_inr=10000.0,
+        funds=hybrid_funds,
+        target_saa=target_high_debt,
+    )
+    assert bp_no_override["stability_override_applied"] is False
+
+
+def test_allocation_completeness_surfaces_omission_reasons():
+    """Allocation Completeness: When a sleeve cannot be allocated, explicit omission reasons are returned."""
+    # Target SAA requires 50% Large Cap and 50% Mid/Small Cap
+    target = TargetSaa(large_cap_pct=50.0, mid_small_cap_pct=50.0, flexi_multi_cap_pct=0.0, debt_pct=0.0)
+    
+    # Universe has NO mid-cap candidates passing eligibility (empty universe)
+    bp = generate_fiduciary_sip_blueprint(
+        monthly_budget_inr=10000.0,
+        funds=[],
+        target_saa=target,
+        fund_universe=[],  # Forces dynamic selection to fail for all sleeves
+    )
+    
+    assert bp["status"] == "NO_ACTION"
+    assert bp["reconciliation_valid"] is False
+    assert "omission_reasons" in bp
+    assert len(bp["omission_reasons"]) > 0
+    # Every omitted sleeve must be explicitly reported
+    omission_text = " ".join(bp["omission_reasons"])
+    assert "Large-Cap" in omission_text
+    assert "Mid/Small-Cap" in omission_text
+    assert any("Unallocated" in a.get("action", "") for a in bp["portfolio_completion_alerts"])

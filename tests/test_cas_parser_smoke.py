@@ -41,7 +41,8 @@ def test_parse_valid_cas():
     by_scheme = {f["scheme"]: f for f in funds}
 
     flexi = by_scheme["HDFC Flexi Cap Fund Direct Growth"]
-    assert flexi["category"] == "Equity"
+    assert flexi["asset_class"] == "Equity"
+    assert flexi["category"] == "Flexi Cap"
     assert flexi["eq"] == 100.0
     assert flexi["debt"] == 2.0
     assert flexi["current_value"] == 180600.0
