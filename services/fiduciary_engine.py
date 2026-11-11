@@ -437,7 +437,16 @@ def convert_cas_funds_to_holdings(funds: List[Dict[str, Any]]) -> List[HoldingIt
 
         s_name = str(f.get("scheme", "Unknown Scheme"))
         cat_raw = f.get("category")
-        if not cat_raw:
+        is_cat_verified = f.get("category_verified") is True
+
+        # Require verified category provenance; unverified categories are checked against authoritative master
+        if not is_cat_verified:
+            m_entry = resolve_authoritative_scheme(s_name)
+            if m_entry is not None:
+                is_cat_verified = True
+                cat_raw = m_entry.get("cat") or m_entry.get("category")
+
+        if not cat_raw or not is_cat_verified:
             ac = AssetClass.OTHER
         else:
             cat_str = str(cat_raw).strip().lower()
@@ -453,7 +462,7 @@ def convert_cas_funds_to_holdings(funds: List[Dict[str, Any]]) -> List[HoldingIt
             else:
                 ac = AssetClass.OTHER
 
-        # Determine measured exposure strictly through authenticated evidence
+        # Determine measured exposure strictly through authenticated evidence (single evidence path)
         is_exposure_verified = False
         v_debt = None
         v_eq = None
@@ -465,10 +474,6 @@ def convert_cas_funds_to_holdings(funds: List[Dict[str, Any]]) -> List[HoldingIt
                 is_exposure_verified = True
                 v_debt = evidence.get("debt_pct")
                 v_eq = evidence.get("equity_pct")
-        elif f.get("portfolio_exposure_verified") is True and f.get("verified_debt_pct") is not None:
-            is_exposure_verified = True
-            v_debt = f.get("verified_debt_pct")
-            v_eq = f.get("verified_equity_pct")
         else:
             # Check authoritative scheme master for authentic evidence
             m_entry = resolve_authoritative_scheme(s_name)
@@ -480,10 +485,6 @@ def convert_cas_funds_to_holdings(funds: List[Dict[str, Any]]) -> List[HoldingIt
                         is_exposure_verified = True
                         v_debt = m_ev.get("debt_pct")
                         v_eq = m_ev.get("equity_pct")
-                elif m_entry.get("as_of") and (m_entry.get("portfolio_debt_pct") is not None or m_entry.get("debt") is not None):
-                    is_exposure_verified = True
-                    v_debt = m_entry.get("portfolio_debt_pct") if m_entry.get("portfolio_debt_pct") is not None else m_entry.get("debt")
-                    v_eq = m_entry.get("eq")
 
         if is_exposure_verified and v_debt is not None:
             lookthrough_status = "VERIFIED"
@@ -499,8 +500,8 @@ def convert_cas_funds_to_holdings(funds: List[Dict[str, Any]]) -> List[HoldingIt
         plan_str = str(f.get("plan_type", "Direct")).upper()
         plan = PlanType.REGULAR if "REGULAR" in plan_str else PlanType.DIRECT
 
+        # Asset classes are strictly separated: gold/commodities are NEVER added to debt exposure
         gold_pct = float(f.get("gold", 0.0))
-        effective_debt_pct = min(debt_pct + gold_pct, 100.0)
 
         h = HoldingItem(
             fund_id=f"fund_{idx}_{s_name[:15]}",
@@ -510,7 +511,7 @@ def convert_cas_funds_to_holdings(funds: List[Dict[str, Any]]) -> List[HoldingIt
             plan=plan,
             asset_class=ac,
             equity_pct=eq_pct,
-            debt_pct=effective_debt_pct,
+            debt_pct=debt_pct,
             hybrid_pct=0.0,
             international_pct=0.0,
             current_value_inr=val,
@@ -858,9 +859,7 @@ def generate_fiduciary_sip_blueprint(
                         if is_ev_valid and ev.get("debt_pct") is not None:
                             raw_debt = ev["debt_pct"]
 
-                    if not is_ev_valid and f.get("portfolio_exposure_verified") is True and f.get("verified_debt_pct") is not None:
-                        raw_debt = f.get("verified_debt_pct")
-                    elif not is_ev_valid and "debt" not in f and "debt_pct" not in f and "verified_debt_pct" not in f:
+                    if not is_ev_valid and "debt" not in f and "debt_pct" not in f and "verified_debt_pct" not in f:
                         # 2. Try resolving via authoritative scheme master only if holding didn't supply unverified debt fields
                         try:
                             m_entry = resolve_authoritative_scheme(s_name)
@@ -870,20 +869,23 @@ def generate_fiduciary_sip_blueprint(
                                     m_ev_valid, _ = validate_exposure_evidence(m_ev, m_entry.get("sid"))
                                     if m_ev_valid and m_ev.get("debt_pct") is not None:
                                         raw_debt = m_ev["debt_pct"]
-                                elif m_entry.get("as_of") and (m_entry.get("portfolio_debt_pct") is not None or m_entry.get("debt") is not None):
-                                    raw_debt = (
-                                        m_entry.get("portfolio_debt_pct")
-                                        if m_entry.get("portfolio_debt_pct") is not None
-                                        else m_entry.get("debt")
-                                    )
                         except Exception:
                             pass
 
-                # 3. Pure statutory debt categories have 100% debt statutory floor
+                # 3. Pure statutory debt categories have 100% debt statutory floor (category MUST be verified)
                 if raw_debt is None:
-                    cat_lower = str(f.get("category", "")).strip().lower()
-                    if cat_lower in ["debt", "liquid", "money market", "overnight", "gilt", "income"]:
-                        raw_debt = 100.0
+                    is_cat_verified = f.get("category_verified") is True
+                    cat_val = f.get("category")
+                    if not is_cat_verified:
+                        m_entry = resolve_authoritative_scheme(s_name)
+                        if m_entry is not None:
+                            is_cat_verified = True
+                            cat_val = m_entry.get("cat") or m_entry.get("category")
+
+                    if is_cat_verified and cat_val:
+                        cat_lower = str(cat_val).strip().lower()
+                        if cat_lower in ["debt", "liquid", "money market", "overnight", "gilt", "income"]:
+                            raw_debt = 100.0
 
                 # 4. If raw_debt is still None, reject generic unverified debt/debt_pct fields
                 if raw_debt is None:

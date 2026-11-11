@@ -10,6 +10,7 @@ from __future__ import annotations
 import io
 import json
 import math
+import hashlib
 from datetime import datetime, date
 from collections import defaultdict
 from pathlib import Path
@@ -145,22 +146,28 @@ def validate_exposure_evidence(
     holding_scheme_code: Any | None = None,
     reference_date: date | None = None,
 ) -> tuple[bool, str]:
-    """Validate a structured portfolio exposure evidence record against fiduciary invariants.
+    """Validate a structured portfolio exposure evidence record against strict fiduciary invariants.
     
-    Invariants checked:
+    Invariants enforced:
     1. Structure: Evidence must be a non-empty dictionary.
     2. Allowlist: source_name must belong to ALLOWLISTED_EXPOSURE_SOURCES.
-    3. Document: source_document must be a non-empty string.
-    4. Scheme Identity: scheme_code must match holding_scheme_code (if both provided).
-    5. Reporting Period: ISO YYYY-MM-DD date, must not be in the future, must not be stale (> 365 days).
-    6. Retrieval Date: ISO YYYY-MM-DD date, must not be in the future.
-    7. Numeric Integrity: debt_pct and equity_pct must be finite numbers in [0.0, 100.0] and sum <= 100.05.
-    8. Verification State: is_verified must be explicitly True.
+    3. Document Existence: source_document must be a non-empty string referencing a real file on disk.
+    4. Document Integrity & Hash Verification: evidence_hash must be present, 64-hex chars, and verified
+       against the actual source document bytes / canonical record.
+    5. Source-Specific Validation: If the document is a JSON disclosure store, the source declared inside
+       must match source_name, and the scheme's exposure percentages must match the document data.
+    6. Scheme Identity: scheme_code in evidence is mandatory and must match holding_scheme_code (if provided).
+    7. Reporting Period: ISO YYYY-MM-DD date, must not be in the future, must not be stale (> 365 days).
+    8. Retrieval Date: ISO YYYY-MM-DD date, must not be in the future.
+    9. Numeric Integrity: debt_pct and equity_pct must be finite numbers in [0.0, 100.0] and sum <= 100.05.
+    10. Verification State: is_verified must be explicitly True.
     """
     if not isinstance(evidence, dict) or not evidence:
         return False, "Evidence record is missing or not a dictionary"
 
     source_name = str(evidence.get("source_name") or "").strip()
+    if not source_name:
+        return False, "Evidence missing source_name"
     if source_name not in ALLOWLISTED_EXPOSURE_SOURCES:
         return False, f"Unsupported exposure source: '{source_name}'. Allowed: {sorted(ALLOWLISTED_EXPOSURE_SOURCES)}"
 
@@ -170,6 +177,22 @@ def validate_exposure_evidence(
 
     if evidence.get("is_verified") is not True:
         return False, "Evidence is_verified flag must be True"
+
+    # Mandatory scheme_code
+    ev_scheme_code = evidence.get("scheme_code")
+    if ev_scheme_code is None or str(ev_scheme_code).strip() == "":
+        return False, "Evidence missing mandatory scheme_code"
+
+    if holding_scheme_code is not None:
+        if str(holding_scheme_code).strip() != str(ev_scheme_code).strip():
+            return False, f"Scheme code mismatch: evidence '{ev_scheme_code}' != holding '{holding_scheme_code}'"
+
+    # Mandatory evidence_hash
+    ev_hash = str(evidence.get("evidence_hash") or "").strip().lower()
+    if not ev_hash:
+        return False, "Evidence missing mandatory evidence_hash"
+    if len(ev_hash) != 64 or not all(c in "0123456789abcdef" for c in ev_hash):
+        return False, f"Malformed evidence_hash: '{ev_hash}' (expected 64-character hex string)"
 
     ref_dt = reference_date or date.today()
 
@@ -200,12 +223,6 @@ def validate_exposure_evidence(
     if ret_date > ref_dt:
         return False, f"Future retrieval_date rejected: {ret_date} > {ref_dt}"
 
-    # Scheme code identity match
-    ev_scheme_code = evidence.get("scheme_code")
-    if holding_scheme_code is not None and ev_scheme_code is not None:
-        if str(holding_scheme_code).strip() != str(ev_scheme_code).strip():
-            return False, f"Scheme code mismatch: evidence '{ev_scheme_code}' != holding '{holding_scheme_code}'"
-
     # Numeric bounds
     d_val = evidence.get("debt_pct")
     if d_val is not None:
@@ -228,6 +245,74 @@ def validate_exposure_evidence(
     if d_val is not None and e_val is not None:
         if float(d_val) + float(e_val) > 100.05:
             return False, f"Sum of debt_pct and equity_pct exceeds 100%: {float(d_val) + float(e_val)}"
+
+    # Source document physical presence check
+    base_dir = Path(__file__).resolve().parents[1]
+    candidate_paths = [
+        Path(source_doc),
+        base_dir / source_doc,
+        base_dir / "data" / "policy" / source_doc,
+        base_dir / "data" / "policy" / "disclosures" / source_doc,
+    ]
+    resolved_path: Path | None = None
+    for p in candidate_paths:
+        if p.is_file():
+            resolved_path = p
+            break
+
+    if resolved_path is None:
+        return False, f"Source document '{source_doc}' does not exist on disk"
+
+    # Verify actual source document bytes and hash
+    try:
+        doc_bytes = resolved_path.read_bytes()
+        file_sha256 = hashlib.sha256(doc_bytes).hexdigest().lower()
+    except Exception as exc:
+        return False, f"Failed to read source document '{source_doc}': {exc}"
+
+    # Canonical record hash verification
+    canonical_obj = {
+        "debt_pct": evidence.get("debt_pct"),
+        "equity_pct": evidence.get("equity_pct"),
+        "is_verified": True,
+        "reporting_period": rep_period_raw,
+        "retrieval_date": ret_date_raw,
+        "scheme_code": ev_scheme_code,
+        "source_document": source_doc,
+        "source_name": source_name,
+    }
+    canonical_record_hash = hashlib.sha256(json.dumps(canonical_obj, sort_keys=True).encode("utf-8")).hexdigest().lower()
+
+    alt_scheme_code = int(ev_scheme_code) if isinstance(ev_scheme_code, str) and ev_scheme_code.isdigit() else str(ev_scheme_code)
+    canonical_obj_alt = dict(canonical_obj, scheme_code=alt_scheme_code)
+    canonical_record_hash_alt = hashlib.sha256(json.dumps(canonical_obj_alt, sort_keys=True).encode("utf-8")).hexdigest().lower()
+
+    if ev_hash not in (canonical_record_hash, canonical_record_hash_alt, file_sha256):
+        return False, f"Evidence hash mismatch: '{ev_hash}' does not match canonical record hash or source document hash"
+
+    # Source-specific content validation if JSON
+    if resolved_path.suffix.lower() == ".json":
+        try:
+            doc_data = json.loads(doc_bytes.decode("utf-8"))
+            if isinstance(doc_data, dict):
+                meta = doc_data.get("_metadata")
+                if isinstance(meta, dict) and meta.get("source_name"):
+                    doc_src = str(meta["source_name"]).strip()
+                    if doc_src != source_name:
+                        return False, f"Source document declared source '{doc_src}' != evidence source '{source_name}'"
+
+                disclosures = doc_data.get("disclosures")
+                if isinstance(disclosures, dict):
+                    scheme_entry = disclosures.get(str(ev_scheme_code))
+                    if scheme_entry is not None and isinstance(scheme_entry, dict):
+                        doc_debt = scheme_entry.get("debt_pct")
+                        doc_eq = scheme_entry.get("equity_pct")
+                        if doc_debt is not None and d_val is not None and abs(float(doc_debt) - float(d_val)) > 0.01:
+                            return False, f"Evidence debt_pct {d_val} != source document debt_pct {doc_debt}"
+                        if doc_eq is not None and e_val is not None and abs(float(doc_eq) - float(e_val)) > 0.01:
+                            return False, f"Evidence equity_pct {e_val} != source document equity_pct {doc_eq}"
+        except Exception:
+            pass
 
     return True, "OK"
 
@@ -698,32 +783,11 @@ def parse_cas_file(file_obj: BinaryIO) -> list[dict]:
             else:
                 broad_asset_class = None
 
-            # Validate structured exposure evidence
+            # Validate structured exposure evidence strictly
             m_ev = master_entry.get("exposure_evidence")
             is_ev_valid = False
             if isinstance(m_ev, dict):
                 is_ev_valid, _ = validate_exposure_evidence(m_ev, scheme_code)
-            else:
-                as_of_val = master_entry.get("as_of")
-                debt_num = (
-                    master_entry.get("portfolio_debt_pct")
-                    if master_entry.get("portfolio_debt_pct") is not None
-                    else master_entry.get("debt")
-                )
-                if as_of_val and debt_num is not None:
-                    candidate_ev = {
-                        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
-                        "source_document": "sharpely_monthly_disclosure_2026_08.json",
-                        "scheme_code": scheme_code or scheme,
-                        "reporting_period": str(as_of_val).strip(),
-                        "retrieval_date": str(master_entry.get("retrieval_date") or "2026-11-07").strip(),
-                        "debt_pct": float(debt_num),
-                        "equity_pct": float(master_entry.get("eq")) if master_entry.get("eq") is not None else None,
-                        "is_verified": True,
-                    }
-                    is_ev_valid, _ = validate_exposure_evidence(candidate_ev, scheme_code)
-                    if is_ev_valid:
-                        m_ev = candidate_ev
 
             if is_ev_valid and m_ev:
                 portfolio_exposure_verified = True

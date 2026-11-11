@@ -578,21 +578,32 @@ def test_sip_target_validation_rejects_invalid_saa_inputs():
 
 def test_stability_buffer_override_hybrid_debt_look_through():
     """Stability Buffer Override: Correctly includes look-through debt component of hybrid funds."""
-    # Client holds an aggressive hybrid fund (65% equity, 35% debt look-through)
+    # Client holds an aggressive hybrid fund (72% equity, 28% debt look-through)
     hybrid_funds = [
         {
             "scheme": "ICICI Prudential Equity & Debt Fund - Direct Plan - Growth",
             "category": "Hybrid",
+            "category_verified": True,
             "plan_type": "Direct",
             "current_value": 1000000.0,  # 10 Lakhs
-            "debt": 35.0,  # 35% debt look-through = 3.5 Lakhs debt
             "folio_no": "1111/01",
             "source": "existing",
             "validation": "valid",
             "portfolio_exposure_verified": True,
-            "verified_debt_pct": 35.0,
+            "verified_debt_pct": 28.0,
             "exposure_source": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
             "exposure_as_of": "2026-08-31",
+            "exposure_evidence": {
+                "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
+                "source_document": "sharpely_monthly_disclosure_2026_08.json",
+                "scheme_code": "ICICI Pru Equity & Debt",
+                "reporting_period": "2026-08-31",
+                "retrieval_date": "2026-11-07",
+                "debt_pct": 28.0,
+                "equity_pct": 72.0,
+                "is_verified": True,
+                "evidence_hash": "c14664114a8075778b73a96a0eccdd8ad3a8cfb1cc56639ce9579ca045f88587",
+            },
         }
     ]
 
@@ -1100,20 +1111,20 @@ def test_evidence_validation_rejects_missing_and_malformed():
     assert not validate_exposure_evidence({})[0]
     assert not validate_exposure_evidence("not-a-dict")[0]
 
-    # Valid base template
+    # Valid base template backed by real file on disk and authentic canonical hash
     valid_base = {
         "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
-        "source_document": "HDFC_MF_Monthly_Portfolio_Disclosure_Oct_2026.xlsx",
-        "scheme_code": "120503",
-        "reporting_period": "2026-10-31",
-        "retrieval_date": "2026-11-05",
-        "verified_exposure": {"equity_pct": 98.0, "debt_pct": 2.0},
-        "equity_pct": 98.0,
-        "debt_pct": 2.0,
-        "evidence_hash": "a" * 64,
+        "source_document": "sharpely_monthly_disclosure_2026_08.json",
+        "scheme_code": 16055,
+        "reporting_period": "2026-08-31",
+        "retrieval_date": "2026-11-07",
+        "debt_pct": 23.86,
+        "equity_pct": 73.3,
+        "evidence_hash": "770993a53395eb00f6518cb75917797cdf8dc586c4e064e2fd5843d3494611e7",
         "is_verified": True,
     }
-    assert validate_exposure_evidence(valid_base, holding_scheme_code="120503", reference_date=ref_date)[0]
+    is_valid, msg = validate_exposure_evidence(valid_base, holding_scheme_code="16055", reference_date=ref_date)
+    assert is_valid, f"Expected valid_base to pass, got: {msg}"
 
     # 2. Unallowlisted source
     bad_source = dict(valid_base, source_name="BLOG_SCRAPER")
@@ -1163,6 +1174,84 @@ def test_evidence_validation_rejects_missing_and_malformed():
     assert "exceeds 100%" in msg.lower()
 
 
+def test_evidence_validation_rejects_missing_scheme_code():
+    """validate_exposure_evidence fails closed when evidence omits mandatory scheme_code."""
+    from datetime import date
+    from services.cas_parser import validate_exposure_evidence
+
+    ref_date = date(2026, 11, 11)
+    ev_no_code = {
+        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
+        "source_document": "sharpely_monthly_disclosure_2026_08.json",
+        "scheme_code": None,  # Missing mandatory scheme_code
+        "reporting_period": "2026-08-31",
+        "retrieval_date": "2026-11-07",
+        "debt_pct": 23.86,
+        "equity_pct": 73.3,
+        "evidence_hash": "770993a53395eb00f6518cb75917797cdf8dc586c4e064e2fd5843d3494611e7",
+        "is_verified": True,
+    }
+    is_valid, msg = validate_exposure_evidence(ev_no_code, reference_date=ref_date)
+    assert not is_valid
+    assert "missing mandatory scheme_code" in msg.lower()
+
+    ev_empty_code = dict(ev_no_code, scheme_code="")
+    assert not validate_exposure_evidence(ev_empty_code, reference_date=ref_date)[0]
+
+
+def test_evidence_validation_rejects_non_existent_source_document():
+    """validate_exposure_evidence fails closed when referenced source_document does not exist on disk."""
+    from datetime import date
+    from services.cas_parser import validate_exposure_evidence
+
+    ref_date = date(2026, 11, 11)
+    ev_missing_file = {
+        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
+        "source_document": "ghost_portfolio_disclosure_never_existed.json",
+        "scheme_code": 16055,
+        "reporting_period": "2026-08-31",
+        "retrieval_date": "2026-11-07",
+        "debt_pct": 23.86,
+        "equity_pct": 73.3,
+        "evidence_hash": "770993a53395eb00f6518cb75917797cdf8dc586c4e064e2fd5843d3494611e7",
+        "is_verified": True,
+    }
+    is_valid, msg = validate_exposure_evidence(ev_missing_file, reference_date=ref_date)
+    assert not is_valid
+    assert "does not exist on disk" in msg.lower()
+
+
+def test_evidence_validation_rejects_fake_and_mismatched_evidence_hash():
+    """validate_exposure_evidence fails closed on malformed or fabricated evidence hashes."""
+    from datetime import date
+    from services.cas_parser import validate_exposure_evidence
+
+    ref_date = date(2026, 11, 11)
+    base = {
+        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
+        "source_document": "sharpely_monthly_disclosure_2026_08.json",
+        "scheme_code": 16055,
+        "reporting_period": "2026-08-31",
+        "retrieval_date": "2026-11-07",
+        "debt_pct": 23.86,
+        "equity_pct": 73.3,
+        "is_verified": True,
+    }
+
+    # 1. Missing hash
+    assert not validate_exposure_evidence(dict(base, evidence_hash=""), reference_date=ref_date)[0]
+
+    # 2. Malformed length / non-hex
+    assert not validate_exposure_evidence(dict(base, evidence_hash="short_hash"), reference_date=ref_date)[0]
+    assert not validate_exposure_evidence(dict(base, evidence_hash="z" * 64), reference_date=ref_date)[0]
+
+    # 3. Fabricated hash that does not match canonical document bytes
+    fake_hash_ev = dict(base, evidence_hash="0" * 64)
+    is_valid, msg = validate_exposure_evidence(fake_hash_ev, reference_date=ref_date)
+    assert not is_valid
+    assert "evidence hash mismatch" in msg.lower()
+
+
 def test_evidence_validation_rejects_future_dates():
     """validate_exposure_evidence rejects future reporting periods and future retrieval dates."""
     from datetime import date
@@ -1172,12 +1261,13 @@ def test_evidence_validation_rejects_future_dates():
 
     future_rep = {
         "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
-        "source_document": "Future_Disclosure.xlsx",
-        "scheme_code": "120503",
+        "source_document": "sharpely_monthly_disclosure_2026_08.json",
+        "scheme_code": 16055,
         "reporting_period": "2026-12-31",  # Future relative to 2026-11-11
         "retrieval_date": "2026-11-05",
-        "equity_pct": 98.0,
-        "debt_pct": 2.0,
+        "equity_pct": 73.3,
+        "debt_pct": 23.86,
+        "evidence_hash": "770993a53395eb00f6518cb75917797cdf8dc586c4e064e2fd5843d3494611e7",
         "is_verified": True,
     }
     is_valid, msg = validate_exposure_evidence(future_rep, reference_date=ref_date)
@@ -1186,12 +1276,13 @@ def test_evidence_validation_rejects_future_dates():
 
     future_ret = {
         "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
-        "source_document": "Future_Retrieval.xlsx",
-        "scheme_code": "120503",
-        "reporting_period": "2026-10-31",
+        "source_document": "sharpely_monthly_disclosure_2026_08.json",
+        "scheme_code": 16055,
+        "reporting_period": "2026-08-31",
         "retrieval_date": "2026-11-20",  # Future relative to 2026-11-11
-        "equity_pct": 98.0,
-        "debt_pct": 2.0,
+        "equity_pct": 73.3,
+        "debt_pct": 23.86,
+        "evidence_hash": "770993a53395eb00f6518cb75917797cdf8dc586c4e064e2fd5843d3494611e7",
         "is_verified": True,
     }
     is_valid, msg = validate_exposure_evidence(future_ret, reference_date=ref_date)
@@ -1207,13 +1298,14 @@ def test_evidence_validation_rejects_stale_dates():
     ref_date = date(2026, 11, 11)
 
     stale_evidence = {
-        "source_name": "AMFI_SEBI_OFFICIAL_DISCLOSURE",
-        "source_document": "AMFI_Historical_2025.xlsx",
-        "scheme_code": "120503",
+        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
+        "source_document": "sharpely_monthly_disclosure_2026_08.json",
+        "scheme_code": 16055,
         "reporting_period": "2025-10-31",  # ~376 days before 2026-11-11
         "retrieval_date": "2026-11-05",
-        "equity_pct": 98.0,
-        "debt_pct": 2.0,
+        "equity_pct": 73.3,
+        "debt_pct": 23.86,
+        "evidence_hash": "770993a53395eb00f6518cb75917797cdf8dc586c4e064e2fd5843d3494611e7",
         "is_verified": True,
     }
     is_valid, msg = validate_exposure_evidence(stale_evidence, reference_date=ref_date)
@@ -1230,12 +1322,13 @@ def test_evidence_validation_rejects_mismatched_scheme_code():
 
     mismatched_evidence = {
         "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
-        "source_document": "HDFC_Monthly.xlsx",
-        "scheme_code": "120503",  # Evidence is for 120503
-        "reporting_period": "2026-10-31",
-        "retrieval_date": "2026-11-05",
-        "equity_pct": 98.0,
-        "debt_pct": 2.0,
+        "source_document": "sharpely_monthly_disclosure_2026_08.json",
+        "scheme_code": 16055,
+        "reporting_period": "2026-08-31",
+        "retrieval_date": "2026-11-07",
+        "equity_pct": 73.3,
+        "debt_pct": 23.86,
+        "evidence_hash": "770993a53395eb00f6518cb75917797cdf8dc586c4e064e2fd5843d3494611e7",
         "is_verified": True,
     }
     # Holding scheme code is 999999
@@ -1244,7 +1337,7 @@ def test_evidence_validation_rejects_mismatched_scheme_code():
     assert "scheme code mismatch" in msg.lower()
 
     # Exact match passes
-    is_valid_match, _ = validate_exposure_evidence(mismatched_evidence, holding_scheme_code="120503", reference_date=ref_date)
+    is_valid_match, _ = validate_exposure_evidence(mismatched_evidence, holding_scheme_code="16055", reference_date=ref_date)
     assert is_valid_match
 
 
@@ -1287,6 +1380,7 @@ def test_convert_cas_funds_does_not_manufacture_percentages_from_category():
     unverified_hybrid = {
         "scheme": "Unverified Generic Hybrid Fund Direct Growth",
         "category": "Balanced Advantage",
+        "category_verified": True,
         "plan_type": "Direct",
         "current_value": 200000.0,
         "invested_value": 180000.0,
@@ -1354,8 +1448,9 @@ def test_changing_display_estimates_does_not_alter_fiduciary_recommendations():
     base_fund = {
         "scheme": "Parag Parikh Flexi Cap Fund - Direct Plan - Growth",
         "canonical_scheme_name": "Parag Parikh Flexi Cap Fund",
-        "scheme_code": "122639",
+        "scheme_code": 19701,
         "category": "Flexi Cap",
+        "category_verified": True,
         "plan_type": "Direct",
         "current_value": 500000.0,
         "invested_value": 400000.0,
@@ -1371,14 +1466,13 @@ def test_changing_display_estimates_does_not_alter_fiduciary_recommendations():
         "exposure_as_of": "2026-08-31",
         "exposure_evidence": {
             "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
-            "source_document": "PPFAS_Factsheet_Aug_2026.pdf",
-            "scheme_code": "122639",
+            "source_document": "sharpely_monthly_disclosure_2026_08.json",
+            "scheme_code": 19701,
             "reporting_period": "2026-08-31",
             "retrieval_date": "2026-11-07",
-            "verified_exposure": {"equity_pct": 82.24, "debt_pct": 6.26, "cash_pct": 11.5},
             "equity_pct": 82.24,
             "debt_pct": 6.26,
-            "evidence_hash": "c" * 64,
+            "evidence_hash": "4ab21447b76b35111961599558592329b62f44b8cea0362792cbb72ca1b36330",
             "is_verified": True,
         },
         # Display estimates
@@ -1417,4 +1511,127 @@ def test_changing_display_estimates_does_not_alter_fiduciary_recommendations():
     assert bp1["status"] == bp2["status"]
     assert bp1["allocations"] == bp2["allocations"]
     assert bp1["stability_override_applied"] == bp2["stability_override_applied"]
+
+
+def test_convert_cas_funds_rejects_legacy_boolean_bypass():
+    """Supplying portfolio_exposure_verified=True and verified_debt_pct without structured evidence fails closed."""
+    from services.fiduciary_engine import convert_cas_funds_to_holdings
+
+    bypass_fund = {
+        "scheme": "Adversarial Mystery Fund Direct Growth",
+        "category": "Debt",
+        "category_verified": False,
+        "plan_type": "Direct",
+        "current_value": 100000.0,
+        "invested_value": 90000.0,
+        "units": 1000.0,
+        "nav": 100.0,
+        "folio_no": "BYPASS-01",
+        "source": "existing",
+        "validation": "valid",
+        # Legacy boolean bypass attempt:
+        "portfolio_exposure_verified": True,
+        "verified_debt_pct": 50.0,
+        "verified_equity_pct": 50.0,
+        # NO exposure_evidence dict!
+    }
+
+    holdings = convert_cas_funds_to_holdings([bypass_fund])
+    assert len(holdings) == 1
+    h = holdings[0]
+    # Legacy bypass must be rejected
+    assert h.lookthrough_status == "INDETERMINATE"
+    assert h.debt_pct == 0.0
+    assert h.equity_pct == 0.0
+
+
+def test_generate_sip_blueprint_rejects_legacy_boolean_and_as_of_bypass():
+    """generate_fiduciary_sip_blueprint withholds stability override if holding lacks valid exposure evidence."""
+    from services.fiduciary_engine import generate_fiduciary_sip_blueprint
+    from services.risk_profiler import TargetSaa
+
+    bypass_funds = [
+        {
+            "scheme": "Adversarial Mystery Liquid Direct Growth",
+            "category": "Debt",
+            "category_verified": False,
+            "plan_type": "Direct",
+            "current_value": 500000.0,
+            "folio_no": "BYPASS-02",
+            "source": "existing",
+            "validation": "valid",
+            "portfolio_exposure_verified": True,
+            "verified_debt_pct": 100.0,
+            # No valid exposure_evidence dict
+        }
+    ]
+    target = TargetSaa(large_cap_pct=50.0, mid_small_cap_pct=25.0, flexi_multi_cap_pct=0.0, debt_pct=25.0)
+    bp = generate_fiduciary_sip_blueprint(monthly_budget_inr=10000.0, funds=bypass_funds, target_saa=target)
+
+    # Legacy bypass cannot activate stability override
+    assert bp["stability_override_applied"] is False
+
+
+def test_gold_exposure_is_never_added_to_debt():
+    """Gold / commodities exposure is kept separate and is never added to debt_pct."""
+    from services.fiduciary_engine import convert_cas_funds_to_holdings
+
+    multi_asset_holding = {
+        "scheme": "Adversarial Multi Asset Allocation Direct Growth",
+        "category": "Multi Asset Allocation",
+        "category_verified": False,
+        "plan_type": "Direct",
+        "current_value": 200000.0,
+        "invested_value": 180000.0,
+        "units": 2000.0,
+        "nav": 100.0,
+        "folio_no": "GOLD-01",
+        "source": "existing",
+        "validation": "valid",
+        "gold": 25.0,
+        "exposure_evidence": {
+            "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
+            "source_document": "sharpely_monthly_disclosure_2026_08.json",
+            "scheme_code": 16055,
+            "reporting_period": "2026-08-31",
+            "retrieval_date": "2026-11-07",
+            "debt_pct": 23.86,
+            "equity_pct": 73.3,
+            "evidence_hash": "770993a53395eb00f6518cb75917797cdf8dc586c4e064e2fd5843d3494611e7",
+            "is_verified": True,
+        },
+    }
+
+    holdings = convert_cas_funds_to_holdings([multi_asset_holding])
+    assert len(holdings) == 1
+    h = holdings[0]
+    # debt_pct must be strictly the measured debt (23.86%), NOT 23.86 + 25.0 = 48.86%!
+    assert h.debt_pct == 23.86, f"Gold was incorrectly added to debt! Got {h.debt_pct}, expected 23.86"
+
+
+def test_category_provenance_requires_verified_category():
+    """Unverified categories on unknown schemes are mapped to AssetClass.OTHER and rejected."""
+    from services.fiduciary_engine import convert_cas_funds_to_holdings
+    from core.models import AssetClass
+
+    unverified_claim = {
+        "scheme": "Unregistered Mystery Fund Direct Growth",
+        "category": "Liquid",  # Self-declared liquid
+        "category_verified": False,  # Not verified!
+        "plan_type": "Direct",
+        "current_value": 100000.0,
+        "invested_value": 90000.0,
+        "units": 1000.0,
+        "nav": 100.0,
+        "folio_no": "UNV-01",
+        "source": "existing",
+        "validation": "valid",
+    }
+
+    holdings = convert_cas_funds_to_holdings([unverified_claim])
+    assert len(holdings) == 1
+    h = holdings[0]
+    # Unverified category cannot map to AssetClass.DEBT
+    assert h.asset_class == AssetClass.OTHER
+
 
