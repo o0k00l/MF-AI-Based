@@ -415,8 +415,6 @@ def lookup_fund_segment_allocation_online(scheme_name: str, timeout_sec: float =
         return dict(_ONLINE_LOOKTHROUGH_CACHE[scheme_name])
 
     try:
-        import lxml.html
-
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
         }
@@ -426,10 +424,7 @@ def lookup_fund_segment_allocation_online(scheme_name: str, timeout_sec: float =
         req = urllib.request.Request(url, data=data, headers=headers)
         with urllib.request.urlopen(req, timeout=timeout_sec) as resp:
             html = resp.read().decode("utf-8", errors="ignore")
-            doc = lxml.html.fromstring(html)
-            links = doc.xpath('//a[@class="result-link"]/@href')
-            if not links:
-                links = doc.xpath('//a/@href')
+            links = re.findall(r'href="([^"]+)"', html) + re.findall(r"href='([^']+)'", html)
             et_url = next((l for l in links if "etmoney.com/mutual-funds/" in l and "portfolio-details" in l), None)
             if not et_url:
                 et_url = next((l for l in links if "etmoney.com/mutual-funds/" in l), None)
