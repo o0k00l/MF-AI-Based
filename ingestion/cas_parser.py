@@ -1619,6 +1619,7 @@ def detect_active_sips_from_cas(
     max_history_days: int = 180,
     require_explicit_as_of: bool = True,
     active_mandates: list[dict] | None = None,
+    require_authenticated_mandates: bool = False,
 ) -> dict:
     """
     GAP-109: Transaction-Led Active Monthly SIP Periodicity Discovery.
@@ -1717,8 +1718,19 @@ def detect_active_sips_from_cas(
                     break
 
         has_explicit_active = (mandate_status in ("ACTIVE", "LIVE", "ACT", "CONFIRMED"))
-        # Authenticated mandate requires BOTH stable mandate reference AND confirmed active status
-        has_auth_mandate = bool(mandate_id) and has_explicit_active
+        mandate_source_val = str(t.get("mandate_source", "") or ("AUTHENTICATED_MANDATE_SCHEDULE" if active_mandates else "")).strip()
+        is_mandate_source_authenticated = (
+            mandate_source_val in ("REGISTRAR_CAS_UMRN", "REGISTRAR_CAS_REGN", "AUTHENTICATED_MANDATE_SCHEDULE")
+            or bool(t.get("mandate_authenticated"))
+            or bool(t.get("is_mandate_authenticated"))
+        )
+
+        if require_authenticated_mandates and not is_mandate_source_authenticated:
+            # Caller-supplied mandate declaration without independent registrar evidence
+            has_auth_mandate = False
+        else:
+            # Authenticated mandate requires BOTH stable mandate reference AND confirmed active status
+            has_auth_mandate = bool(mandate_id) and has_explicit_active
         is_paused_or_cancelled = mandate_status in ("PAUSED", "CANCELLED", "EXPIRED", "SUSPENDED", "INACTIVE", "FAILED")
 
         if is_paused_or_cancelled:

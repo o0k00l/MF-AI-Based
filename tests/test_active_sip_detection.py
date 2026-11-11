@@ -396,3 +396,21 @@ def test_e2e_cas_workbook_with_active_mandate_sheet_schedule():
     assert res["active_sips"][0]["scheme"] == "Scheme Confirmed Schedule"
     assert res["active_sips"][0]["confidence"] == "ACTIVE_MANDATE_VERIFIED"
     assert res["active_sips"][0]["evidence_level"] == "ACTIVE_MANDATE_CONFIRMED"
+
+
+def test_detect_active_sips_enforces_authenticated_mandate_source_under_strict_contract():
+    """P1 invariant: Under strict mandate authentication, caller-supplied mandate IDs
+    without registrar statement provenance (schedule binding or UMRN) are withheld from active SIPs.
+    """
+    unauthenticated_caller_txs = [
+        {"folio": "F1", "scheme": "Scheme A", "date": "2026-09-05", "type": "SIP", "description": "SIP debit", "amount": 5000.0, "mandate_id": "MND-CALLER-DECLARED", "mandate_status": "ACTIVE"},
+        {"folio": "F1", "scheme": "Scheme A", "date": "2026-10-05", "type": "SIP", "description": "SIP debit", "amount": 5000.0, "mandate_id": "MND-CALLER-DECLARED", "mandate_status": "ACTIVE"},
+    ]
+    # Without strict contract: legacy acceptance
+    res_legacy = detect_active_sips_from_cas(unauthenticated_caller_txs, as_of="2026-10-15", require_authenticated_mandates=False)
+    assert res_legacy["active_sip_count"] == 1
+
+    # Under strict mandate authentication: rejected from active_sips
+    res_strict = detect_active_sips_from_cas(unauthenticated_caller_txs, as_of="2026-10-15", require_authenticated_mandates=True)
+    assert res_strict["active_sip_count"] == 0
+    assert res_strict["total_monthly_sip"] == 0.0

@@ -42,33 +42,52 @@ def compute_expected_cagr(
     horizon_years: int,
     target_saa: Any = None,
 ) -> float:
-    """Return realistic market-standard portfolio CAGR based on horizon and SAA target."""
+    """Return illustrative planning baseline portfolio CAGR based on horizon and target SAA.
+
+    Fiduciary Notice: These figures represent long-term capital-market planning assumptions
+    (e.g., Equity 12.0%, Debt 7.0%), NOT guaranteed, verified, or predictive returns.
+    """
     if target_saa is not None:
-        if hasattr(target_saa, "total_equity_pct"):
+        if hasattr(target_saa, "total_equity_pct") and hasattr(target_saa, "debt_pct"):
             eq_pct = float(target_saa.total_equity_pct)
             db_pct = float(target_saa.debt_pct)
         elif isinstance(target_saa, dict):
-            eq_pct = float(target_saa.get("total_equity_pct", target_saa.get("large_cap_pct", 0) + target_saa.get("mid_small_cap_pct", 0)))
-            db_pct = float(target_saa.get("debt_pct", max(0.0, 100.0 - eq_pct)))
+            if "total_equity_pct" in target_saa:
+                eq_pct = float(target_saa["total_equity_pct"])
+                db_pct = float(target_saa.get("debt_pct", max(0.0, 100.0 - eq_pct)))
+            elif "large_cap_pct" in target_saa or "mid_small_cap_pct" in target_saa:
+                eq_pct = float(target_saa.get("large_cap_pct", 0.0) + target_saa.get("mid_small_cap_pct", 0.0))
+                db_pct = float(target_saa.get("debt_pct", max(0.0, 100.0 - eq_pct)))
+            elif "equity_pct" in target_saa:
+                eq_pct = float(target_saa["equity_pct"])
+                db_pct = float(target_saa.get("debt_pct", max(0.0, 100.0 - eq_pct)))
+            else:
+                raise ValueError(
+                    f"Unsupported target_saa dict structure: missing equity/debt keys ({list(target_saa.keys())}). "
+                    f"Silent fallback allocations are prohibited."
+                )
         else:
-            eq_pct = 70.0
-            db_pct = 30.0
+            raise ValueError(
+                f"Unsupported target_saa type: {type(target_saa).__name__}. "
+                f"Must provide a valid mapping or SAA object with equity/debt attributes."
+            )
 
         blended = ((eq_pct / 100.0) * 12.0) + ((db_pct / 100.0) * 7.0)
         if horizon_years < 3:
             blended = min(blended, 7.5)
         return round(blended, 2)
 
+    # Baseline capital market planning curve (when SAA is unconfigured)
     if horizon_years < 3:
-        return 7.5   # Liquid / Arbitrage
+        return 7.5   # Liquid / Arbitrage illustrative planning baseline
     elif horizon_years <= 5:
-        return 8.5   # Conservative / Hybrid
+        return 8.5   # Conservative / Hybrid illustrative planning baseline
     elif horizon_years <= 8:
-        return 10.5  # Balanced Advantage / Large Cap
+        return 10.5  # Balanced Advantage / Large Cap illustrative planning baseline
     elif horizon_years <= 12:
-        return 11.5  # Multi / Flexi Cap
+        return 11.5  # Multi / Flexi Cap illustrative planning baseline
     else:
-        return 12.0  # Core Long-Term Equities
+        return 12.0  # Core Long-Term Equities illustrative planning baseline
 
 
 def calculate_future_value(present_value: float, annual_rate_pct: float, years: int) -> float:
@@ -78,14 +97,45 @@ def calculate_future_value(present_value: float, annual_rate_pct: float, years: 
     return present_value * ((1.0 + (annual_rate_pct / 100.0)) ** years)
 
 
-def calculate_flat_monthly_sip(future_value_needed: float, annual_cagr_pct: float, years: int) -> float:
-    """Calculate required constant monthly SIP at given annual CAGR."""
+def calculate_flat_monthly_sip(
+    future_value_needed: float,
+    annual_cagr_pct: float,
+    years: int,
+    *,
+    timing: str = "beginning_of_period",
+    use_effective_rate: bool = True,
+) -> float:
+    """Calculate required constant monthly SIP at given annual CAGR.
+
+    Timing conventions:
+    - 'beginning_of_period' (annuity due): Contributions occur at start of month (standard mutual fund SIP).
+    - 'end_of_period' (ordinary annuity): Contributions occur at end of month.
+
+    Rate conventions:
+    - use_effective_rate=True: Monthly rate r_mo = (1 + R)^(1/12) - 1, exactly consistent with annual compounding.
+    - use_effective_rate=False: Monthly rate r_mo = R / 12 (nominal rate).
+    """
     if future_value_needed <= 0 or years <= 0:
         return 0.0
-    r_mo = (annual_cagr_pct / 100.0) / 12.0
     n_mo = years * 12
-    # FV factor = ((1 + r)^n - 1) / r
+
+    if annual_cagr_pct <= 0:
+        return future_value_needed / n_mo
+
+    r_annual = annual_cagr_pct / 100.0
+    if use_effective_rate:
+        r_mo = ((1.0 + r_annual) ** (1.0 / 12.0)) - 1.0
+    else:
+        r_mo = r_annual / 12.0
+
+    if r_mo <= 0:
+        return future_value_needed / n_mo
+
+    # Ordinary annuity factor = ((1 + r)^n - 1) / r
     fv_factor = (((1.0 + r_mo) ** n_mo) - 1.0) / r_mo
+    if timing == "beginning_of_period":
+        fv_factor *= (1.0 + r_mo)
+
     return future_value_needed / fv_factor
 
 
@@ -94,31 +144,54 @@ def calculate_step_up_initial_sip(
     annual_cagr_pct: float,
     years: int,
     annual_step_up_pct: float = 10.0,
+    *,
+    timing: str = "beginning_of_period",
+    use_effective_rate: bool = True,
 ) -> float:
     """Calculate initial (Month 1) SIP required with an annual step-up percentage.
 
-    With annual step-up, the SIP increases by `annual_step_up_pct` every 12 months.
-    This solves for the starting monthly SIP.
+    Uses the exact same contribution timing and compounding rate conventions as
+    calculate_flat_monthly_sip to ensure mathematical consistency.
     """
     if future_value_needed <= 0 or years <= 0:
         return 0.0
     if annual_step_up_pct <= 0:
-        return calculate_flat_monthly_sip(future_value_needed, annual_cagr_pct, years)
+        return calculate_flat_monthly_sip(
+            future_value_needed,
+            annual_cagr_pct,
+            years,
+            timing=timing,
+            use_effective_rate=use_effective_rate,
+        )
 
-    r_mo = (annual_cagr_pct / 100.0) / 12.0
     total_months = years * 12
+    if annual_cagr_pct <= 0:
+        r_mo = 0.0
+    elif use_effective_rate:
+        r_mo = ((1.0 + (annual_cagr_pct / 100.0)) ** (1.0 / 12.0)) - 1.0
+    else:
+        r_mo = (annual_cagr_pct / 100.0) / 12.0
 
     # Simulate accumulation of 1 Rupee initial SIP to find scaling multiplier
     accumulated_per_rupee = 0.0
     for m in range(total_months):
         year_idx = m // 12
         step_multiplier = (1.0 + (annual_step_up_pct / 100.0)) ** year_idx
-        months_remaining = total_months - m
-        compounded_growth = (1.0 + r_mo) ** months_remaining
+        if timing == "beginning_of_period":
+            months_remaining = total_months - m
+        else:
+            months_remaining = total_months - 1 - m
+        compounded_growth = ((1.0 + r_mo) ** months_remaining) if r_mo > 0 else 1.0
         accumulated_per_rupee += step_multiplier * compounded_growth
 
     if accumulated_per_rupee <= 0:
-        return calculate_flat_monthly_sip(future_value_needed, annual_cagr_pct, years)
+        return calculate_flat_monthly_sip(
+            future_value_needed,
+            annual_cagr_pct,
+            years,
+            timing=timing,
+            use_effective_rate=use_effective_rate,
+        )
 
     return future_value_needed / accumulated_per_rupee
 
@@ -229,27 +302,40 @@ def plan_goal(
 def decompose_sip_to_asset_sleeves(
     monthly_sip_inr: float,
     target_saa: Any = None,
-) -> dict[str, float]:
-    """Decompose monthly SIP amount into Large Cap, Mid/Small Cap, and Debt sleeves based on SAA."""
+) -> dict[str, Any]:
+    """Decompose monthly SIP amount into Large Cap, Mid/Small Cap, and Debt sleeves based on approved SAA.
+
+    Fiduciary requirement: When target_saa is not configured, sleeve decomposition is withheld
+    to prevent unguided or silently invented portfolio allocations.
+    """
     if monthly_sip_inr <= 0:
-        return {"large_cap_inr": 0.0, "mid_small_cap_inr": 0.0, "debt_inr": 0.0}
+        return {"large_cap_inr": 0.0, "mid_small_cap_inr": 0.0, "debt_inr": 0.0, "status": "ZERO_AMOUNT"}
     if target_saa is None:
-        lc_pct, ms_pct, db_pct = 50.0, 25.0, 25.0
-    elif hasattr(target_saa, "large_cap_pct"):
+        return {
+            "large_cap_inr": 0.0,
+            "mid_small_cap_inr": 0.0,
+            "debt_inr": 0.0,
+            "status": "UNCONFIGURED_SAA",
+            "message": "Strategic Asset Allocation (SAA) is unconfigured; sleeve decomposition withheld.",
+        }
+    elif hasattr(target_saa, "large_cap_pct") and hasattr(target_saa, "mid_small_cap_pct") and hasattr(target_saa, "debt_pct"):
         lc_pct = float(target_saa.large_cap_pct)
         ms_pct = float(target_saa.mid_small_cap_pct)
         db_pct = float(target_saa.debt_pct)
     elif isinstance(target_saa, dict):
-        lc_pct = float(target_saa.get("large_cap_pct", 50.0))
-        ms_pct = float(target_saa.get("mid_small_cap_pct", 25.0))
-        db_pct = float(target_saa.get("debt_pct", 25.0))
+        if not ("large_cap_pct" in target_saa or "mid_small_cap_pct" in target_saa or "debt_pct" in target_saa):
+            raise ValueError("target_saa mapping must contain approved sleeve percentages (large_cap_pct, mid_small_cap_pct, debt_pct)")
+        lc_pct = float(target_saa.get("large_cap_pct", 0.0))
+        ms_pct = float(target_saa.get("mid_small_cap_pct", 0.0))
+        db_pct = float(target_saa.get("debt_pct", 0.0))
     else:
-        lc_pct, ms_pct, db_pct = 50.0, 25.0, 25.0
+        raise ValueError(f"Unsupported target_saa type: {type(target_saa).__name__}. Silent fallback allocations prohibited.")
 
     return {
         "large_cap_inr": round(monthly_sip_inr * (lc_pct / 100.0), 2),
         "mid_small_cap_inr": round(monthly_sip_inr * (ms_pct / 100.0), 2),
         "debt_inr": round(monthly_sip_inr * (db_pct / 100.0), 2),
+        "status": "DECOMPOSED",
     }
 
 

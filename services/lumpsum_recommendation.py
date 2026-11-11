@@ -9,6 +9,7 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 import json
 from pathlib import Path
+import re
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from core.math_engine import (
@@ -154,7 +155,7 @@ def evaluate_portfolio_aware_lumpsum(
     parking_amount = (mandate.lumpsum_budget_inr * Decimal(str(parking_ratio))).quantize(Decimal("0.01"))
     stp_amount = (mandate.lumpsum_budget_inr - parking_amount).quantize(Decimal("0.01"))
 
-    # 5. Parking Candidate Availability & Strict Identity/Eligibility
+    # 5. Parking Candidate Availability & Strict Identity/Eligibility/Provenance
     candidate_univ = bundle_evidence.get("candidate_universe", [])
     valid_parking_candidates: List[Dict[str, Any]] = []
     for c in candidate_univ:
@@ -162,25 +163,45 @@ def evaluate_portfolio_aware_lumpsum(
             continue
         if c.get("category") != "Arbitrage":
             continue
+        # Direct-plan enforcement: must be explicitly Direct and not Regular
         if c.get("plan_type") != "Direct" and c.get("is_direct") is not True:
             continue
+        if c.get("plan_type") == "Regular" or c.get("is_direct") is False:
+            continue
+
         lifecycle = str(c.get("lifecycle_status", "ACTIVE")).strip().upper()
         if lifecycle not in ("ACTIVE", "VERIFIED"):
             continue
         if c.get("is_eligible") is False or c.get("eligibility_status") in ("FAIL", "FAILED", "REJECTED"):
             continue
+
+        # Exact scheme identity: must have both scheme name and valid scheme identifier
         scheme_name = c.get("scheme_name") or c.get("fund_name")
         if not scheme_name or not str(scheme_name).strip():
             continue
-        has_source = bool(
-            c.get("_provenance")
-            or c.get("source_url")
-            or c.get("source_document_sha256")
-            or c.get("as_of_date")
-            or c.get("nav_date")
-        )
-        if not has_source:
+        isin = str(c.get("isin", "")).strip().upper()
+        fund_id = str(c.get("fund_id", "") or c.get("scheme_code", "")).strip()
+        has_valid_isin = bool(re.match(r"^[A-Z]{2}[A-Z0-9]{9}[0-9]$", isin))
+        has_valid_id = bool(fund_id) or has_valid_isin
+        if not has_valid_id:
             continue
+
+        # Dated source observation (ISO format YYYY-MM-DD)
+        as_of_dt = str(c.get("as_of_date", "") or c.get("nav_date", "") or "").strip()
+        if not as_of_dt or not re.match(r"^\d{4}-\d{2}-\d{2}", as_of_dt):
+            continue
+
+        # Digest / Cryptographic Source Validation:
+        # A bare source_url or bare date is NOT sufficient source evidence.
+        # Must provide document digest (source_document_sha256/evidence_hash) or verified provenance envelope.
+        doc_hash = str(c.get("source_document_sha256", "") or c.get("evidence_hash", "") or "").strip()
+        has_valid_hash = bool(re.match(r"^[a-fA-F0-9]{64}$", doc_hash))
+        prov = c.get("_provenance") or c.get("provenance")
+        has_prov_envelope = isinstance(prov, dict) and bool(prov.get("source_document_sha256") or prov.get("evidence_hash") or prov.get("signature"))
+        has_authenticated_source = has_valid_hash or has_prov_envelope
+        if not has_authenticated_source:
+            continue
+
         valid_parking_candidates.append(c)
 
     if not valid_parking_candidates:

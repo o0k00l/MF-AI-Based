@@ -355,6 +355,7 @@ def test_lumpsum_weighted_lookthrough_and_parking_validation(tmp_path, monkeypat
                     "isin": "INF174K01LS2",
                     "source_url": "https://kotakmf.com/factsheet",
                     "as_of_date": "2026-10-31",
+                    "source_document_sha256": "a" * 64,
                 }
             ],
         }
@@ -368,3 +369,66 @@ def test_lumpsum_weighted_lookthrough_and_parking_validation(tmp_path, monkeypat
     assert res_valid.unallocated_amount_inr == Decimal("400000")
     assert len(res_valid.candidate_allocations) == 1
     assert res_valid.candidate_allocations[0]["scheme_name"] == "Kotak Equity Arbitrage Direct Growth"
+
+
+def test_lumpsum_rejects_candidate_with_weak_or_unhashed_source_evidence(tmp_path, monkeypatch):
+    """P1 invariant: Parking candidates with only bare source URL/date and no
+    valid source_document_sha256 or exact scheme identity must fail closed to HOLD.
+    """
+    cas_path = _create_synthetic_cas(tmp_path)
+    mandate = InvestorMandateInput(
+        as_of_date=date.today(),
+        horizon_years=5.0,
+        goal="Wealth Accumulation",
+        lumpsum_budget_inr=Decimal("500000"),
+        explicit_authorized_risk_tier="Tier 4",
+        bank_cash_inr=Decimal("1000000"),
+        emergency_reserve_inr=Decimal("500000"),
+    )
+    dummy_metrics = tmp_path / "metrics.json"
+    dummy_metrics.write_text("{}", encoding="utf-8")
+    dummy_aliases = tmp_path / "aliases.json"
+    dummy_aliases.write_text("{}", encoding="utf-8")
+
+    from types import SimpleNamespace
+    mock_holding = SimpleNamespace(
+        scheme="SBI Bluechip Fund Direct",
+        fund_name="SBI Bluechip Fund Direct",
+        isin="INF200K01123",
+        current_value_inr=Decimal("100000.00"),
+        lookthrough_status="VERIFIED",
+        constituent_weights_coverage_pct=95.0,
+    )
+    import services.lumpsum_recommendation as lumpsum_mod
+    monkeypatch.setattr(lumpsum_mod, "load_holdings_from_cas_excel", lambda *a, **k: [mock_holding])
+
+    # Candidate has source_url and as_of_date, but NO source_document_sha256 digest!
+    def weak_source_provider(**kwargs):
+        return {
+            "metrics_path": dummy_metrics,
+            "aliases_path": dummy_aliases,
+            "scheme_master": {"schemes": []},
+            "scheme_master_source_bytes": b"master",
+            "candidate_universe": [
+                {
+                    "category": "Arbitrage",
+                    "plan_type": "Direct",
+                    "is_direct": True,
+                    "lifecycle_status": "ACTIVE",
+                    "is_eligible": True,
+                    "scheme_name": "Kotak Equity Arbitrage Direct Growth",
+                    "fund_id": "KOTAK-ARB-DIR",
+                    "isin": "INF174K01LS2",
+                    "source_url": "https://kotakmf.com/factsheet",
+                    "as_of_date": "2026-10-31",
+                    # Missing source_document_sha256!
+                }
+            ],
+        }
+
+    res = evaluate_portfolio_aware_lumpsum(cas_path, mandate, evidence_provider=weak_source_provider)
+    assert res.status == "HOLD"
+    assert any("HOLD_NO_QUALIFYING_PARKING" in err for err in res.missing_evidence)
+    assert res.allocated_amount_inr == Decimal("0")
+    assert res.unallocated_amount_inr == Decimal("500000")
+    assert len(res.candidate_allocations) == 0

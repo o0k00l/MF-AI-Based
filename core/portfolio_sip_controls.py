@@ -226,9 +226,11 @@ def route_incremental_sip(
         else:
             unallocated_by_sleeve["rounding_unallocated"] = difference
 
-    # Calculate post-contribution exposure mathematically using post-SIP total denominator
+    # Calculate post-contribution exposure mathematically using invested portfolio denominator.
+    # Unallocated contributions remain outside the invested perimeter (in cash / bank).
     port_total_dec = _decimal(portfolio_total_inr, "portfolio_total_inr")
-    post_contribution_total = port_total_dec + budget
+    post_contribution_invested_total = port_total_dec + allocated
+    post_contribution_perimeter_total = port_total_dec + budget
     post_contribution_values: dict[str, str] = {}
     post_contribution_weights_pct: dict[str, str] = {}
     post_contribution_drift_pct: dict[str, str] = {}
@@ -237,8 +239,8 @@ def route_incremental_sip(
         alloc_v = allocations.get(sleeve, Decimal("0"))
         post_v = cur_v + alloc_v
         post_contribution_values[sleeve] = str(post_v)
-        if post_contribution_total > 0:
-            post_w = (post_v / post_contribution_total) * Decimal("100")
+        if post_contribution_invested_total > 0:
+            post_w = (post_v / post_contribution_invested_total) * Decimal("100")
             post_contribution_weights_pct[sleeve] = str(post_w.quantize(Decimal("0.01")))
             tgt_w = _decimal(target_weights_pct[sleeve], sleeve)
             post_contribution_drift_pct[sleeve] = str((post_w - tgt_w).quantize(Decimal("0.01")))
@@ -250,11 +252,17 @@ def route_incremental_sip(
         "allocated_budget_inr": str(allocated),
         "unallocated_budget_inr": str(unallocated),
         "unallocated_by_sleeve_inr": {k: str(v) for k, v in sorted(unallocated_by_sleeve.items())},
-        "post_contribution_total_inr": str(post_contribution_total),
+        "post_contribution_total_inr": str(post_contribution_invested_total),
+        "post_contribution_invested_total_inr": str(post_contribution_invested_total),
+        "post_contribution_perimeter_total_inr": str(post_contribution_perimeter_total),
+        "unallocated_cash_inr": str(unallocated),
         "post_contribution_values_inr": post_contribution_values,
         "post_contribution_weights_pct": post_contribution_weights_pct,
         "post_contribution_drift_pct": post_contribution_drift_pct,
-        "reconciliation_ok": allocated + unallocated == budget,
+        "reconciliation_ok": (
+            allocated + unallocated == budget
+            and sum(Decimal(v) for v in post_contribution_values.values()) == post_contribution_invested_total
+        ),
         "basis": "PRO_RATA_TO_ALL_APPROVED_SAA_UNDERWEIGHT_GAPS_NO_REDISTRIBUTION",
     }
 
