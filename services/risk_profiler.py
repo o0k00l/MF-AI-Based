@@ -43,7 +43,7 @@ _TIER_NAME_MAP = {
 @dataclass(frozen=True)
 class TargetSaa:
     """Strategic Asset Allocation target percentages (sum to 100.0%).
-    
+
     Note: flexi_multi_cap_pct is tracked separately from mid_small_cap_pct because:
     - Flexi-multi-cap funds are a distinct asset class (can hold large, mid, or small cap)
     - mid_small_cap_pct represents pure mid-cap + small-cap exposure only
@@ -75,7 +75,7 @@ _POLICY_PATH = Path(__file__).parent.parent / "data" / "policy" / "asset_allocat
 
 def _load_saa_from_policy() -> dict[SebiRiskTier, TargetSaa]:
     """Load SAA targets from the authoritative policy file.
-    
+
     Raises:
         FileNotFoundError: If policy file is missing
         ValueError: If policy is malformed, incomplete, or contains invalid values
@@ -85,35 +85,35 @@ def _load_saa_from_policy() -> dict[SebiRiskTier, TargetSaa]:
             f"SAA policy file not found at {_POLICY_PATH}. "
             "Cannot compute asset allocation without policy."
         )
-    
+
     with open(_POLICY_PATH, 'r', encoding='utf-8') as f:
         policy = json.load(f)
-    
+
     if not isinstance(policy, dict):
         raise ValueError("SAA policy root must be a JSON object")
     profiles = policy.get('behavioral_risk_profiles')
     if not isinstance(profiles, dict) or not profiles:
         raise ValueError("Policy file missing 'behavioral_risk_profiles' section")
-    
+
     saa_table = {}
     for tier, tier_name in _TIER_NAME_MAP.items():
         profile = profiles.get(tier_name)
         if not isinstance(profile, dict):
             raise ValueError(f"Policy missing profile for tier '{tier_name}'")
-        
+
         saa_targets = profile.get('saa_targets')
         if not isinstance(saa_targets, dict) or not saa_targets:
             raise ValueError(f"Policy tier '{tier_name}' missing 'saa_targets' section")
-        
+
         # Extract and validate required fields
-        required_fields = ['large_cap_pct', 'mid_cap_pct', 'small_cap_pct', 
+        required_fields = ['large_cap_pct', 'mid_cap_pct', 'small_cap_pct',
                           'flexi_multi_cap_pct', 'debt_liquid_pct']
         missing_fields = [f for f in required_fields if f not in saa_targets]
         if missing_fields:
             raise ValueError(
                 f"Policy tier '{tier_name}' saa_targets missing required fields: {missing_fields}"
             )
-        
+
         # Validate all values are non-negative, finite numbers
         for field in required_fields:
             value = saa_targets[field]
@@ -129,30 +129,30 @@ def _load_saa_from_policy() -> dict[SebiRiskTier, TargetSaa]:
                 raise ValueError(
                     f"Policy tier '{tier_name}' field '{field}' must be finite, got {value}"
                 )
-        
+
         # Calculate derived values - separate mid/small from flexi-multi-cap
         mid_cap = float(saa_targets['mid_cap_pct'])
         small_cap = float(saa_targets['small_cap_pct'])
         flexi_cap = float(saa_targets['flexi_multi_cap_pct'])
         mid_small_total = mid_cap + small_cap  # Only mid + small, NOT flexi
-        
+
         large_cap = float(saa_targets['large_cap_pct'])
         debt_pct = float(saa_targets['debt_liquid_pct'])
-        
+
         # Validate allocation totals sum to 100%
         total = large_cap + mid_small_total + flexi_cap + debt_pct
         if abs(total - 100.0) > 0.1:  # Inclusive 0.1 percentage-point tolerance
             raise ValueError(
                 f"Policy tier '{tier_name}' allocations sum to {total:.1f}%, should be 100%"
             )
-        
+
         saa_table[tier] = TargetSaa(
             large_cap_pct=large_cap,
             mid_small_cap_pct=mid_small_total,  # Pure mid + small cap only
             flexi_multi_cap_pct=flexi_cap,  # Separate flexi-multi-cap tracking
             debt_pct=debt_pct,
         )
-    
+
     return saa_table
 
 
@@ -225,22 +225,22 @@ def _apply_saa_caps(
     max_mid_small_pct: float | None = None,
 ) -> TargetSaa:
     """Apply binding allocation caps by transferring excess exposure to debt.
-    
+
     Note: mid_small_cap_pct and flexi_multi_cap_pct are capped independently.
     max_mid_small_pct applies only to true mid/small exposure, NOT flexi-multi-cap.
     Flexi-multi-cap funds are a distinct asset class that can hold any market cap segment.
-    
+
     When total equity exceeds max_equity_pct, all equity sleeves are reduced proportionally
     to maintain the cap. This ensures flexi-multi-cap is not exempt from equity limits.
     """
     large = base_saa.large_cap_pct
     mid_small = base_saa.mid_small_cap_pct
     flexi = base_saa.flexi_multi_cap_pct
-    
+
     # Apply mid/small cap limiter only to mid_small, NOT flexi
     if max_mid_small_pct is not None:
         mid_small = min(mid_small, max_mid_small_pct)
-    
+
     # Apply total equity cap to all equity (large + mid_small + flexi)
     total_eq = large + mid_small + flexi
     if max_equity_pct is not None and total_eq > max_equity_pct:
@@ -252,7 +252,7 @@ def _apply_saa_caps(
             flexi = flexi * scale
         else:
             large = mid_small = flexi = 0.0
-    
+
     return TargetSaa(
         large_cap_pct=round(large, 6),
         mid_small_cap_pct=round(mid_small, 6),
@@ -518,7 +518,7 @@ def evaluate_custom_saa(
             raise ValueError(f"{name} must be finite (no NaN or Infinity)")
         if not 0.0 <= val <= 100.0:
             raise ValueError(f"{name} must be between 0 and 100 (got {val})")
-    
+
     lc = float(large_cap_pct)
     ms = float(mid_small_cap_pct)
     db = float(debt_pct)
@@ -573,7 +573,8 @@ def evaluate_custom_saa(
 
 def predict_risk_tier_from_portfolio(
     portfolio: list[dict[str, Any]],
-    use_live_ai: bool = True,
+    use_live_ai: bool = False,
+    external_processing_consent: bool = False,
 ) -> dict[str, Any]:
     """AI-assisted dynamic risk scoring and behavioral risk tier prediction from CAS data.
 
@@ -607,7 +608,7 @@ def predict_risk_tier_from_portfolio(
     # Calculate revealed asset allocation
     eq_val = sum(float(f.get("current_value", 0.0) or 0.0) * (float(f.get("eq", 0.0) or 0.0) / 100.0) for f in portfolio)
     debt_val = sum(float(f.get("current_value", 0.0) or 0.0) * (float(f.get("debt", 0.0) or 0.0) / 100.0) for f in portfolio)
-    
+
     eq_pct = round((eq_val / total_val) * 100.0, 1)
     debt_pct = round((debt_val / total_val) * 100.0, 1)
 
@@ -662,7 +663,7 @@ def predict_risk_tier_from_portfolio(
 
     # Generate AI / Institutional Behavioral Narrative
     ai_narrative = ""
-    if use_live_ai:
+    if use_live_ai and external_processing_consent is True:
         try:
             from core.ai_engine import call_llm
             prompt = f"""You are a SEBI-registered Research Analyst and Behavioral Finance Expert.
@@ -675,7 +676,7 @@ Analyze the investor's revealed portfolio behavior from their uploaded CAS data:
 - Predicted SEBI Risk Tier: {_TIER_LABELS[predicted_tier]}
 
 Provide a concise 2-3 sentence behavioral diagnostic explaining why their actual investment pattern reflects this risk tier and what it implies for their market correction tolerance."""
-            res = call_llm(prompt, external_processing_consent=True)
+            res = call_llm(prompt, external_processing_consent=external_processing_consent)
             if res and len(res.strip()) > 40:
                 ai_narrative = res.strip()
         except Exception:

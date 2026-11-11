@@ -345,7 +345,8 @@ def evaluate_goal_scenarios_with_ai(
     total_budget_inr: float,
     portfolio: list[dict[str, Any]] | None = None,
     target_saa: Any = None,
-    use_live_ai: bool = True,
+    use_live_ai: bool = False,
+    external_processing_consent: bool = False,
 ) -> dict[str, Any]:
     """AI scenario forecasting, category inflation adjustment, and gap mitigation analysis for goals.
 
@@ -390,7 +391,7 @@ def evaluate_goal_scenarios_with_ai(
     # 2. Scenario Forecasting (Baseline, High Inflation +2%, Accelerated -2 Years)
     # Scenario 1: Baseline
     total_baseline_future = sum(float(g.get("future_target", 0.0) or 0.0) for g in goals)
-    
+
     # Scenario 2: High Inflation Shock (+2% across all goals)
     high_inf_future = 0.0
     high_inf_sip = 0.0
@@ -460,7 +461,7 @@ def evaluate_goal_scenarios_with_ai(
 
     # 4. AI Scenario Diagnostic Narrative
     ai_narrative = ""
-    if use_live_ai:
+    if use_live_ai and external_processing_consent is True:
         try:
             from core.ai_engine import call_llm
             prompt = f"""You are a SEBI-registered Wealth Advisor and Financial Goal Planner.
@@ -472,7 +473,7 @@ Analyze these financial milestones:
 - Accelerated Target (-2y): Requires INR {accel_sip:,.0f}/mo
 
 Provide a structured, encouraging fiduciary narrative advising the investor on how to balance their goals, calibrate realistic inflation, and optimize their monthly cashflow."""
-            res = call_llm(prompt, external_processing_consent=True)
+            res = call_llm(prompt, external_processing_consent=external_processing_consent)
             if res and len(res.strip()) > 50:
                 ai_narrative = res.strip()
         except Exception:

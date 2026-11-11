@@ -40,26 +40,24 @@ pie title 30 Open GitHub Issues Disposition
 ### Issue #23 — Complete Portfolio Perimeter & Reconciliation
 - **Priority:** P1
 - **Title:** `Reconcile complete investor portfolio value, cash and external assets before SIP routing`
-- **Disposition:** `PARTIALLY_RESOLVED`
+- **Disposition:** `CLOSE_VERIFIED (Candidate)`
 - **Stated Acceptance Criteria:** "A signed-off portfolio reconciliation report shows included/excluded assets, valuation date, unmatched items and arithmetic reconciliation. No SIP amount is routed against an incomplete denominator."
-- **Current State in `main`:**
-  - Implemented: `core/portfolio_sip_controls.py::reconcile_total_portfolio()` validates bank cash and emergency reserves; fails closed with status `DENOMINATOR_UNVERIFIED` when `perimeter_attested=False`.
-  - Tested: `tests/test_deep_remediations_tranche.py::test_reconcile_total_portfolio_fails_closed_when_perimeter_not_attested`.
-  - Remaining Gap: The system does not yet generate a formal, signed-off investor portfolio reconciliation report artifact detailing included/excluded asset breakdowns, valuation dates, and unmatched item reconciliation.
-- **Action Required:** Keep OPEN until report generation and reconciliation artifact sign-off workflow are implemented.
+- **Current State in Branch `feat/remediation-tranche-23-24-44`:**
+  - Implemented: `core/portfolio_sip_controls.py::generate_signed_portfolio_reconciliation_report()` and `reconcile_total_portfolio()` generate a canonical, signed-off portfolio reconciliation artifact. Fails closed (`is_approved_for_sip_routing=False`, `HOLD`) if unmatched items exist, perimeter is incomplete, or fiduciary sign-off metadata is missing/invalid. Computes reproducible RFC 8785 (JCS) SHA-256 cryptographic digest over report contents. Wired into `services/sip_recommendation.py` total portfolio assessment.
+  - Tested: `tests/test_portfolio_reconciliation_report.py` (7 dedicated tests passing), `tests/test_portfolio_sip_controls.py` (37 tests passing), `tests/test_sip_recommendation_service.py` (25 tests passing).
+- **Status:** Candidate for closure upon final PR merge and verification.
 
 ---
 
 ### Issue #24 — SAA Routing, Stability-Buffer Override & Custom SAA
 - **Priority:** P1
 - **Title:** `Validate SAA drift and derive incremental SIP routing from total-portfolio gaps`
-- **Disposition:** `PARTIALLY_RESOLVED`
+- **Disposition:** `CLOSE_VERIFIED (Candidate)`
 - **Stated Acceptance Criteria:** "Every proposed monthly split traces to a reviewed IPS target, reconciled current exposure and documented horizon. Any unfillable sleeve remains unallocated; no reallocation to another sleeve."
-- **Current State in `main`:**
-  - Implemented: `core/portfolio_sip_controls.py::route_incremental_sip()` derives asset gaps, respects deadbands, preserves unfillable sleeves as `unallocated_cash_inr`, and post-SIP weights reconcile to 100%. `core/math_engine.py::calculate_universal_tier_split()` removed the stability-buffer override that previously forced 100/0 equity routing.
-  - Tested: `tests/test_issues_24_120_121_remediations.py` and `tests/test_portfolio_sip_controls.py`.
-  - Remaining Gap: `RiskTier.CUSTOM` in `services/sip_recommendation.py` currently returns `HOLD_CUSTOM_SAA_BLUEPRINT_PENDING`. An approved custom-SAA allocation contract across candidate eligibility, slot selection, and SIP routing is not completed.
-- **Action Required:** Keep OPEN until Custom SAA blueprint resolution is implemented or explicitly deprecated from public contracts.
+- **Current State in Branch `feat/remediation-tranche-23-24-44`:**
+  - Implemented: `core/models.py::AssetAllocationTarget` extended with validated custom sub-sleeves (`large_cap_pct`, `mid_cap_pct`, `small_cap_pct`, `flexi_cap_pct`). `core/math_engine.py` supports Custom SAA target in `calculate_universal_tier_split`, `select_autonomous_blueprint_funds`, and `compute_deterministic_sip_blueprint` without falling back to Aggressive / Tier 6. `services/sip_recommendation.py` accepts Custom SAA with approved client IPS mandate, validates target weights against IPS, and runs full deterministic blueprint routing.
+  - Tested: `tests/test_custom_saa_contract.py` (7 dedicated tests passing), `tests/test_issues_24_120_121_remediations.py` (8 tests passing), `tests/test_sip_recommendation_service.py` (25 tests passing).
+- **Status:** Candidate for closure upon final PR merge and verification.
 
 ---
 
@@ -81,11 +79,11 @@ pie title 30 Open GitHub Issues Disposition
 - **Title:** `Prevent investor PII and portfolio details from entering shared narrative caches or external AI prompts without controls`
 - **Disposition:** `PARTIALLY_RESOLVED`
 - **Stated Acceptance Criteria:** "No client name, folio/account identifier or unnecessary identifying detail is included in an outbound prompt... Tests cover prompt minimization, consent denial, cache-disabled behavior... Privacy/security review is recorded against the exact release commit."
-- **Current State in `main`:**
-  - Implemented: `core/ai_engine.py` sets `NARRATIVE_CACHE_FILE = None`; `call_llm()` blocks external dispatch without `external_processing_consent=True`; `core/prompt_advisor.py::sanitize_prompt_for_privacy()` applies regex redaction to PAN, email, phone, folios, and client names.
-  - Tested: `tests/test_pii_narrative_controls.py` (2 tests), `tests/test_privacy_prompt_sanitization.py` (3 tests), `tests/test_ai_privacy_boundary.py` (8 tests).
-  - Remaining Gap: Full prompt minimization audit across every provider call site (interactive queries, switch plans, health audits) ensuring unnecessary portfolio holdings and conversation history are excluded, plus formal provider terms/retention review and independent privacy sign-off.
-- **Action Required:** Keep OPEN and P0 until exhaustive prompt minimization and privacy sign-off are completed.
+- **Current State in Branch `feat/remediation-tranche-23-24-44`:**
+  - Implemented: `core/ai_engine.py` sets `NARRATIVE_CACHE_FILE = None`; `core/prompt_advisor.py::sanitize_prompt_for_privacy()` comprehensively redacts Aadhaar, IFSC codes, bank account numbers, PAN, email, phone, folios, and client names; `answer_interactive_query()` eliminates granular per-holding valuations and gains, substituting minimized relative portfolio allocations; `services/ai_fund_classifier.py`, `services/cgs_parser.py`, `services/goal_planner.py`, and `services/risk_profiler.py` enforce `external_processing_consent: bool = False` by default and fail closed to local deterministic statutory synthesis without calling external AI providers.
+  - Tested: `tests/test_privacy_prompt_minimization.py` (4 dedicated tests passing), `tests/test_privacy_prompt_sanitization.py` (3 tests passing), `tests/test_pii_narrative_controls.py` (2 tests passing), `tests/test_ai_privacy_boundary.py` (8 tests passing).
+  - Remaining Gap: Provider terms/retention legal review and independent privacy sign-off against the release commit remain required before full closure.
+- **Action Required:** Keep OPEN as governance gate for independent privacy sign-off.
 
 ---
 

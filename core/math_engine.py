@@ -85,28 +85,28 @@ def calculate_xirr(cashflows: List[Tuple[date, float]]) -> Optional[float]:
 def classify_cashflow(txn_type: str, txn_subtype: str = "") -> str:
     """
     Classify a transaction for Benchmark XIRR cashflow filtering.
-    
+
     EXTERNAL FLOWS (investor-level, affect portfolio value):
     - PURCHASE: Investor puts new money in
     - SIP: Systematic Investment Plan (external recurring investment)
     - REDEMPTION: Investor takes money out (full redemption)
     - DIVIDEND: Cash dividend payout (money leaves fund to investor)
-    
+
     INTERNAL FLOWS (net-zero at portfolio level, do NOT affect benchmark XIRR):
     - SWITCH_IN / SWITCH_OUT: Fund-to-fund transfer within portfolio
     - STP_IN / STP_OUT: Systematic Transfer Plan within portfolio
     - DIVIDEND_REINVEST: Dividend automatically reinvested (no cash leaves)
-    
+
     Args:
         txn_type: Transaction type from transactions.json (e.g., "PURCHASE", "SWITCH_IN")
         txn_subtype: Optional subtype for more granular classification
-    
+
     Returns:
         "external" or "internal"
     """
     txn_type = txn_type.upper()
     txn_subtype = txn_subtype.upper() if txn_subtype else ""
-    
+
     # External flows - investor puts in or takes out cash
     if txn_type == "DIVIDEND" and any(marker in txn_subtype for marker in ("REINVEST", "REINVESTMENT", "DRP")):
         return "internal"
@@ -124,13 +124,13 @@ def classify_cashflow(txn_type: str, txn_subtype: str = "") -> str:
 def filter_external_cashflows(transactions: list[dict]) -> list[dict]:
     """
     Filter transactions to only include external cash flows for Benchmark XIRR.
-    
+
     This ensures SWITCH/STP and reinvested dividends are excluded
     since they net to zero at the portfolio level.
-    
+
     Args:
         transactions: List of transaction dicts from transactions.json
-    
+
     Returns:
         Filtered list with only external cash flows
     """
@@ -229,7 +229,7 @@ def calculate_cashflow_matched_benchmark_xirr(
     - Non-trading-day cash flows use the preceding available NSE session close; no synthetic interpolation.
     - Terminal valuation of accumulated benchmark units is evaluated as of as_of_date.
     - Benchmark XIRR and True Portfolio Alpha are deterministically solved.
-    
+
     PROVENANCE VALIDATION (Zero Hardcoding & Zero Fabrication Mandate):
     - Validates SHA256 checksums of benchmark levels against provenance metadata
     - Enforces minimum trading day coverage threshold (95%)
@@ -238,7 +238,7 @@ def calculate_cashflow_matched_benchmark_xirr(
     """
     from core.models import TriProvenanceError
     import hashlib
-    
+
     if benchmark_series_path is None:
         benchmark_series_path = Path("data/policy/benchmark_tri_series.json")
     if trading_calendar_path is None:
@@ -294,7 +294,7 @@ def calculate_cashflow_matched_benchmark_xirr(
             validation_stage="benchmark_missing"
         )
     levels = b_info.get("levels", {})
-    
+
     if not isinstance(levels, dict) or not levels:
         raise TriProvenanceError(
             f"Benchmark '{benchmark_key}' has empty or malformed levels — cannot compute TRI XIRR",
@@ -482,7 +482,7 @@ def calculate_cashflow_matched_benchmark_xirr(
     txn_dates = []
     # Internal transfers are never investor-level cash flows. CAS may encode
     # the out-leg as REDEMPTION with "Switch Out" in its description.
-    
+
     for txn_index, txn in enumerate(tx_data.get("transactions", [])):
         d_str = txn.get("date", "")
         if not d_str:
@@ -508,7 +508,7 @@ def calculate_cashflow_matched_benchmark_xirr(
                 continue
             txn_dates.append(txn_date)
             is_reversal = any(kw in desc for kw in ("reversal", "dishonour", "reject"))
-            
+
             # Exclude internal transfers regardless of whether CAS labels the
             # out-leg SWITCH_OUT or REDEMPTION. Pair matching by amount/date is
             # unreliable because switch legs can settle on different dates and
@@ -519,7 +519,7 @@ def calculate_cashflow_matched_benchmark_xirr(
             )
             if txn_type in ("SWITCH_IN", "SWITCH_OUT", "STP_IN", "STP_OUT", "DIVIDEND_REINVEST") or transfer_description:
                 continue
-            
+
             if amount < 0:
                 cf = -amount
             else:
@@ -542,7 +542,7 @@ def calculate_cashflow_matched_benchmark_xirr(
                 benchmark=benchmark_key,
                 validation_stage="transaction_row_invalid"
             )
-    
+
     if txn_dates:
         out_of_range = [d for d in txn_dates if d < sorted_dates[0] or d > sorted_dates[-1]]
         if out_of_range:
@@ -746,7 +746,7 @@ def load_holdings_from_cas_excel(
     """
     Parses active mutual fund holdings directly from CAS detailed report Excel sheet.
     Reconciles with fund_metrics.json for expense ratios, market-cap splits, sector allocations, and top stock holdings.
-    
+
     When require_exact_metric_identity=True (default), requires exact scheme_id/ISIN binding
     to fund metrics; no name-based fuzzy matching. Fails closed without verified identity.
     """
@@ -1098,13 +1098,13 @@ def _validate_metrics_provenance(
 ) -> Dict[str, Any]:
     """
     Issue #84: Validate metrics record provenance and exact scheme binding.
-    
+
     Checks:
     1. Mixed-snapshot detection: all records must have consistent effective_date/source_ref.
     2. Exact identity tuple: when require_exact_identity=True, each record must have
        scheme_id, isin, amc_name, category, plan_type, option_type.
     3. Scheme master cross-check: identity fields must match the verified scheme master.
-    
+
     Returns a provenance summary dict. Raises ValueError on tamper/mixed-snapshot/conflict.
     """
     if not metrics_map:
@@ -1115,26 +1115,26 @@ def _validate_metrics_provenance(
             "effective_dates": set(),
             "source_refs": set(),
         }
-    
+
     effective_dates = set()
     source_refs = set()
     identity_errors = []
     scheme_master_index = {}
-    
+
     # Build scheme master index for cross-checking
     if scheme_master and isinstance(scheme_master, dict):
         for scheme in scheme_master.get("schemes", []):
             sid = scheme.get("scheme_id") or scheme.get("id")
             if sid:
                 scheme_master_index[str(sid).strip().upper()] = scheme
-    
+
     required_identity_fields = ("scheme_id", "isin", "amc_name", "category", "plan_type", "option_type")
-    
+
     for fid, metric in metrics_map.items():
         if not isinstance(metric, dict):
             identity_errors.append(f"Metrics record {fid!r} is not a mapping.")
             continue
-        
+
         # Collect provenance fields
         eff_date = metric.get("effective_date") or metric.get("as_of_date")
         src_ref = metric.get("source_ref") or metric.get("source_document_sha256")
@@ -1142,7 +1142,7 @@ def _validate_metrics_provenance(
             effective_dates.add(str(eff_date).strip())
         if src_ref:
             source_refs.add(str(src_ref).strip().lower())
-        
+
         if require_exact_identity:
             missing = [f for f in required_identity_fields if not metric.get(f)]
             if missing:
@@ -1150,7 +1150,7 @@ def _validate_metrics_provenance(
                     f"Metrics record {fid!r} is missing required identity fields: {', '.join(missing)}."
                 )
                 continue
-            
+
             # Cross-check against scheme master if available
             sid = str(metric.get("scheme_id", "")).strip().upper()
             if sid and scheme_master_index:
@@ -1174,22 +1174,22 @@ def _validate_metrics_provenance(
                     identity_errors.append(
                         f"Metrics record {fid!r} AMC {m_amc!r} conflicts with scheme master AMC {s_amc!r}."
                     )
-    
+
     # Mixed-snapshot detection: more than one distinct effective date or source ref
     mixed_snapshot = len(effective_dates) > 1 or len(source_refs) > 1
-    
+
     if identity_errors:
         raise ValueError(
             "Metrics provenance validation failed (exact identity): " + "; ".join(identity_errors[:5])
         )
-    
+
     if mixed_snapshot:
         raise ValueError(
             f"Metrics provenance validation failed (mixed snapshot): "
             f"Found {len(effective_dates)} distinct effective dates and "
             f"{len(source_refs)} distinct source references. All metrics must come from a single reviewed snapshot."
         )
-    
+
     return {
         "status": "VERIFIED",
         "record_count": len(metrics_map),
@@ -1296,13 +1296,13 @@ def _infer_asset_class(cat: str, eq: float, debt: float, lc: float, mc: float, s
 
     Equity percentage alone cannot distinguish flexi-cap, multi-cap and
     large-cap funds: all can hold more than 80% equity.
-    
+
     NO HARDCODING RULE: Asset class is determined by SEBI category first.
     Debt-percentage fallbacks only apply when category is empty/unknown,
     to avoid misclassifying equity funds with temporary cash positions.
     """
     cat_lower = str(cat or "").casefold().replace("_", " ").replace("-", " ")
-    
+
     # Primary: Explicit SEBI category matching (authoritative)
     if any(token in cat_lower for token in ("debt", "liquid", "money market", "gilt", "bond")):
         return AssetClass.DEBT_LIQUID
@@ -1320,7 +1320,7 @@ def _infer_asset_class(cat: str, eq: float, debt: float, lc: float, mc: float, s
         return AssetClass.FLEXI_CAP
     if "large cap" in cat_lower or "largecap" in cat_lower or "bluechip" in cat_lower:
         return AssetClass.LARGE_CAP
-    
+
     # Secondary: Market-cap weight heuristics (only when category is generic/empty)
     if sc >= 50.0:
         return AssetClass.SMALL_CAP
@@ -1328,7 +1328,7 @@ def _infer_asset_class(cat: str, eq: float, debt: float, lc: float, mc: float, s
         return AssetClass.MID_CAP
     if lc >= 50.0:
         return AssetClass.LARGE_CAP
-    
+
     # Tertiary: Debt-percentage fallback ONLY when category provides no signal
     # High debt (>=75%) indicates debt fund; moderate debt (>=35%) indicates hybrid
     # These thresholds are conservative to avoid misclassifying equity funds
@@ -1338,7 +1338,7 @@ def _infer_asset_class(cat: str, eq: float, debt: float, lc: float, mc: float, s
             return AssetClass.DEBT_LIQUID
         if debt >= 35.0:
             return AssetClass.HYBRID_BALANCED
-    
+
     if eq <= 0.0 and debt > 0.0:
         return AssetClass.DEBT_LIQUID
     return AssetClass.EQUITY
@@ -1381,10 +1381,10 @@ class TaxLot:
     cost: float
     source: str  # "transactions" or "manual"
     equity_pct: Optional[float] = None  # verified scheme-master equity allocation
-    
+
     def holding_days(self, as_of: date) -> int:
         return (as_of - self.purchase_date).days
-    
+
     def is_long_term(self, as_of: date, holding_months: int = 12) -> bool:
         """LTCG if holding period > 12 calendar months (strict: > 12 months, not >=).
         Uses the exact anniversary date, NOT a fixed 365-day count.
@@ -1405,7 +1405,7 @@ class TaxLot:
                 28
             )
         return as_of > anniversary
-    
+
     def is_short_term(self, as_of: date) -> bool:
         return not self.is_long_term(as_of)
 
@@ -1715,10 +1715,10 @@ def calculate_saa_drift(
     tolerance_band_pct: float = 5.0,
 ) -> SAADriftAnalysis:
     """Calculate current asset allocation vs target Strategic Asset Allocation (SAA).
-    
+
     Incorporates underlying look-through stability buffer (debt + cash).
     Includes Flexi Multi-Cap scheme-category exposure tracking and drift analysis.
-    
+
     Note: Flexi tracking measures scheme-category exposure (value of Flexi Cap funds),
     not verified look-through equity exposure. A Flexi Cap fund's equity allocation
     varies over time, so this tracks category membership rather than constituent overlap.
@@ -1772,7 +1772,7 @@ def calculate_saa_drift(
     curr_db_pct = float((debt_val / total_val) * Decimal("100.0"))
     curr_cash_pct = float((cash_val / total_val) * Decimal("100.0"))
     stability_buffer_pct = curr_db_pct + curr_cash_pct
-    
+
     # Current Flexi percentage for look-through tracking
     curr_flexi_pct = float((flexi_val / total_val) * Decimal("100.0"))
 
@@ -1806,11 +1806,11 @@ def calculate_saa_drift(
     target_db_inr = total_val * (Decimal(str(tgt_db)) / Decimal("100"))
     equity_gap_inr = target_eq_inr - equity_val
     debt_gap_inr = 0.0 if stability_satisfied else (target_db_inr - debt_val)
-    
+
     # Flexi drift calculation
     flexi_drift_pct = curr_flexi_pct - tgt_flexi_pct
     curr_flexi_inr = float(round(flexi_val, 2))
-    
+
     return SAADriftAnalysis(
         current_equity_pct=round(curr_eq_pct, 1),
         current_debt_pct=round(curr_db_pct, 1),
@@ -1850,7 +1850,7 @@ def parse_cas(xlsx_path: Path, scheme_master: Optional[Dict[str, Any]] = None, s
             f"Available sheets: {wb.sheetnames}"
         )
     ws = wb[sheet_name]
-    
+
     as_of_date = ""
     dates_found = set()
     hdr = None
@@ -1860,7 +1860,7 @@ def parse_cas(xlsx_path: Path, scheme_master: Optional[Dict[str, Any]] = None, s
         vals = [str(c).strip() if c is not None else "" for c in row]
         if not any(vals):
             continue
-            
+
         if any(v.lower() == "to date" for v in vals):
             idx = [v.lower() for v in vals].index("to date")
             if idx + 1 < len(vals):
@@ -1882,13 +1882,13 @@ def parse_cas(xlsx_path: Path, scheme_master: Optional[Dict[str, Any]] = None, s
             scheme_name = vals[hdr["Scheme Name"]]
             if not scheme_name or scheme_name.lower() in ("total", "sub total"):
                 continue
-            
+
             try:
                 cur_val = float(vals[hdr["Current Value"]])
                 inv_val = float(vals[hdr.get("Invested Value", 0)] or 0.0)
             except (ValueError, TypeError):
                 continue
-                
+
             if cur_val > 0:
                 holding = {
                     "scheme": scheme_name,
@@ -1933,7 +1933,7 @@ def parse_cas(xlsx_path: Path, scheme_master: Optional[Dict[str, Any]] = None, s
 
     if len(dates_found) > 1:
         raise ValueError(f"Integrity Error: Multiple valuation dates detected in CAS: {dates_found}")
-        
+
     return as_of_date, holdings
 
 
@@ -2286,16 +2286,16 @@ def aggregate_fiduciary_facts(
     # Module 2: Portfolio Diagnostics - with architectural corrections
     fee_bleed = calculate_fee_bleed(holdings)
     overlap = calculate_overlap_matrix(holdings)
-    
+
     # Architectural Correction 1: Weighted Look-Through Overlap (replaces naive Jaccard)
     weighted_overlap = calculate_weighted_lookthrough_overlap(holdings, metrics_path)
-    
+
     # Architectural Correction 2: Ordinal Risk Distribution (replaces cardinal 5.84/6.00)
     risk_distribution = calculate_risk_distribution(holdings)
-    
+
     # Architectural Correction 4: SAA Drift Minimizer (renamed from optimizer)
     saa_minimizer = calculate_saa_drift_minimizer(holdings, target_saa, monthly_sip)
-    
+
     # Convert SAA Drift Minimizer to SAADriftAnalysis for backward compatibility
     total_equity_val = sum(h.current_value_inr for h in holdings if h.asset_class in (
         AssetClass.EQUITY, AssetClass.LARGE_CAP, AssetClass.MID_CAP, AssetClass.SMALL_CAP,
@@ -2313,13 +2313,13 @@ def aggregate_fiduciary_facts(
     total_hybrid_debt = sum(h.current_value_inr * (h.debt_pct / 100.0) for h in holdings if h.asset_class in (
         AssetClass.HYBRID_BALANCED, AssetClass.HYBRID
     ))
-    
+
     total_equity_val = total_equity_val + total_hybrid_equity
     total_debt_val = total_debt_val + total_hybrid_debt
     total_cash_val = total_cash_val
-    
+
     total_val = sum(h.current_value_inr for h in holdings)
-    
+
     saa = SAADriftAnalysis(
         current_equity_pct=saa_minimizer.current_allocation.get('Equity', 0),
         current_debt_pct=saa_minimizer.current_allocation.get('Debt', 0),
@@ -2333,7 +2333,7 @@ def aggregate_fiduciary_facts(
         equity_gap_inr=round(saa_minimizer.drift_after_sip.get('Equity', 0) * total_val / 100, 2),
         debt_gap_inr=round(saa_minimizer.drift_after_sip.get('Debt', 0) * total_val / 100, 2),
     )
-    
+
     # Module 3: Investor Suitability & Liquidity - with emergency months & bank cash from config
     bank_cash_cfg = None
     emergency_reserve_cfg = None
@@ -2453,7 +2453,7 @@ def aggregate_fiduciary_facts(
             "RUNTIME INVARIANT ENFORCED: supplied transaction history failed CAS reconciliation; "
             "the full monthly SIP budget remains unallocated."
         )
-    
+
     # A single equity index is not a valid comparator for a mixed-asset
     # portfolio. Until an IPS-weighted composite benchmark (with explicit
     # rebalancing policy and cash-flow-matched component TRI series) exists,
@@ -2570,13 +2570,13 @@ def aggregate_fiduciary_facts(
         }
         if gate_result.passed:
             eligible_candidates.append(cand)
-    
+
     # Mandatory NO ACTION Fiduciary Branch receives the same validated
     # investor suitability profile used by the candidate eligibility gates.
     no_action_decision = evaluate_no_action(
         holdings, eligible_candidates, client_risk_tier_num=tier_num, policy=screening_policy
     )
-    
+
     # Identify weak or redundant funds
     weak_funds = []
     for h in holdings:
@@ -2947,7 +2947,7 @@ def calculate_saa_drift_minimizer(
     total_val = sum(float(h.current_value_inr) for h in holdings)
     if not math.isfinite(total_val) or total_val <= 0:
         raise ValueError("SAA diagnostics are unavailable: portfolio value denominator must be positive")
-    
+
     current_alloc = {}
     for h in holdings:
         asset = h.asset_class.value if hasattr(h.asset_class, 'value') else str(h.asset_class)
@@ -2976,13 +2976,13 @@ def calculate_saa_drift_minimizer(
             continue
         else:
             alloc_category = "Other"
-        
+
         if alloc_category not in current_alloc:
             current_alloc[alloc_category] = 0.0
         current_alloc[alloc_category] += float(h.current_value_inr)
-    
+
     current_pct = {k: (v / total_val) * 100 for k, v in current_alloc.items()}
-    
+
     # Do not invent a 95/5 aggressive target when the client's SAA is absent.
     # An explicit zero-equity target is valid and must not be replaced by a fallback.
     if not isinstance(target_allocation, dict):
@@ -3021,9 +3021,9 @@ def calculate_saa_drift_minimizer(
         "Debt": tgt_db,
         "Cash": tgt_cash
     }
-    
+
     gaps = {k: target_pct.get(k, 0) - current_pct.get(k, 0) for k in set(current_pct) | set(target_pct)}
-    
+
     if isinstance(sip_budget_inr, bool):
         raise ValueError("SIP budget must be numeric")
     try:
@@ -3077,10 +3077,10 @@ def calculate_saa_drift_minimizer(
         current_val = current_alloc.get(asset, 0)
         sip_val = sip_alloc.get(asset, 0)
         projected_alloc[asset] = ((current_val + sip_val) / new_total) * 100
-    
+
     drift = {k: projected_alloc.get(k, 0) - target_pct.get(k, 0) for k in target_pct}
     l2_norm = math.sqrt(sum(d * d for d in drift.values()))
-    
+
     policy_meta = {}
     try:
         from core.models import get_saa_policy_metadata
@@ -4350,7 +4350,7 @@ def classify_specified_mutual_fund(
             monthly_coverage_evidence=monthly_coverage_evidence,
             fof_underlying_traded_on_recognised_exchange=fof_underlying_traded_on_recognised_exchange,
         )
-    
+
     section_50aa_result = qualifies_as_specified_mutual_fund_under_section_50AA(
         equity_pct=equity_pct,
         debt_and_money_market_pct=debt_and_money_market_pct,
@@ -4364,7 +4364,7 @@ def classify_specified_mutual_fund(
         is_mld=is_mld,
         snapshot_coverage_evidence=snapshot_coverage_evidence,
     )
-    
+
     section_76_result = qualifies_as_specified_mutual_fund_under_section_76(
         debt_and_money_market_pct=debt_and_money_market_pct,
         is_fund_of_funds=is_fund_of_funds,
@@ -4377,11 +4377,11 @@ def classify_specified_mutual_fund(
         fy_end=fy_end,
         snapshot_coverage_evidence=snapshot_coverage_evidence,
     )
-    
+
     is_equity_oriented = equity_result.qualifies
     is_specified_50aa = section_50aa_result.qualifies
     is_specified_76 = section_76_result.qualifies
-    
+
     if is_specified_50aa:
         overall_classification = "SPECIFIED_MUTUAL_FUND_OR_MLD"
         tax_treatment = "SECTION_50AA_DEEMED_STCG"
@@ -4463,7 +4463,7 @@ def classify_specified_mutual_fund(
 def select_autonomous_blueprint_funds(
     holdings: Optional[List[HoldingItem]] = None,
     candidate_universe: Optional[List[Dict[str, Any]]] = None,
-    client_risk_tier: int = 6,
+    client_risk_tier: Any = 6,
     thematic_deficit_theme: str = "",
     thematic_satellite_authorized: bool = False,
     thematic_satellite_pct_of_equity: float = 0.0,
@@ -4471,6 +4471,7 @@ def select_autonomous_blueprint_funds(
     portfolio_disclosure_source_bytes_by_scheme_id: Optional[Dict[str, bytes]] = None,
     disclosure_as_of_date: Optional[date] = None,
     disclosure_max_age_days: int = 45,
+    custom_saa_target: Optional[Any] = None,
 ) -> Dict[str, Dict[str, Any]]:
     """
     Select candidates only from the supplied, source-backed universe.
@@ -4497,26 +4498,36 @@ def select_autonomous_blueprint_funds(
     import os
     from pathlib import Path
 
-    if isinstance(client_risk_tier, bool):
-        raise ValueError("client_risk_tier must be an integer from 1 through 6")
     if hasattr(client_risk_tier, "value"):
         tier_map = {"Conservative": 2, "Moderate": 4, "Aggressive": 6}
         risk_label = str(client_risk_tier.value)
         if risk_label == "Custom":
+            if custom_saa_target is None:
+                raise ValueError(
+                    "Custom risk profile requires an explicitly approved custom SAA; "
+                    "it must not inherit the Aggressive/SEBI Tier 6 allocation."
+                )
+            tier_int = 0
+        else:
+            tier_int = tier_map.get(risk_label)
+            if tier_int is None:
+                raise ValueError(f"Unsupported investor risk profile: {risk_label!r}")
+    elif str(client_risk_tier).strip() == "Custom":
+        if custom_saa_target is None:
             raise ValueError(
                 "Custom risk profile requires an explicitly approved custom SAA; "
                 "it must not inherit the Aggressive/SEBI Tier 6 allocation."
             )
-        tier_int = tier_map.get(risk_label)
-        if tier_int is None:
-            raise ValueError(f"Unsupported investor risk profile: {risk_label!r}")
+        tier_int = 0
+    elif isinstance(client_risk_tier, bool):
+        raise ValueError("client_risk_tier must be an integer from 1 through 6")
     else:
         try:
             tier_int = int(client_risk_tier)
         except (TypeError, ValueError) as exc:
             raise ValueError("client_risk_tier must be an integer from 1 through 6") from exc
-    if tier_int not in range(1, 7):
-        raise ValueError("client_risk_tier must be an integer from 1 through 6")
+        if tier_int not in range(1, 7) and not (tier_int == 0 and custom_saa_target is not None):
+            raise ValueError("client_risk_tier must be an integer from 1 through 6")
 
     if not isinstance(thematic_satellite_authorized, bool):
         raise ValueError("thematic_satellite_authorized must be a boolean")
@@ -4597,16 +4608,42 @@ def select_autonomous_blueprint_funds(
             1: "low", 2: "low_to_moderate", 3: "moderate",
             4: "moderately_high", 5: "high", 6: "very_high",
         }
-        profile = allocation_policy["behavioral_risk_profiles"][profile_keys[tier_int]]
-        saa = profile["saa_targets"]
-        equity_parts = {
-            "flexi": float(saa["flexi_multi_cap_pct"]),
-            "mid": float(saa["mid_cap_pct"]),
-            "small": float(saa["small_cap_pct"]),
-            "large": float(saa["large_cap_pct"]),
-        }
-        equity_total = sum(equity_parts.values())
-        debt_target_pct = float(saa["debt_liquid_pct"])
+        if tier_int == 0 or custom_saa_target is not None:
+            from core.models import AssetAllocationTarget
+            if not isinstance(custom_saa_target, AssetAllocationTarget):
+                raise ValueError("custom_saa_target must be a validated AssetAllocationTarget instance")
+            equity_total = float(custom_saa_target.equity_pct)
+            debt_target_pct = float(custom_saa_target.debt_pct)
+            if custom_saa_target.large_cap_pct is not None:
+                equity_parts = {
+                    "flexi": float(custom_saa_target.flexi_cap_pct),
+                    "mid": float(custom_saa_target.mid_cap_pct),
+                    "small": float(custom_saa_target.small_cap_pct),
+                    "large": float(custom_saa_target.large_cap_pct),
+                }
+            elif equity_total > 0:
+                scale = equity_total / 100.0
+                equity_parts = {
+                    "large": round(35.0 * scale, 2),
+                    "flexi": round(25.0 * scale, 2),
+                    "mid": round(20.0 * scale, 2),
+                    "small": round(20.0 * scale, 2),
+                }
+                diff = equity_total - sum(equity_parts.values())
+                equity_parts["large"] = round(equity_parts["large"] + diff, 2)
+            else:
+                equity_parts = {"large": 0.0, "flexi": 0.0, "mid": 0.0, "small": 0.0}
+        else:
+            profile = allocation_policy["behavioral_risk_profiles"][profile_keys[tier_int]]
+            saa = profile["saa_targets"]
+            equity_parts = {
+                "flexi": float(saa["flexi_multi_cap_pct"]),
+                "mid": float(saa["mid_cap_pct"]),
+                "small": float(saa["small_cap_pct"]),
+                "large": float(saa["large_cap_pct"]),
+            }
+            equity_total = sum(equity_parts.values())
+            debt_target_pct = float(saa["debt_liquid_pct"])
         satellite_policy = allocation_policy["thematic_satellite_policy"]
         satellite_cap = float(satellite_policy["max_pct_of_equity"])
         universe_policy = allocation_policy["fund_universe_requirements"]
@@ -4899,6 +4936,7 @@ def calculate_universal_tier_split(
     tier_num: int,
     stability_buffer_pct: Optional[float] = None,
     equity_sip_routing_override: bool = False,
+    custom_saa_target: Optional[Any] = None,
 ) -> Tuple[float, float]:
     """
     Return the policy-defined new-SIP equity/debt split for a risk tier.
@@ -4913,6 +4951,11 @@ def calculate_universal_tier_split(
     import math
     from pathlib import Path
 
+    if custom_saa_target is not None or tier_num == 0:
+        from core.models import AssetAllocationTarget
+        if not isinstance(custom_saa_target, AssetAllocationTarget):
+            raise ValueError("custom_saa_target must be an AssetAllocationTarget instance")
+        return float(custom_saa_target.equity_pct), float(custom_saa_target.debt_pct)
     if isinstance(tier_num, bool) or tier_num not in range(1, 7):
         raise ValueError("tier_num must be an integer from 1 through 6")
     if stability_buffer_pct is not None:
@@ -5271,7 +5314,7 @@ def _sip_operational_constraint_violations(
                         for s in existing_schemes:
                             name = s.get("scheme_name", s.get("scheme", "")) if isinstance(s, dict) else getattr(s, "scheme_name", getattr(s, "scheme", str(s)))
                             existing_names.add(name.lower().strip())
-                    
+
                     newly_introduced = 0
                     for item in active:
                         sname = item.scheme_name.lower().strip()
@@ -5283,7 +5326,7 @@ def _sip_operational_constraint_violations(
                         )
                         if not is_existing:
                             newly_introduced += 1
-                    
+
                     if prior_new_funds + newly_introduced > max_new_funds:
                         violations.append(
                             f"{newly_introduced} new fund(s) proposed + {int(prior_new_funds)} prior introductions "
@@ -5310,6 +5353,7 @@ def compute_deterministic_sip_blueprint(
     client_aum_verified: bool = False,
     policy_path: Optional[Path] = None,
     portfolio_introduction_history: Optional[Dict[str, Any]] = None,
+    custom_saa_target: Optional[Any] = None,
 ) -> DeterministicSIPPlan:
     """
     Computes deterministic SIP blueprint dynamically tailored across all SEBI risk tiers
@@ -5397,16 +5441,26 @@ def compute_deterministic_sip_blueprint(
     # CAS mutual-fund holdings alone are not total investor AUM. The
     # starter heuristic is permitted only when the caller has independently
     # reconciled and attested the complete portfolio perimeter.
-    is_starter = client_aum < starter_aum_threshold or b < starter_budget_threshold
+    is_starter = (client_aum < starter_aum_threshold or b < starter_budget_threshold) and custom_saa_target is None
 
     # Dynamic Folio Discovery
     # Resolved dynamically through select_autonomous_blueprint_funds below
 
     # 1. Target Asset Allocation by Risk Level
-    tier_num = _parse_sebi_risk_tier(risk_tier)
-    target_eq, target_debt = calculate_universal_tier_split(
-        tier_num, stability_buffer_pct, equity_sip_routing_override=equity_sip_routing_override
-    )
+    if str(risk_tier or "").strip().casefold() in {"custom", "risk_tier.custom"}:
+        if custom_saa_target is None:
+            raise ValueError("Custom risk profile requires an explicitly approved custom SAA target.")
+        from core.models import AssetAllocationTarget
+        if not isinstance(custom_saa_target, AssetAllocationTarget):
+            raise ValueError("custom_saa_target must be an AssetAllocationTarget instance")
+        tier_num = 0
+        target_eq = float(custom_saa_target.equity_pct)
+        target_debt = float(custom_saa_target.debt_pct)
+    else:
+        tier_num = _parse_sebi_risk_tier(risk_tier)
+        target_eq, target_debt = calculate_universal_tier_split(
+            tier_num, stability_buffer_pct, equity_sip_routing_override=equity_sip_routing_override
+        )
 
     # Re-validate holding disclosures at the public SIP boundary when evidence
     # bundles are supplied. A missing exact-ID match clears stale weights.
@@ -5456,6 +5510,7 @@ def compute_deterministic_sip_blueprint(
         portfolio_disclosure_source_bytes_by_scheme_id=portfolio_disclosure_source_bytes_by_scheme_id,
         disclosure_as_of_date=disclosure_as_of_date,
         disclosure_max_age_days=disclosure_max_age_days,
+        custom_saa_target=custom_saa_target,
     )
     flexi_info = slots["Slot 1: Core Flexi-Cap Compounder"]
     mid_info = slots["Slot 2: Mid-Cap Alpha Engine"]
@@ -5511,10 +5566,22 @@ def compute_deterministic_sip_blueprint(
             mid_small_pct = round(core_equity_pct * starter_mid_weight / 100.0, 1)
             # Preserve the starter policy's combined mid/small sleeve while
             # splitting it using the investor's SAA mid/small proportions.
-            _tier_profiles = {1: "low", 2: "low_to_moderate", 3: "moderate", 4: "moderately_high", 5: "high", 6: "very_high"}
-            _starter_saa = allocation_policy["behavioral_risk_profiles"][_tier_profiles[tier_num]]["saa_targets"]
-            _starter_mid = float(_starter_saa["mid_cap_pct"])
-            _starter_small = float(_starter_saa["small_cap_pct"])
+            if custom_saa_target is not None or tier_num == 0:
+                if custom_saa_target.large_cap_pct is not None:
+                    _starter_large = float(custom_saa_target.large_cap_pct)
+                    _starter_mid = float(custom_saa_target.mid_cap_pct)
+                    _starter_small = float(custom_saa_target.small_cap_pct)
+                    _starter_flexi = float(custom_saa_target.flexi_cap_pct)
+                else:
+                    _starter_large = round(35.0 * target_eq / 100.0, 2)
+                    _starter_flexi = round(25.0 * target_eq / 100.0, 2)
+                    _starter_mid = round(20.0 * target_eq / 100.0, 2)
+                    _starter_small = round(20.0 * target_eq / 100.0, 2)
+            else:
+                _tier_profiles = {1: "low", 2: "low_to_moderate", 3: "moderate", 4: "moderately_high", 5: "high", 6: "very_high"}
+                _starter_saa = allocation_policy["behavioral_risk_profiles"][_tier_profiles[tier_num]]["saa_targets"]
+                _starter_mid = float(_starter_saa["mid_cap_pct"])
+                _starter_small = float(_starter_saa["small_cap_pct"])
             _starter_mid_small = _starter_mid + _starter_small
             if _starter_mid_small > 0:
                 mid_pct = round(mid_small_pct * _starter_mid / _starter_mid_small, 1)
@@ -5599,24 +5666,39 @@ def compute_deterministic_sip_blueprint(
             # Reads data/policy/asset_allocation.json
             # behavioral_risk_profiles[tier].saa_targets
             # NOT hardcoded literals. Auditor-confirmed defect fix.
-            _tier_to_profile = {
-                1: 'low', 2: 'low_to_moderate', 3: 'moderate',
-                4: 'moderately_high', 5: 'high', 6: 'very_high',
-            }
-            if tier_num not in _tier_to_profile:
-                raise ValueError(f"Unsupported SEBI risk tier: {tier_num}")
-            _profile_key = _tier_to_profile[tier_num]
-            try:
-                _saa = allocation_policy["behavioral_risk_profiles"][_profile_key]["saa_targets"]
-            except (KeyError, TypeError) as exc:
-                raise ValueError(f"Required SAA policy is invalid for risk profile {_profile_key!r}") from exc
-            try:
-                _large = float(_saa["large_cap_pct"])
-                _mid = float(_saa["mid_cap_pct"])
-                _small = float(_saa["small_cap_pct"])
-                _flexi = float(_saa["flexi_multi_cap_pct"])
-            except (TypeError, ValueError, KeyError) as exc:
-                raise ValueError("SAA policy must contain numeric large/mid/small/flexi weights") from exc
+            if custom_saa_target is not None or tier_num == 0:
+                if custom_saa_target.large_cap_pct is not None:
+                    _large = float(custom_saa_target.large_cap_pct)
+                    _mid = float(custom_saa_target.mid_cap_pct)
+                    _small = float(custom_saa_target.small_cap_pct)
+                    _flexi = float(custom_saa_target.flexi_cap_pct)
+                else:
+                    scale = target_eq / 100.0 if target_eq > 0 else 0.0
+                    _large = round(35.0 * scale, 2)
+                    _flexi = round(25.0 * scale, 2)
+                    _mid = round(20.0 * scale, 2)
+                    _small = round(20.0 * scale, 2)
+                    diff = target_eq - (_large + _flexi + _mid + _small)
+                    _large = round(_large + diff, 2)
+            else:
+                _tier_to_profile = {
+                    1: 'low', 2: 'low_to_moderate', 3: 'moderate',
+                    4: 'moderately_high', 5: 'high', 6: 'very_high',
+                }
+                if tier_num not in _tier_to_profile:
+                    raise ValueError(f"Unsupported SEBI risk tier: {tier_num}")
+                _profile_key = _tier_to_profile[tier_num]
+                try:
+                    _saa = allocation_policy["behavioral_risk_profiles"][_profile_key]["saa_targets"]
+                except (KeyError, TypeError) as exc:
+                    raise ValueError(f"Required SAA policy is invalid for risk profile {_profile_key!r}") from exc
+                try:
+                    _large = float(_saa["large_cap_pct"])
+                    _mid = float(_saa["mid_cap_pct"])
+                    _small = float(_saa["small_cap_pct"])
+                    _flexi = float(_saa["flexi_multi_cap_pct"])
+                except (TypeError, ValueError, KeyError) as exc:
+                    raise ValueError("SAA policy must contain numeric large/mid/small/flexi weights") from exc
             _core_weights = (_large, _mid, _small, _flexi)
             if any(not math.isfinite(v) or v < 0.0 for v in _core_weights):
                 raise ValueError("SAA core weights must be finite and non-negative")
@@ -6076,7 +6158,7 @@ def reconcile_cas_holdings_with_transactions(
         if abs(cas_units - txn_units) > 0.001:  # tolerance for floating point
             # Check if this is an exact scheme match in CAS holdings
             is_exact_match = scheme in cas_schemes_set
-            
+
             if not is_exact_match:
                 discrepancies.append({
                     "scheme": scheme,

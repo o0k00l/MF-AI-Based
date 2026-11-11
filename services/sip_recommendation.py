@@ -65,26 +65,61 @@ _ASSET_CLASS_TO_SAA_BUCKET = {
 }
 
 
-def _build_cas_portfolio_assessment(holdings: list[Any], risk_profile: str) -> dict[str, Any]:
+def _build_cas_portfolio_assessment(
+    holdings: list[Any], risk_profile: str, custom_saa_target: Any | None = None
+) -> dict[str, Any]:
     """Return a CAS-only SAA diagnostic; never imply total-portfolio completeness."""
     policy_path = Path(__file__).resolve().parents[1] / "data" / "policy" / "asset_allocation.json"
     try:
         policy = json.loads(policy_path.read_text(encoding="utf-8"))
-        profile_key = _SAA_POLICY_PROFILE_BY_RISK[risk_profile]
-        profile = policy["behavioral_risk_profiles"][profile_key]
-        raw_targets = profile["saa_targets"]
-        tolerance = profile["tolerance_band_pct"]
-        policy_bucket_map = {
-            "large_cap_pct": "large_cap",
-            "mid_cap_pct": "mid_cap",
-            "small_cap_pct": "small_cap",
-            "flexi_multi_cap_pct": "flexi_multi_cap",
-            "debt_liquid_pct": "debt_liquid",
-        }
-        if set(raw_targets) != set(policy_bucket_map):
-            raise ValueError("SAA policy buckets do not match service contract")
-        targets = {bucket: raw_targets[source] for source, bucket in policy_bucket_map.items()}
-        targets["unclassified"] = 0
+        if risk_profile == "Custom" and custom_saa_target is not None:
+            profile_key = "custom"
+            from core.models import AssetAllocationTarget
+            if not isinstance(custom_saa_target, AssetAllocationTarget):
+                raise ValueError("custom_saa_target must be an AssetAllocationTarget instance")
+            tolerance = 3.0
+            eq = float(custom_saa_target.equity_pct)
+            if getattr(custom_saa_target, "large_cap_pct", None) is not None:
+                targets = {
+                    "large_cap": float(custom_saa_target.large_cap_pct),
+                    "mid_cap": float(custom_saa_target.mid_cap_pct),
+                    "small_cap": float(custom_saa_target.small_cap_pct),
+                    "flexi_multi_cap": float(custom_saa_target.flexi_cap_pct),
+                    "debt_liquid": float(custom_saa_target.debt_pct),
+                    "unclassified": 0.0,
+                }
+            elif eq > 0:
+                scale = eq / 100.0
+                targets = {
+                    "large_cap": round(35.0 * scale, 2),
+                    "flexi_multi_cap": round(25.0 * scale, 2),
+                    "mid_cap": round(20.0 * scale, 2),
+                    "small_cap": round(20.0 * scale, 2),
+                    "debt_liquid": float(custom_saa_target.debt_pct),
+                    "unclassified": 0.0,
+                }
+                targets["large_cap"] = round(targets["large_cap"] + (eq - (targets["large_cap"] + targets["flexi_multi_cap"] + targets["mid_cap"] + targets["small_cap"])), 2)
+            else:
+                targets = {
+                    "large_cap": 0.0, "mid_cap": 0.0, "small_cap": 0.0, "flexi_multi_cap": 0.0,
+                    "debt_liquid": float(custom_saa_target.debt_pct), "unclassified": 0.0,
+                }
+        else:
+            profile_key = _SAA_POLICY_PROFILE_BY_RISK[risk_profile]
+            profile = policy["behavioral_risk_profiles"][profile_key]
+            raw_targets = profile["saa_targets"]
+            tolerance = profile["tolerance_band_pct"]
+            policy_bucket_map = {
+                "large_cap_pct": "large_cap",
+                "mid_cap_pct": "mid_cap",
+                "small_cap_pct": "small_cap",
+                "flexi_multi_cap_pct": "flexi_multi_cap",
+                "debt_liquid_pct": "debt_liquid",
+            }
+            if set(raw_targets) != set(policy_bucket_map):
+                raise ValueError("SAA policy buckets do not match service contract")
+            targets = {bucket: raw_targets[source] for source, bucket in policy_bucket_map.items()}
+            targets["unclassified"] = 0
         current = {key: 0.0 for key in targets}
         total = 0.0
         for holding in holdings:
@@ -191,6 +226,7 @@ def _assess_complete_portfolio_context(
     existing_lookthrough: dict[str, Any],
     cas_holdings_total_inr: float,
     evidence_as_of_date: date,
+    custom_saa_target: Any | None = None,
 ) -> dict[str, Any]:
     """Orchestrate portfolio, suitability, affordability and candidate gates.
 
@@ -214,8 +250,10 @@ def _assess_complete_portfolio_context(
             perimeter_complete=context.get("perimeter_complete") is True,
             as_of_date=as_of,
             excluded_assets=context.get("excluded_assets", []),
+            unmatched_items=context.get("unmatched_items", []),
+            sign_off=context.get("sign_off"),
         )
-        if reconciliation["status"] != "RECONCILED":
+        if reconciliation["status"] != "RECONCILED" or not reconciliation.get("is_approved_for_sip_routing", True):
             return {"status": "HOLD", "portfolio_reconciliation": reconciliation,
                     "reason": reconciliation.get("reason", "TOTAL_PORTFOLIO_RECONCILIATION_FAILED")}
         reconciliation["excluded_assets"] = [
@@ -234,10 +272,15 @@ def _assess_complete_portfolio_context(
             raise PortfolioInputError("SAA sleeve values do not reconcile to total portfolio")
         policy_path = Path(__file__).resolve().parents[1] / "data" / "policy" / "asset_allocation.json"
         policy = json.loads(policy_path.read_text(encoding="utf-8"))
-        if risk_profile not in _SAA_POLICY_PROFILE_BY_RISK:
+        if risk_profile == "Custom":
+            if custom_saa_target is None:
+                raise PortfolioInputError("Custom SAA requires an approved custom_saa_target.")
+            from core.models import AssetAllocationTarget
+            if not isinstance(custom_saa_target, AssetAllocationTarget):
+                raise PortfolioInputError("custom_saa_target must be a validated AssetAllocationTarget instance")
+        elif risk_profile not in _SAA_POLICY_PROFILE_BY_RISK:
             raise PortfolioInputError(f"Unsupported risk profile '{risk_profile}'; custom SAA requires an approved custom policy contract.")
-        profile_key = _SAA_POLICY_PROFILE_BY_RISK[risk_profile]
-        profile = policy["behavioral_risk_profiles"][profile_key]
+
         ips = context["ips"]
         ips_date = date.fromisoformat(ips["effective_date"])
         valuation_date = date.fromisoformat(as_of)
@@ -249,8 +292,7 @@ def _assess_complete_portfolio_context(
             or (valuation_date - ips_date).days > max_policy_age
         ):
             raise PortfolioInputError("approved, dated client IPS evidence is required")
-        if risk_profile == "Aggressive" and profile_key == "very_high" and ips.get("tier6_equity_only_authorized") is not True:
-            raise PortfolioInputError("Tier 6 equity-only routing requires explicit IPS authorization")
+
         targets = ips["target_weights_pct"]
         if not isinstance(targets, dict) or set(targets) != set(_TOTAL_PORTFOLIO_SLEEVES):
             raise PortfolioInputError("client IPS must specify all five SAA sleeves")
@@ -260,13 +302,35 @@ def _assess_complete_portfolio_context(
         ))
         mid_small_target = float(targets["mid_cap"]) + float(targets["small_cap"])
         debt_target = float(targets["debt_liquid"])
-        if (
-            equity_target > float(profile["max_equity_pct"])
-            or mid_small_target > float(profile["max_mid_small_pct"])
-            or debt_target < float(profile["min_debt_pct"])
-            or debt_target > float(profile["max_debt_pct"])
-        ):
-            raise PortfolioInputError("client IPS targets conflict with approved risk-profile limits")
+
+        if risk_profile == "Custom":
+            if abs(equity_target - float(custom_saa_target.equity_pct)) > 0.01:
+                raise PortfolioInputError("client IPS equity target conflicts with approved custom SAA mandate")
+            if abs(debt_target - float(custom_saa_target.debt_pct)) > 0.01:
+                raise PortfolioInputError("client IPS debt target conflicts with approved custom SAA mandate")
+            if custom_saa_target.large_cap_pct is not None:
+                if abs(float(targets["large_cap"]) - float(custom_saa_target.large_cap_pct)) > 0.01:
+                    raise PortfolioInputError("client IPS large cap target conflicts with custom SAA")
+                if abs(float(targets["mid_cap"]) - float(custom_saa_target.mid_cap_pct)) > 0.01:
+                    raise PortfolioInputError("client IPS mid cap target conflicts with custom SAA")
+                if abs(float(targets["small_cap"]) - float(custom_saa_target.small_cap_pct)) > 0.01:
+                    raise PortfolioInputError("client IPS small cap target conflicts with custom SAA")
+                if abs(float(targets["flexi_multi_cap"]) - float(custom_saa_target.flexi_cap_pct)) > 0.01:
+                    raise PortfolioInputError("client IPS flexi cap target conflicts with custom SAA")
+            if equity_target >= 99.9 and ips.get("tier6_equity_only_authorized") is not True:
+                raise PortfolioInputError("Tier 6 equity-only routing requires explicit IPS authorization")
+        else:
+            profile_key = _SAA_POLICY_PROFILE_BY_RISK[risk_profile]
+            profile = policy["behavioral_risk_profiles"][profile_key]
+            if risk_profile == "Aggressive" and profile_key == "very_high" and ips.get("tier6_equity_only_authorized") is not True:
+                raise PortfolioInputError("Tier 6 equity-only routing requires explicit IPS authorization")
+            if (
+                equity_target > float(profile["max_equity_pct"])
+                or mid_small_target > float(profile["max_mid_small_pct"])
+                or debt_target < float(profile["min_debt_pct"])
+                or debt_target > float(profile["max_debt_pct"])
+            ):
+                raise PortfolioInputError("client IPS targets conflict with approved risk-profile limits")
         cas_value_in_perimeter = sum(
             float(row["value_inr"]) for row in assets if row.get("asset_class") == "cas_mutual_fund"
         )
@@ -974,10 +1038,16 @@ def recommend_sip(
             return _hold_plan(budget, [
                 "HOLD_CUSTOM_SAA_INVALID: custom_saa_target must be a validated AssetAllocationTarget instance."
             ])
-        return _hold_plan(budget, [
-            "HOLD_CUSTOM_SAA_BLUEPRINT_PENDING: Custom SAA fund selection blueprint requires an independently "
-            "approved client IPS mandate contract; autonomous execution is disabled."
-        ])
+        if (
+            portfolio_context is None
+            or not isinstance(portfolio_context, dict)
+            or not isinstance(portfolio_context.get("ips"), dict)
+            or portfolio_context.get("ips", {}).get("approved") is not True
+        ):
+            return _hold_plan(budget, [
+                "HOLD_CUSTOM_SAA_BLUEPRINT_PENDING: Custom SAA fund selection blueprint requires an independently "
+                "approved client IPS mandate contract; autonomous execution is disabled."
+            ])
 
     if not isinstance(cas_path, Path) or not cas_path.is_file():
         return _hold_plan(budget, ["A readable CAS workbook is required."])
@@ -1054,7 +1124,9 @@ def recommend_sip(
     # This is a CAS-only diagnostic, deliberately not a total-portfolio
     # denominator. External assets, cash, liabilities and valuation date have
     # not been reconciled, so it cannot authorize SIP routing.
-    portfolio_assessment = _build_cas_portfolio_assessment(holdings, risk_profile)
+    portfolio_assessment = _build_cas_portfolio_assessment(
+        holdings, risk_profile, custom_saa_target=custom_saa_target
+    )
 
     # Run the deterministic engine with the exact evidence bundle. Its output is
     # retained only as an internal diagnostic until independent TRI/research
@@ -1063,7 +1135,7 @@ def recommend_sip(
     try:
         compute_deterministic_sip_blueprint(
             monthly_budget=budget,
-            risk_tier=_ALLOWED_RISK_PROFILES[risk_profile],
+            risk_tier=_ALLOWED_RISK_PROFILES.get(risk_profile, "Custom"),
             holdings=holdings,
             client_aum=sum(float(h.current_value_inr) for h in holdings),
             candidate_universe=candidate_universe,
@@ -1073,6 +1145,7 @@ def recommend_sip(
             portfolio_disclosure_source_bytes_by_scheme_id=portfolio_disclosure_source_bytes_by_scheme_id,
             disclosure_as_of_date=disclosure_as_of_date,
             disclosure_max_age_days=disclosure_max_age_days,
+            custom_saa_target=custom_saa_target,
         )
     except (ValueError, TypeError, KeyError) as exc:
         return _hold_plan(
@@ -1097,6 +1170,7 @@ def recommend_sip(
                 existing_lookthrough=portfolio_assessment.get("lookthrough", {}),
                 cas_holdings_total_inr=sum(float(holding.current_value_inr) for holding in holdings),
                 evidence_as_of_date=disclosure_as_of_date,
+                custom_saa_target=custom_saa_target,
             )
         portfolio_assessment["total_portfolio_context"] = context_assessment
     portfolio_assessment["recommendation_lifecycle"] = {

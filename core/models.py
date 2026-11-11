@@ -82,6 +82,10 @@ class AssetAllocationTarget(BaseModel):
     cash_pct: float = Field(ge=0.0, le=100.0)
     policy_version: Optional[str] = None
     policy_digest: Optional[str] = None
+    large_cap_pct: Optional[float] = None
+    mid_cap_pct: Optional[float] = None
+    small_cap_pct: Optional[float] = None
+    flexi_cap_pct: Optional[float] = None
 
     @model_validator(mode="after")
     def validate_total_allocation(self) -> "AssetAllocationTarget":
@@ -92,6 +96,12 @@ class AssetAllocationTarget(BaseModel):
             raise ValueError("SAA percentages must be finite numbers")
         if abs(sum(values) - 100.0) > 0.01:
             raise ValueError("Custom SAA equity, debt and cash percentages must sum to 100%")
+        sub_sleeves = (self.large_cap_pct, self.mid_cap_pct, self.small_cap_pct, self.flexi_cap_pct)
+        if any(s is not None for s in sub_sleeves):
+            if any(s is None or not math.isfinite(s) or s < 0.0 for s in sub_sleeves):
+                raise ValueError("When custom equity sub-sleeves are provided, all four (large, mid, small, flexi) must be non-negative finite numbers")
+            if abs(sum(sub_sleeves) - self.equity_pct) > 0.01:
+                raise ValueError("Custom equity sub-sleeves must sum exactly to total equity_pct")
         return self
 
 # The deterministic 3+1 Policy Map
@@ -862,7 +872,7 @@ class MandateHoldViolationError(RuntimeError):
 
 class InsufficientDataError(RuntimeError):
     """Raised when required financial data is missing and the engine must fail safe per Zero Hardcoding & Zero Fabrication Mandate.
-    
+
     In fiduciary financial engineering: Explicit Safe Failure >> Fabricated / Hardcoded Fallbacks
     """
     def __init__(self, message: str, missing_data: str = "", required_source: str = ""):

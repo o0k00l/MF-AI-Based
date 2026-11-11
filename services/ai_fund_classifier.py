@@ -230,7 +230,7 @@ VERIFIED_SCHEME_LOOKTHROUGH: Dict[str, Dict[str, Any]] = _load_verified_policy_l
 _AI_SCHEME_CACHE: Dict[str, Dict[str, Any]] = {}
 
 
-def classify_fund_with_llm(scheme_name: str) -> Optional[Dict[str, Any]]:
+def classify_fund_with_llm(scheme_name: str, external_processing_consent: bool = False) -> Optional[Dict[str, Any]]:
     """Prompt the AI engine dynamically to classify an Indian mutual fund per SEBI rules.
 
     Analyzes scheme mandate, asset allocation, and market cap exposure using SEBI
@@ -273,8 +273,10 @@ Respond ONLY with a valid JSON object in this exact schema without any markdown 
   \"ai_rationale\": \"Concise fiduciary justification citing SEBI categorization rules\"
 }}"""
 
+    if external_processing_consent is not True:
+        return None
     try:
-        raw_res = call_llm(prompt, external_processing_consent=True)
+        raw_res = call_llm(prompt, external_processing_consent=external_processing_consent)
         clean = raw_res.strip()
         if "```json" in clean:
             clean = clean.split("```json")[1].split("```")[0].strip()
@@ -307,7 +309,7 @@ Respond ONLY with a valid JSON object in this exact schema without any markdown 
         return None
 
 
-def batch_classify_funds_with_llm(scheme_names: List[str]) -> Dict[str, Dict[str, Any]]:
+def batch_classify_funds_with_llm(scheme_names: List[str], external_processing_consent: bool = False) -> Dict[str, Dict[str, Any]]:
     """Batch prompt the AI model to classify multiple schemes efficiently in a single round-trip."""
     results: Dict[str, Dict[str, Any]] = {}
     needed: List[str] = []
@@ -358,8 +360,10 @@ Respond ONLY with a valid JSON array of objects, one per scheme, in this exact f
   }}
 ]"""
 
+    if external_processing_consent is not True:
+        return results
     try:
-        raw_res = call_llm(prompt, external_processing_consent=True)
+        raw_res = call_llm(prompt, external_processing_consent=external_processing_consent)
         clean = raw_res.strip()
         if "```json" in clean:
             clean = clean.split("```json")[1].split("```")[0].strip()
@@ -1608,7 +1612,8 @@ def generate_fiduciary_ai_narrative(
     portfolio_metrics: Dict[str, Any],
     funds: List[Dict[str, Any]],
     target_saa: Optional[Dict[str, Any]] = None,
-    use_live_ai: bool = True,
+    use_live_ai: bool = False,
+    external_processing_consent: bool = False,
 ) -> Dict[str, str]:
     """Generate an analytical, fiduciary portfolio diagnostic narrative using AI.
 
@@ -1635,8 +1640,8 @@ def generate_fiduciary_ai_narrative(
             target_eq = float(getattr(target_saa, "total_equity_pct", 75.0) or 75.0)
             target_db = float(getattr(target_saa, "debt_pct", 25.0) or 25.0)
 
-    # 1. Attempt Live AI Synthesis if requested
-    if use_live_ai:
+    # 1. Attempt Live AI Synthesis if requested and consented
+    if use_live_ai and external_processing_consent is True:
         try:
             from core.ai_engine import call_llm
             prompt = f"""You are a SEBI-registered Research Analyst and Fee-Only Fiduciary Wealth Advisor.
@@ -1661,7 +1666,7 @@ Tone: Professional, institutional, objective, fiduciary, strictly non-promotiona
 Format: Clear markdown bullet points."""
 
             def _call_narrative():
-                return call_llm(prompt, external_processing_consent=True)
+                return call_llm(prompt, external_processing_consent=external_processing_consent)
 
             future = _AI_QUERY_EXECUTOR.submit(_call_narrative)
             raw_res = future.result(timeout=4.0)
@@ -2014,7 +2019,8 @@ def answer_fiduciary_query(
     portfolio_metrics: Dict[str, Any],
     funds: List[Dict[str, Any]],
     target_saa: Optional[Dict[str, Any]] = None,
-    use_live_ai: bool = True,
+    use_live_ai: bool = False,
+    external_processing_consent: bool = False,
 ) -> Dict[str, str]:
     """Provide real-time institutional fiduciary responses to natural language client queries.
 
@@ -2046,8 +2052,8 @@ def answer_fiduciary_query(
     if cache_key in _FIDUCIARY_QA_CACHE:
         return dict(_FIDUCIARY_QA_CACHE[cache_key])
 
-    # 1. Attempt Live LLM synthesis if requested (with strict 4.0s timeout worker)
-    if use_live_ai:
+    # 1. Attempt Live LLM synthesis if requested and consented (with strict 4.0s timeout worker)
+    if use_live_ai and external_processing_consent is True:
         try:
             from core.ai_engine import call_llm
             prompt = f"""You are a SEBI-registered Fee-Only Fiduciary Wealth Advisor. Answer the client's question strictly using their audited mutual fund portfolio data:
@@ -2066,7 +2072,7 @@ Portfolio Facts:
 Provide a concise, direct, institutional fiduciary answer in 2-4 bullet points. Strictly objective and non-promotional."""
 
             def _fetch_live():
-                return call_llm(prompt, external_processing_consent=True)
+                return call_llm(prompt, external_processing_consent=external_processing_consent)
 
             future = _AI_QUERY_EXECUTOR.submit(_fetch_live)
             raw_res = future.result(timeout=4.0)

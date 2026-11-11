@@ -40,12 +40,27 @@ def _date(value: Any, field: str) -> date:
     return parsed
 
 
+SUPPORTED_PORTFOLIO_PERIMETER = frozenset({
+    "cas_mutual_fund",
+    "bank_cash",
+    "deposit",
+    "epf_ppf_nps",
+    "direct_equity",
+    "debt",
+    "equity",
+    "cash",
+    "excluded_asset",
+})
+
+
 def reconcile_total_portfolio(
     assets: Iterable[Mapping[str, Any]],
     *,
     perimeter_complete: bool,
     as_of_date: str,
     excluded_assets: Iterable[Mapping[str, Any]] = (),
+    unmatched_items: Iterable[Mapping[str, Any]] = (),
+    sign_off: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Reconcile a declared asset perimeter; absent assets are never assumed zero.
 
@@ -56,14 +71,66 @@ def reconcile_total_portfolio(
     valuation_date = _date(as_of_date, "as_of_date")
     rows = list(assets)
     excluded = list(excluded_assets)
+    unmatched = list(unmatched_items)
+
     if perimeter_complete is not True:
-        return {"status": "HOLD", "reason": "PORTFOLIO_PERIMETER_NOT_ATTESTED",
-                "total_value_inr": None, "included_count": len(rows),
-                "excluded_count": len(excluded)}
+        return {
+            "status": "HOLD",
+            "reason": "PORTFOLIO_PERIMETER_NOT_ATTESTED",
+            "total_value_inr": None,
+            "included_count": len(rows),
+            "excluded_count": len(excluded),
+            "unmatched_count": len(unmatched),
+            "is_approved_for_sip_routing": False,
+        }
     if not rows:
-        return {"status": "HOLD", "reason": "NO_INCLUDED_ASSETS",
-                "total_value_inr": None, "included_count": 0,
-                "excluded_count": len(excluded)}
+        return {
+            "status": "HOLD",
+            "reason": "NO_INCLUDED_ASSETS",
+            "total_value_inr": None,
+            "included_count": 0,
+            "excluded_count": len(excluded),
+            "unmatched_count": len(unmatched),
+            "is_approved_for_sip_routing": False,
+        }
+    if unmatched:
+        return {
+            "status": "HOLD",
+            "reason": "UNMATCHED_PORTFOLIO_ITEMS_PRESENT",
+            "total_value_inr": None,
+            "included_count": len(rows),
+            "excluded_count": len(excluded),
+            "unmatched_count": len(unmatched),
+            "unmatched_items": unmatched,
+            "is_approved_for_sip_routing": False,
+        }
+    if sign_off is not None:
+        if not isinstance(sign_off, Mapping):
+            return {
+                "status": "HOLD",
+                "reason": "SIGN_OFF_ATTESTATION_INVALID",
+                "total_value_inr": None,
+                "included_count": len(rows),
+                "excluded_count": len(excluded),
+                "unmatched_count": len(unmatched),
+                "is_approved_for_sip_routing": False,
+            }
+        attested_by = sign_off.get("attested_by")
+        ts = sign_off.get("attestation_timestamp_utc")
+        stmt = sign_off.get("attestation_statement")
+        if not (isinstance(attested_by, str) and attested_by.strip() and
+                isinstance(ts, str) and ts.strip() and
+                isinstance(stmt, str) and stmt.strip()):
+            return {
+                "status": "HOLD",
+                "reason": "SIGN_OFF_ATTESTATION_INVALID",
+                "total_value_inr": None,
+                "included_count": len(rows),
+                "excluded_count": len(excluded),
+                "unmatched_count": len(unmatched),
+                "is_approved_for_sip_routing": False,
+            }
+
     seen: set[str] = set()
     total = Decimal("0")
     by_class: dict[str, Decimal] = {}
@@ -77,6 +144,11 @@ def reconcile_total_portfolio(
         if not all(isinstance(v, str) and v.strip() for v in
                    (asset_id, asset_class, source_ref, owner_scope)):
             raise PortfolioInputError(f"asset row {index} lacks identity/provenance")
+        norm_class = str(asset_class).strip().lower()
+        if norm_class not in SUPPORTED_PORTFOLIO_PERIMETER:
+            raise PortfolioInputError(
+                f"unsupported asset class '{asset_class}'; must be one of {sorted(SUPPORTED_PORTFOLIO_PERIMETER)}"
+            )
         if asset_id in seen:
             raise PortfolioInputError("duplicate asset_id")
         seen.add(asset_id)
@@ -87,16 +159,107 @@ def reconcile_total_portfolio(
         if value < 0:
             raise PortfolioInputError("asset value cannot be negative")
         total += value
-        by_class[asset_class] = by_class.get(asset_class, Decimal("0")) + value
-    return {
+        by_class[norm_class] = by_class.get(norm_class, Decimal("0")) + value
+
+    result: dict[str, Any] = {
         "status": "RECONCILED",
         "as_of_date": valuation_date.isoformat(),
         "total_value_inr": str(total),
         "included_count": len(rows),
         "excluded_count": len(excluded),
+        "unmatched_count": len(unmatched),
         "by_asset_class_inr": {k: str(v) for k, v in sorted(by_class.items())},
         "excluded_assets": excluded,
+        "unmatched_items": unmatched,
+        "is_approved_for_sip_routing": True,
     }
+    if sign_off is not None:
+        result["sign_off"] = dict(sign_off)
+    return result
+
+
+def generate_signed_portfolio_reconciliation_report(
+    assets: Iterable[Mapping[str, Any]],
+    *,
+    perimeter_complete: bool,
+    as_of_date: str,
+    sign_off: Mapping[str, Any],
+    excluded_assets: Iterable[Mapping[str, Any]] = (),
+    unmatched_items: Iterable[Mapping[str, Any]] = (),
+    report_id: str | None = None,
+) -> dict[str, Any]:
+    """Generate an authoritative, signed-off portfolio reconciliation report artifact.
+
+    Acceptance criteria for Issue #23:
+    - Included and excluded assets catalog with verified source and valuation dates.
+    - Zero unmatched items required for approval.
+    - Denominator arithmetic reconciliation down to exact Decimal string representation.
+    - Explicit fiduciary sign-off metadata (attested_by, UTC timestamp, attestation statement).
+    - RFC 8785 (JCS) SHA-256 cryptographic report digest.
+    """
+    valuation_date = _date(as_of_date, "as_of_date")
+    if not isinstance(sign_off, Mapping):
+        recon = {
+            "status": "HOLD",
+            "reason": "SIGN_OFF_ATTESTATION_REQUIRED",
+            "is_approved_for_sip_routing": False,
+            "total_value_inr": None,
+            "included_count": len(list(assets)),
+            "excluded_count": len(list(excluded_assets)),
+            "unmatched_count": len(list(unmatched_items)),
+        }
+    else:
+        recon = reconcile_total_portfolio(
+            assets,
+            perimeter_complete=perimeter_complete,
+            as_of_date=as_of_date,
+            excluded_assets=excluded_assets,
+            unmatched_items=unmatched_items,
+            sign_off=sign_off,
+        )
+
+    included_list = [dict(r) for r in assets]
+    excluded_list = [dict(r) for r in excluded_assets]
+    unmatched_list = [dict(r) for r in unmatched_items]
+
+    rid = report_id or f"PRR-{hashlib.sha256(valuation_date.isoformat().encode('utf-8')).hexdigest()[:12].upper()}"
+    report: dict[str, Any] = {
+        "report_id": rid,
+        "as_of_date": valuation_date.isoformat(),
+        "status": recon["status"],
+        "is_approved_for_sip_routing": recon.get("is_approved_for_sip_routing", False),
+        "total_value_inr": recon.get("total_value_inr"),
+        "included_count": recon.get("included_count", len(included_list)),
+        "excluded_count": recon.get("excluded_count", len(excluded_list)),
+        "unmatched_count": recon.get("unmatched_count", len(unmatched_list)),
+        "by_asset_class_inr": recon.get("by_asset_class_inr", {}),
+        "included_assets": included_list,
+        "excluded_assets": excluded_list,
+        "unmatched_items": unmatched_list,
+        "sign_off": dict(sign_off) if isinstance(sign_off, Mapping) else None,
+    }
+    if recon.get("reason"):
+        report["reason"] = recon["reason"]
+
+    def _to_json_compat(v: Any) -> Any:
+        if isinstance(v, (int, float, str, bool)) or v is None:
+            return v
+        if isinstance(v, Decimal):
+            return str(v)
+        if isinstance(v, Mapping):
+            return {str(k): _to_json_compat(val) for k, val in sorted(v.items())}
+        if isinstance(v, (list, tuple, set)):
+            return [_to_json_compat(item) for item in v]
+        return str(v)
+
+    canonical_obj = _to_json_compat(report)
+    try:
+        import rfc8785
+        encoded = rfc8785.dumps(canonical_obj)
+    except Exception:
+        encoded = json.dumps(canonical_obj, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    report["report_sha256"] = hashlib.sha256(encoded).hexdigest()
+    return report
 
 
 def calculate_saa_drift(
@@ -775,7 +938,7 @@ def validate_goal_mandate(
     minimum_horizon_days_by_asset_class: Mapping[str, Any],
 ) -> dict[str, Any]:
     """Validate goal evidence, priority, earmarks and compare horizons with caller-approved constraints.
-    
+
     Issue #30: Enforces versioned goal contract, explicit priority, near-term liquidity needs,
     and prevents double-counting of earmarked assets across multiple goals.
     """
@@ -797,7 +960,7 @@ def validate_goal_mandate(
         goal_id = goal.get("goal_id")
         if not isinstance(goal_id, str) or not goal_id.strip():
             reasons.append("GOAL_ID_MISSING")
-        
+
         schema_version = goal.get("schema_version")
         if schema_version is not None and schema_version != "goal_mandate.v1":
             reasons.append("GOAL_SCHEMA_VERSION_INVALID")
@@ -1091,15 +1254,15 @@ def _validate_new_fund_limit(
     is_starter: bool = False,
 ) -> list[str]:
     """Validate the 12-month new fund limit for proposed SIP allocations.
-    
+
     Returns a list of violation messages; empty list means compliant.
     Fail-closed: missing history or policy misconfiguration returns violations.
-    
+
     Issue #4: Enforces max_new_funds_per_12_months policy to prevent
     excessive scheme introduction within a 12-month window.
     """
     from core.math_engine import _sip_operational_constraint_violations
-    
+
     # Convert recommendations to DeterministicSIPRecommendation objects if needed
     from core.models import DeterministicSIPRecommendation
     items = []
@@ -1115,7 +1278,7 @@ def _validate_new_fund_limit(
                 rational_code=rec.get("rational_code", ""),
                 fiduciary_rationale=rec.get("fiduciary_rationale", ""),
             ))
-    
+
     violations = _sip_operational_constraint_violations(
         items,
         sip_policy,
@@ -1123,10 +1286,10 @@ def _validate_new_fund_limit(
         existing_schemes=existing_schemes or [],
         is_starter=is_starter,
     )
-    
+
     # Filter to only return new-fund-related violations
     new_fund_violations = [
-        v for v in violations 
+        v for v in violations
         if "new fund" in v.lower() or "12-month" in v.lower()
     ]
     return new_fund_violations

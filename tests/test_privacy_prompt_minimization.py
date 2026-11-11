@@ -1,0 +1,191 @@
+"""
+Tests for Issue #44: End-to-end prompt minimization and provider-path privacy audit.
+
+Acceptance criteria:
+- No client name, folio/account identifier, bank account, IFSC, Aadhaar, or unnecessary identifying detail is included in an outbound prompt.
+- Outbound interactive query prompts exclude granular individual scheme valuations, invested amounts, and gains.
+- External transmission is blocked across all services unless explicit per-request investor consent is granted.
+- Without consent, all services fall back cleanly to local deterministic statutory synthesis without calling the LLM engine.
+"""
+from __future__ import annotations
+
+import pytest
+from decimal import Decimal
+from types import SimpleNamespace
+
+from core.prompt_advisor import (
+    sanitize_prompt_for_privacy,
+    answer_interactive_query,
+    _call_llm_with_retry,
+)
+from core.models import PlanType
+from services.ai_fund_classifier import (
+    classify_fund_with_llm,
+    batch_classify_funds_with_llm,
+    generate_fiduciary_ai_narrative,
+    answer_fiduciary_query,
+)
+from services.cgs_parser import evaluate_tax_harvesting_strategy
+from services.goal_planner import evaluate_goal_scenarios_with_ai
+from services.risk_profiler import predict_risk_tier_from_portfolio
+
+
+def test_sanitize_prompt_for_privacy_redacts_comprehensive_pii():
+    text = (
+        "Client Rajesh Sharma with Aadhaar 1234 5678 9012, PAN ABCDE1234F, "
+        "email rajesh.sharma@example.co.in, phone +91 9876543210, "
+        "holding HDFC Bank Account 12345678901234 with IFSC HDFC0001234, "
+        "under Folio #98765432/10."
+    )
+    sanitized = sanitize_prompt_for_privacy(text, client_name="Rajesh Sharma")
+
+    assert "Rajesh Sharma" not in sanitized
+    assert "1234 5678 9012" not in sanitized
+    assert "ABCDE1234F" not in sanitized
+    assert "rajesh.sharma@example.co.in" not in sanitized
+    assert "9876543210" not in sanitized
+    assert "12345678901234" not in sanitized
+    assert "HDFC0001234" not in sanitized
+    assert "98765432/10" not in sanitized
+
+    assert "[REDACTED_AADHAAR]" in sanitized
+    assert "[REDACTED_PAN]" in sanitized
+    assert "[REDACTED_EMAIL]" in sanitized
+    assert "[REDACTED_PHONE]" in sanitized
+    assert "[REDACTED_ACCOUNT]" in sanitized
+    assert "[REDACTED_IFSC]" in sanitized
+    assert "[REDACTED_FOLIO]" in sanitized
+    assert "the supplied investor portfolio" in sanitized
+
+
+def test_interactive_query_prompt_minimization(monkeypatch):
+    captured = {}
+
+    def fake_engine_call(prompt, **kwargs):
+        captured["prompt"] = prompt
+        return "Fiduciary response"
+
+    import core.prompt_advisor as pa
+    monkeypatch.setattr(pa, "_engine_call_llm", fake_engine_call)
+
+    holding1 = SimpleNamespace(
+        fund_name="HDFC Top 100 Fund",
+        plan=PlanType.DIRECT,
+        current_value_inr=500000.0,
+        invested_value_inr=350000.0,
+    )
+    holding2 = SimpleNamespace(
+        fund_name="SBI Small Cap Fund",
+        plan=PlanType.REGULAR,
+        current_value_inr=500000.0,
+        invested_value_inr=400000.0,
+    )
+
+    facts = SimpleNamespace(
+        client_name="Vikram Seth",
+        holdings=[holding1, holding2],
+        holdings_count=2,
+        total_portfolio_value_inr=1000000.0,
+        total_invested_value_inr=750000.0,
+        total_unrealized_gain_inr=250000.0,
+        xirr_pct=0.145,
+        benchmark_xirr_pct=0.120,
+        alpha_pct=2.5,
+        fee_bleed=SimpleNamespace(
+            regular_funds_count=1,
+            regular_portfolio_value_inr=500000.0,
+            annual_bleed_inr=4500.0,
+            ten_year_compounded_loss_inr=72000.0,
+        ),
+        saa_drift=SimpleNamespace(
+            current_equity_pct=75.0,
+            current_debt_pct=25.0,
+            current_cash_pct=0.0,
+            target_equity_pct=70.0,
+            target_debt_pct=30.0,
+        ),
+        monthly_sip_budget_inr=25000.0,
+        lumpsum_budget_inr=100000.0,
+        stability_buffer=None,
+    )
+
+    response = answer_interactive_query(
+        facts,
+        "What is my asset allocation?",
+        external_processing_consent=True,
+    )
+
+    outbound_prompt = captured["prompt"]
+    # Client name must be redacted
+    assert "Vikram Seth" not in outbound_prompt
+    # Granular individual holding valuations and gains must NOT be sent to external LLM
+    assert "Val: INR 500,000" not in outbound_prompt
+    assert "Inv: INR 350,000" not in outbound_prompt
+    assert "Gain: INR +150,000" not in outbound_prompt
+    # Instead, relative allocation percentages are included
+    assert "approx 50.0% allocation" in outbound_prompt
+
+
+def test_classifier_llm_blocks_without_consent(monkeypatch):
+    called = []
+    import core.ai_engine as ai
+    monkeypatch.setattr(ai, "call_llm", lambda *a, **k: called.append(k) or "output")
+
+    # Single fund classification fails closed to None
+    res = classify_fund_with_llm("Parag Parikh Flexi Cap Fund", external_processing_consent=False)
+    assert res is None
+    assert called == []
+
+    # Batch fund classification fails closed to empty/unclassified
+    batch_res = batch_classify_funds_with_llm(["HDFC Top 100", "SBI Small Cap"], external_processing_consent=False)
+    assert batch_res == {}
+    assert called == []
+
+
+def test_services_fallback_to_statutory_synthesis_without_consent(monkeypatch):
+    called = []
+    import core.ai_engine as ai
+    monkeypatch.setattr(ai, "call_llm", lambda *a, **k: called.append(k) or "llm_output")
+
+    metrics = {
+        "total_value": 1000000.0,
+        "eq_pct": 70.0,
+        "debt_pct": 30.0,
+        "regular_value": 200000.0,
+        "regular_pct": 20.0,
+        "annual_bleed": 2000.0,
+        "compounded_10y_drag": 35000.0,
+    }
+    funds = [{"scheme": "Fund A", "current_value": 1000000.0, "eq": 70.0, "debt": 30.0}]
+
+    # 1. Narrative report
+    narrative = generate_fiduciary_ai_narrative(metrics, funds, external_processing_consent=False)
+    assert "Institutional Fiduciary Health Diagnostic" in narrative["content"]
+    assert called == []
+
+    # 2. Fiduciary natural language query
+    qa = answer_fiduciary_query("How to reduce fee drag?", metrics, funds, external_processing_consent=False)
+    assert "Statutory Fiduciary" in qa["source"]
+    assert "trail commission" in qa["response"].lower() or "regular" in qa["response"].lower()
+    assert called == []
+
+    # 3. Capital gains tax harvesting
+    cgs_data = {"summary": {"ltcg_inr": 25000.0, "stcg_inr": 10000.0}}
+    tax = evaluate_tax_harvesting_strategy(cgs_data, funds, external_processing_consent=False)
+    assert tax["status"] == "ANALYZED"
+    assert "Section 112A" in tax["ai_tax_narrative"]
+    assert called == []
+
+    # 4. Goal planning stress testing
+    goals = [{"name": "Retirement", "cost_today": 5000000.0, "horizon": 15, "required_sip": 20000.0}]
+    target_saa = {"equity_pct": 70.0, "debt_pct": 30.0, "cash_pct": 0.0}
+    goal_res = evaluate_goal_scenarios_with_ai(goals, 25000.0, target_saa=target_saa, external_processing_consent=False)
+    assert goal_res["status"] == "ANALYZED"
+    assert "active financial goals require" in goal_res["ai_scenario_narrative"].lower()
+    assert called == []
+
+    # 5. Risk tier prediction from portfolio
+    risk_res = predict_risk_tier_from_portfolio(funds, external_processing_consent=False)
+    assert risk_res["status"] == "PREDICTED"
+    assert "revealed investment behavior aligns with" in risk_res["ai_behavioral_rationale"].lower()
+    assert called == []

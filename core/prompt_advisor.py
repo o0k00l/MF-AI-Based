@@ -73,8 +73,11 @@ def sanitize_prompt_for_privacy(text: str, client_name: Optional[str] = None) ->
         return ""
     s = str(text)
     s = re.sub(r"\b[A-Z]{5}[0-9]{4}[A-Z]\b", "[REDACTED_PAN]", s, flags=re.IGNORECASE)
+    s = re.sub(r"\b\d{4}\s?\d{4}\s?\d{4}\b", "[REDACTED_AADHAAR]", s)
     s = re.sub(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b", "[REDACTED_EMAIL]", s)
     s = re.sub(r"(?:\+91[\-\s]?)?[6789]\d{9}\b", "[REDACTED_PHONE]", s)
+    s = re.sub(r"\b[A-Z]{4}0[A-Z0-9]{6}\b", "[REDACTED_IFSC]", s, flags=re.IGNORECASE)
+    s = re.sub(r"(?i)\b(?:account|acct|a/c|bank account)\s*[:#-]?\s*(\d{9,18})\b", "[REDACTED_ACCOUNT]", s)
     s = re.sub(r"(?i)\b(?:folio|acct|account|acc)?\s*[:#-]?\s*(\d{5,16}(?:/\d{1,6})?)\b", "[REDACTED_FOLIO]", s)
     if client_name and len(str(client_name).strip()) > 1:
         s = re.sub(re.escape(str(client_name).strip()), "the supplied investor portfolio", s, flags=re.IGNORECASE)
@@ -113,14 +116,14 @@ def generate_health_audit_report(
     """Generates the comprehensive Portfolio Health & Commission Bleed Audit."""
     top_bleed_schemes = facts.fee_bleed.details[:8]
     high_overlap_pairs = facts.overlap_matrix[:6]
-    
+
     weighted_overlap = getattr(facts, 'weighted_overlap', [])
     risk_distribution = getattr(facts, 'risk_distribution', None)
     # Unverified caller-provided cost records are never admitted to investor-facing prompts.
     switch_costs = []
     eligibility_results = getattr(facts, 'eligibility_results', [])
     no_action = getattr(facts, 'no_action', None)
-    
+
     xirr_val = f"{facts.xirr_pct * 100:.2f}%" if facts.xirr_pct is not None else "N/A"
     benchmark_val = f"{facts.benchmark_xirr_pct * 100:.2f}%" if facts.benchmark_xirr_pct is not None else "N/A"
     alpha_val = f"{facts.alpha_pct:+.2f}%" if facts.alpha_pct is not None else "N/A"
@@ -703,9 +706,9 @@ def answer_interactive_query(
             "investor mandate before drawing an allocation conclusion."
         )
     holdings_ledger = "\n".join(
-        f"- {h.fund_name} | {h.plan.value} | Val: INR {h.current_value_inr:,.0f} | Inv: INR {h.invested_value_inr:,.0f} | Gain: INR {h.current_value_inr - h.invested_value_inr:+,.0f}"
+        f"- {h.fund_name} ({h.plan.value}): approx {h.current_value_inr / facts.total_portfolio_value_inr * 100:.1f}% allocation"
         for h in sorted(facts.holdings, key=lambda x: -x.current_value_inr)
-    )
+    ) if facts.total_portfolio_value_inr > 0 else "None"
 
     xirr_str = f"{facts.xirr_pct * 100:.2f}%" if facts.xirr_pct is not None else "N/A"
     benchmark_str = f"{facts.benchmark_xirr_pct * 100:.2f}%" if facts.benchmark_xirr_pct is not None else "N/A"

@@ -50,7 +50,8 @@ def parse_cgs_file(file_obj: BinaryIO | bytes | Path) -> dict[str, Any]:
 def evaluate_tax_harvesting_strategy(
     cgs_data: dict[str, Any] | None,
     portfolio: list[dict[str, Any]] | None = None,
-    use_live_ai: bool = True,
+    use_live_ai: bool = False,
+    external_processing_consent: bool = False,
 ) -> dict[str, Any]:
     """Evaluate Section 112A annual tax harvesting, loss set-off, and tax-efficient rebalancing.
 
@@ -129,7 +130,7 @@ def evaluate_tax_harvesting_strategy(
 
     # Generate AI / Institutional Synthesis Narrative
     ai_narrative = ""
-    if use_live_ai:
+    if use_live_ai and external_processing_consent is True:
         try:
             from core.ai_engine import call_llm
             prompt = f"""You are a SEBI-registered Research Analyst and Tax-Efficient Wealth Advisor.
@@ -147,7 +148,7 @@ Provide a concise, institutional tax optimization action plan covering:
 2. Loss Set-Off & Carry-Forward Strategy
 3. Tax-Efficient Regular-to-Direct Switching Guidance
 Tone: Objective, fiduciary, statutory compliance-focused."""
-            res = call_llm(prompt, external_processing_consent=True)
+            res = call_llm(prompt, external_processing_consent=external_processing_consent)
             if res and len(res.strip()) > 50:
                 ai_narrative = res.strip()
         except Exception as exc:
