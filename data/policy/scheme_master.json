@@ -40,7 +40,7 @@
       "mc": 9.59,
       "sc": 9.0,
       "re": 1.59,
-      "other": 1.25,
+      "other": 0.0,
       "n_secs": 325,
       "aliases": [
         "hdfc baf",
@@ -51,16 +51,21 @@
       ],
       "as_of": "2026-08-31",
       "exposure_evidence": {
-        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
-        "source_document": "sharpely_monthly_disclosure_2026_08.json",
-        "scheme_code": 16055,
-        "reporting_period": "2026-08-31",
-        "retrieval_date": "2026-11-07",
+        "cash_pct": 2.84,
         "debt_pct": 23.86,
         "equity_pct": 73.3,
+        "evidence_hash": "1b771be8d869006c874e97004b151d148db8172eec341e3ce521014f281b2c0d",
+        "gold_pct": 0.0,
         "is_verified": true,
-        "evidence_hash": "770993a53395eb00f6518cb75917797cdf8dc586c4e064e2fd5843d3494611e7"
-      }
+        "other_pct": 0.0,
+        "reporting_period": "2026-08-31",
+        "retrieval_date": "2026-11-07",
+        "schema_version": "2.0",
+        "scheme_code": 16055,
+        "source_document": "sharpely_monthly_disclosure_2026_08.json",
+        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE"
+      },
+      "cash": 2.84
     },
     "HDFC Flexi Cap": {
       "canonical_name": "HDFC Flexi Cap",
@@ -98,23 +103,28 @@
       "mc": 14.9,
       "sc": 9.58,
       "re": 2.19,
-      "other": 2.47,
+      "other": 0.0,
       "n_secs": 84,
       "aliases": [
         "hdfc flexi cap"
       ],
       "as_of": "2026-08-31",
       "exposure_evidence": {
-        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
-        "source_document": "sharpely_monthly_disclosure_2026_08.json",
-        "scheme_code": 16026,
-        "reporting_period": "2026-08-31",
-        "retrieval_date": "2026-11-07",
+        "cash_pct": 4.66,
         "debt_pct": 0.45,
         "equity_pct": 94.89,
+        "evidence_hash": "b7ef52ca0aaa1317e1003caf2e3a10e18219d52bd0f0ea037c12f4040b2363af",
+        "gold_pct": 0.0,
         "is_verified": true,
-        "evidence_hash": "c5424e5a2d95452d72bc43283bf383cd73be019f91d9e638f22d3d7ebc40230e"
-      }
+        "other_pct": 0.0,
+        "reporting_period": "2026-08-31",
+        "retrieval_date": "2026-11-07",
+        "schema_version": "2.0",
+        "scheme_code": 16026,
+        "source_document": "sharpely_monthly_disclosure_2026_08.json",
+        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE"
+      },
+      "cash": 4.66
     },
     "HDFC Mid Cap": {
       "canonical_name": "HDFC Mid Cap",
@@ -152,23 +162,28 @@
       "mc": 65.42,
       "sc": 17.01,
       "re": 0.0,
-      "other": 7.07,
+      "other": 0.0,
       "n_secs": 80,
       "aliases": [
         "hdfc mid cap"
       ],
       "as_of": "2026-08-31",
       "exposure_evidence": {
-        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
-        "source_document": "sharpely_monthly_disclosure_2026_08.json",
-        "scheme_code": 16114,
-        "reporting_period": "2026-08-31",
-        "retrieval_date": "2026-11-07",
+        "cash_pct": 7.07,
         "debt_pct": 0.0,
         "equity_pct": 92.93,
+        "evidence_hash": "121b7ab831a9b6ad6aa249455658e512ef736ec26daaf96486d051d4708d97f0",
+        "gold_pct": 0.0,
         "is_verified": true,
-        "evidence_hash": "7876957f28098fd8252741ce33fde53d202fc6a48da91bac7b7452aae0e2ce94"
-      }
+        "other_pct": 0.0,
+        "reporting_period": "2026-08-31",
+        "retrieval_date": "2026-11-07",
+        "schema_version": "2.0",
+        "scheme_code": 16114,
+        "source_document": "sharpely_monthly_disclosure_2026_08.json",
+        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE"
+      },
+      "cash": 7.07
     },
     "HDFC Defence": {
       "canonical_name": "HDFC Defence",
@@ -206,7 +221,7 @@
       "mc": 25.31,
       "sc": 29.04,
       "re": 0.0,
-      "other": 1.89,
+      "other": 0.0,
       "n_secs": 25,
       "aliases": [
         "hdfc defence",
@@ -216,16 +231,21 @@
       ],
       "as_of": "2026-08-31",
       "exposure_evidence": {
-        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
-        "source_document": "sharpely_monthly_disclosure_2026_08.json",
-        "scheme_code": 43512,
-        "reporting_period": "2026-08-31",
-        "retrieval_date": "2026-11-07",
+        "cash_pct": 1.89,
         "debt_pct": 0.0,
         "equity_pct": 98.11,
+        "evidence_hash": "05285092b7c09b3839a69ecc66c63867c5215d8a8a8ee58c90cedb0e4263aebc",
+        "gold_pct": 0.0,
         "is_verified": true,
-        "evidence_hash": "718ff85568626ab02a75e650b4364058f0aa0dac99eb138eef84013a1cfbc140"
-      }
+        "other_pct": 0.0,
+        "reporting_period": "2026-08-31",
+        "retrieval_date": "2026-11-07",
+        "schema_version": "2.0",
+        "scheme_code": 43512,
+        "source_document": "sharpely_monthly_disclosure_2026_08.json",
+        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE"
+      },
+      "cash": 1.89
     },
     "SBI Energy Opps": {
       "canonical_name": "SBI Energy Opps",
@@ -263,7 +283,7 @@
       "mc": 21.05,
       "sc": 33.32,
       "re": 0.0,
-      "other": 2.51,
+      "other": 0.0,
       "n_secs": 36,
       "aliases": [
         "sbi energy opps",
@@ -273,16 +293,21 @@
       ],
       "as_of": "2026-08-31",
       "exposure_evidence": {
-        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
-        "source_document": "sharpely_monthly_disclosure_2026_08.json",
-        "scheme_code": 44146,
-        "reporting_period": "2026-08-31",
-        "retrieval_date": "2026-11-07",
+        "cash_pct": 2.51,
         "debt_pct": 0.06,
         "equity_pct": 97.43,
+        "evidence_hash": "7f73279947f8a625d7d6c06aab95e11ada804009780e1b1a99b518a7f7bcfc2d",
+        "gold_pct": 0.0,
         "is_verified": true,
-        "evidence_hash": "0f359318068ca0c63f2afed6ac25d68d7c380239aae08ea0b3766c31cf7320e2"
-      }
+        "other_pct": 0.0,
+        "reporting_period": "2026-08-31",
+        "retrieval_date": "2026-11-07",
+        "schema_version": "2.0",
+        "scheme_code": 44146,
+        "source_document": "sharpely_monthly_disclosure_2026_08.json",
+        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE"
+      },
+      "cash": 2.51
     },
     "ICICI Pru Large & Mid": {
       "canonical_name": "ICICI Pru Large & Mid",
@@ -320,23 +345,28 @@
       "mc": 44.96,
       "sc": 6.27,
       "re": 0.0,
-      "other": 2.02,
+      "other": 0.0,
       "n_secs": 121,
       "aliases": [
         "icici pru large & mid"
       ],
       "as_of": "2026-08-31",
       "exposure_evidence": {
-        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
-        "source_document": "sharpely_monthly_disclosure_2026_08.json",
-        "scheme_code": 15868,
-        "reporting_period": "2026-08-31",
-        "retrieval_date": "2026-11-07",
+        "cash_pct": 2.02,
         "debt_pct": 0.02,
         "equity_pct": 97.96,
+        "evidence_hash": "10ec29c12a42e1bcc6b82965ee411778ca841bce9630530fd5ff1415bcd12a3a",
+        "gold_pct": 0.0,
         "is_verified": true,
-        "evidence_hash": "1b923cfe28daea268b26ea29afb2406cd50a283b05352f2c1b70f135ce8a9942"
-      }
+        "other_pct": 0.0,
+        "reporting_period": "2026-08-31",
+        "retrieval_date": "2026-11-07",
+        "schema_version": "2.0",
+        "scheme_code": 15868,
+        "source_document": "sharpely_monthly_disclosure_2026_08.json",
+        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE"
+      },
+      "cash": 2.02
     },
     "PPFAS Flexi Cap": {
       "canonical_name": "PPFAS Flexi Cap",
@@ -374,7 +404,7 @@
       "mc": 3.36,
       "sc": 4.25,
       "re": 6.16,
-      "other": 5.33,
+      "other": 0.0,
       "n_secs": 115,
       "aliases": [
         "ppfas flexi cap",
@@ -385,16 +415,21 @@
       ],
       "as_of": "2026-08-31",
       "exposure_evidence": {
-        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
-        "source_document": "sharpely_monthly_disclosure_2026_08.json",
-        "scheme_code": 19701,
-        "reporting_period": "2026-08-31",
-        "retrieval_date": "2026-11-07",
+        "cash_pct": 11.5,
         "debt_pct": 6.26,
         "equity_pct": 82.24,
+        "evidence_hash": "eb8dd79156e74844b687aab0161e4f8a5d05f1b95462678b83646997ff1b3184",
+        "gold_pct": 0.0,
         "is_verified": true,
-        "evidence_hash": "4ab21447b76b35111961599558592329b62f44b8cea0362792cbb72ca1b36330"
-      }
+        "other_pct": 0.0,
+        "reporting_period": "2026-08-31",
+        "retrieval_date": "2026-11-07",
+        "schema_version": "2.0",
+        "scheme_code": 19701,
+        "source_document": "sharpely_monthly_disclosure_2026_08.json",
+        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE"
+      },
+      "cash": 11.5
     },
     "WhiteOak Special Opps": {
       "canonical_name": "WhiteOak Special Opps",
@@ -439,16 +474,21 @@
       ],
       "as_of": "2026-08-31",
       "exposure_evidence": {
-        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
-        "source_document": "sharpely_monthly_disclosure_2026_08.json",
-        "scheme_code": 44333,
-        "reporting_period": "2026-08-31",
-        "retrieval_date": "2026-11-07",
+        "cash_pct": 1.6,
         "debt_pct": 0.79,
         "equity_pct": 97.61,
+        "evidence_hash": "35f1193f42062e00b5b26af376ad35b9c87a3a198ce48498eb297ac15e49ca12",
+        "gold_pct": 0.0,
         "is_verified": true,
-        "evidence_hash": "ab094147a01ad3f3149b6566f08d28242990f7160f7d2c181fa68568f24d3d4f"
-      }
+        "other_pct": 0.0,
+        "reporting_period": "2026-08-31",
+        "retrieval_date": "2026-11-07",
+        "schema_version": "2.0",
+        "scheme_code": 44333,
+        "source_document": "sharpely_monthly_disclosure_2026_08.json",
+        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE"
+      },
+      "cash": 1.6
     },
     "Mirae Multicap": {
       "canonical_name": "Mirae Multicap",
@@ -486,23 +526,28 @@
       "mc": 26.83,
       "sc": 36.93,
       "re": 0.0,
-      "other": 0.99,
+      "other": 0.0,
       "n_secs": 82,
       "aliases": [
         "mirae multicap"
       ],
       "as_of": "2026-08-31",
       "exposure_evidence": {
-        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
-        "source_document": "sharpely_monthly_disclosure_2026_08.json",
-        "scheme_code": 43578,
-        "reporting_period": "2026-08-31",
-        "retrieval_date": "2026-11-07",
+        "cash_pct": 0.99,
         "debt_pct": 0.0,
         "equity_pct": 99.01,
+        "evidence_hash": "ecdc5d0eda261a4ecc883102624a6c8956d52c46b1a73537ec30fc0fcde57e4a",
+        "gold_pct": 0.0,
         "is_verified": true,
-        "evidence_hash": "0c5dc7ff5ce8e3a54195c6b697ee5a3c57b757f83836f8a1f2def588ea798863"
-      }
+        "other_pct": 0.0,
+        "reporting_period": "2026-08-31",
+        "retrieval_date": "2026-11-07",
+        "schema_version": "2.0",
+        "scheme_code": 43578,
+        "source_document": "sharpely_monthly_disclosure_2026_08.json",
+        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE"
+      },
+      "cash": 0.99
     },
     "Canara Robeco Multi Cap": {
       "canonical_name": "Canara Robeco Multi Cap",
@@ -540,23 +585,28 @@
       "mc": 27.79,
       "sc": 27.5,
       "re": 0.0,
-      "other": 2.48,
+      "other": 0.0,
       "n_secs": 114,
       "aliases": [
         "canara robeco multi cap"
       ],
       "as_of": "2026-08-31",
       "exposure_evidence": {
-        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
-        "source_document": "sharpely_monthly_disclosure_2026_08.json",
-        "scheme_code": 43571,
-        "reporting_period": "2026-08-31",
-        "retrieval_date": "2026-11-07",
+        "cash_pct": 2.48,
         "debt_pct": 0.0,
         "equity_pct": 97.52,
+        "evidence_hash": "3a79d8aba3203a68eff318417d394127ef487e93884080e08f63cc0465502fcc",
+        "gold_pct": 0.0,
         "is_verified": true,
-        "evidence_hash": "e5b1022fd62835deed5b891925fdb361d4dc5cbfd125e1eee429751acc5315cf"
-      }
+        "other_pct": 0.0,
+        "reporting_period": "2026-08-31",
+        "retrieval_date": "2026-11-07",
+        "schema_version": "2.0",
+        "scheme_code": 43571,
+        "source_document": "sharpely_monthly_disclosure_2026_08.json",
+        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE"
+      },
+      "cash": 2.48
     },
     "Edelweiss BAF": {
       "canonical_name": "Edelweiss BAF",
@@ -594,23 +644,28 @@
       "mc": 15.34,
       "sc": 6.12,
       "re": 0.13,
-      "other": 2.15,
+      "other": 0.0,
       "n_secs": 129,
       "aliases": [
         "edelweiss baf"
       ],
       "as_of": "2026-08-31",
       "exposure_evidence": {
-        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
-        "source_document": "sharpely_monthly_disclosure_2026_08.json",
-        "scheme_code": 17768,
-        "reporting_period": "2026-08-31",
-        "retrieval_date": "2026-11-07",
+        "cash_pct": 2.28,
         "debt_pct": 13.91,
         "equity_pct": 83.81,
+        "evidence_hash": "39b4f6b86420b1476e09094c28ed70da3bccc56368613d841189ea6da9979e6c",
+        "gold_pct": 0.0,
         "is_verified": true,
-        "evidence_hash": "25e2f57b9089e672757c704ae770a8836751bef27003867c384d01d99053786b"
-      }
+        "other_pct": 0.0,
+        "reporting_period": "2026-08-31",
+        "retrieval_date": "2026-11-07",
+        "schema_version": "2.0",
+        "scheme_code": 17768,
+        "source_document": "sharpely_monthly_disclosure_2026_08.json",
+        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE"
+      },
+      "cash": 2.28
     },
     "Motilal Defence Index": {
       "canonical_name": "Motilal Defence Index",
@@ -655,16 +710,21 @@
       ],
       "as_of": "2026-08-31",
       "exposure_evidence": {
-        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
-        "source_document": "sharpely_monthly_disclosure_2026_08.json",
-        "scheme_code": 44397,
-        "reporting_period": "2026-08-31",
-        "retrieval_date": "2026-11-07",
+        "cash_pct": 0.0,
         "debt_pct": 0.0,
         "equity_pct": 100.0,
+        "evidence_hash": "e42be8105b5359462bea5a8a4743f84e8d3ef1bf2d4fffe5aa8700e5af884989",
+        "gold_pct": 0.0,
         "is_verified": true,
-        "evidence_hash": "0afe86e01082577c5cf46f3c62af39ad492d96d2aeebcc57e19698c716586fcc"
-      }
+        "other_pct": 0.0,
+        "reporting_period": "2026-08-31",
+        "retrieval_date": "2026-11-07",
+        "schema_version": "2.0",
+        "scheme_code": 44397,
+        "source_document": "sharpely_monthly_disclosure_2026_08.json",
+        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE"
+      },
+      "cash": 0.0
     },
     "Motilal Midcap": {
       "canonical_name": "Motilal Midcap",
@@ -702,23 +762,28 @@
       "mc": 68.24,
       "sc": 3.86,
       "re": 0.0,
-      "other": 3.62,
+      "other": 0.0,
       "n_secs": 31,
       "aliases": [
         "motilal midcap"
       ],
       "as_of": "2026-08-31",
       "exposure_evidence": {
-        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
-        "source_document": "sharpely_monthly_disclosure_2026_08.json",
-        "scheme_code": 24080,
-        "reporting_period": "2026-08-31",
-        "retrieval_date": "2026-11-07",
+        "cash_pct": 3.62,
         "debt_pct": 0.0,
         "equity_pct": 96.38,
+        "evidence_hash": "5715a4493776e60b57a7e885900b71308c00564ad79e570bf4f883afeba418ce",
+        "gold_pct": 0.0,
         "is_verified": true,
-        "evidence_hash": "54f14220d8c7cd8b2cbe9c44971009a155f0ea12991d15f6824f3c8d1cf9b73b"
-      }
+        "other_pct": 0.0,
+        "reporting_period": "2026-08-31",
+        "retrieval_date": "2026-11-07",
+        "schema_version": "2.0",
+        "scheme_code": 24080,
+        "source_document": "sharpely_monthly_disclosure_2026_08.json",
+        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE"
+      },
+      "cash": 3.62
     },
     "Quant Multi Cap": {
       "canonical_name": "Quant Multi Cap",
@@ -756,23 +821,28 @@
       "mc": 27.31,
       "sc": 36.0,
       "re": 0.0,
-      "other": 1.76,
+      "other": 0.0,
       "n_secs": 63,
       "aliases": [
         "quant multi cap"
       ],
       "as_of": "2026-08-31",
       "exposure_evidence": {
-        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
-        "source_document": "sharpely_monthly_disclosure_2026_08.json",
-        "scheme_code": 17361,
-        "reporting_period": "2026-08-31",
-        "retrieval_date": "2026-11-07",
+        "cash_pct": 1.76,
         "debt_pct": 3.75,
         "equity_pct": 94.49,
+        "evidence_hash": "36a280c1dd55012059a11ae8ac535347ca6a5f6880ed7765043bb93bdc9a54ee",
+        "gold_pct": 0.0,
         "is_verified": true,
-        "evidence_hash": "64381808e5e70c4505cb8a5ec34806e6db4b4bb88b091565e472e4f90bfc221b"
-      }
+        "other_pct": 0.0,
+        "reporting_period": "2026-08-31",
+        "retrieval_date": "2026-11-07",
+        "schema_version": "2.0",
+        "scheme_code": 17361,
+        "source_document": "sharpely_monthly_disclosure_2026_08.json",
+        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE"
+      },
+      "cash": 1.76
     },
     "Quant Large & Mid": {
       "canonical_name": "Quant Large & Mid",
@@ -810,23 +880,28 @@
       "mc": 46.06,
       "sc": 7.58,
       "re": 0.0,
-      "other": 1.58,
+      "other": 0.0,
       "n_secs": 29,
       "aliases": [
         "quant large & mid"
       ],
       "as_of": "2026-08-31",
       "exposure_evidence": {
-        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
-        "source_document": "sharpely_monthly_disclosure_2026_08.json",
-        "scheme_code": 17363,
-        "reporting_period": "2026-08-31",
-        "retrieval_date": "2026-11-07",
+        "cash_pct": 1.58,
         "debt_pct": 0.0,
         "equity_pct": 98.42,
+        "evidence_hash": "691b4762cc8d287df10fdddb960d0b3842a20a4a913d98901f8ddc50780662d4",
+        "gold_pct": 0.0,
         "is_verified": true,
-        "evidence_hash": "96946b4a67c74270bc4cfda227f7edcfb9050418bc06e9e4fe6bf7f30f05911e"
-      }
+        "other_pct": 0.0,
+        "reporting_period": "2026-08-31",
+        "retrieval_date": "2026-11-07",
+        "schema_version": "2.0",
+        "scheme_code": 17363,
+        "source_document": "sharpely_monthly_disclosure_2026_08.json",
+        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE"
+      },
+      "cash": 1.58
     },
     "Nippon Large Cap": {
       "canonical_name": "Nippon Large Cap",
@@ -864,23 +939,28 @@
       "mc": 14.95,
       "sc": 3.49,
       "re": 0.0,
-      "other": 0.32,
+      "other": 0.0,
       "n_secs": 67,
       "aliases": [
         "nippon large cap"
       ],
       "as_of": "2026-08-31",
       "exposure_evidence": {
-        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
-        "source_document": "sharpely_monthly_disclosure_2026_08.json",
-        "scheme_code": 16192,
-        "reporting_period": "2026-08-31",
-        "retrieval_date": "2026-11-07",
+        "cash_pct": 0.32,
         "debt_pct": 0.0,
         "equity_pct": 99.68,
+        "evidence_hash": "34ce0d1c52021e10a0689dc2e50873ea25c6aa39f02abe7388fdb1ab64a4829b",
+        "gold_pct": 0.0,
         "is_verified": true,
-        "evidence_hash": "8681c17db1237091ee5c66bc4b1116d07aa59c8354da3f4567ffcc902e7c0a08"
-      }
+        "other_pct": 0.0,
+        "reporting_period": "2026-08-31",
+        "retrieval_date": "2026-11-07",
+        "schema_version": "2.0",
+        "scheme_code": 16192,
+        "source_document": "sharpely_monthly_disclosure_2026_08.json",
+        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE"
+      },
+      "cash": 0.32
     },
     "Nippon Multi Cap": {
       "canonical_name": "Nippon Multi Cap",
@@ -918,23 +998,28 @@
       "mc": 29.08,
       "sc": 26.1,
       "re": 0.0,
-      "other": 0.77,
+      "other": 0.0,
       "n_secs": 120,
       "aliases": [
         "nippon multi cap"
       ],
       "as_of": "2026-08-31",
       "exposure_evidence": {
-        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
-        "source_document": "sharpely_monthly_disclosure_2026_08.json",
-        "scheme_code": 16068,
-        "reporting_period": "2026-08-31",
-        "retrieval_date": "2026-11-07",
+        "cash_pct": 0.77,
         "debt_pct": 0.0,
         "equity_pct": 99.23,
+        "evidence_hash": "f546779bd8f16cd9a130e46ff394889f1d35f528ad1e33d38198e6b43c7c47d9",
+        "gold_pct": 0.0,
         "is_verified": true,
-        "evidence_hash": "60d029a91ba8b9814c625fea52a84392a5a678f32395625af6e4e79c5ec1e184"
-      }
+        "other_pct": 0.0,
+        "reporting_period": "2026-08-31",
+        "retrieval_date": "2026-11-07",
+        "schema_version": "2.0",
+        "scheme_code": 16068,
+        "source_document": "sharpely_monthly_disclosure_2026_08.json",
+        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE"
+      },
+      "cash": 0.77
     },
     "Kotak Multi Cap": {
       "canonical_name": "Kotak Multi Cap",
@@ -972,23 +1057,28 @@
       "mc": 27.76,
       "sc": 27.34,
       "re": 0.0,
-      "other": 3.07,
+      "other": 0.0,
       "n_secs": 69,
       "aliases": [
         "kotak multi cap"
       ],
       "as_of": "2026-08-31",
       "exposure_evidence": {
-        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
-        "source_document": "sharpely_monthly_disclosure_2026_08.json",
-        "scheme_code": 41707,
-        "reporting_period": "2026-08-31",
-        "retrieval_date": "2026-11-07",
+        "cash_pct": 3.07,
         "debt_pct": 0.25,
         "equity_pct": 96.68,
+        "evidence_hash": "6789dc1567897254af8aeb8732897a4c7c1af6f1465d91641a279b42a89205d0",
+        "gold_pct": 0.0,
         "is_verified": true,
-        "evidence_hash": "966312032f41bc68032b8464d4a7d7077808467a26e72a2694b5c53470efcc49"
-      }
+        "other_pct": 0.0,
+        "reporting_period": "2026-08-31",
+        "retrieval_date": "2026-11-07",
+        "schema_version": "2.0",
+        "scheme_code": 41707,
+        "source_document": "sharpely_monthly_disclosure_2026_08.json",
+        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE"
+      },
+      "cash": 3.07
     },
     "Canara Robeco Multi Asset": {
       "canonical_name": "Canara Robeco Multi Asset",
@@ -1026,7 +1116,7 @@
       "mc": 15.0,
       "sc": 8.5,
       "re": 4.5,
-      "other": 5.0,
+      "other": 0.0,
       "n_secs": 55,
       "aliases": [
         "canara robeco multi asset",
@@ -1036,16 +1126,21 @@
       ],
       "as_of": "2026-08-31",
       "exposure_evidence": {
-        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
-        "source_document": "sharpely_monthly_disclosure_2026_08.json",
-        "scheme_code": 16045,
-        "reporting_period": "2026-08-31",
-        "retrieval_date": "2026-11-07",
+        "cash_pct": 0.0,
         "debt_pct": 22.0,
         "equity_pct": 68.5,
+        "evidence_hash": "eef3d7f5f8ae928521f14f321f0f401dc7237d2f3bb4fc3ad76de5ec42f5ca9d",
+        "gold_pct": 9.5,
         "is_verified": true,
-        "evidence_hash": "fdb0c06aaed9df3abf8e8a8cea9605764f4021913db9cddf1b6d785c070105c9"
-      }
+        "other_pct": 0.0,
+        "reporting_period": "2026-08-31",
+        "retrieval_date": "2026-11-07",
+        "schema_version": "2.0",
+        "scheme_code": 16045,
+        "source_document": "sharpely_monthly_disclosure_2026_08.json",
+        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE"
+      },
+      "cash": 0.0
     },
     "360 ONE QUANT FUND REGULAR GROWTH": {
       "canonical_name": "360 ONE QUANT FUND REGULAR GROWTH",
@@ -1651,23 +1746,28 @@
       "mc": 0.0,
       "sc": 0.0,
       "re": 0,
-      "other": 0,
+      "other": 0.0,
       "n_secs": 51,
       "aliases": [
         "uti nifty 50 index fund - direct plan - growth"
       ],
       "as_of": "2026-08-31",
       "exposure_evidence": {
-        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
-        "source_document": "sharpely_monthly_disclosure_2026_08.json",
-        "scheme_code": 118989,
-        "reporting_period": "2026-08-31",
-        "retrieval_date": "2026-11-07",
+        "cash_pct": 0.2,
         "debt_pct": 0.0,
         "equity_pct": 99.8,
+        "evidence_hash": "3a9e074f159fed361cd98952afab2ae3fae9b758d525c535889ea93902882151",
+        "gold_pct": 0.0,
         "is_verified": true,
-        "evidence_hash": "236984bca6c296a8dc6ca405e49009bc8abf7b1ebc710f340454e994bf415677"
-      }
+        "other_pct": 0.0,
+        "reporting_period": "2026-08-31",
+        "retrieval_date": "2026-11-07",
+        "schema_version": "2.0",
+        "scheme_code": 118989,
+        "source_document": "sharpely_monthly_disclosure_2026_08.json",
+        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE"
+      },
+      "cash": 0.2
     },
     "Edelweiss Mid Cap Fund - Direct Plan - Growth": {
       "canonical_name": "Edelweiss Mid Cap Fund - Direct Plan - Growth",
@@ -1749,23 +1849,28 @@
       "mc": 13.05,
       "sc": 70.02,
       "re": 0,
-      "other": 0,
+      "other": 0.0,
       "n_secs": 0,
       "aliases": [
         "nippon india small cap"
       ],
       "as_of": "2026-08-31",
       "exposure_evidence": {
-        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
-        "source_document": "sharpely_monthly_disclosure_2026_08.json",
-        "scheme_code": 11077,
-        "reporting_period": "2026-08-31",
-        "retrieval_date": "2026-11-07",
+        "cash_pct": 0.0,
         "debt_pct": 2.62,
         "equity_pct": 97.38,
+        "evidence_hash": "4e9acf5c4565cf36eb90dc6b79df85b8972ec4ba4f46e6ad5fb0676d1a774b1a",
+        "gold_pct": 0.0,
         "is_verified": true,
-        "evidence_hash": "34bf4d92dc0c66dc035403387f5f6581ee5ab68d8ffeab830f217a91e1ae52fe"
-      }
+        "other_pct": 0.0,
+        "reporting_period": "2026-08-31",
+        "retrieval_date": "2026-11-07",
+        "schema_version": "2.0",
+        "scheme_code": 11077,
+        "source_document": "sharpely_monthly_disclosure_2026_08.json",
+        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE"
+      },
+      "cash": 0.0
     },
     "ICICI Prudential Bluechip": {
       "canonical_name": "ICICI Prudential Bluechip",
@@ -1803,23 +1908,28 @@
       "mc": 10.69,
       "sc": 0.0,
       "re": 0,
-      "other": 0,
+      "other": 0.0,
       "n_secs": 0,
       "aliases": [
         "icici prudential bluechip"
       ],
       "as_of": "2026-08-31",
       "exposure_evidence": {
-        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
-        "source_document": "sharpely_monthly_disclosure_2026_08.json",
-        "scheme_code": 14566,
-        "reporting_period": "2026-08-31",
-        "retrieval_date": "2026-11-07",
+        "cash_pct": 0.0,
         "debt_pct": 8.22,
         "equity_pct": 91.78,
+        "evidence_hash": "4d1b8996e2025b8e8f4faf48f4e5d6eb057041d4ee7e53bf491605e16338ee53",
+        "gold_pct": 0.0,
         "is_verified": true,
-        "evidence_hash": "f570f21876cf41f63c7f47239db246114e557e8ecf13db3c24afa953e3317572"
-      }
+        "other_pct": 0.0,
+        "reporting_period": "2026-08-31",
+        "retrieval_date": "2026-11-07",
+        "schema_version": "2.0",
+        "scheme_code": 14566,
+        "source_document": "sharpely_monthly_disclosure_2026_08.json",
+        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE"
+      },
+      "cash": 0.0
     },
     "SBI Contra": {
       "canonical_name": "SBI Contra",
@@ -1857,23 +1967,28 @@
       "mc": 24.8,
       "sc": 20.58,
       "re": 0,
-      "other": 0,
+      "other": 0.0,
       "n_secs": 0,
       "aliases": [
         "sbi contra"
       ],
       "as_of": "2026-08-31",
       "exposure_evidence": {
-        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
-        "source_document": "sharpely_monthly_disclosure_2026_08.json",
-        "scheme_code": 11520,
-        "reporting_period": "2026-08-31",
-        "retrieval_date": "2026-11-07",
+        "cash_pct": 0.0,
         "debt_pct": 8.5,
         "equity_pct": 91.5,
+        "evidence_hash": "a075fc3caeb0c1016dc7ea6b1243c76792bbbe7c19b4283edaf6d4e610116971",
+        "gold_pct": 0.0,
         "is_verified": true,
-        "evidence_hash": "7fb01ba6a20e743b4f505bc81669dae391825d82aa9b48a629296dad1ebfdb14"
-      }
+        "other_pct": 0.0,
+        "reporting_period": "2026-08-31",
+        "retrieval_date": "2026-11-07",
+        "schema_version": "2.0",
+        "scheme_code": 11520,
+        "source_document": "sharpely_monthly_disclosure_2026_08.json",
+        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE"
+      },
+      "cash": 0.0
     },
     "Kotak Flexicap": {
       "canonical_name": "Kotak Flexicap",
@@ -1911,23 +2026,28 @@
       "mc": 22.14,
       "sc": 7.21,
       "re": 0,
-      "other": 0,
+      "other": 0.0,
       "n_secs": 0,
       "aliases": [
         "kotak flexicap"
       ],
       "as_of": "2026-08-31",
       "exposure_evidence": {
-        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
-        "source_document": "sharpely_monthly_disclosure_2026_08.json",
-        "scheme_code": 11985,
-        "reporting_period": "2026-08-31",
-        "retrieval_date": "2026-11-07",
+        "cash_pct": 0.0,
         "debt_pct": 3.8,
         "equity_pct": 96.2,
+        "evidence_hash": "7c717ede7ce111737abd3a78eec63fc6f275074ca3c34b746f2cac8adf503de6",
+        "gold_pct": 0.0,
         "is_verified": true,
-        "evidence_hash": "c12530a6e6871458fbc326ceca547cc3576e044bc97fec986f1c243505f2a2b5"
-      }
+        "other_pct": 0.0,
+        "reporting_period": "2026-08-31",
+        "retrieval_date": "2026-11-07",
+        "schema_version": "2.0",
+        "scheme_code": 11985,
+        "source_document": "sharpely_monthly_disclosure_2026_08.json",
+        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE"
+      },
+      "cash": 0.0
     },
     "Mirae Asset Large Cap": {
       "canonical_name": "Mirae Asset Large Cap",
@@ -1965,23 +2085,28 @@
       "mc": 11.2,
       "sc": 0.0,
       "re": 0,
-      "other": 0,
+      "other": 0.0,
       "n_secs": 0,
       "aliases": [
         "mirae asset large cap"
       ],
       "as_of": "2026-08-31",
       "exposure_evidence": {
-        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
-        "source_document": "sharpely_monthly_disclosure_2026_08.json",
-        "scheme_code": 11234,
-        "reporting_period": "2026-08-31",
-        "retrieval_date": "2026-11-07",
+        "cash_pct": 0.0,
         "debt_pct": 4.3,
         "equity_pct": 95.7,
+        "evidence_hash": "644ed6eff6bdc75261e1c6fb07d9b73b8e619fd7d037b8febaeea61f04372703",
+        "gold_pct": 0.0,
         "is_verified": true,
-        "evidence_hash": "591c944e23d93ee1aaa69dbb7f9cafa00c21c38067a00d10f080ea77d5854231"
-      }
+        "other_pct": 0.0,
+        "reporting_period": "2026-08-31",
+        "retrieval_date": "2026-11-07",
+        "schema_version": "2.0",
+        "scheme_code": 11234,
+        "source_document": "sharpely_monthly_disclosure_2026_08.json",
+        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE"
+      },
+      "cash": 0.0
     },
     "HDFC Top 100": {
       "canonical_name": "HDFC Top 100",
@@ -2019,23 +2144,28 @@
       "mc": 7.5,
       "sc": 0.0,
       "re": 0,
-      "other": 0,
+      "other": 0.0,
       "n_secs": 0,
       "aliases": [
         "hdfc top 100"
       ],
       "as_of": "2026-08-31",
       "exposure_evidence": {
-        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
-        "source_document": "sharpely_monthly_disclosure_2026_08.json",
-        "scheme_code": 10101,
-        "reporting_period": "2026-08-31",
-        "retrieval_date": "2026-11-07",
+        "cash_pct": 0.0,
         "debt_pct": 4.3,
         "equity_pct": 95.7,
+        "evidence_hash": "02f62f6f96888353efa14a7249d4c590a22cd34ded373f0985c79f2fccc1a3d4",
+        "gold_pct": 0.0,
         "is_verified": true,
-        "evidence_hash": "9de757fafa757ef198f45da842bd786ec638e1a1cceb5f63862119979c009e8e"
-      }
+        "other_pct": 0.0,
+        "reporting_period": "2026-08-31",
+        "retrieval_date": "2026-11-07",
+        "schema_version": "2.0",
+        "scheme_code": 10101,
+        "source_document": "sharpely_monthly_disclosure_2026_08.json",
+        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE"
+      },
+      "cash": 0.0
     },
     "SBI Bluechip": {
       "canonical_name": "SBI Bluechip",
@@ -2073,23 +2203,28 @@
       "mc": 11.4,
       "sc": 0.0,
       "re": 0,
-      "other": 0,
+      "other": 0.0,
       "n_secs": 0,
       "aliases": [
         "sbi bluechip"
       ],
       "as_of": "2026-08-31",
       "exposure_evidence": {
-        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
-        "source_document": "sharpely_monthly_disclosure_2026_08.json",
-        "scheme_code": 10555,
-        "reporting_period": "2026-08-31",
-        "retrieval_date": "2026-11-07",
+        "cash_pct": 0.0,
         "debt_pct": 5.5,
         "equity_pct": 94.5,
+        "evidence_hash": "1e5ad012a857f6aa15fc9853b7c02d9a7b034dc52883d517e6f9606b50df36d4",
+        "gold_pct": 0.0,
         "is_verified": true,
-        "evidence_hash": "3927e65b7c22a6007ed51ca0aaa62f317946500182e2ccf55af70a7cc07aac5f"
-      }
+        "other_pct": 0.0,
+        "reporting_period": "2026-08-31",
+        "retrieval_date": "2026-11-07",
+        "schema_version": "2.0",
+        "scheme_code": 10555,
+        "source_document": "sharpely_monthly_disclosure_2026_08.json",
+        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE"
+      },
+      "cash": 0.0
     },
     "Axis Bluechip": {
       "canonical_name": "Axis Bluechip",
@@ -2127,23 +2262,28 @@
       "mc": 6.2,
       "sc": 0.0,
       "re": 0,
-      "other": 0,
+      "other": 0.0,
       "n_secs": 0,
       "aliases": [
         "axis bluechip"
       ],
       "as_of": "2026-08-31",
       "exposure_evidence": {
-        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
-        "source_document": "sharpely_monthly_disclosure_2026_08.json",
-        "scheme_code": 11111,
-        "reporting_period": "2026-08-31",
-        "retrieval_date": "2026-11-07",
+        "cash_pct": 0.0,
         "debt_pct": 4.4,
         "equity_pct": 95.6,
+        "evidence_hash": "316cc8b26353f63bdb521670917f29276055f9036f8fc6bfe709d8db1a735c38",
+        "gold_pct": 0.0,
         "is_verified": true,
-        "evidence_hash": "c362b24b8dc5ad13989f522d48733f586960e65f33cd892ff03adc048fbad64f"
-      }
+        "other_pct": 0.0,
+        "reporting_period": "2026-08-31",
+        "retrieval_date": "2026-11-07",
+        "schema_version": "2.0",
+        "scheme_code": 11111,
+        "source_document": "sharpely_monthly_disclosure_2026_08.json",
+        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE"
+      },
+      "cash": 0.0
     },
     "Canara Robeco Bluechip": {
       "canonical_name": "Canara Robeco Bluechip",
@@ -2181,23 +2321,28 @@
       "mc": 8.9,
       "sc": 0.0,
       "re": 0,
-      "other": 0,
+      "other": 0.0,
       "n_secs": 0,
       "aliases": [
         "canara robeco bluechip"
       ],
       "as_of": "2026-08-31",
       "exposure_evidence": {
-        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
-        "source_document": "sharpely_monthly_disclosure_2026_08.json",
-        "scheme_code": 11333,
-        "reporting_period": "2026-08-31",
-        "retrieval_date": "2026-11-07",
+        "cash_pct": 0.0,
         "debt_pct": 4.6,
         "equity_pct": 95.4,
+        "evidence_hash": "f50c157f1741bcfc79265b271aafc3f90c09b3c30b20e8ff8c98e15ae716043a",
+        "gold_pct": 0.0,
         "is_verified": true,
-        "evidence_hash": "b00fba91bb075755b86be3acae3b7207dac56fe328d22e4d67ec12de6aaef67b"
-      }
+        "other_pct": 0.0,
+        "reporting_period": "2026-08-31",
+        "retrieval_date": "2026-11-07",
+        "schema_version": "2.0",
+        "scheme_code": 11333,
+        "source_document": "sharpely_monthly_disclosure_2026_08.json",
+        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE"
+      },
+      "cash": 0.0
     },
     "Kotak Emerging Equity": {
       "canonical_name": "Kotak Emerging Equity",
@@ -2235,23 +2380,28 @@
       "mc": 68.9,
       "sc": 18.2,
       "re": 0,
-      "other": 0,
+      "other": 0.0,
       "n_secs": 0,
       "aliases": [
         "kotak emerging equity"
       ],
       "as_of": "2026-08-31",
       "exposure_evidence": {
-        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
-        "source_document": "sharpely_monthly_disclosure_2026_08.json",
-        "scheme_code": 11666,
-        "reporting_period": "2026-08-31",
-        "retrieval_date": "2026-11-07",
+        "cash_pct": 0.0,
         "debt_pct": 4.5,
         "equity_pct": 95.5,
+        "evidence_hash": "4b026f37563b0ad1b63d754ecac93f856108c81bc814b5c8e5bb1a33e280ca83",
+        "gold_pct": 0.0,
         "is_verified": true,
-        "evidence_hash": "5a67adcae39b44c55f6b35a67bac4b128f38aff1be5df02ab117191cc64e9ae1"
-      }
+        "other_pct": 0.0,
+        "reporting_period": "2026-08-31",
+        "retrieval_date": "2026-11-07",
+        "schema_version": "2.0",
+        "scheme_code": 11666,
+        "source_document": "sharpely_monthly_disclosure_2026_08.json",
+        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE"
+      },
+      "cash": 0.0
     },
     "Nippon India Growth": {
       "canonical_name": "Nippon India Growth",
@@ -2289,23 +2439,28 @@
       "mc": 67.2,
       "sc": 17.8,
       "re": 0,
-      "other": 0,
+      "other": 0.0,
       "n_secs": 0,
       "aliases": [
         "nippon india growth"
       ],
       "as_of": "2026-08-31",
       "exposure_evidence": {
-        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
-        "source_document": "sharpely_monthly_disclosure_2026_08.json",
-        "scheme_code": 11777,
-        "reporting_period": "2026-08-31",
-        "retrieval_date": "2026-11-07",
+        "cash_pct": 0.0,
         "debt_pct": 3.5,
         "equity_pct": 96.5,
+        "evidence_hash": "af4d73d2380f0604225ff8774c971f0313f1056792675a5eeebb07051179d752",
+        "gold_pct": 0.0,
         "is_verified": true,
-        "evidence_hash": "c62116f45e4f150b7b67e6855bfb82a85670dc90d6b2b7472ce465a78aa914e1"
-      }
+        "other_pct": 0.0,
+        "reporting_period": "2026-08-31",
+        "retrieval_date": "2026-11-07",
+        "schema_version": "2.0",
+        "scheme_code": 11777,
+        "source_document": "sharpely_monthly_disclosure_2026_08.json",
+        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE"
+      },
+      "cash": 0.0
     },
     "SBI Magnum Midcap": {
       "canonical_name": "SBI Magnum Midcap",
@@ -2343,23 +2498,28 @@
       "mc": 68.1,
       "sc": 17.9,
       "re": 0,
-      "other": 0,
+      "other": 0.0,
       "n_secs": 0,
       "aliases": [
         "sbi magnum midcap"
       ],
       "as_of": "2026-08-31",
       "exposure_evidence": {
-        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
-        "source_document": "sharpely_monthly_disclosure_2026_08.json",
-        "scheme_code": 11888,
-        "reporting_period": "2026-08-31",
-        "retrieval_date": "2026-11-07",
+        "cash_pct": 0.0,
         "debt_pct": 4.2,
         "equity_pct": 95.8,
+        "evidence_hash": "46914103882fb4fe3ecd4cadce2ded5ab774b7e6055a93621803a4bbfa06d32f",
+        "gold_pct": 0.0,
         "is_verified": true,
-        "evidence_hash": "8ae365a12b39e43b102f79b5b00469509f9189de03f2f91965d73f758805e441"
-      }
+        "other_pct": 0.0,
+        "reporting_period": "2026-08-31",
+        "retrieval_date": "2026-11-07",
+        "schema_version": "2.0",
+        "scheme_code": 11888,
+        "source_document": "sharpely_monthly_disclosure_2026_08.json",
+        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE"
+      },
+      "cash": 0.0
     },
     "Axis Midcap": {
       "canonical_name": "Axis Midcap",
@@ -2397,23 +2557,28 @@
       "mc": 69.2,
       "sc": 11.8,
       "re": 0,
-      "other": 0,
+      "other": 0.0,
       "n_secs": 0,
       "aliases": [
         "axis midcap"
       ],
       "as_of": "2026-08-31",
       "exposure_evidence": {
-        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
-        "source_document": "sharpely_monthly_disclosure_2026_08.json",
-        "scheme_code": 11999,
-        "reporting_period": "2026-08-31",
-        "retrieval_date": "2026-11-07",
+        "cash_pct": 0.0,
         "debt_pct": 4.5,
         "equity_pct": 95.5,
+        "evidence_hash": "501fa0f5fac4ed01ee04d3e70c71a326af10bdd186ac2f036a50251f56cca34d",
+        "gold_pct": 0.0,
         "is_verified": true,
-        "evidence_hash": "f3d3ce1c4b338c3ed8d8cf7ab51874913087dc14feb0a7b39d68cae942ba4510"
-      }
+        "other_pct": 0.0,
+        "reporting_period": "2026-08-31",
+        "retrieval_date": "2026-11-07",
+        "schema_version": "2.0",
+        "scheme_code": 11999,
+        "source_document": "sharpely_monthly_disclosure_2026_08.json",
+        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE"
+      },
+      "cash": 0.0
     },
     "HDFC Small Cap": {
       "canonical_name": "HDFC Small Cap",
@@ -2451,23 +2616,28 @@
       "mc": 12.8,
       "sc": 78.5,
       "re": 0,
-      "other": 0,
+      "other": 0.0,
       "n_secs": 0,
       "aliases": [
         "hdfc small cap"
       ],
       "as_of": "2026-08-31",
       "exposure_evidence": {
-        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
-        "source_document": "sharpely_monthly_disclosure_2026_08.json",
-        "scheme_code": 12111,
-        "reporting_period": "2026-08-31",
-        "retrieval_date": "2026-11-07",
+        "cash_pct": 0.0,
         "debt_pct": 5.5,
         "equity_pct": 94.5,
+        "evidence_hash": "9d60ce814f999be4eac7083b3e3c28622929f9de266c05c31eb0978a186835ec",
+        "gold_pct": 0.0,
         "is_verified": true,
-        "evidence_hash": "9d5349f470fa06edc2e7112636a45ff859f5f5fac53a9837295ca866136336fb"
-      }
+        "other_pct": 0.0,
+        "reporting_period": "2026-08-31",
+        "retrieval_date": "2026-11-07",
+        "schema_version": "2.0",
+        "scheme_code": 12111,
+        "source_document": "sharpely_monthly_disclosure_2026_08.json",
+        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE"
+      },
+      "cash": 0.0
     },
     "Quant Small Cap": {
       "canonical_name": "Quant Small Cap",
@@ -2505,23 +2675,28 @@
       "mc": 15.2,
       "sc": 75.8,
       "re": 0,
-      "other": 0,
+      "other": 0.0,
       "n_secs": 0,
       "aliases": [
         "quant small cap"
       ],
       "as_of": "2026-08-31",
       "exposure_evidence": {
-        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
-        "source_document": "sharpely_monthly_disclosure_2026_08.json",
-        "scheme_code": 12222,
-        "reporting_period": "2026-08-31",
-        "retrieval_date": "2026-11-07",
+        "cash_pct": 0.0,
         "debt_pct": 4.5,
         "equity_pct": 95.5,
+        "evidence_hash": "b1f90d05ccff3739c0b2836b500ec36d7d59afcd9714507c1ba78ffd8a8149ba",
+        "gold_pct": 0.0,
         "is_verified": true,
-        "evidence_hash": "47d1258b264e48bfbcb35b9786786ff566f984d3eea3acbe8af384f43a396da3"
-      }
+        "other_pct": 0.0,
+        "reporting_period": "2026-08-31",
+        "retrieval_date": "2026-11-07",
+        "schema_version": "2.0",
+        "scheme_code": 12222,
+        "source_document": "sharpely_monthly_disclosure_2026_08.json",
+        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE"
+      },
+      "cash": 0.0
     },
     "SBI Small Cap": {
       "canonical_name": "SBI Small Cap",
@@ -2559,23 +2734,28 @@
       "mc": 14.5,
       "sc": 79.8,
       "re": 0,
-      "other": 0,
+      "other": 0.0,
       "n_secs": 0,
       "aliases": [
         "sbi small cap"
       ],
       "as_of": "2026-08-31",
       "exposure_evidence": {
-        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
-        "source_document": "sharpely_monthly_disclosure_2026_08.json",
-        "scheme_code": 12333,
-        "reporting_period": "2026-08-31",
-        "retrieval_date": "2026-11-07",
+        "cash_pct": 0.0,
         "debt_pct": 5.7,
         "equity_pct": 94.3,
+        "evidence_hash": "b3de9f8a76ac01ecff4587568700156fa2000a1ba8a6f1906201a69e729155ec",
+        "gold_pct": 0.0,
         "is_verified": true,
-        "evidence_hash": "a2f5cb79ba6b718d4034e18349e3676c9eeb769816bbd9605d770a4f3d9588a4"
-      }
+        "other_pct": 0.0,
+        "reporting_period": "2026-08-31",
+        "retrieval_date": "2026-11-07",
+        "schema_version": "2.0",
+        "scheme_code": 12333,
+        "source_document": "sharpely_monthly_disclosure_2026_08.json",
+        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE"
+      },
+      "cash": 0.0
     },
     "Mirae Asset Large & Midcap": {
       "canonical_name": "Mirae Asset Large & Midcap",
@@ -2613,23 +2793,28 @@
       "mc": 39.8,
       "sc": 4.2,
       "re": 0,
-      "other": 0,
+      "other": 0.0,
       "n_secs": 0,
       "aliases": [
         "mirae asset large & midcap"
       ],
       "as_of": "2026-08-31",
       "exposure_evidence": {
-        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
-        "source_document": "sharpely_monthly_disclosure_2026_08.json",
-        "scheme_code": 12444,
-        "reporting_period": "2026-08-31",
-        "retrieval_date": "2026-11-07",
+        "cash_pct": 0.0,
         "debt_pct": 3.6,
         "equity_pct": 96.4,
+        "evidence_hash": "fed42d91e5da0d6c137197e7a1b044ea38483047bf7d8721ef29370fd2d9b44c",
+        "gold_pct": 0.0,
         "is_verified": true,
-        "evidence_hash": "682f136b6b672460cc1a86ab9e7f70600fa58fc7e105ccaa2d68e167927fa160"
-      }
+        "other_pct": 0.0,
+        "reporting_period": "2026-08-31",
+        "retrieval_date": "2026-11-07",
+        "schema_version": "2.0",
+        "scheme_code": 12444,
+        "source_document": "sharpely_monthly_disclosure_2026_08.json",
+        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE"
+      },
+      "cash": 0.0
     },
     "HDFC Large and Mid Cap": {
       "canonical_name": "HDFC Large and Mid Cap",
@@ -2667,23 +2852,28 @@
       "mc": 38.5,
       "sc": 6.8,
       "re": 0,
-      "other": 0,
+      "other": 0.0,
       "n_secs": 0,
       "aliases": [
         "hdfc large and mid cap"
       ],
       "as_of": "2026-08-31",
       "exposure_evidence": {
-        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
-        "source_document": "sharpely_monthly_disclosure_2026_08.json",
-        "scheme_code": 12555,
-        "reporting_period": "2026-08-31",
-        "retrieval_date": "2026-11-07",
+        "cash_pct": 0.0,
         "debt_pct": 3.5,
         "equity_pct": 96.5,
+        "evidence_hash": "b4ec2b6f2b3498dff72f40634b9023c84f4a0af2b8a62d92183b2b34dcc9b92a",
+        "gold_pct": 0.0,
         "is_verified": true,
-        "evidence_hash": "a0c65cd462cfb41b82374aedfd074c68b6fb236dd2b3e5b24fef50d91b5bd80c"
-      }
+        "other_pct": 0.0,
+        "reporting_period": "2026-08-31",
+        "retrieval_date": "2026-11-07",
+        "schema_version": "2.0",
+        "scheme_code": 12555,
+        "source_document": "sharpely_monthly_disclosure_2026_08.json",
+        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE"
+      },
+      "cash": 0.0
     },
     "Mirae Asset ELSS Tax Saver": {
       "canonical_name": "Mirae Asset ELSS Tax Saver",
@@ -2721,23 +2911,28 @@
       "mc": 21.2,
       "sc": 8.5,
       "re": 0,
-      "other": 0,
+      "other": 0.0,
       "n_secs": 0,
       "aliases": [
         "mirae asset elss tax saver"
       ],
       "as_of": "2026-08-31",
       "exposure_evidence": {
-        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
-        "source_document": "sharpely_monthly_disclosure_2026_08.json",
-        "scheme_code": 12666,
-        "reporting_period": "2026-08-31",
-        "retrieval_date": "2026-11-07",
+        "cash_pct": 0.0,
         "debt_pct": 1.8,
         "equity_pct": 98.2,
+        "evidence_hash": "9b921833c14f945e833769e156ad641971198e42e86d215accc38059f22de50b",
+        "gold_pct": 0.0,
         "is_verified": true,
-        "evidence_hash": "9fc8fcd854abf65a79f9431f7838719aca1bff9d173211c0cfd8de3d4f2df37f"
-      }
+        "other_pct": 0.0,
+        "reporting_period": "2026-08-31",
+        "retrieval_date": "2026-11-07",
+        "schema_version": "2.0",
+        "scheme_code": 12666,
+        "source_document": "sharpely_monthly_disclosure_2026_08.json",
+        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE"
+      },
+      "cash": 0.0
     },
     "Axis ELSS Tax Saver": {
       "canonical_name": "Axis ELSS Tax Saver",
@@ -2775,23 +2970,28 @@
       "mc": 18.2,
       "sc": 4.5,
       "re": 0,
-      "other": 0,
+      "other": 0.0,
       "n_secs": 0,
       "aliases": [
         "axis elss tax saver"
       ],
       "as_of": "2026-08-31",
       "exposure_evidence": {
-        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
-        "source_document": "sharpely_monthly_disclosure_2026_08.json",
-        "scheme_code": 120503,
-        "reporting_period": "2026-08-31",
-        "retrieval_date": "2026-11-07",
+        "cash_pct": 0.0,
         "debt_pct": 2.5,
         "equity_pct": 97.5,
+        "evidence_hash": "6aad11fe7f30363e51fc0b186e6fc7989cd9b7854d3169be74276687b9ca9641",
+        "gold_pct": 0.0,
         "is_verified": true,
-        "evidence_hash": "3a66c025b5d83c6367e9197341e928caa202460410974c36cca1d8544add34be"
-      }
+        "other_pct": 0.0,
+        "reporting_period": "2026-08-31",
+        "retrieval_date": "2026-11-07",
+        "schema_version": "2.0",
+        "scheme_code": 120503,
+        "source_document": "sharpely_monthly_disclosure_2026_08.json",
+        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE"
+      },
+      "cash": 0.0
     },
     "ICICI Prudential Balanced Advantage": {
       "canonical_name": "ICICI Prudential Balanced Advantage",
@@ -2829,23 +3029,28 @@
       "mc": 10.5,
       "sc": 5.2,
       "re": 0,
-      "other": 0,
+      "other": 0.0,
       "n_secs": 0,
       "aliases": [
         "icici prudential balanced advantage"
       ],
       "as_of": "2026-08-31",
       "exposure_evidence": {
-        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
-        "source_document": "sharpely_monthly_disclosure_2026_08.json",
-        "scheme_code": 12777,
-        "reporting_period": "2026-08-31",
-        "retrieval_date": "2026-11-07",
+        "cash_pct": 0.0,
         "debt_pct": 32.2,
         "equity_pct": 67.8,
+        "evidence_hash": "f009838d7e485714abb3340aea2387d7f10304898303adc1838f0709696fe918",
+        "gold_pct": 0.0,
         "is_verified": true,
-        "evidence_hash": "a5561a22e4f3a9462089d0d64f8acb1845d9fd283752a642a959782d436f48f3"
-      }
+        "other_pct": 0.0,
+        "reporting_period": "2026-08-31",
+        "retrieval_date": "2026-11-07",
+        "schema_version": "2.0",
+        "scheme_code": 12777,
+        "source_document": "sharpely_monthly_disclosure_2026_08.json",
+        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE"
+      },
+      "cash": 0.0
     },
     "Kotak Balanced Advantage": {
       "canonical_name": "Kotak Balanced Advantage",
@@ -2883,23 +3088,28 @@
       "mc": 11.2,
       "sc": 4.8,
       "re": 0,
-      "other": 0,
+      "other": 0.0,
       "n_secs": 0,
       "aliases": [
         "kotak balanced advantage"
       ],
       "as_of": "2026-08-31",
       "exposure_evidence": {
-        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
-        "source_document": "sharpely_monthly_disclosure_2026_08.json",
-        "scheme_code": 12888,
-        "reporting_period": "2026-08-31",
-        "retrieval_date": "2026-11-07",
+        "cash_pct": 0.0,
         "debt_pct": 30.5,
         "equity_pct": 69.5,
+        "evidence_hash": "bb450c5dd9832611b970e803d4c5bb84cd2f110c079a73754d56b71477893a31",
+        "gold_pct": 0.0,
         "is_verified": true,
-        "evidence_hash": "d786fc4511636a4681fc6055c32bec677d9a920f87bcce44f390e97e70f7db35"
-      }
+        "other_pct": 0.0,
+        "reporting_period": "2026-08-31",
+        "retrieval_date": "2026-11-07",
+        "schema_version": "2.0",
+        "scheme_code": 12888,
+        "source_document": "sharpely_monthly_disclosure_2026_08.json",
+        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE"
+      },
+      "cash": 0.0
     },
     "ICICI Prudential Multi-Asset": {
       "canonical_name": "ICICI Prudential Multi-Asset",
@@ -2917,7 +3127,7 @@
       "ter_regular_pct": 1.62,
       "trail_commission_pct": 0.87,
       "aum_crore": 48500,
-      "gold_pct": 10.0,
+      "gold_pct": 7.5,
       "intl_pct": 0.0,
       "portfolio_large_cap_pct": 48.5,
       "portfolio_mid_cap_pct": 12.2,
@@ -2937,23 +3147,28 @@
       "mc": 12.2,
       "sc": 4.8,
       "re": 0,
-      "other": 0,
+      "other": 0.0,
       "n_secs": 0,
       "aliases": [
         "icici prudential multi-asset"
       ],
       "as_of": "2026-08-31",
       "exposure_evidence": {
-        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
-        "source_document": "sharpely_monthly_disclosure_2026_08.json",
-        "scheme_code": 12999,
-        "reporting_period": "2026-08-31",
-        "retrieval_date": "2026-11-07",
+        "cash_pct": 2.5,
         "debt_pct": 24.5,
         "equity_pct": 65.5,
+        "evidence_hash": "9e63471d145e6064bab8836eda71645dedcd1f21ff52b25b07650843e4ce5f71",
+        "gold_pct": 7.5,
         "is_verified": true,
-        "evidence_hash": "96d69f2fbe54e94a60c8353a6077ba2499eb8eaf9a01b644fe497e195d313db1"
-      }
+        "other_pct": 0.0,
+        "reporting_period": "2026-08-31",
+        "retrieval_date": "2026-11-07",
+        "schema_version": "2.0",
+        "scheme_code": 12999,
+        "source_document": "sharpely_monthly_disclosure_2026_08.json",
+        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE"
+      },
+      "cash": 2.5
     },
     "Kotak Equity Arbitrage": {
       "canonical_name": "Kotak Equity Arbitrage",
@@ -2991,23 +3206,28 @@
       "mc": 0.0,
       "sc": 0.0,
       "re": 0,
-      "other": 0,
+      "other": 0.0,
       "n_secs": 0,
       "aliases": [
         "kotak equity arbitrage"
       ],
       "as_of": "2026-08-31",
       "exposure_evidence": {
-        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
-        "source_document": "sharpely_monthly_disclosure_2026_08.json",
-        "scheme_code": 13111,
-        "reporting_period": "2026-08-31",
-        "retrieval_date": "2026-11-07",
+        "cash_pct": 0.0,
         "debt_pct": 34.5,
         "equity_pct": 65.5,
+        "evidence_hash": "195461c048669c71665447238f2c5c69bb0af341c81ab4a0f12821ae79c31121",
+        "gold_pct": 0.0,
         "is_verified": true,
-        "evidence_hash": "5421f8f3898bfc37b8f17a2784eaf9cca8bddaa39445a5cd4db00d438351cd86"
-      }
+        "other_pct": 0.0,
+        "reporting_period": "2026-08-31",
+        "retrieval_date": "2026-11-07",
+        "schema_version": "2.0",
+        "scheme_code": 13111,
+        "source_document": "sharpely_monthly_disclosure_2026_08.json",
+        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE"
+      },
+      "cash": 0.0
     },
     "HDFC Liquid": {
       "canonical_name": "HDFC Liquid",
@@ -3045,23 +3265,28 @@
       "mc": 0.0,
       "sc": 0.0,
       "re": 0,
-      "other": 0,
+      "other": 0.0,
       "n_secs": 0,
       "aliases": [
         "hdfc liquid"
       ],
       "as_of": "2026-08-31",
       "exposure_evidence": {
-        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
-        "source_document": "sharpely_monthly_disclosure_2026_08.json",
-        "scheme_code": 13222,
-        "reporting_period": "2026-08-31",
-        "retrieval_date": "2026-11-07",
+        "cash_pct": 0.0,
         "debt_pct": 100.0,
         "equity_pct": 0.0,
+        "evidence_hash": "52a3e3529a937393f2dc2319c4a988973a853e6d985425d142a4091472635360",
+        "gold_pct": 0.0,
         "is_verified": true,
-        "evidence_hash": "e6c6a6e61ad7bc1027e16118b60bde5422277a2b374080b80c18927b51154204"
-      }
+        "other_pct": 0.0,
+        "reporting_period": "2026-08-31",
+        "retrieval_date": "2026-11-07",
+        "schema_version": "2.0",
+        "scheme_code": 13222,
+        "source_document": "sharpely_monthly_disclosure_2026_08.json",
+        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE"
+      },
+      "cash": 0.0
     },
     "ICICI Prudential Liquid": {
       "canonical_name": "ICICI Prudential Liquid",
@@ -3099,23 +3324,28 @@
       "mc": 0.0,
       "sc": 0.0,
       "re": 0,
-      "other": 0,
+      "other": 0.0,
       "n_secs": 0,
       "aliases": [
         "icici prudential liquid"
       ],
       "as_of": "2026-08-31",
       "exposure_evidence": {
-        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
-        "source_document": "sharpely_monthly_disclosure_2026_08.json",
-        "scheme_code": 13333,
-        "reporting_period": "2026-08-31",
-        "retrieval_date": "2026-11-07",
+        "cash_pct": 0.0,
         "debt_pct": 100.0,
         "equity_pct": 0.0,
+        "evidence_hash": "770d1cc86fcd4f0d4906c506bca117554f181a9e1f3595ddbb9f712fbd7b7c3f",
+        "gold_pct": 0.0,
         "is_verified": true,
-        "evidence_hash": "d86dc2cc2bb8bdbe1cc7624cbe54419ade6d04a93e48b11b253e8881ce52529c"
-      }
+        "other_pct": 0.0,
+        "reporting_period": "2026-08-31",
+        "retrieval_date": "2026-11-07",
+        "schema_version": "2.0",
+        "scheme_code": 13333,
+        "source_document": "sharpely_monthly_disclosure_2026_08.json",
+        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE"
+      },
+      "cash": 0.0
     },
     "HDFC Corporate Bond": {
       "canonical_name": "HDFC Corporate Bond",
@@ -3153,23 +3383,28 @@
       "mc": 0.0,
       "sc": 0.0,
       "re": 0,
-      "other": 0,
+      "other": 0.0,
       "n_secs": 0,
       "aliases": [
         "hdfc corporate bond"
       ],
       "as_of": "2026-08-31",
       "exposure_evidence": {
-        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
-        "source_document": "sharpely_monthly_disclosure_2026_08.json",
-        "scheme_code": 13444,
-        "reporting_period": "2026-08-31",
-        "retrieval_date": "2026-11-07",
+        "cash_pct": 0.0,
         "debt_pct": 100.0,
         "equity_pct": 0.0,
+        "evidence_hash": "8a6af834cb2dddc183ba52a7672e34636c09d07216faa43a35ff726a8645b0a8",
+        "gold_pct": 0.0,
         "is_verified": true,
-        "evidence_hash": "67549815813bc32bbd06f2e35a94ce6a857547b5a7f887e40d47b85b043ba614"
-      }
+        "other_pct": 0.0,
+        "reporting_period": "2026-08-31",
+        "retrieval_date": "2026-11-07",
+        "schema_version": "2.0",
+        "scheme_code": 13444,
+        "source_document": "sharpely_monthly_disclosure_2026_08.json",
+        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE"
+      },
+      "cash": 0.0
     },
     "ICICI Prudential Technology": {
       "canonical_name": "ICICI Prudential Technology",
@@ -3207,23 +3442,28 @@
       "mc": 20.8,
       "sc": 5.5,
       "re": 0,
-      "other": 0,
+      "other": 0.0,
       "n_secs": 0,
       "aliases": [
         "icici prudential technology"
       ],
       "as_of": "2026-08-31",
       "exposure_evidence": {
-        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
-        "source_document": "sharpely_monthly_disclosure_2026_08.json",
-        "scheme_code": 13555,
-        "reporting_period": "2026-08-31",
-        "retrieval_date": "2026-11-07",
+        "cash_pct": 0.0,
         "debt_pct": 2.5,
         "equity_pct": 97.5,
+        "evidence_hash": "8a14ef7e622cecd02718847905985891430709aac02b553b7b922b5ccba8a2a7",
+        "gold_pct": 0.0,
         "is_verified": true,
-        "evidence_hash": "72d7212b19e21c6a2e774dbee0121e646d9435bd2654aa06547374632aa4f0b4"
-      }
+        "other_pct": 0.0,
+        "reporting_period": "2026-08-31",
+        "retrieval_date": "2026-11-07",
+        "schema_version": "2.0",
+        "scheme_code": 13555,
+        "source_document": "sharpely_monthly_disclosure_2026_08.json",
+        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE"
+      },
+      "cash": 0.0
     },
     "Tata Digital India": {
       "canonical_name": "Tata Digital India",
@@ -3261,23 +3501,28 @@
       "mc": 22.4,
       "sc": 6.8,
       "re": 0,
-      "other": 0,
+      "other": 0.0,
       "n_secs": 0,
       "aliases": [
         "tata digital india"
       ],
       "as_of": "2026-08-31",
       "exposure_evidence": {
-        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
-        "source_document": "sharpely_monthly_disclosure_2026_08.json",
-        "scheme_code": 13666,
-        "reporting_period": "2026-08-31",
-        "retrieval_date": "2026-11-07",
+        "cash_pct": 0.0,
         "debt_pct": 2.3,
         "equity_pct": 97.7,
+        "evidence_hash": "0985dd86d4ba089a701defc0d281057d40d68d601ef25c3b402a8cd1d16f3306",
+        "gold_pct": 0.0,
         "is_verified": true,
-        "evidence_hash": "95f838e2b73b9a3b6a30c0361759cd5056a30d8f33cea07f6a42b29c9b3e7336"
-      }
+        "other_pct": 0.0,
+        "reporting_period": "2026-08-31",
+        "retrieval_date": "2026-11-07",
+        "schema_version": "2.0",
+        "scheme_code": 13666,
+        "source_document": "sharpely_monthly_disclosure_2026_08.json",
+        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE"
+      },
+      "cash": 0.0
     },
     "Axis Small Cap": {
       "canonical_name": "Axis Small Cap",
@@ -4047,6 +4292,7 @@
   ],
   "_metadata": {
     "source_name": "AMFI_SEBI_OFFICIAL_SCHEME_MASTER",
+    "schema_version": "2.0",
     "source_authenticity": "PROVISIONAL_INTERNAL",
     "release_eligibility": "PROVISIONAL_PENDING_PUBLISHER_AUDIT",
     "integrity_verification": "SHA256_MATCHED",

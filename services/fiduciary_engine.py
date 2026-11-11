@@ -412,7 +412,10 @@ def _select_market_nom_fund(
         return {"scheme": "SPIVA_FALLBACK_FAILED", "source": "unavailable", "validation": "failed"}
 
 
-def convert_cas_funds_to_holdings(funds: List[Dict[str, Any]]) -> List[HoldingItem]:
+def convert_cas_funds_to_holdings(
+    funds: List[Dict[str, Any]],
+    evidence_policy: Optional[str] = None,
+) -> List[HoldingItem]:
     """Convert raw UI CAS fund dictionaries into validated domain HoldingItems.
     
     Fiduciary Separation Contract:
@@ -424,7 +427,7 @@ def convert_cas_funds_to_holdings(funds: List[Dict[str, Any]]) -> List[HoldingIt
       Numeric look-through percentages are NEVER manufactured from category labels (e.g. no 100% or 65/35% defaults).
     - Heuristic display allocations are never consumed as calculation inputs.
     """
-    from services.cas_parser import SEBI_CATEGORY_TO_ASSET_CLASS, validate_exposure_evidence, resolve_authoritative_scheme
+    from services.cas_parser import SEBI_CATEGORY_TO_ASSET_CLASS, validate_exposure_evidence, resolve_authoritative_scheme, ExposureEvidencePolicy, get_central_evidence_policy
 
     holdings: List[HoldingItem] = []
     for idx, f in enumerate(funds):
@@ -489,16 +492,44 @@ def convert_cas_funds_to_holdings(funds: List[Dict[str, Any]]) -> List[HoldingIt
                         v_eq = m_ev.get("equity_pct")
                         validated_ev = m_ev
 
+        # Centrally governed policy threshold: advice-grade vs research provisional
+        pol = evidence_policy or get_central_evidence_policy()
+
         # Missing measurements must NEVER become assumed equity. Both debt and equity must be present.
         if is_exposure_verified and v_debt is not None and v_eq is not None:
-            lookthrough_status = "VERIFIED"
+            is_external_auth = False
+            if validated_ev:
+                src_auth = validated_ev.get("source_authenticity")
+                pub_auth = validated_ev.get("publisher_authenticated") is True
+                if src_auth == "AUTHENTICATED_EXTERNAL" and pub_auth:
+                    is_external_auth = True
+
             ev_source = validated_ev.get("source_name") if validated_ev else f.get("exposure_source")
             ev_as_of = validated_ev.get("reporting_period") if validated_ev else f.get("exposure_as_of")
             as_of_str = str(ev_as_of).strip() if ev_as_of else "date unavailable"
             src_str = str(ev_source).strip() if ev_source else "MASTER"
-            lookthrough_reason = f"Verified factsheet disclosure via {src_str} as of {as_of_str}"
-            debt_pct = float(v_debt)
-            eq_pct = float(v_eq)
+
+            if is_external_auth:
+                lookthrough_status = "VERIFIED"
+                lookthrough_reason = f"Verified factsheet disclosure via {src_str} as of {as_of_str} (Authenticated External)"
+                debt_pct = float(v_debt)
+                eq_pct = float(v_eq)
+            elif pol == ExposureEvidencePolicy.STRICT_ADVICE:
+                # In strict advice mode, provisional internal records CANNOT produce VERIFIED holdings
+                lookthrough_status = "INDETERMINATE"
+                lookthrough_reason = (
+                    f"Look-through rejected for strict fiduciary advice: disclosure via {src_str} is "
+                    f"PROVISIONAL_INTERNAL pending external publisher authentication."
+                )
+                debt_pct = 0.0
+                eq_pct = 0.0
+                as_of_str = None
+            else:
+                # In research provisional mode, status is visibly and explicitly tagged
+                lookthrough_status = "PROVISIONAL_LOOKTHROUGH"
+                lookthrough_reason = f"Provisional factsheet disclosure via {src_str} as of {as_of_str} (Provisional Internal - Pending Publisher Audit)"
+                debt_pct = float(v_debt)
+                eq_pct = float(v_eq)
         else:
             lookthrough_status = "INDETERMINATE"
             lookthrough_reason = "No verified factsheet look-through disclosure attached"
@@ -538,13 +569,16 @@ def convert_cas_funds_to_holdings(funds: List[Dict[str, Any]]) -> List[HoldingIt
 def evaluate_portfolio_saa_audit(
     funds: List[Dict[str, Any]],
     target_saa: Optional[Dict[str, float] | TargetSaa] = None,
+    evidence_policy: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Execute SAA drift and debt buffer analysis using verified portfolio exposure.
     
     Fails closed to INDETERMINATE if any holding lacks verified look-through exposure.
     Display estimates and manufactured category percentages are strictly excluded.
     """
-    holdings = convert_cas_funds_to_holdings(funds)
+    from services.cas_parser import ExposureEvidencePolicy, get_central_evidence_policy
+    pol = evidence_policy or get_central_evidence_policy()
+    holdings = convert_cas_funds_to_holdings(funds, evidence_policy=pol)
     total_val = sum(h.current_value_inr for h in holdings)
 
     if total_val <= Decimal("0.00"):
@@ -576,12 +610,19 @@ def evaluate_portfolio_saa_audit(
             target_debt_pct = float(target_saa.get("debt_pct", 25.0))
             target_equity_pct = float(target_saa.get("total_equity_pct", 100.0 - target_debt_pct))
 
-    # Strict fiduciary check: Fail closed if any holding lacks verified look-through exposure
-    indeterminate_holdings = [h.scheme for h in holdings if h.lookthrough_status != "VERIFIED"]
+    # Strict fiduciary check: Fail closed based on policy threshold
+    if pol == ExposureEvidencePolicy.STRICT_ADVICE:
+        # Advice-grade requires 100% AUTHENTICATED_EXTERNAL (VERIFIED) lookthrough
+        indeterminate_holdings = [h.scheme for h in holdings if h.lookthrough_status != "VERIFIED"]
+    else:
+        # Research provisional permits PROVISIONAL_LOOKTHROUGH
+        indeterminate_holdings = [h.scheme for h in holdings if h.lookthrough_status not in ("VERIFIED", "PROVISIONAL_LOOKTHROUGH")]
+
     if indeterminate_holdings:
         return {
             "status": "INDETERMINATE",
             "lookthrough_verified": False,
+            "evidence_tier": "AUTHENTICATED_EXTERNAL" if pol == ExposureEvidencePolicy.STRICT_ADVICE else "PROVISIONAL_INTERNAL",
             "total_value_inr": total_val,
             "holdings_count": len(holdings),
             "drift_analysis": None,
@@ -613,9 +654,14 @@ def evaluate_portfolio_saa_audit(
 
     is_debt_deficit = db_gap_inr > Decimal("0.00")
 
+    is_all_auth = all(h.lookthrough_status == "VERIFIED" for h in holdings)
+    has_provisional = any(h.lookthrough_status == "PROVISIONAL_LOOKTHROUGH" for h in holdings)
+
     return {
         "status": "ANALYZED",
-        "lookthrough_verified": True,
+        "lookthrough_verified": is_all_auth,
+        "is_provisional": has_provisional,
+        "evidence_tier": "AUTHENTICATED_EXTERNAL" if is_all_auth else "PROVISIONAL_INTERNAL",
         "total_value_inr": total_val,
         "holdings_count": len(holdings),
         "drift_analysis": drift,
@@ -878,8 +924,12 @@ def generate_fiduciary_sip_blueprint(
                                     m_ev_valid, _ = validate_exposure_evidence(m_ev, m_entry.get("sid"))
                                     if m_ev_valid and m_ev.get("debt_pct") is not None:
                                         raw_debt = m_ev["debt_pct"]
-                        except Exception:
-                            pass
+                        except Exception as exc:
+                            debt_exposure_indeterminate = True
+                            indeterminate_reasons.append(
+                                f"Authoritative scheme lookup for '{s_name}' encountered error: {exc}"
+                            )
+                            break
 
                 # 3. Pure statutory debt categories have 100% debt statutory floor (category MUST be verified)
                 if raw_debt is None:

@@ -1,6 +1,7 @@
 {
   "_metadata": {
     "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
+    "schema_version": "2.0",
     "source_authenticity": "PROVISIONAL_INTERNAL",
     "release_eligibility": "PROVISIONAL_PENDING_PUBLISHER_AUDIT",
     "integrity_verification": "SHA256_MATCHED",
@@ -19,7 +20,7 @@
       "cash_pct": 0.0,
       "debt_pct": 4.3,
       "equity_pct": 95.7,
-      "evidence_hash": "9de757fafa757ef198f45da842bd786ec638e1a1cceb5f63862119979c009e8e",
+      "evidence_hash": "02f62f6f96888353efa14a7249d4c590a22cd34ded373f0985c79f2fccc1a3d4",
       "is_verified": true,
       "large_cap_pct": 88.2,
       "mid_cap_pct": 7.5,
@@ -27,14 +28,16 @@
       "retrieval_date": "2026-11-07",
       "scheme_code": 10101,
       "small_cap_pct": 0.0,
-      "other_pct": 0.0
+      "other_pct": 0.0,
+      "gold_pct": 0.0,
+      "schema_version": "2.0"
     },
     "10555": {
       "canonical_name": "SBI Bluechip",
       "cash_pct": 0.0,
       "debt_pct": 5.5,
       "equity_pct": 94.5,
-      "evidence_hash": "3927e65b7c22a6007ed51ca0aaa62f317946500182e2ccf55af70a7cc07aac5f",
+      "evidence_hash": "1e5ad012a857f6aa15fc9853b7c02d9a7b034dc52883d517e6f9606b50df36d4",
       "is_verified": true,
       "large_cap_pct": 83.1,
       "mid_cap_pct": 11.4,
@@ -42,14 +45,16 @@
       "retrieval_date": "2026-11-07",
       "scheme_code": 10555,
       "small_cap_pct": 0.0,
-      "other_pct": 0.0
+      "other_pct": 0.0,
+      "gold_pct": 0.0,
+      "schema_version": "2.0"
     },
     "11077": {
       "canonical_name": "Nippon India Small Cap",
       "cash_pct": 0.0,
       "debt_pct": 2.62,
       "equity_pct": 97.38,
-      "evidence_hash": "34bf4d92dc0c66dc035403387f5f6581ee5ab68d8ffeab830f217a91e1ae52fe",
+      "evidence_hash": "4e9acf5c4565cf36eb90dc6b79df85b8972ec4ba4f46e6ad5fb0676d1a774b1a",
       "is_verified": true,
       "large_cap_pct": 14.31,
       "mid_cap_pct": 13.05,
@@ -57,14 +62,16 @@
       "retrieval_date": "2026-11-07",
       "scheme_code": 11077,
       "small_cap_pct": 70.02,
-      "other_pct": 0.0
+      "other_pct": 0.0,
+      "gold_pct": 0.0,
+      "schema_version": "2.0"
     },
     "11111": {
       "canonical_name": "Axis Bluechip",
       "cash_pct": 0.0,
       "debt_pct": 4.4,
       "equity_pct": 95.6,
-      "evidence_hash": "c362b24b8dc5ad13989f522d48733f586960e65f33cd892ff03adc048fbad64f",
+      "evidence_hash": "316cc8b26353f63bdb521670917f29276055f9036f8fc6bfe709d8db1a735c38",
       "is_verified": true,
       "large_cap_pct": 89.4,
       "mid_cap_pct": 6.2,
@@ -72,14 +79,16 @@
       "retrieval_date": "2026-11-07",
       "scheme_code": 11111,
       "small_cap_pct": 0.0,
-      "other_pct": 0.0
+      "other_pct": 0.0,
+      "gold_pct": 0.0,
+      "schema_version": "2.0"
     },
     "11234": {
       "canonical_name": "Mirae Asset Large Cap",
       "cash_pct": 0.0,
       "debt_pct": 4.3,
       "equity_pct": 95.7,
-      "evidence_hash": "591c944e23d93ee1aaa69dbb7f9cafa00c21c38067a00d10f080ea77d5854231",
+      "evidence_hash": "644ed6eff6bdc75261e1c6fb07d9b73b8e619fd7d037b8febaeea61f04372703",
       "is_verified": true,
       "large_cap_pct": 84.5,
       "mid_cap_pct": 11.2,
@@ -87,14 +96,16 @@
       "retrieval_date": "2026-11-07",
       "scheme_code": 11234,
       "small_cap_pct": 0.0,
-      "other_pct": 0.0
+      "other_pct": 0.0,
+      "gold_pct": 0.0,
+      "schema_version": "2.0"
     },
     "11333": {
       "canonical_name": "Canara Robeco Bluechip",
       "cash_pct": 0.0,
       "debt_pct": 4.6,
       "equity_pct": 95.4,
-      "evidence_hash": "b00fba91bb075755b86be3acae3b7207dac56fe328d22e4d67ec12de6aaef67b",
+      "evidence_hash": "f50c157f1741bcfc79265b271aafc3f90c09b3c30b20e8ff8c98e15ae716043a",
       "is_verified": true,
       "large_cap_pct": 86.5,
       "mid_cap_pct": 8.9,
@@ -102,14 +113,16 @@
       "retrieval_date": "2026-11-07",
       "scheme_code": 11333,
       "small_cap_pct": 0.0,
-      "other_pct": 0.0
+      "other_pct": 0.0,
+      "gold_pct": 0.0,
+      "schema_version": "2.0"
     },
     "11520": {
       "canonical_name": "SBI Contra",
       "cash_pct": 0.0,
       "debt_pct": 8.5,
       "equity_pct": 91.5,
-      "evidence_hash": "7fb01ba6a20e743b4f505bc81669dae391825d82aa9b48a629296dad1ebfdb14",
+      "evidence_hash": "a075fc3caeb0c1016dc7ea6b1243c76792bbbe7c19b4283edaf6d4e610116971",
       "is_verified": true,
       "large_cap_pct": 46.12,
       "mid_cap_pct": 24.8,
@@ -117,14 +130,16 @@
       "retrieval_date": "2026-11-07",
       "scheme_code": 11520,
       "small_cap_pct": 20.58,
-      "other_pct": 0.0
+      "other_pct": 0.0,
+      "gold_pct": 0.0,
+      "schema_version": "2.0"
     },
     "11666": {
       "canonical_name": "Kotak Emerging Equity",
       "cash_pct": 0.0,
       "debt_pct": 4.5,
       "equity_pct": 95.5,
-      "evidence_hash": "5a67adcae39b44c55f6b35a67bac4b128f38aff1be5df02ab117191cc64e9ae1",
+      "evidence_hash": "4b026f37563b0ad1b63d754ecac93f856108c81bc814b5c8e5bb1a33e280ca83",
       "is_verified": true,
       "large_cap_pct": 8.4,
       "mid_cap_pct": 68.9,
@@ -132,14 +147,16 @@
       "retrieval_date": "2026-11-07",
       "scheme_code": 11666,
       "small_cap_pct": 18.2,
-      "other_pct": 0.0
+      "other_pct": 0.0,
+      "gold_pct": 0.0,
+      "schema_version": "2.0"
     },
     "11777": {
       "canonical_name": "Nippon India Growth",
       "cash_pct": 0.0,
       "debt_pct": 3.5,
       "equity_pct": 96.5,
-      "evidence_hash": "c62116f45e4f150b7b67e6855bfb82a85670dc90d6b2b7472ce465a78aa914e1",
+      "evidence_hash": "af4d73d2380f0604225ff8774c971f0313f1056792675a5eeebb07051179d752",
       "is_verified": true,
       "large_cap_pct": 11.5,
       "mid_cap_pct": 67.2,
@@ -147,14 +164,16 @@
       "retrieval_date": "2026-11-07",
       "scheme_code": 11777,
       "small_cap_pct": 17.8,
-      "other_pct": 0.0
+      "other_pct": 0.0,
+      "gold_pct": 0.0,
+      "schema_version": "2.0"
     },
     "11888": {
       "canonical_name": "SBI Magnum Midcap",
       "cash_pct": 0.0,
       "debt_pct": 4.2,
       "equity_pct": 95.8,
-      "evidence_hash": "8ae365a12b39e43b102f79b5b00469509f9189de03f2f91965d73f758805e441",
+      "evidence_hash": "46914103882fb4fe3ecd4cadce2ded5ab774b7e6055a93621803a4bbfa06d32f",
       "is_verified": true,
       "large_cap_pct": 9.8,
       "mid_cap_pct": 68.1,
@@ -162,14 +181,16 @@
       "retrieval_date": "2026-11-07",
       "scheme_code": 11888,
       "small_cap_pct": 17.9,
-      "other_pct": 0.0
+      "other_pct": 0.0,
+      "gold_pct": 0.0,
+      "schema_version": "2.0"
     },
     "118989": {
       "canonical_name": "UTI Nifty 50 Index Fund - Direct Plan - Growth",
       "cash_pct": 0.2,
       "debt_pct": 0.0,
       "equity_pct": 99.8,
-      "evidence_hash": "236984bca6c296a8dc6ca405e49009bc8abf7b1ebc710f340454e994bf415677",
+      "evidence_hash": "3a9e074f159fed361cd98952afab2ae3fae9b758d525c535889ea93902882151",
       "is_verified": true,
       "large_cap_pct": 100.0,
       "mid_cap_pct": 0.0,
@@ -177,14 +198,16 @@
       "retrieval_date": "2026-11-07",
       "scheme_code": 118989,
       "small_cap_pct": 0.0,
-      "other_pct": 0.0
+      "other_pct": 0.0,
+      "gold_pct": 0.0,
+      "schema_version": "2.0"
     },
     "11985": {
       "canonical_name": "Kotak Flexicap",
       "cash_pct": 0.0,
       "debt_pct": 3.8,
       "equity_pct": 96.2,
-      "evidence_hash": "c12530a6e6871458fbc326ceca547cc3576e044bc97fec986f1c243505f2a2b5",
+      "evidence_hash": "7c717ede7ce111737abd3a78eec63fc6f275074ca3c34b746f2cac8adf503de6",
       "is_verified": true,
       "large_cap_pct": 66.85,
       "mid_cap_pct": 22.14,
@@ -192,14 +215,16 @@
       "retrieval_date": "2026-11-07",
       "scheme_code": 11985,
       "small_cap_pct": 7.21,
-      "other_pct": 0.0
+      "other_pct": 0.0,
+      "gold_pct": 0.0,
+      "schema_version": "2.0"
     },
     "11999": {
       "canonical_name": "Axis Midcap",
       "cash_pct": 0.0,
       "debt_pct": 4.5,
       "equity_pct": 95.5,
-      "evidence_hash": "f3d3ce1c4b338c3ed8d8cf7ab51874913087dc14feb0a7b39d68cae942ba4510",
+      "evidence_hash": "501fa0f5fac4ed01ee04d3e70c71a326af10bdd186ac2f036a50251f56cca34d",
       "is_verified": true,
       "large_cap_pct": 14.5,
       "mid_cap_pct": 69.2,
@@ -207,14 +232,16 @@
       "retrieval_date": "2026-11-07",
       "scheme_code": 11999,
       "small_cap_pct": 11.8,
-      "other_pct": 0.0
+      "other_pct": 0.0,
+      "gold_pct": 0.0,
+      "schema_version": "2.0"
     },
     "120503": {
       "canonical_name": "Axis ELSS Tax Saver",
       "cash_pct": 0.0,
       "debt_pct": 2.5,
       "equity_pct": 97.5,
-      "evidence_hash": "3a66c025b5d83c6367e9197341e928caa202460410974c36cca1d8544add34be",
+      "evidence_hash": "6aad11fe7f30363e51fc0b186e6fc7989cd9b7854d3169be74276687b9ca9641",
       "is_verified": true,
       "large_cap_pct": 74.8,
       "mid_cap_pct": 18.2,
@@ -222,14 +249,16 @@
       "retrieval_date": "2026-11-07",
       "scheme_code": 120503,
       "small_cap_pct": 4.5,
-      "other_pct": 0.0
+      "other_pct": 0.0,
+      "gold_pct": 0.0,
+      "schema_version": "2.0"
     },
     "12111": {
       "canonical_name": "HDFC Small Cap",
       "cash_pct": 0.0,
       "debt_pct": 5.5,
       "equity_pct": 94.5,
-      "evidence_hash": "9d5349f470fa06edc2e7112636a45ff859f5f5fac53a9837295ca866136336fb",
+      "evidence_hash": "9d60ce814f999be4eac7083b3e3c28622929f9de266c05c31eb0978a186835ec",
       "is_verified": true,
       "large_cap_pct": 3.2,
       "mid_cap_pct": 12.8,
@@ -237,14 +266,16 @@
       "retrieval_date": "2026-11-07",
       "scheme_code": 12111,
       "small_cap_pct": 78.5,
-      "other_pct": 0.0
+      "other_pct": 0.0,
+      "gold_pct": 0.0,
+      "schema_version": "2.0"
     },
     "12222": {
       "canonical_name": "Quant Small Cap",
       "cash_pct": 0.0,
       "debt_pct": 4.5,
       "equity_pct": 95.5,
-      "evidence_hash": "47d1258b264e48bfbcb35b9786786ff566f984d3eea3acbe8af384f43a396da3",
+      "evidence_hash": "b1f90d05ccff3739c0b2836b500ec36d7d59afcd9714507c1ba78ffd8a8149ba",
       "is_verified": true,
       "large_cap_pct": 4.5,
       "mid_cap_pct": 15.2,
@@ -252,14 +283,16 @@
       "retrieval_date": "2026-11-07",
       "scheme_code": 12222,
       "small_cap_pct": 75.8,
-      "other_pct": 0.0
+      "other_pct": 0.0,
+      "gold_pct": 0.0,
+      "schema_version": "2.0"
     },
     "12333": {
       "canonical_name": "SBI Small Cap",
       "cash_pct": 0.0,
       "debt_pct": 5.7,
       "equity_pct": 94.3,
-      "evidence_hash": "a2f5cb79ba6b718d4034e18349e3676c9eeb769816bbd9605d770a4f3d9588a4",
+      "evidence_hash": "b3de9f8a76ac01ecff4587568700156fa2000a1ba8a6f1906201a69e729155ec",
       "is_verified": true,
       "large_cap_pct": 0.0,
       "mid_cap_pct": 14.5,
@@ -267,14 +300,16 @@
       "retrieval_date": "2026-11-07",
       "scheme_code": 12333,
       "small_cap_pct": 79.8,
-      "other_pct": 0.0
+      "other_pct": 0.0,
+      "gold_pct": 0.0,
+      "schema_version": "2.0"
     },
     "12444": {
       "canonical_name": "Mirae Asset Large & Midcap",
       "cash_pct": 0.0,
       "debt_pct": 3.6,
       "equity_pct": 96.4,
-      "evidence_hash": "682f136b6b672460cc1a86ab9e7f70600fa58fc7e105ccaa2d68e167927fa160",
+      "evidence_hash": "fed42d91e5da0d6c137197e7a1b044ea38483047bf7d8721ef29370fd2d9b44c",
       "is_verified": true,
       "large_cap_pct": 52.4,
       "mid_cap_pct": 39.8,
@@ -282,14 +317,16 @@
       "retrieval_date": "2026-11-07",
       "scheme_code": 12444,
       "small_cap_pct": 4.2,
-      "other_pct": 0.0
+      "other_pct": 0.0,
+      "gold_pct": 0.0,
+      "schema_version": "2.0"
     },
     "12555": {
       "canonical_name": "HDFC Large and Mid Cap",
       "cash_pct": 0.0,
       "debt_pct": 3.5,
       "equity_pct": 96.5,
-      "evidence_hash": "a0c65cd462cfb41b82374aedfd074c68b6fb236dd2b3e5b24fef50d91b5bd80c",
+      "evidence_hash": "b4ec2b6f2b3498dff72f40634b9023c84f4a0af2b8a62d92183b2b34dcc9b92a",
       "is_verified": true,
       "large_cap_pct": 51.2,
       "mid_cap_pct": 38.5,
@@ -297,14 +334,16 @@
       "retrieval_date": "2026-11-07",
       "scheme_code": 12555,
       "small_cap_pct": 6.8,
-      "other_pct": 0.0
+      "other_pct": 0.0,
+      "gold_pct": 0.0,
+      "schema_version": "2.0"
     },
     "12666": {
       "canonical_name": "Mirae Asset ELSS Tax Saver",
       "cash_pct": 0.0,
       "debt_pct": 1.8,
       "equity_pct": 98.2,
-      "evidence_hash": "9fc8fcd854abf65a79f9431f7838719aca1bff9d173211c0cfd8de3d4f2df37f",
+      "evidence_hash": "9b921833c14f945e833769e156ad641971198e42e86d215accc38059f22de50b",
       "is_verified": true,
       "large_cap_pct": 68.5,
       "mid_cap_pct": 21.2,
@@ -312,14 +351,16 @@
       "retrieval_date": "2026-11-07",
       "scheme_code": 12666,
       "small_cap_pct": 8.5,
-      "other_pct": 0.0
+      "other_pct": 0.0,
+      "gold_pct": 0.0,
+      "schema_version": "2.0"
     },
     "12777": {
       "canonical_name": "ICICI Prudential Balanced Advantage",
       "cash_pct": 0.0,
       "debt_pct": 32.2,
       "equity_pct": 67.8,
-      "evidence_hash": "a5561a22e4f3a9462089d0d64f8acb1845d9fd283752a642a959782d436f48f3",
+      "evidence_hash": "f009838d7e485714abb3340aea2387d7f10304898303adc1838f0709696fe918",
       "is_verified": true,
       "large_cap_pct": 52.1,
       "mid_cap_pct": 10.5,
@@ -327,14 +368,16 @@
       "retrieval_date": "2026-11-07",
       "scheme_code": 12777,
       "small_cap_pct": 5.2,
-      "other_pct": 0.0
+      "other_pct": 0.0,
+      "gold_pct": 0.0,
+      "schema_version": "2.0"
     },
     "12888": {
       "canonical_name": "Kotak Balanced Advantage",
       "cash_pct": 0.0,
       "debt_pct": 30.5,
       "equity_pct": 69.5,
-      "evidence_hash": "d786fc4511636a4681fc6055c32bec677d9a920f87bcce44f390e97e70f7db35",
+      "evidence_hash": "bb450c5dd9832611b970e803d4c5bb84cd2f110c079a73754d56b71477893a31",
       "is_verified": true,
       "large_cap_pct": 53.5,
       "mid_cap_pct": 11.2,
@@ -342,14 +385,16 @@
       "retrieval_date": "2026-11-07",
       "scheme_code": 12888,
       "small_cap_pct": 4.8,
-      "other_pct": 0.0
+      "other_pct": 0.0,
+      "gold_pct": 0.0,
+      "schema_version": "2.0"
     },
     "12999": {
       "canonical_name": "ICICI Prudential Multi-Asset",
       "cash_pct": 2.5,
       "debt_pct": 24.5,
       "equity_pct": 65.5,
-      "evidence_hash": "96d69f2fbe54e94a60c8353a6077ba2499eb8eaf9a01b644fe497e195d313db1",
+      "evidence_hash": "9e63471d145e6064bab8836eda71645dedcd1f21ff52b25b07650843e4ce5f71",
       "is_verified": true,
       "large_cap_pct": 48.5,
       "mid_cap_pct": 12.2,
@@ -358,14 +403,15 @@
       "scheme_code": 12999,
       "small_cap_pct": 4.8,
       "gold_pct": 7.5,
-      "other_pct": 0.0
+      "other_pct": 0.0,
+      "schema_version": "2.0"
     },
     "13111": {
       "canonical_name": "Kotak Equity Arbitrage",
       "cash_pct": 0.0,
       "debt_pct": 34.5,
       "equity_pct": 65.5,
-      "evidence_hash": "5421f8f3898bfc37b8f17a2784eaf9cca8bddaa39445a5cd4db00d438351cd86",
+      "evidence_hash": "195461c048669c71665447238f2c5c69bb0af341c81ab4a0f12821ae79c31121",
       "is_verified": true,
       "large_cap_pct": 65.5,
       "mid_cap_pct": 0.0,
@@ -373,14 +419,16 @@
       "retrieval_date": "2026-11-07",
       "scheme_code": 13111,
       "small_cap_pct": 0.0,
-      "other_pct": 0.0
+      "other_pct": 0.0,
+      "gold_pct": 0.0,
+      "schema_version": "2.0"
     },
     "13222": {
       "canonical_name": "HDFC Liquid",
       "cash_pct": 0.0,
       "debt_pct": 100.0,
       "equity_pct": 0.0,
-      "evidence_hash": "e6c6a6e61ad7bc1027e16118b60bde5422277a2b374080b80c18927b51154204",
+      "evidence_hash": "52a3e3529a937393f2dc2319c4a988973a853e6d985425d142a4091472635360",
       "is_verified": true,
       "large_cap_pct": 0.0,
       "mid_cap_pct": 0.0,
@@ -388,14 +436,16 @@
       "retrieval_date": "2026-11-07",
       "scheme_code": 13222,
       "small_cap_pct": 0.0,
-      "other_pct": 0.0
+      "other_pct": 0.0,
+      "gold_pct": 0.0,
+      "schema_version": "2.0"
     },
     "13333": {
       "canonical_name": "ICICI Prudential Liquid",
       "cash_pct": 0.0,
       "debt_pct": 100.0,
       "equity_pct": 0.0,
-      "evidence_hash": "d86dc2cc2bb8bdbe1cc7624cbe54419ade6d04a93e48b11b253e8881ce52529c",
+      "evidence_hash": "770d1cc86fcd4f0d4906c506bca117554f181a9e1f3595ddbb9f712fbd7b7c3f",
       "is_verified": true,
       "large_cap_pct": 0.0,
       "mid_cap_pct": 0.0,
@@ -403,14 +453,16 @@
       "retrieval_date": "2026-11-07",
       "scheme_code": 13333,
       "small_cap_pct": 0.0,
-      "other_pct": 0.0
+      "other_pct": 0.0,
+      "gold_pct": 0.0,
+      "schema_version": "2.0"
     },
     "13444": {
       "canonical_name": "HDFC Corporate Bond",
       "cash_pct": 0.0,
       "debt_pct": 100.0,
       "equity_pct": 0.0,
-      "evidence_hash": "67549815813bc32bbd06f2e35a94ce6a857547b5a7f887e40d47b85b043ba614",
+      "evidence_hash": "8a6af834cb2dddc183ba52a7672e34636c09d07216faa43a35ff726a8645b0a8",
       "is_verified": true,
       "large_cap_pct": 0.0,
       "mid_cap_pct": 0.0,
@@ -418,14 +470,16 @@
       "retrieval_date": "2026-11-07",
       "scheme_code": 13444,
       "small_cap_pct": 0.0,
-      "other_pct": 0.0
+      "other_pct": 0.0,
+      "gold_pct": 0.0,
+      "schema_version": "2.0"
     },
     "13555": {
       "canonical_name": "ICICI Prudential Technology",
       "cash_pct": 0.0,
       "debt_pct": 2.5,
       "equity_pct": 97.5,
-      "evidence_hash": "72d7212b19e21c6a2e774dbee0121e646d9435bd2654aa06547374632aa4f0b4",
+      "evidence_hash": "8a14ef7e622cecd02718847905985891430709aac02b553b7b922b5ccba8a2a7",
       "is_verified": true,
       "large_cap_pct": 71.2,
       "mid_cap_pct": 20.8,
@@ -433,14 +487,16 @@
       "retrieval_date": "2026-11-07",
       "scheme_code": 13555,
       "small_cap_pct": 5.5,
-      "other_pct": 0.0
+      "other_pct": 0.0,
+      "gold_pct": 0.0,
+      "schema_version": "2.0"
     },
     "13666": {
       "canonical_name": "Tata Digital India",
       "cash_pct": 0.0,
       "debt_pct": 2.3,
       "equity_pct": 97.7,
-      "evidence_hash": "95f838e2b73b9a3b6a30c0361759cd5056a30d8f33cea07f6a42b29c9b3e7336",
+      "evidence_hash": "0985dd86d4ba089a701defc0d281057d40d68d601ef25c3b402a8cd1d16f3306",
       "is_verified": true,
       "large_cap_pct": 68.5,
       "mid_cap_pct": 22.4,
@@ -448,14 +504,16 @@
       "retrieval_date": "2026-11-07",
       "scheme_code": 13666,
       "small_cap_pct": 6.8,
-      "other_pct": 0.0
+      "other_pct": 0.0,
+      "gold_pct": 0.0,
+      "schema_version": "2.0"
     },
     "14566": {
       "canonical_name": "ICICI Prudential Bluechip",
       "cash_pct": 0.0,
       "debt_pct": 8.22,
       "equity_pct": 91.78,
-      "evidence_hash": "f570f21876cf41f63c7f47239db246114e557e8ecf13db3c24afa953e3317572",
+      "evidence_hash": "4d1b8996e2025b8e8f4faf48f4e5d6eb057041d4ee7e53bf491605e16338ee53",
       "is_verified": true,
       "large_cap_pct": 81.09,
       "mid_cap_pct": 10.69,
@@ -463,14 +521,16 @@
       "retrieval_date": "2026-11-07",
       "scheme_code": 14566,
       "small_cap_pct": 0.0,
-      "other_pct": 0.0
+      "other_pct": 0.0,
+      "gold_pct": 0.0,
+      "schema_version": "2.0"
     },
     "15868": {
       "canonical_name": "ICICI Pru Large & Mid",
       "cash_pct": 2.02,
       "debt_pct": 0.02,
       "equity_pct": 97.96,
-      "evidence_hash": "1b923cfe28daea268b26ea29afb2406cd50a283b05352f2c1b70f135ce8a9942",
+      "evidence_hash": "10ec29c12a42e1bcc6b82965ee411778ca841bce9630530fd5ff1415bcd12a3a",
       "is_verified": true,
       "large_cap_pct": 46.73,
       "mid_cap_pct": 44.96,
@@ -478,14 +538,16 @@
       "retrieval_date": "2026-11-07",
       "scheme_code": 15868,
       "small_cap_pct": 6.27,
-      "other_pct": 0.0
+      "other_pct": 0.0,
+      "gold_pct": 0.0,
+      "schema_version": "2.0"
     },
     "16026": {
       "canonical_name": "HDFC Flexi Cap",
       "cash_pct": 4.66,
       "debt_pct": 0.45,
       "equity_pct": 94.89,
-      "evidence_hash": "c5424e5a2d95452d72bc43283bf383cd73be019f91d9e638f22d3d7ebc40230e",
+      "evidence_hash": "b7ef52ca0aaa1317e1003caf2e3a10e18219d52bd0f0ea037c12f4040b2363af",
       "is_verified": true,
       "large_cap_pct": 70.38,
       "mid_cap_pct": 14.9,
@@ -493,14 +555,16 @@
       "retrieval_date": "2026-11-07",
       "scheme_code": 16026,
       "small_cap_pct": 9.58,
-      "other_pct": 0.0
+      "other_pct": 0.0,
+      "gold_pct": 0.0,
+      "schema_version": "2.0"
     },
     "16045": {
       "canonical_name": "Canara Robeco Multi Asset",
-      "cash_pct": 2.5,
+      "cash_pct": 0.0,
       "debt_pct": 22.0,
       "equity_pct": 68.5,
-      "evidence_hash": "fdb0c06aaed9df3abf8e8a8cea9605764f4021913db9cddf1b6d785c070105c9",
+      "evidence_hash": "eef3d7f5f8ae928521f14f321f0f401dc7237d2f3bb4fc3ad76de5ec42f5ca9d",
       "is_verified": true,
       "large_cap_pct": 45.0,
       "mid_cap_pct": 15.0,
@@ -508,15 +572,16 @@
       "retrieval_date": "2026-11-07",
       "scheme_code": 16045,
       "small_cap_pct": 8.5,
-      "gold_pct": 7.0,
-      "other_pct": 0.0
+      "gold_pct": 9.5,
+      "other_pct": 0.0,
+      "schema_version": "2.0"
     },
     "16055": {
       "canonical_name": "HDFC BAF",
       "cash_pct": 2.84,
       "debt_pct": 23.86,
       "equity_pct": 73.3,
-      "evidence_hash": "770993a53395eb00f6518cb75917797cdf8dc586c4e064e2fd5843d3494611e7",
+      "evidence_hash": "1b771be8d869006c874e97004b151d148db8172eec341e3ce521014f281b2c0d",
       "is_verified": true,
       "large_cap_pct": 54.71,
       "mid_cap_pct": 9.59,
@@ -524,14 +589,16 @@
       "retrieval_date": "2026-11-07",
       "scheme_code": 16055,
       "small_cap_pct": 9.0,
-      "other_pct": 0.0
+      "other_pct": 0.0,
+      "gold_pct": 0.0,
+      "schema_version": "2.0"
     },
     "16068": {
       "canonical_name": "Nippon Multi Cap",
       "cash_pct": 0.77,
       "debt_pct": 0.0,
       "equity_pct": 99.23,
-      "evidence_hash": "60d029a91ba8b9814c625fea52a84392a5a678f32395625af6e4e79c5ec1e184",
+      "evidence_hash": "f546779bd8f16cd9a130e46ff394889f1d35f528ad1e33d38198e6b43c7c47d9",
       "is_verified": true,
       "large_cap_pct": 44.06,
       "mid_cap_pct": 29.08,
@@ -539,14 +606,16 @@
       "retrieval_date": "2026-11-07",
       "scheme_code": 16068,
       "small_cap_pct": 26.1,
-      "other_pct": 0.0
+      "other_pct": 0.0,
+      "gold_pct": 0.0,
+      "schema_version": "2.0"
     },
     "16114": {
       "canonical_name": "HDFC Mid Cap",
       "cash_pct": 7.07,
       "debt_pct": 0.0,
       "equity_pct": 92.93,
-      "evidence_hash": "7876957f28098fd8252741ce33fde53d202fc6a48da91bac7b7452aae0e2ce94",
+      "evidence_hash": "121b7ab831a9b6ad6aa249455658e512ef736ec26daaf96486d051d4708d97f0",
       "is_verified": true,
       "large_cap_pct": 10.5,
       "mid_cap_pct": 65.42,
@@ -554,14 +623,16 @@
       "retrieval_date": "2026-11-07",
       "scheme_code": 16114,
       "small_cap_pct": 17.01,
-      "other_pct": 0.0
+      "other_pct": 0.0,
+      "gold_pct": 0.0,
+      "schema_version": "2.0"
     },
     "16192": {
       "canonical_name": "Nippon Large Cap",
       "cash_pct": 0.32,
       "debt_pct": 0.0,
       "equity_pct": 99.68,
-      "evidence_hash": "8681c17db1237091ee5c66bc4b1116d07aa59c8354da3f4567ffcc902e7c0a08",
+      "evidence_hash": "34ce0d1c52021e10a0689dc2e50873ea25c6aa39f02abe7388fdb1ab64a4829b",
       "is_verified": true,
       "large_cap_pct": 81.24,
       "mid_cap_pct": 14.95,
@@ -569,14 +640,16 @@
       "retrieval_date": "2026-11-07",
       "scheme_code": 16192,
       "small_cap_pct": 3.49,
-      "other_pct": 0.0
+      "other_pct": 0.0,
+      "gold_pct": 0.0,
+      "schema_version": "2.0"
     },
     "17361": {
       "canonical_name": "Quant Multi Cap",
       "cash_pct": 1.76,
       "debt_pct": 3.75,
       "equity_pct": 94.49,
-      "evidence_hash": "64381808e5e70c4505cb8a5ec34806e6db4b4bb88b091565e472e4f90bfc221b",
+      "evidence_hash": "36a280c1dd55012059a11ae8ac535347ca6a5f6880ed7765043bb93bdc9a54ee",
       "is_verified": true,
       "large_cap_pct": 31.18,
       "mid_cap_pct": 27.31,
@@ -584,14 +657,16 @@
       "retrieval_date": "2026-11-07",
       "scheme_code": 17361,
       "small_cap_pct": 36.0,
-      "other_pct": 0.0
+      "other_pct": 0.0,
+      "gold_pct": 0.0,
+      "schema_version": "2.0"
     },
     "17363": {
       "canonical_name": "Quant Large & Mid",
       "cash_pct": 1.58,
       "debt_pct": 0.0,
       "equity_pct": 98.42,
-      "evidence_hash": "96946b4a67c74270bc4cfda227f7edcfb9050418bc06e9e4fe6bf7f30f05911e",
+      "evidence_hash": "691b4762cc8d287df10fdddb960d0b3842a20a4a913d98901f8ddc50780662d4",
       "is_verified": true,
       "large_cap_pct": 44.78,
       "mid_cap_pct": 46.06,
@@ -599,14 +674,16 @@
       "retrieval_date": "2026-11-07",
       "scheme_code": 17363,
       "small_cap_pct": 7.58,
-      "other_pct": 0.0
+      "other_pct": 0.0,
+      "gold_pct": 0.0,
+      "schema_version": "2.0"
     },
     "17768": {
       "canonical_name": "Edelweiss BAF",
       "cash_pct": 2.28,
       "debt_pct": 13.91,
       "equity_pct": 83.81,
-      "evidence_hash": "25e2f57b9089e672757c704ae770a8836751bef27003867c384d01d99053786b",
+      "evidence_hash": "39b4f6b86420b1476e09094c28ed70da3bccc56368613d841189ea6da9979e6c",
       "is_verified": true,
       "large_cap_pct": 62.35,
       "mid_cap_pct": 15.34,
@@ -614,14 +691,16 @@
       "retrieval_date": "2026-11-07",
       "scheme_code": 17768,
       "small_cap_pct": 6.12,
-      "other_pct": 0.0
+      "other_pct": 0.0,
+      "gold_pct": 0.0,
+      "schema_version": "2.0"
     },
     "19701": {
       "canonical_name": "PPFAS Flexi Cap",
       "cash_pct": 11.5,
       "debt_pct": 6.26,
       "equity_pct": 82.24,
-      "evidence_hash": "4ab21447b76b35111961599558592329b62f44b8cea0362792cbb72ca1b36330",
+      "evidence_hash": "eb8dd79156e74844b687aab0161e4f8a5d05f1b95462678b83646997ff1b3184",
       "is_verified": true,
       "large_cap_pct": 74.62,
       "mid_cap_pct": 3.36,
@@ -629,14 +708,16 @@
       "retrieval_date": "2026-11-07",
       "scheme_code": 19701,
       "small_cap_pct": 4.25,
-      "other_pct": 0.0
+      "other_pct": 0.0,
+      "gold_pct": 0.0,
+      "schema_version": "2.0"
     },
     "24080": {
       "canonical_name": "Motilal Midcap",
       "cash_pct": 3.62,
       "debt_pct": 0.0,
       "equity_pct": 96.38,
-      "evidence_hash": "54f14220d8c7cd8b2cbe9c44971009a155f0ea12991d15f6824f3c8d1cf9b73b",
+      "evidence_hash": "5715a4493776e60b57a7e885900b71308c00564ad79e570bf4f883afeba418ce",
       "is_verified": true,
       "large_cap_pct": 24.38,
       "mid_cap_pct": 68.24,
@@ -644,14 +725,16 @@
       "retrieval_date": "2026-11-07",
       "scheme_code": 24080,
       "small_cap_pct": 3.86,
-      "other_pct": 0.0
+      "other_pct": 0.0,
+      "gold_pct": 0.0,
+      "schema_version": "2.0"
     },
     "360 ONE QUANT FUND REGULAR GROWTH": {
       "canonical_name": "360 ONE QUANT FUND REGULAR GROWTH",
       "cash_pct": 0.0,
       "debt_pct": 0.0,
       "equity_pct": 100.0,
-      "evidence_hash": "559552c5939983603388ebd6575390d1dd8a8fdb13832b0cdb1d08baadaf5500",
+      "evidence_hash": "8017d269f3b6a2727883b81f4b85f8ef92396220edf4d202e0cb5035dd37c73a",
       "is_verified": true,
       "large_cap_pct": 0,
       "mid_cap_pct": 0,
@@ -659,14 +742,16 @@
       "retrieval_date": "2026-11-07",
       "scheme_code": "360 ONE QUANT FUND REGULAR GROWTH",
       "small_cap_pct": 0,
-      "other_pct": 0.0
+      "other_pct": 0.0,
+      "gold_pct": 0.0,
+      "schema_version": "2.0"
     },
     "41707": {
       "canonical_name": "Kotak Multi Cap",
       "cash_pct": 3.07,
       "debt_pct": 0.25,
       "equity_pct": 96.68,
-      "evidence_hash": "966312032f41bc68032b8464d4a7d7077808467a26e72a2694b5c53470efcc49",
+      "evidence_hash": "6789dc1567897254af8aeb8732897a4c7c1af6f1465d91641a279b42a89205d0",
       "is_verified": true,
       "large_cap_pct": 41.57,
       "mid_cap_pct": 27.76,
@@ -674,14 +759,16 @@
       "retrieval_date": "2026-11-07",
       "scheme_code": 41707,
       "small_cap_pct": 27.34,
-      "other_pct": 0.0
+      "other_pct": 0.0,
+      "gold_pct": 0.0,
+      "schema_version": "2.0"
     },
     "43512": {
       "canonical_name": "HDFC Defence",
       "cash_pct": 1.89,
       "debt_pct": 0.0,
       "equity_pct": 98.11,
-      "evidence_hash": "718ff85568626ab02a75e650b4364058f0aa0dac99eb138eef84013a1cfbc140",
+      "evidence_hash": "05285092b7c09b3839a69ecc66c63867c5215d8a8a8ee58c90cedb0e4263aebc",
       "is_verified": true,
       "large_cap_pct": 43.86,
       "mid_cap_pct": 25.31,
@@ -689,14 +776,16 @@
       "retrieval_date": "2026-11-07",
       "scheme_code": 43512,
       "small_cap_pct": 29.04,
-      "other_pct": 0.0
+      "other_pct": 0.0,
+      "gold_pct": 0.0,
+      "schema_version": "2.0"
     },
     "43571": {
       "canonical_name": "Canara Robeco Multi Cap",
       "cash_pct": 2.48,
       "debt_pct": 0.0,
       "equity_pct": 97.52,
-      "evidence_hash": "e5b1022fd62835deed5b891925fdb361d4dc5cbfd125e1eee429751acc5315cf",
+      "evidence_hash": "3a79d8aba3203a68eff318417d394127ef487e93884080e08f63cc0465502fcc",
       "is_verified": true,
       "large_cap_pct": 42.23,
       "mid_cap_pct": 27.79,
@@ -704,14 +793,16 @@
       "retrieval_date": "2026-11-07",
       "scheme_code": 43571,
       "small_cap_pct": 27.5,
-      "other_pct": 0.0
+      "other_pct": 0.0,
+      "gold_pct": 0.0,
+      "schema_version": "2.0"
     },
     "43578": {
       "canonical_name": "Mirae Multicap",
       "cash_pct": 0.99,
       "debt_pct": 0.0,
       "equity_pct": 99.01,
-      "evidence_hash": "0c5dc7ff5ce8e3a54195c6b697ee5a3c57b757f83836f8a1f2def588ea798863",
+      "evidence_hash": "ecdc5d0eda261a4ecc883102624a6c8956d52c46b1a73537ec30fc0fcde57e4a",
       "is_verified": true,
       "large_cap_pct": 35.25,
       "mid_cap_pct": 26.83,
@@ -719,14 +810,16 @@
       "retrieval_date": "2026-11-07",
       "scheme_code": 43578,
       "small_cap_pct": 36.93,
-      "other_pct": 0.0
+      "other_pct": 0.0,
+      "gold_pct": 0.0,
+      "schema_version": "2.0"
     },
     "44146": {
       "canonical_name": "SBI Energy Opps",
       "cash_pct": 2.51,
       "debt_pct": 0.06,
       "equity_pct": 97.43,
-      "evidence_hash": "0f359318068ca0c63f2afed6ac25d68d7c380239aae08ea0b3766c31cf7320e2",
+      "evidence_hash": "7f73279947f8a625d7d6c06aab95e11ada804009780e1b1a99b518a7f7bcfc2d",
       "is_verified": true,
       "large_cap_pct": 43.06,
       "mid_cap_pct": 21.04,
@@ -734,14 +827,16 @@
       "retrieval_date": "2026-11-07",
       "scheme_code": 44146,
       "small_cap_pct": 33.32,
-      "other_pct": 0.0
+      "other_pct": 0.0,
+      "gold_pct": 0.0,
+      "schema_version": "2.0"
     },
     "44333": {
       "canonical_name": "WhiteOak Special Opps",
       "cash_pct": 1.6,
       "debt_pct": 0.79,
       "equity_pct": 97.61,
-      "evidence_hash": "ab094147a01ad3f3149b6566f08d28242990f7160f7d2c181fa68568f24d3d4f",
+      "evidence_hash": "35f1193f42062e00b5b26af376ad35b9c87a3a198ce48498eb297ac15e49ca12",
       "is_verified": true,
       "large_cap_pct": 31.92,
       "mid_cap_pct": 9.47,
@@ -749,14 +844,16 @@
       "retrieval_date": "2026-11-07",
       "scheme_code": 44333,
       "small_cap_pct": 56.22,
-      "other_pct": 0.0
+      "other_pct": 0.0,
+      "gold_pct": 0.0,
+      "schema_version": "2.0"
     },
     "44397": {
       "canonical_name": "Motilal Defence Index",
       "cash_pct": 0.0,
       "debt_pct": 0.0,
       "equity_pct": 100.0,
-      "evidence_hash": "0afe86e01082577c5cf46f3c62af39ad492d96d2aeebcc57e19698c716586fcc",
+      "evidence_hash": "e42be8105b5359462bea5a8a4743f84e8d3ef1bf2d4fffe5aa8700e5af884989",
       "is_verified": true,
       "large_cap_pct": 53.0,
       "mid_cap_pct": 24.7,
@@ -764,14 +861,16 @@
       "retrieval_date": "2026-11-07",
       "scheme_code": 44397,
       "small_cap_pct": 22.3,
-      "other_pct": 0.0
+      "other_pct": 0.0,
+      "gold_pct": 0.0,
+      "schema_version": "2.0"
     },
     "Axis Small Cap": {
       "canonical_name": "Axis Small Cap",
       "cash_pct": 0.0,
       "debt_pct": 9.68,
       "equity_pct": 90.32,
-      "evidence_hash": "53226555ba51971c06aaa8ff2f3a28e92656e12f07a4c84ba30f734d4dcf5117",
+      "evidence_hash": "b7cdb1bb92d2318cfb93dd0de736c50062ae5275ea1a210f5f460ada169090c8",
       "is_verified": true,
       "large_cap_pct": 6.31,
       "mid_cap_pct": 9.6,
@@ -779,14 +878,16 @@
       "retrieval_date": "2026-11-07",
       "scheme_code": "Axis Small Cap",
       "small_cap_pct": 74.41,
-      "other_pct": 0.0
+      "other_pct": 0.0,
+      "gold_pct": 0.0,
+      "schema_version": "2.0"
     },
     "Bandhan Small Cap": {
       "canonical_name": "Bandhan Small Cap",
       "cash_pct": 0.0,
       "debt_pct": 6.9,
       "equity_pct": 93.1,
-      "evidence_hash": "47cf843dff15bb70e31059ee69ac7e7b3a5f7e17410a6d14fb32176da8785dcd",
+      "evidence_hash": "463c93d4bd462992e36d161a361a02619e0b273329da22df2a450400c844d92a",
       "is_verified": true,
       "large_cap_pct": 4.1,
       "mid_cap_pct": 14.8,
@@ -794,14 +895,16 @@
       "retrieval_date": "2026-11-07",
       "scheme_code": "Bandhan Small Cap",
       "small_cap_pct": 74.2,
-      "other_pct": 0.0
+      "other_pct": 0.0,
+      "gold_pct": 0.0,
+      "schema_version": "2.0"
     },
     "Bandhan Sterling Value": {
       "canonical_name": "Bandhan Sterling Value",
       "cash_pct": 0.0,
       "debt_pct": 3.8,
       "equity_pct": 96.2,
-      "evidence_hash": "7fb8eb334cb20f250fe197e1ba0cbf5136f47d1df88913172c5a73b7061ec71e",
+      "evidence_hash": "f1de227db24f031975210edc6880e0f866ce1da0f26223d5805c49872cc77f1d",
       "is_verified": true,
       "large_cap_pct": 53.4,
       "mid_cap_pct": 24.2,
@@ -809,14 +912,16 @@
       "retrieval_date": "2026-11-07",
       "scheme_code": "Bandhan Sterling Value",
       "small_cap_pct": 18.6,
-      "other_pct": 0.0
+      "other_pct": 0.0,
+      "gold_pct": 0.0,
+      "schema_version": "2.0"
     },
     "Canara Robeco Equity Hybrid": {
       "canonical_name": "Canara Robeco Equity Hybrid",
       "cash_pct": 0.0,
       "debt_pct": 28.8,
       "equity_pct": 71.2,
-      "evidence_hash": "4925a50477090bea08ffa79a4fd0dfb87045299cbfbae4b3b7121d9cbd6e4db9",
+      "evidence_hash": "5b60c0b271df408ca5c021a026b43e91866852464887706a37dce139dee59edd",
       "is_verified": true,
       "large_cap_pct": 51.2,
       "mid_cap_pct": 17.6,
@@ -824,14 +929,16 @@
       "retrieval_date": "2026-11-07",
       "scheme_code": "Canara Robeco Equity Hybrid",
       "small_cap_pct": 2.4,
-      "other_pct": 0.0
+      "other_pct": 0.0,
+      "gold_pct": 0.0,
+      "schema_version": "2.0"
     },
     "HDFC Money Market": {
       "canonical_name": "HDFC Money Market",
       "cash_pct": 0.0,
       "debt_pct": 100.0,
       "equity_pct": 0.0,
-      "evidence_hash": "0c5be3a7682619837800940cf61eff2b8a640faa1e29b7179c4c610a138f2fe8",
+      "evidence_hash": "47b69e044b99ddd5b933a14fed367620f0384131175f816d5f3220e5fa8bcedb",
       "is_verified": true,
       "large_cap_pct": 0.0,
       "mid_cap_pct": 0.0,
@@ -839,14 +946,16 @@
       "retrieval_date": "2026-11-07",
       "scheme_code": "HDFC Money Market",
       "small_cap_pct": 0.0,
-      "other_pct": 0.0
+      "other_pct": 0.0,
+      "gold_pct": 0.0,
+      "schema_version": "2.0"
     },
     "ICICI Pru Equity & Debt": {
       "canonical_name": "ICICI Pru Equity & Debt",
       "cash_pct": 0.0,
       "debt_pct": 28.0,
       "equity_pct": 72.0,
-      "evidence_hash": "c14664114a8075778b73a96a0eccdd8ad3a8cfb1cc56639ce9579ca045f88587",
+      "evidence_hash": "90d74e1aa021a2ed8f4b418935237a1aa64e70bcdaa929f84442c2e711601d04",
       "is_verified": true,
       "large_cap_pct": 50.2,
       "mid_cap_pct": 16.5,
@@ -854,14 +963,16 @@
       "retrieval_date": "2026-11-07",
       "scheme_code": "ICICI Pru Equity & Debt",
       "small_cap_pct": 5.3,
-      "other_pct": 0.0
+      "other_pct": 0.0,
+      "gold_pct": 0.0,
+      "schema_version": "2.0"
     },
     "INF579M01AF8": {
       "canonical_name": "INF579M01AF8",
       "cash_pct": 0.0,
       "debt_pct": 0.0,
       "equity_pct": 100.0,
-      "evidence_hash": "719775fbdb71804906a23f2d98b592caadde4504dd22b33bc323143f63a66d35",
+      "evidence_hash": "c98daec9715f1769cc761e5310901caf24793e4269a3be0e27d81aeb823664d8",
       "is_verified": true,
       "large_cap_pct": 0,
       "mid_cap_pct": 0,
@@ -869,14 +980,16 @@
       "retrieval_date": "2026-11-07",
       "scheme_code": "INF579M01AF8",
       "small_cap_pct": 0,
-      "other_pct": 0.0
+      "other_pct": 0.0,
+      "gold_pct": 0.0,
+      "schema_version": "2.0"
     },
     "JM FLEXICAP FUND GROWTH": {
       "canonical_name": "JM FLEXICAP FUND GROWTH",
       "cash_pct": 0.0,
       "debt_pct": 0.0,
       "equity_pct": 100.0,
-      "evidence_hash": "693cd3ae9ebdf1a017483285cb8e41736105b20807fc38c9f85b3e856158f02d",
+      "evidence_hash": "492cbab4a8c59978bbc3a1266483fa89c688ce89d0d073bccfecf8b6478f5938",
       "is_verified": true,
       "large_cap_pct": 0,
       "mid_cap_pct": 0,
@@ -884,14 +997,16 @@
       "retrieval_date": "2026-11-07",
       "scheme_code": "JM FLEXICAP FUND GROWTH",
       "small_cap_pct": 0,
-      "other_pct": 0.0
+      "other_pct": 0.0,
+      "gold_pct": 0.0,
+      "schema_version": "2.0"
     },
     "JM Flexi Cap Fund": {
       "canonical_name": "JM Flexi Cap Fund",
       "cash_pct": 0.0,
       "debt_pct": 2.0,
       "equity_pct": 98.0,
-      "evidence_hash": "3b86d29ed6b62b4b84a498eb42a9c22a45ec8b358b278a8b467fd9752e6e4061",
+      "evidence_hash": "86f47c59d508567999de6f3aa5d324d062be6a208219cee86078318d0e079e6f",
       "is_verified": true,
       "large_cap_pct": 50.0,
       "mid_cap_pct": 30.0,
@@ -899,14 +1014,16 @@
       "retrieval_date": "2026-11-07",
       "scheme_code": "JM Flexi Cap Fund",
       "small_cap_pct": 18.0,
-      "other_pct": 0.0
+      "other_pct": 0.0,
+      "gold_pct": 0.0,
+      "schema_version": "2.0"
     },
     "Mirae Asset Midcap": {
       "canonical_name": "Mirae Asset Midcap",
       "cash_pct": 0.0,
       "debt_pct": 3.2,
       "equity_pct": 96.8,
-      "evidence_hash": "81a563c369636eb23babe48e729e84804f82edc85075880b9aa49db4b87fb0d3",
+      "evidence_hash": "1271df5b24dc4e2875701660937daf968207334fea03f22a90794e4fa6b4947d",
       "is_verified": true,
       "large_cap_pct": 14.5,
       "mid_cap_pct": 68.2,
@@ -914,14 +1031,16 @@
       "retrieval_date": "2026-11-07",
       "scheme_code": "Mirae Asset Midcap",
       "small_cap_pct": 14.1,
-      "other_pct": 0.0
+      "other_pct": 0.0,
+      "gold_pct": 0.0,
+      "schema_version": "2.0"
     },
     "Nippon India Liquid": {
       "canonical_name": "Nippon India Liquid",
       "cash_pct": 0.0,
       "debt_pct": 100.0,
       "equity_pct": 0.0,
-      "evidence_hash": "c5cd2abc2ed5ff262ceb4eb906d58674676e4fbcc008ee81a5aeaacab99eff98",
+      "evidence_hash": "f6b6aaede50694b33ab8350542c99546510497d4d0d521d18288c1f7ec86f68c",
       "is_verified": true,
       "large_cap_pct": 0.0,
       "mid_cap_pct": 0.0,
@@ -929,14 +1048,16 @@
       "retrieval_date": "2026-11-07",
       "scheme_code": "Nippon India Liquid",
       "small_cap_pct": 0.0,
-      "other_pct": 0.0
+      "other_pct": 0.0,
+      "gold_pct": 0.0,
+      "schema_version": "2.0"
     },
     "Parag Parikh Conservative Hybrid": {
       "canonical_name": "Parag Parikh Conservative Hybrid",
       "cash_pct": 0.0,
       "debt_pct": 75.5,
       "equity_pct": 24.5,
-      "evidence_hash": "eddbf8a3052996e8c1b634a503332cb9d31c1a5c5311ce4072eaf13683e057b9",
+      "evidence_hash": "17613ff8665df33d23f98db7b7869e082343967a801ed89b87f31b7472a31d4f",
       "is_verified": true,
       "large_cap_pct": 18.2,
       "mid_cap_pct": 4.1,
@@ -944,14 +1065,16 @@
       "retrieval_date": "2026-11-07",
       "scheme_code": "Parag Parikh Conservative Hybrid",
       "small_cap_pct": 2.2,
-      "other_pct": 0.0
+      "other_pct": 0.0,
+      "gold_pct": 0.0,
+      "schema_version": "2.0"
     },
     "Quant Active": {
       "canonical_name": "Quant Active",
       "cash_pct": 0.0,
       "debt_pct": 3.5,
       "equity_pct": 96.5,
-      "evidence_hash": "05c4d284146ccde7615bd91796d42ca555f19f4bc6533322e9a042957e66a1e5",
+      "evidence_hash": "73f73915c02c12d79371df7b57627d30d0b8028946fda3bc27b5f4e0c4c22587",
       "is_verified": true,
       "large_cap_pct": 46.5,
       "mid_cap_pct": 26.2,
@@ -959,14 +1082,16 @@
       "retrieval_date": "2026-11-07",
       "scheme_code": "Quant Active",
       "small_cap_pct": 23.8,
-      "other_pct": 0.0
+      "other_pct": 0.0,
+      "gold_pct": 0.0,
+      "schema_version": "2.0"
     },
     "SBI Equity Hybrid": {
       "canonical_name": "SBI Equity Hybrid",
       "cash_pct": 0.0,
       "debt_pct": 29.5,
       "equity_pct": 70.5,
-      "evidence_hash": "e37df08d257f3e54251e8785e47d11d61e9994dc92fa045fcdda76a80dadb822",
+      "evidence_hash": "8fd1b4d42d9b409261b160956037c1a6d31a2e2026c94e351672b06cfcc9da09",
       "is_verified": true,
       "large_cap_pct": 52.0,
       "mid_cap_pct": 15.0,
@@ -974,14 +1099,16 @@
       "retrieval_date": "2026-11-07",
       "scheme_code": "SBI Equity Hybrid",
       "small_cap_pct": 3.5,
-      "other_pct": 0.0
+      "other_pct": 0.0,
+      "gold_pct": 0.0,
+      "schema_version": "2.0"
     },
     "SBI Liquid": {
       "canonical_name": "SBI Liquid",
       "cash_pct": 0.0,
       "debt_pct": 100.0,
       "equity_pct": 0.0,
-      "evidence_hash": "4ee021cc21c0574feca27e72ad3b3633db101f4a74b87513738deb61cafa9178",
+      "evidence_hash": "f3e1d65c2100342956a98b6c00f27a804435f88ecd6bd1eb27548283461194ff",
       "is_verified": true,
       "large_cap_pct": 0.0,
       "mid_cap_pct": 0.0,
@@ -989,14 +1116,16 @@
       "retrieval_date": "2026-11-07",
       "scheme_code": "SBI Liquid",
       "small_cap_pct": 0.0,
-      "other_pct": 0.0
+      "other_pct": 0.0,
+      "gold_pct": 0.0,
+      "schema_version": "2.0"
     },
     "Tata Small Cap": {
       "canonical_name": "Tata Small Cap",
       "cash_pct": 0.0,
       "debt_pct": 6.5,
       "equity_pct": 93.5,
-      "evidence_hash": "5791f5031e6b1e2c67401c70db92da716def7ad18110b3bcac569e15fa22b608",
+      "evidence_hash": "6017a330926e2bbfe1de1b022910d5743bad28631dc360c7349bf509a174b0b3",
       "is_verified": true,
       "large_cap_pct": 3.2,
       "mid_cap_pct": 12.5,
@@ -1004,14 +1133,16 @@
       "retrieval_date": "2026-11-07",
       "scheme_code": "Tata Small Cap",
       "small_cap_pct": 77.8,
-      "other_pct": 0.0
+      "other_pct": 0.0,
+      "gold_pct": 0.0,
+      "schema_version": "2.0"
     },
     "UTI Flexi Cap": {
       "canonical_name": "UTI Flexi Cap",
       "cash_pct": 0.0,
       "debt_pct": 2.8,
       "equity_pct": 97.2,
-      "evidence_hash": "8fa5e9622ae9c148379833195ddf3c8bbd3844d20132f8280f0c80bee4557402",
+      "evidence_hash": "fe6365ccd89785b6e322239e25b3fd38482be50a47aa8c74f035f3adc17650a2",
       "is_verified": true,
       "large_cap_pct": 68.4,
       "mid_cap_pct": 22.1,
@@ -1019,7 +1150,9 @@
       "retrieval_date": "2026-11-07",
       "scheme_code": "UTI Flexi Cap",
       "small_cap_pct": 6.7,
-      "other_pct": 0.0
+      "other_pct": 0.0,
+      "gold_pct": 0.0,
+      "schema_version": "2.0"
     }
   }
 }

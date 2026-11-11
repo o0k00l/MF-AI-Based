@@ -464,7 +464,8 @@ def lookup_fund_segment_allocation_online(scheme_name: str, timeout_sec: float =
                         mc_v = caps.get("mc", 0.0)
                         sc_v = caps.get("sc", 0.0)
                         eq_v = min(100.0, round(lc_v + mc_v + sc_v, 2))
-                        debt_v = max(0.0, round(100.0 - eq_v, 2))
+                        other_v = max(0.0, round(100.0 - eq_v, 2))
+                        debt_v = 0.0
 
                         broad_cat = "Equity"
                         c_lower = canonical.lower()
@@ -479,7 +480,8 @@ def lookup_fund_segment_allocation_online(scheme_name: str, timeout_sec: float =
                             "asset_class": broad_cat,
                             "sub_category": "Verified Online Factsheet Disclosure",
                             "eq": eq_v,
-                            "debt": debt_v,
+                            "debt": 0.0,
+                            "other": other_v,
                             "gold": 0.0,
                             "intl": 0.0,
                             "lc": lc_v,
@@ -489,7 +491,7 @@ def lookup_fund_segment_allocation_online(scheme_name: str, timeout_sec: float =
                             "benchmark": "Nifty 500 TRI",
                             "risk_rating": "Very High" if broad_cat == "Equity" else ("High" if broad_cat == "Hybrid" else "Low"),
                             "source": "Live Online Factsheet / Google Search Grounding",
-                            "ai_rationale": f"Audited from live online factsheet disclosure ({et_url}).",
+                            "ai_rationale": f"Audited from live online factsheet disclosure ({et_url}). Residual preserved as unclassified other, never inferred debt.",
                             "ter_direct": 0.75,
                             "ter_regular": 1.75,
                             "trail_commission_pct": 1.00,

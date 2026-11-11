@@ -15,6 +15,8 @@ from __future__ import annotations
 
 from decimal import Decimal
 import io
+import json
+import hashlib
 import openpyxl
 import pytest
 
@@ -1933,6 +1935,308 @@ def test_evidence_validation_fails_closed_when_file_bytes_modified(tmp_path):
     is_valid, msg = validate_exposure_evidence(ev, 10101)
     assert is_valid is False
     assert "Evidence hash mismatch" in msg
+
+
+def test_evidence_policy_distinguishes_strict_advice_from_research_provisional():
+    """P0-1: Policy governance enforces AUTHENTICATED_EXTERNAL for advice and flags provisional lookthrough."""
+    from services.cas_parser import (
+        validate_exposure_evidence,
+        resolve_authoritative_scheme,
+        ExposureEvidencePolicy,
+    )
+    from services.fiduciary_engine import convert_cas_funds_to_holdings, evaluate_portfolio_saa_audit
+
+    entry = resolve_authoritative_scheme("HDFC Top 100 Fund - Direct Plan - Growth")
+    assert entry is not None
+    ev = entry["exposure_evidence"]
+    assert ev is not None
+
+    # Under STRICT_ADVICE policy: provisional internal disclosures fail closed
+    ok_advice, msg_advice = validate_exposure_evidence(
+        ev,
+        entry["sid"],
+        evidence_policy=ExposureEvidencePolicy.STRICT_ADVICE,
+    )
+    assert ok_advice is False
+    assert "External publisher authentication not established" in msg_advice
+
+    # Under RESEARCH_PROVISIONAL policy: provisional internal disclosures pass integrity check
+    ok_res, msg_res = validate_exposure_evidence(
+        ev,
+        entry["sid"],
+        evidence_policy=ExposureEvidencePolicy.RESEARCH_PROVISIONAL,
+    )
+    assert ok_res is True
+
+    # Holdings conversion under STRICT_ADVICE fails closed to INDETERMINATE
+    fund_record = {
+        "scheme": "HDFC Top 100 Fund - Direct Plan - Growth",
+        "scheme_code": entry["sid"],
+        "category": "Large Cap",
+        "current_value": 500000.0,
+        "source": "existing",
+        "validation": "valid",
+        "portfolio_exposure_verified": True,
+        "verified_equity_pct": ev["equity_pct"],
+        "verified_debt_pct": ev["debt_pct"],
+        "exposure_evidence": ev,
+    }
+    holdings_advice = convert_cas_funds_to_holdings(
+        [fund_record],
+        evidence_policy=ExposureEvidencePolicy.STRICT_ADVICE,
+    )
+    assert holdings_advice[0].lookthrough_status == "INDETERMINATE"
+    assert "rejected for strict fiduciary advice" in holdings_advice[0].lookthrough_reason
+
+    # SAA audit under STRICT_ADVICE fails closed to INDETERMINATE
+    audit_advice = evaluate_portfolio_saa_audit(
+        [fund_record],
+        evidence_policy=ExposureEvidencePolicy.STRICT_ADVICE,
+    )
+    assert audit_advice["status"] == "INDETERMINATE"
+
+    # Holdings conversion under RESEARCH_PROVISIONAL tags as PROVISIONAL_LOOKTHROUGH (never VERIFIED)
+    holdings_res = convert_cas_funds_to_holdings(
+        [fund_record],
+        evidence_policy=ExposureEvidencePolicy.RESEARCH_PROVISIONAL,
+    )
+    assert holdings_res[0].lookthrough_status == "PROVISIONAL_LOOKTHROUGH"
+    assert "Provisional factsheet disclosure" in holdings_res[0].lookthrough_reason
+
+    # SAA audit under RESEARCH_PROVISIONAL returns ANALYZED with is_provisional=True
+    audit_res = evaluate_portfolio_saa_audit(
+        [fund_record],
+        evidence_policy=ExposureEvidencePolicy.RESEARCH_PROVISIONAL,
+    )
+    assert audit_res["status"] == "ANALYZED"
+    assert audit_res["is_provisional"] is True
+    assert audit_res["evidence_tier"] == "PROVISIONAL_INTERNAL"
+
+
+def test_disclosure_identity_checks_are_strictly_mandatory(tmp_path):
+    """P0-2: Mandatory presence and exact match of scheme_code and reporting_period in disclosure document."""
+    from services.cas_parser import validate_exposure_evidence
+
+    # Base valid doc
+    valid_doc = {
+        "_metadata": {
+            "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
+            "source_authenticity": "AUTHENTICATED_EXTERNAL",
+            "publisher_authenticated": True,
+        },
+        "disclosures": {
+            "99901": {
+                "scheme_code": 99901,
+                "scheme_name": "Test Identity Scheme",
+                "reporting_period": "2026-08-31",
+                "retrieval_date": "2026-11-07",
+                "equity_pct": 80.0,
+                "debt_pct": 20.0,
+                "cash_pct": 0.0,
+                "gold_pct": 0.0,
+                "other_pct": 0.0,
+                "is_verified": True,
+            }
+        }
+    }
+
+    # Case A: Missing scheme_code in disclosure entry fails closed
+    doc_missing_code = json.loads(json.dumps(valid_doc))
+    del doc_missing_code["disclosures"]["99901"]["scheme_code"]
+    path_a = tmp_path / "missing_code.json"
+    path_a.write_text(json.dumps(doc_missing_code), encoding="utf-8")
+    ev_a = {
+        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
+        "source_document": str(path_a),
+        "scheme_code": 99901,
+        "reporting_period": "2026-08-31",
+        "retrieval_date": "2026-11-07",
+        "equity_pct": 80.0,
+        "debt_pct": 20.0,
+        "evidence_hash": hashlib.sha256(path_a.read_bytes()).hexdigest(),
+        "is_verified": True,
+    }
+    ok_a, msg_a = validate_exposure_evidence(ev_a, 99901)
+    assert ok_a is False
+    assert "missing mandatory scheme_code" in msg_a
+
+    # Case B: Missing reporting_period in disclosure entry fails closed
+    doc_missing_period = json.loads(json.dumps(valid_doc))
+    del doc_missing_period["disclosures"]["99901"]["reporting_period"]
+    path_b = tmp_path / "missing_period.json"
+    path_b.write_text(json.dumps(doc_missing_period), encoding="utf-8")
+    ev_b = {
+        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
+        "source_document": str(path_b),
+        "scheme_code": 99901,
+        "reporting_period": "2026-08-31",
+        "retrieval_date": "2026-11-07",
+        "equity_pct": 80.0,
+        "debt_pct": 20.0,
+        "evidence_hash": hashlib.sha256(path_b.read_bytes()).hexdigest(),
+        "is_verified": True,
+    }
+    ok_b, msg_b = validate_exposure_evidence(ev_b, 99901)
+    assert ok_b is False
+    assert "missing mandatory reporting_period" in msg_b
+
+
+def test_missing_asset_class_measurements_fail_closed_never_default_zero(tmp_path):
+    """P0-3: Every asset class (equity, debt, cash, gold, other) must explicitly exist; missing is never assumed zero."""
+    from services.cas_parser import validate_exposure_evidence
+
+    base_doc = {
+        "_metadata": {
+            "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
+            "source_authenticity": "AUTHENTICATED_EXTERNAL",
+            "publisher_authenticated": True,
+        },
+        "disclosures": {
+            "88801": {
+                "scheme_code": 88801,
+                "scheme_name": "Test Incomplete Breakdown Scheme",
+                "reporting_period": "2026-08-31",
+                "retrieval_date": "2026-11-07",
+                "equity_pct": 75.0,
+                "debt_pct": 25.0,
+                # cash_pct, gold_pct, other_pct omitted!
+                "is_verified": True,
+            }
+        }
+    }
+
+    path = tmp_path / "omitted_cash.json"
+    path.write_text(json.dumps(base_doc), encoding="utf-8")
+    ev = {
+        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
+        "source_document": str(path),
+        "scheme_code": 88801,
+        "reporting_period": "2026-08-31",
+        "retrieval_date": "2026-11-07",
+        "equity_pct": 75.0,
+        "debt_pct": 25.0,
+        "evidence_hash": hashlib.sha256(path.read_bytes()).hexdigest(),
+        "is_verified": True,
+    }
+
+    ok, msg = validate_exposure_evidence(ev, 88801)
+    assert ok is False
+    assert "missing mandatory asset-class measurement" in msg
+
+
+def test_audit_cas_document_integrity_binds_complete_evidence():
+    """P0-4: Canonical audit hash binds all asset classes, scheme codes, and temporal metadata."""
+    from services.cas_parser import audit_cas_document_integrity
+
+    fund_a = {
+        "scheme": "Scheme A Direct",
+        "scheme_code": 111,
+        "current_value": 100000.0,
+        "nav": 50.0,
+        "exposure_evidence": {
+            "scheme_code": 111,
+            "equity_pct": 80.0,
+            "debt_pct": 20.0,
+            "cash_pct": 0.0,
+            "gold_pct": 0.0,
+            "other_pct": 0.0,
+            "reporting_period": "2026-08-31",
+            "source_authenticity": "PROVISIONAL_INTERNAL",
+        }
+    }
+    fund_b = {
+        "scheme": "Scheme A Direct",
+        "scheme_code": 111,
+        "current_value": 100000.0,
+        "nav": 50.0,
+        "exposure_evidence": {
+            "scheme_code": 111,
+            "equity_pct": 75.0,  # Changed asset class exposure!
+            "debt_pct": 20.0,
+            "cash_pct": 5.0,   # Cash changed!
+            "gold_pct": 0.0,
+            "other_pct": 0.0,
+            "reporting_period": "2026-08-31",
+            "source_authenticity": "PROVISIONAL_INTERNAL",
+        }
+    }
+
+    res_a = audit_cas_document_integrity([fund_a])
+    res_b = audit_cas_document_integrity([fund_b])
+
+    assert res_a["status"] == "VERIFIED"
+    assert res_b["status"] == "VERIFIED"
+    assert res_a["audit_hash"] != res_b["audit_hash"], "Audit hash must change when asset-class exposure changes!"
+
+
+def test_classifier_never_infers_debt_from_market_cap_residual(monkeypatch):
+    """P1-5: Classifier online factsheet resolution preserves residual as unclassified other, never debt."""
+    from services import ai_fund_classifier
+    import io
+
+    ddg_html = b'<a class="result-link" href="https://www.etmoney.com/mutual-funds/test-fund/123/portfolio-details">link</a>'
+    et_html = b'''
+    <div class="product-heading">Large Cap</div>
+    <p class="product-amount">60.0%</p>
+    <div class="product-heading">Mid Cap</div>
+    <p class="product-amount">20.0%</p>
+    <div class="product-heading">Small Cap</div>
+    <p class="product-amount">10.0%</p>
+    '''
+
+    class MockResponse(io.BytesIO):
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            pass
+
+    def mock_urlopen(req, timeout=None):
+        full_url = req.full_url if hasattr(req, "full_url") else str(req)
+        if "duckduckgo" in full_url:
+            return MockResponse(ddg_html)
+        return MockResponse(et_html)
+
+    monkeypatch.setattr(ai_fund_classifier.urllib.request, "urlopen", mock_urlopen)
+
+    res = ai_fund_classifier.lookup_fund_segment_allocation_online("Aditya Birla Sun Life Frontline Equity Fund Direct-Growth")
+    assert res is not None
+    assert res["eq"] == 90.0
+    assert res["debt"] == 0.0, "Market cap residual MUST NOT be inferred as debt!"
+    assert res["other"] == 10.0, "Residual must be safely recorded as unclassified other!"
+
+
+def test_stability_buffer_lookup_exception_fails_closed_explicitly(monkeypatch):
+    """P1-6: Exceptions during stability buffer scheme lookup fail closed explicitly without silent suppression."""
+    from services import fiduciary_engine
+    import services.cas_parser
+
+    # Force resolve_authoritative_scheme to raise an unexpected runtime error
+    def broken_lookup(name):
+        raise RuntimeError("Simulated database failure during scheme resolution")
+
+    monkeypatch.setattr(services.cas_parser, "resolve_authoritative_scheme", broken_lookup)
+
+    holdings = [
+        {
+            "scheme": "Arbitrary Hybrid Fund Direct",
+            "category": "Aggressive Hybrid",
+            "current_value": 200000.0,
+            "source": "existing",
+            "validation": "valid",
+            "portfolio_exposure_verified": False,
+        }
+    ]
+
+    blueprint = fiduciary_engine.generate_fiduciary_sip_blueprint(
+        monthly_budget_inr=10000.0,
+        funds=holdings,
+        target_saa={"large_cap": 50.0, "mid_small": 25.0, "flexi": 0.0, "debt": 25.0},
+    )
+
+    # Must withhold stability buffer override and record explicit indeterminate reason
+    assert blueprint["stability_override_applied"] is False
+    assert blueprint["stability_override_status"] == "INDETERMINATE"
+    assert "simulated database failure" in blueprint["stability_override_reason"].lower()
 
 
 
