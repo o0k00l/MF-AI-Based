@@ -691,12 +691,28 @@ def generate_fiduciary_sip_blueprint(
         return {"scheme": "SPIVA_FALLBACK_FAILED", "source": "unavailable", "validation": "failed"}
 
     # === SHARED VALIDATION FUNCTION ===
-    def _validate_scheme_for_sleeve(fund: dict, sleeve: str, expected_category_keywords: list[str] | None = None) -> dict:
+    def _validate_scheme_for_sleeve(
+        fund: dict,
+        sleeve: str,
+        expected_category_keywords: list[str] | None = None,
+        require_provenance: bool = False,
+        allowed_provenance: list[str] | None = None,
+    ) -> dict:
         """
         Unified scheme validation for all four sleeves.
         
-        Returns dict with: validation_status, scheme_name, folio_no, is_new_folio
+        Args:
+            fund: Fund dictionary with scheme, category, plan_type, folio_no, source, validation
+            sleeve: Sleeve name for error reporting
+            expected_category_keywords: List of keywords to match against category/scheme
+            require_provenance: If True, fund must have valid source metadata
+            allowed_provenance: List of allowed source values (e.g., ["dynamic", "fallback"])
+        
+        Returns dict with: validation, scheme, folio_no, is_new, and optionally source/validation
         """
+        # Extract provenance metadata early
+        fund_source = fund.get("source", "") if fund else ""
+        
         if not fund:
             return {"validation": "failed", "scheme": "SPIVA_FALLBACK_FAILED", "folio_no": "New Direct Folio Mandate", "is_new": True}
         
@@ -721,7 +737,19 @@ def generate_fiduciary_sip_blueprint(
             if not is_valid_category:
                 return {"validation": "failed", "scheme": scheme, "folio_no": folio, "is_new": False}
         
-        return {"validation": "valid", "scheme": scheme, "folio_no": folio, "is_new": False}
+        # CRITICAL: If require_provenance=True but fund has no source, FAIL
+        if require_provenance and not fund_source:
+            return {"validation": "failed", "scheme": scheme, "folio_no": folio, "is_new": False}
+        
+        # Check provenance against allowed list if provided
+        if require_provenance and allowed_provenance and fund_source not in allowed_provenance:
+            return {"validation": "failed", "scheme": scheme, "folio_no": folio, "is_new": False}
+        
+        result = {"validation": "valid", "scheme": scheme, "folio_no": folio, "is_new": False}
+        if require_provenance:
+            result["source"] = fund_source
+            result["validation"] = fund.get("validation", "valid")
+        return result
 
 
     if direct_funds:
@@ -802,6 +830,8 @@ def generate_fiduciary_sip_blueprint(
                     "sleeve": "Large-Cap Core Index",
                     "scheme_name": s_name,
                     "folio_no": f_num,
+                    "source": validation.get("source", "existing"),
+                    "validation": validation.get("validation", "valid"),
                     "amount_inr": lc_target,
                     "allocation_pct": float(lc_pct),
                     "plan_type": "Direct-Growth",
@@ -837,6 +867,8 @@ def generate_fiduciary_sip_blueprint(
                     "sleeve": "Mid/Small-Cap Alpha",
                     "scheme_name": s_name,
                     "folio_no": f_num,
+                    "source": validation.get("source", "existing"),
+                    "validation": validation.get("validation", "valid"),
                     "amount_inr": ms_target,
                     "allocation_pct": float(ms_pct),
                     "plan_type": "Direct-Growth",
@@ -884,6 +916,8 @@ def generate_fiduciary_sip_blueprint(
                     "sleeve": "Flexi-Multi Cap",
                     "scheme_name": s_name,
                     "folio_no": f_num,
+                    "source": validation.get("source", "existing"),
+                    "validation": validation.get("validation", "valid"),
                     "amount_inr": flexi_target,
                     "allocation_pct": float(flexi_pct),
                     "plan_type": "Direct-Growth",
@@ -900,7 +934,7 @@ def generate_fiduciary_sip_blueprint(
                 selected_name = selection_result.get("scheme", "SPIVA_FALLBACK_FAILED")
                 db_validation_result = selection_result.get("validation", "failed")
                 if db_validation_result == "valid" and selected_name != "SPIVA_FALLBACK_FAILED":
-                    selected_fund = {"scheme": selected_name, "category": "Debt", "plan_type": "Direct", "folio_no": "New Direct Folio Mandate"}
+                    selected_fund = {"scheme": selected_name, "category": "Debt", "plan_type": "Direct", "folio_no": "New Direct Folio Mandate", "source": selection_result.get("source", "dynamic"), "validation": selection_result.get("validation", "valid")}
                 else:
                     selected_fund = None
             # If using client's existing fund, we need to validate it
@@ -928,6 +962,8 @@ def generate_fiduciary_sip_blueprint(
                     "sleeve": "Debt & Capital Preservation",
                     "scheme_name": s_name,
                     "folio_no": f_num,
+                    "source": validation.get("source", "existing"),
+                    "validation": validation.get("validation", "valid"),
                     "amount_inr": db_target,
                     "allocation_pct": float(db_pct),
                     "plan_type": "Direct-Growth",
@@ -946,6 +982,8 @@ def generate_fiduciary_sip_blueprint(
                 "sleeve": "Large-Cap Core Index",
                 "scheme_name": market_lc_result.get("scheme", "SPIVA_FALLBACK_FAILED"),
                 "folio_no": "New Direct Folio Mandate",
+                "source": market_lc_result.get("source", "dynamic"),
+                "validation": market_lc_result.get("validation", "valid"),
                 "amount_inr": lc_target,
                 "allocation_pct": float(lc_pct),
                 "plan_type": "Direct-Growth",
@@ -956,6 +994,8 @@ def generate_fiduciary_sip_blueprint(
                 "sleeve": "Mid/Small-Cap Alpha",
                 "scheme_name": market_ms_result.get("scheme", "SPIVA_FALLBACK_FAILED"),
                 "folio_no": "New Direct Folio Mandate",
+                "source": market_ms_result.get("source", "dynamic"),
+                "validation": market_ms_result.get("validation", "valid"),
                 "amount_inr": ms_target,
                 "allocation_pct": float(ms_pct),
                 "plan_type": "Direct-Growth",
@@ -967,6 +1007,8 @@ def generate_fiduciary_sip_blueprint(
                 "sleeve": "Flexi-Multi Cap",
                 "scheme_name": market_flexi_result.get("scheme", "SPIVA_FALLBACK_FAILED"),
                 "folio_no": "New Direct Folio Mandate",
+                "source": market_flexi_result.get("source", "dynamic"),
+                "validation": market_flexi_result.get("validation", "valid"),
                 "amount_inr": flexi_target,
                 "allocation_pct": float(flexi_pct),
                 "plan_type": "Direct-Growth",
@@ -977,6 +1019,8 @@ def generate_fiduciary_sip_blueprint(
                 "sleeve": "Debt & Capital Preservation",
                 "scheme_name": market_db_result.get("scheme", "SPIVA_FALLBACK_FAILED"),
                 "folio_no": "New Direct Folio Mandate",
+                "source": market_db_result.get("source", "dynamic"),
+                "validation": market_db_result.get("validation", "valid"),
                 "amount_inr": db_target,
                 "allocation_pct": float(db_pct),
                 "plan_type": "Direct-Growth",
