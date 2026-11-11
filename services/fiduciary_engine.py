@@ -250,6 +250,7 @@ def trigger_spiva_fallback(
     # Return dict with provenance info (source="fallback" for SPIVA fallback)
     return {
         "scheme": scheme_name,
+        "category": best_fund.get("category") or target_category,
         "source": "fallback",
         "validation": "valid"
     }
@@ -527,6 +528,69 @@ def evaluate_portfolio_saa_audit(
     }
 
 
+def validate_scheme_for_sleeve(
+    fund: dict | None,
+    sleeve: str,
+    expected_category_keywords: list[str] | None = None,
+    require_provenance: bool = True,
+    allowed_provenance: list[str] | None = None,
+) -> dict:
+    """
+    Unified scheme validation for all four sleeves.
+    
+    Args:
+        fund: Fund dictionary with scheme, category, plan_type, folio_no, source, validation
+        sleeve: Sleeve name for error reporting
+        expected_category_keywords: List of keywords to match against category/scheme
+        require_provenance: If True, fund must have valid source metadata
+        allowed_provenance: List of allowed source values (e.g., ["dynamic", "fallback", "existing"])
+    
+    Returns dict with: validation, scheme, folio_no, is_new, and optionally source/validation
+    """
+    if not fund or not isinstance(fund, dict):
+        return {"validation": "failed", "scheme": "SPIVA_FALLBACK_FAILED", "folio_no": "New Direct Folio Mandate", "is_new": True}
+    
+    scheme = fund.get("scheme", "")
+    category = str(fund.get("category", "")).lower()
+    scheme_lower = str(scheme).lower()
+    plan_type = str(fund.get("plan_type", "")).upper()
+    folio = fund.get("folio_no", "")
+    fund_source = fund.get("source", "")
+    
+    # Check for placeholder failure names
+    if scheme == "SPIVA_FALLBACK_FAILED" or not scheme:
+        return {"validation": "failed", "scheme": scheme or "SPIVA_FALLBACK_FAILED", "folio_no": folio or "New Direct Folio Mandate", "is_new": True}
+    
+    # Validate plan type - must be Direct
+    if plan_type != "DIRECT":
+        return {"validation": "failed", "scheme": scheme, "folio_no": folio, "is_new": False}
+    
+    # Validate category/scheme if expected keywords provided
+    if expected_category_keywords:
+        is_valid_category = any(kw.lower() in category or kw.lower() in scheme_lower for kw in expected_category_keywords)
+        if not is_valid_category:
+            return {"validation": "failed", "scheme": scheme, "folio_no": folio, "is_new": False}
+    
+    # CRITICAL: Provenance gate enforcement
+    # If require_provenance=True, source must be present AND in allowed_provenance list,
+    # and validation status must be explicitly 'valid'
+    if require_provenance:
+        if not fund_source:
+            return {"validation": "failed", "scheme": scheme, "folio_no": folio, "is_new": False}
+        if not allowed_provenance:
+            return {"validation": "failed", "scheme": scheme, "folio_no": folio, "is_new": False}
+        if fund_source not in allowed_provenance:
+            return {"validation": "failed", "scheme": scheme, "folio_no": folio, "is_new": False}
+        if not fund.get("validation") or fund.get("validation") != "valid":
+            return {"validation": "failed", "scheme": scheme, "folio_no": folio, "is_new": False}
+    
+    result = {"validation": "valid", "scheme": scheme, "folio_no": folio, "is_new": folio == "New Direct Folio Mandate"}
+    if require_provenance:
+        result["source"] = fund_source
+        result["validation"] = "valid"
+    return result
+
+
 def generate_fiduciary_sip_blueprint(
     monthly_budget_inr: float,
     funds: List[Dict[str, Any]],
@@ -653,7 +717,7 @@ def generate_fiduciary_sip_blueprint(
         - validation: 'valid' or 'failed' if selection failed
         """
         rules = market_noms.get(nom_key, {})
-        if fund_universe_list:
+        if fund_universe_list is not None:
             result = _select_market_nom_fund(rules, fund_universe_list, nom_key)
             if isinstance(result, dict) and result.get("scheme") and result.get("scheme") != "SPIVA_FALLBACK_FAILED":
                 return result  # Already returns dict with scheme, source, validation
@@ -692,72 +756,8 @@ def generate_fiduciary_sip_blueprint(
         
         return {"scheme": "SPIVA_FALLBACK_FAILED", "source": "unavailable", "validation": "failed"}
 
-    # === SHARED VALIDATION FUNCTION ===
-    def _validate_scheme_for_sleeve(
-        fund: dict,
-        sleeve: str,
-        expected_category_keywords: list[str] | None = None,
-        require_provenance: bool = False,
-        allowed_provenance: list[str] | None = None,
-    ) -> dict:
-        """
-        Unified scheme validation for all four sleeves.
-        
-        Args:
-            fund: Fund dictionary with scheme, category, plan_type, folio_no, source, validation
-            sleeve: Sleeve name for error reporting
-            expected_category_keywords: List of keywords to match against category/scheme
-            require_provenance: If True, fund must have valid source metadata
-            allowed_provenance: List of allowed source values (e.g., ["dynamic", "fallback", "existing"])
-        
-        Returns dict with: validation, scheme, folio_no, is_new, and optionally source/validation
-        """
-        # Extract provenance metadata early
-        fund_source = fund.get("source", "") if fund else ""
-        
-        if not fund:
-            return {"validation": "failed", "scheme": "SPIVA_FALLBACK_FAILED", "folio_no": "New Direct Folio Mandate", "is_new": True}
-        
-        scheme = fund.get("scheme", "")
-        category = str(fund.get("category", "")).lower()
-        scheme_lower = str(scheme).lower()
-        plan_type = str(fund.get("plan_type", "")).upper()
-        folio = fund.get("folio_no", "")
-        
-        # Check for placeholder failure names
-        if scheme == "SPIVA_FALLBACK_FAILED" or not scheme:
-            return {"validation": "failed", "scheme": scheme or "SPIVA_FALLBACK_FAILED", "folio_no": folio or "New Direct Folio Mandate", "is_new": True}
-        
-        # Validate plan type - must be Direct
-        if plan_type != "DIRECT":
-            return {"validation": "failed", "scheme": scheme, "folio_no": folio, "is_new": False}
-        
-        # Validate category/scheme if expected keywords provided
-        # Check both category and scheme name (matching the original _match_kw logic)
-        if expected_category_keywords:
-            is_valid_category = any(kw.lower() in category or kw.lower() in scheme_lower for kw in expected_category_keywords)
-            if not is_valid_category:
-                return {"validation": "failed", "scheme": scheme, "folio_no": folio, "is_new": False}
-        
-        # CRITICAL: Provenance gate enforcement
-        # If require_provenance=True, source must be present AND in allowed_provenance list
-        if require_provenance:
-            # Fail if no source provided
-            if not fund_source:
-                return {"validation": "failed", "scheme": scheme, "folio_no": folio, "is_new": False}
-            # Fail if allowed_provenance is empty or missing (fail-closed policy)
-            if not allowed_provenance:
-                return {"validation": "failed", "scheme": scheme, "folio_no": folio, "is_new": False}
-            # Fail if source is not in allowed list
-            if fund_source not in allowed_provenance:
-                return {"validation": "failed", "scheme": scheme, "folio_no": folio, "is_new": False}
-        
-        result = {"validation": "valid", "scheme": scheme, "folio_no": folio, "is_new": folio == "New Direct Folio Mandate"}
-        if require_provenance:
-            result["source"] = fund_source
-            result["validation"] = fund.get("validation", "valid")
-        return result
-
+    # === SHARED VALIDATION FUNCTION ALIAS ===
+    _validate_scheme_for_sleeve = validate_scheme_for_sleeve
 
     # === HELPER FOR NO-DIRECT BRANCH ===
     def _make_allocation_from_market_result(
@@ -765,41 +765,49 @@ def generate_fiduciary_sip_blueprint(
         sleeve_name: str,
         target_amount: Decimal,
         target_pct: float,
-        allocation_keywords: list[str],
+        expected_category_keywords: list[str],
     ) -> dict | None:
         """
         Validate a market nomination result and create an allocation dict.
-        This is used by the no-Direct branch to ensure proper validation.
+        Fail-closed: missing or invalid provenance or category rejects allocation immediately.
         """
+        if not market_result or not isinstance(market_result, dict):
+            return None
+        
+        # Explicit fail-closed: must have explicit valid status and explicit source
         if market_result.get("validation") != "valid":
+            return None
+        
+        market_source = market_result.get("source")
+        if not market_source or market_source not in ("dynamic", "fallback"):
             return None
         
         scheme = market_result.get("scheme", "")
         if not scheme or scheme == "SPIVA_FALLBACK_FAILED":
             return None
         
-        # Use actual category from selection if available, otherwise infer
+        # Category MUST come from the actual selected fund's classification, NOT manufactured
         actual_category = market_result.get("category", "")
-        inferred_category = _infer_category_from_keywords(allocation_keywords + [scheme.lower()]) if not actual_category else None
-        category_to_use = actual_category or inferred_category or "Equity"
+        if not actual_category:
+            return None
         
-        # Build a fund dict for validation
+        # Build a fund dict for validation - NEVER manufacture missing source/validation/category
         fund_for_validation = {
             "scheme": scheme,
-            "category": category_to_use,
+            "category": actual_category,
             "plan_type": "Direct",
             "folio_no": "New Direct Folio Mandate",
-            "source": market_result.get("source", "dynamic"),
-            "validation": market_result.get("validation", "valid"),
+            "source": market_source,
+            "validation": "valid",
         }
         
-        # Validate using shared function - provenance gate enforced
+        # Validate using shared function - provenance gate and category keywords strictly enforced
         validation = _validate_scheme_for_sleeve(
             fund_for_validation,
             sleeve_name,
-            allocation_keywords,
+            expected_category_keywords,
             require_provenance=True,
-            allowed_provenance=["dynamic", "fallback", "existing"],
+            allowed_provenance=["dynamic", "fallback"],
         )
         
         if validation.get("validation") != "valid":
@@ -813,305 +821,296 @@ def generate_fiduciary_sip_blueprint(
             "sleeve": sleeve_name,
             "scheme_name": validation["scheme"],
             "folio_no": "New Direct Folio Mandate",
-            "source": validation.get("source", "dynamic"),
-            "validation": validation.get("validation", "valid"),
+            "source": validation["source"],
+            "validation": validation["validation"],
             "amount_inr": target_amount,
             "allocation_pct": target_pct,
             "plan_type": "Direct-Growth",
         }
 
-
-    def _infer_category_from_keywords(keywords: list[str]) -> str:
-        """Infer category from keywords for synthetic fund objects."""
-        keywords_lower = [k.lower() for k in keywords]
-        if "debt" in keywords_lower or "liquid" in keywords_lower:
-            return "Debt"
-        if "flexi" in keywords_lower or "multi-cap" in keywords_lower:
-            return "Flexi Cap"
-        if "mid cap" in keywords_lower or "small cap" in keywords_lower:
-            return "Mid Cap"
-        if "large cap" in keywords_lower or "index" in keywords_lower or "equity" in keywords_lower:
-            return "Large Cap"
-        if "equity" in keywords_lower:
-            return "Equity"
-        return "Equity"  # Default
-
-
     if direct_funds:
         # Match schemes to sleeves - prioritize client's existing funds
         # Strategy: Prefer pure category funds over blended category funds
         
-        # Large Cap: first look for pure large cap/index funds, then fallback
+        # Large Cap: first look for pure large cap/index funds, then blended
         lc_pure = next((
             f for f in direct_funds 
-            if _match_kw(f, ["index", "nifty"]) or 
-               (str(f.get("category", "")).lower() == "large cap")
+            if _match_kw(f, ["index", "nifty", "sensex"]) or 
+               (str(f.get("category", "")).lower() in ["large cap", "large-cap", "largecap", "index - large cap"])
         ), None)
         lc_blended = next((
             f for f in direct_funds 
-            if "large & mid" in str(f.get("scheme", "")).lower()
+            if "large & mid" in str(f.get("scheme", "")).lower() or
+               "large & mid" in str(f.get("category", "")).lower()
         ), None)
         lc_fund = lc_pure or lc_blended
         
         # Mid/Small-Cap: prefer mid cap/small cap, exclude pure large cap index
         ms_fund = next((
             f for f in direct_funds 
-            if str(f.get("category", "")).lower() in ["mid cap", "small cap"]
+            if str(f.get("category", "")).lower() in ["mid cap", "small cap", "mid-cap", "small-cap", "midcap", "smallcap", "mid & small"] or
+               _match_kw(f, ["mid cap", "small cap", "mid-cap", "small-cap", "midcap", "smallcap", "emerging equity"])
         ), None)
         
         # Flexi-Multi-Cap: prefer flexi/multi-cap category funds
         flexi_fund = next((
             f for f in direct_funds 
-            if str(f.get("category", "")).lower() in ["flexi cap", "multi cap", "flexi-multi cap", "multi-cap"] or
-               "flexi" in str(f.get("scheme", "")).lower() or
-               "multi cap" in str(f.get("scheme", "")).lower() or
-               "multi-cap" in str(f.get("scheme", "")).lower()
+            if str(f.get("category", "")).lower() in ["flexi cap", "multi cap", "flexi-multi cap", "multi-cap", "flexicap", "multicap"] or
+               _match_kw(f, ["flexi", "multi cap", "multi-cap", "flexicap", "multicap"])
         ), None)
         
         # Debt: match by category or keywords
-        db_fund = next((f for f in direct_funds if str(f.get("category") or "") == "Debt" or _match_kw(f, ["liquid", "arbitrage", "money market"])), None)
+        db_fund = next((
+            f for f in direct_funds 
+            if str(f.get("category", "")).lower() in ["debt", "liquid", "arbitrage", "money market", "overnight", "ultra short"] or
+               _match_kw(f, ["liquid", "arbitrage", "money market", "overnight", "ultra short", "treasury", "gilt"])
+        ), None)
 
-        # Fallbacks for equity sleeves if specific cap categories not held
-        if not lc_fund:
-            # Use any Direct equity fund
-            lc_fund = next((
-                f for f in direct_funds 
-                if f != ms_fund and str(f.get("category") or "") in ["Equity", "Large Cap", "Mid Cap"] and
-                   str(f.get("plan_type") or "Direct").upper() == "DIRECT"
-            ), None)
-        if not ms_fund:
-            # Use any other Direct equity fund for mid/small cap (different from lc_fund)
-            ms_fund = next((
-                f for f in direct_funds 
-                if f != lc_fund and str(f.get("category") or "") in ["Equity", "Mid Cap", "Large Cap", "Large & Mid Cap"] and
-                   str(f.get("plan_type") or "Direct").upper() == "DIRECT"
-            ), None)
+        # Note: If client does not hold an eligible Direct fund in the sleeve's genuine category,
+        # the engine does NOT substitute arbitrary equity funds; it initiates dynamic market nomination.
 
         # Large-Cap Sleeve
         if lc_target > Decimal("0.00"):
-            # Use client's fund, or dynamically select from fund universe
-            selected_fund = lc_fund
-            if not lc_fund:
-                selection_result = _get_market_nom_fund("large_cap_index", fund_universe)
-                selected_name = selection_result.get("scheme", "SPIVA_FALLBACK_FAILED")
-                lc_validation_result = selection_result.get("validation", "failed")
-                if lc_validation_result == "valid" and selected_name != "SPIVA_FALLBACK_FAILED":
-                    # Preserve actual source from selection (dynamic or fallback)
-                    selected_fund = {
-                        "scheme": selected_name,
-                        "category": selection_result.get("category", "Large Cap"),
-                        "plan_type": "Direct",
-                        "folio_no": "New Direct Folio Mandate",
-                        "source": selection_result.get("source", "dynamic"),
-                        "validation": "valid"
+            validated_allocation = None
+            if lc_fund:
+                # Existing holding path: validate client's fund with provenance
+                lc_val = _validate_scheme_for_sleeve(
+                    lc_fund,
+                    "Large-Cap Core Index",
+                    ["large cap", "large-cap", "largecap", "large & mid", "index", "nifty", "sensex"],
+                    require_provenance=True,
+                    allowed_provenance=["existing"],
+                )
+                if lc_val.get("validation") == "valid":
+                    validated_allocation = {
+                        "sleeve": "Large-Cap Core Index",
+                        "scheme_name": lc_val["scheme"],
+                        "folio_no": lc_val["folio_no"],
+                        "source": lc_val["source"],
+                        "validation": lc_val["validation"],
+                        "amount_inr": lc_target,
+                        "allocation_pct": float(lc_pct),
+                        "plan_type": "Direct-Growth",
+                        "rationale": "Anchor core equity compounding in lowest-cost Direct large cap index scheme.",
                     }
-                else:
-                    selected_fund = None
-            else:
-                # Copy existing fund; default source to 'existing' if not set (CAS-verified holdings)
-                selected_fund = dict(lc_fund)
-                if not selected_fund.get("source"):
-                    selected_fund["source"] = "existing"
             
-            # Validate using shared function - provenance gate enforced
-            validation = _validate_scheme_for_sleeve(
-                selected_fund,
-                "Large-Cap Core Index",
-                ["large cap", "index", "nifty", "equity"],
-                require_provenance=True,
-                allowed_provenance=["existing", "dynamic", "fallback"]
-            )
+            # If no existing fund or existing fund failed provenance/category validation,
+            # execute dynamic market nomination selection
+            if not validated_allocation:
+                selection_result = _get_market_nom_fund("large_cap_index", fund_universe)
+                if isinstance(selection_result, dict) and selection_result.get("validation") == "valid":
+                    sel_source = selection_result.get("source")
+                    if sel_source in ("dynamic", "fallback"):
+                        dyn_fund = {
+                            "scheme": selection_result.get("scheme", ""),
+                            "category": selection_result.get("category", "Large Cap"),
+                            "plan_type": "Direct",
+                            "folio_no": "New Direct Folio Mandate",
+                            "source": sel_source,
+                            "validation": selection_result.get("validation"),
+                        }
+                        dyn_val = _validate_scheme_for_sleeve(
+                            dyn_fund,
+                            "Large-Cap Core Index",
+                            ["large cap", "large-cap", "largecap", "large & mid", "index", "nifty", "sensex"],
+                            require_provenance=True,
+                            allowed_provenance=["dynamic", "fallback"],
+                        )
+                        if dyn_val.get("validation") == "valid":
+                            validated_allocation = {
+                                "sleeve": "Large-Cap Core Index",
+                                "scheme_name": dyn_val["scheme"],
+                                "folio_no": dyn_val["folio_no"],
+                                "source": dyn_val["source"],
+                                "validation": dyn_val["validation"],
+                                "amount_inr": lc_target,
+                                "allocation_pct": float(lc_pct),
+                                "plan_type": "Direct-Growth",
+                                "rationale": "Anchor core equity compounding in lowest-cost Direct large cap index scheme.",
+                            }
             
-            # Only add allocation if validation passes
-            if validation["validation"] == "valid":
-                s_name = validation["scheme"]
-                f_num = validation["folio_no"]
-                allocations.append({
-                    "sleeve": "Large-Cap Core Index",
-                    "scheme_name": s_name,
-                    "folio_no": f_num,
-                    "source": validation.get("source", "dynamic"),
-                    "validation": validation.get("validation", "valid"),
-                    "amount_inr": lc_target,
-                    "allocation_pct": float(lc_pct),
-                    "plan_type": "Direct-Growth",
-                    "rationale": "Anchor core equity compounding in lowest-cost Direct large cap index scheme.",
-                })
-
+            if validated_allocation:
+                allocations.append(validated_allocation)
 
         # Mid/Small-Cap Sleeve
         if ms_target > Decimal("0.00"):
-            # Use client's fund, or dynamically select from fund universe
-            selected_fund = ms_fund
-            if not ms_fund:
+            validated_allocation = None
+            if ms_fund:
+                ms_val = _validate_scheme_for_sleeve(
+                    ms_fund,
+                    "Mid/Small-Cap Alpha",
+                    ["mid cap", "small cap", "mid-cap", "small-cap", "midcap", "smallcap", "emerging equity", "mid & small"],
+                    require_provenance=True,
+                    allowed_provenance=["existing"],
+                )
+                if ms_val.get("validation") == "valid":
+                    validated_allocation = {
+                        "sleeve": "Mid/Small-Cap Alpha",
+                        "scheme_name": ms_val["scheme"],
+                        "folio_no": ms_val["folio_no"],
+                        "source": ms_val["source"],
+                        "validation": ms_val["validation"],
+                        "amount_inr": ms_target,
+                        "allocation_pct": float(ms_pct),
+                        "plan_type": "Direct-Growth",
+                        "rationale": "Long-term alpha accumulation aligned with investor risk tolerance.",
+                    }
+            
+            if not validated_allocation:
                 selection_result = _get_market_nom_fund("mid_cap_active", fund_universe)
-                selected_name = selection_result.get("scheme", "SPIVA_FALLBACK_FAILED")
-                ms_validation_result = selection_result.get("validation", "failed")
-                if ms_validation_result == "valid" and selected_name != "SPIVA_FALLBACK_FAILED":
-                    # Preserve actual source from selection (dynamic or fallback)
-                    selected_fund = {
-                        "scheme": selected_name,
-                        "category": selection_result.get("category", "Mid Cap"),
-                        "plan_type": "Direct",
-                        "folio_no": "New Direct Folio Mandate",
-                        "source": selection_result.get("source", "dynamic"),
-                        "validation": "valid"
-                    }
-                else:
-                    selected_fund = None
-            else:
-                # Copy existing fund; default source to 'existing' if not set (CAS-verified holdings)
-                selected_fund = dict(ms_fund)
-                if not selected_fund.get("source"):
-                    selected_fund["source"] = "existing"
+                if isinstance(selection_result, dict) and selection_result.get("validation") == "valid":
+                    sel_source = selection_result.get("source")
+                    if sel_source in ("dynamic", "fallback"):
+                        dyn_fund = {
+                            "scheme": selection_result.get("scheme", ""),
+                            "category": selection_result.get("category", "Mid Cap"),
+                            "plan_type": "Direct",
+                            "folio_no": "New Direct Folio Mandate",
+                            "source": sel_source,
+                            "validation": selection_result.get("validation"),
+                        }
+                        dyn_val = _validate_scheme_for_sleeve(
+                            dyn_fund,
+                            "Mid/Small-Cap Alpha",
+                            ["mid cap", "small cap", "mid-cap", "small-cap", "midcap", "smallcap", "emerging equity", "mid & small"],
+                            require_provenance=True,
+                            allowed_provenance=["dynamic", "fallback"],
+                        )
+                        if dyn_val.get("validation") == "valid":
+                            validated_allocation = {
+                                "sleeve": "Mid/Small-Cap Alpha",
+                                "scheme_name": dyn_val["scheme"],
+                                "folio_no": dyn_val["folio_no"],
+                                "source": dyn_val["source"],
+                                "validation": dyn_val["validation"],
+                                "amount_inr": ms_target,
+                                "allocation_pct": float(ms_pct),
+                                "plan_type": "Direct-Growth",
+                                "rationale": "Long-term alpha accumulation aligned with investor risk tolerance.",
+                            }
             
-            # Validate using shared function - provenance gate enforced
-            validation = _validate_scheme_for_sleeve(
-                selected_fund,
-                "Mid/Small-Cap Alpha",
-                ["mid cap", "small cap", "equity"],
-                require_provenance=True,
-                allowed_provenance=["existing", "dynamic", "fallback"]
-            )
-            
-            # Only add allocation if validation passes
-            if validation["validation"] == "valid":
-                s_name = validation["scheme"]
-                f_num = validation["folio_no"]
-                allocations.append({
-                    "sleeve": "Mid/Small-Cap Alpha",
-                    "scheme_name": s_name,
-                    "folio_no": f_num,
-                    "source": validation.get("source", "dynamic"),
-                    "validation": validation.get("validation", "valid"),
-                    "amount_inr": ms_target,
-                    "allocation_pct": float(ms_pct),
-                    "plan_type": "Direct-Growth",
-                    "rationale": "Long-term alpha accumulation aligned with investor risk tolerance.",
-                })
+            if validated_allocation:
+                allocations.append(validated_allocation)
 
-        # Flexi-Multi-Cap Sleeve (Distinct Asset Class for Tactical Allocation)
-        # Track selection for allocation integrity check
-        flexi_selection_result = {"validation": "valid", "scheme": None}
+        # Flexi-Multi-Cap Sleeve
         if flexi_target > Decimal("0.00"):
-            selected_fund = flexi_fund
-            if not flexi_fund:
-                # Use dynamic market nomination selection for flexi-cap
+            validated_allocation = None
+            if flexi_fund:
+                flexi_val = _validate_scheme_for_sleeve(
+                    flexi_fund,
+                    "Flexi-Multi Cap",
+                    ["flexi cap", "multi cap", "flexi-cap", "multi-cap", "flexicap", "multicap"],
+                    require_provenance=True,
+                    allowed_provenance=["existing"],
+                )
+                if flexi_val.get("validation") == "valid":
+                    validated_allocation = {
+                        "sleeve": "Flexi-Multi Cap",
+                        "scheme_name": flexi_val["scheme"],
+                        "folio_no": flexi_val["folio_no"],
+                        "source": flexi_val["source"],
+                        "validation": flexi_val["validation"],
+                        "amount_inr": flexi_target,
+                        "allocation_pct": float(flexi_pct),
+                        "plan_type": "Direct-Growth",
+                        "rationale": "Flexible multi-cap exposure for growth enhancement with automatic rebalancing across market caps.",
+                    }
+            
+            if not validated_allocation:
                 selection_result = _get_market_nom_fund("flexi_multi_cap", fund_universe)
-                flexi_selection_result = selection_result
-                selected_name = selection_result.get("scheme", "SPIVA_FALLBACK_FAILED")
-                flexi_validation_result = selection_result.get("validation", "failed")
-                if flexi_validation_result == "valid" and selected_name != "SPIVA_FALLBACK_FAILED":
-                    # Preserve actual source from selection (dynamic or fallback)
-                    selected_fund = {
-                        "scheme": selected_name,
-                        "category": selection_result.get("category", "Flexi Cap"),
-                        "plan_type": "Direct",
-                        "folio_no": "New Direct Folio Mandate",
-                        "source": selection_result.get("source", "dynamic"),
-                        "validation": "valid"
-                    }
-                else:
-                    selected_fund = None
-            # If using client's existing fund, we need to validate it
-            elif flexi_fund:
-                # For existing funds, check if they match the flexi category
-                fund_cat = str(flexi_fund.get("category", "")).lower()
-                fund_scheme = str(flexi_fund.get("scheme", "")).lower()
-                is_flexi = any(kw in fund_cat or kw in fund_scheme
-                               for kw in ["flexi", "multi-cap", "multi cap", "multi-cap"])
-                if not is_flexi:
-                    selected_fund = None
-                    flexi_selection_result = {"validation": "failed", "scheme": flexi_fund.get("scheme", "UNKNOWN")}
-                else:
-                    # Copy existing fund; default source to 'existing' if not set (CAS-verified holdings)
-                    selected_fund = dict(flexi_fund)  # Make a copy
-                    if not selected_fund.get("source"):
-                        selected_fund["source"] = "existing"
+                if isinstance(selection_result, dict) and selection_result.get("validation") == "valid":
+                    sel_source = selection_result.get("source")
+                    if sel_source in ("dynamic", "fallback"):
+                        dyn_fund = {
+                            "scheme": selection_result.get("scheme", ""),
+                            "category": selection_result.get("category", "Flexi Cap"),
+                            "plan_type": "Direct",
+                            "folio_no": "New Direct Folio Mandate",
+                            "source": sel_source,
+                            "validation": selection_result.get("validation"),
+                        }
+                        dyn_val = _validate_scheme_for_sleeve(
+                            dyn_fund,
+                            "Flexi-Multi Cap",
+                            ["flexi cap", "multi cap", "flexi-cap", "multi-cap", "flexicap", "multicap"],
+                            require_provenance=True,
+                            allowed_provenance=["dynamic", "fallback"],
+                        )
+                        if dyn_val.get("validation") == "valid":
+                            validated_allocation = {
+                                "sleeve": "Flexi-Multi Cap",
+                                "scheme_name": dyn_val["scheme"],
+                                "folio_no": dyn_val["folio_no"],
+                                "source": dyn_val["source"],
+                                "validation": dyn_val["validation"],
+                                "amount_inr": flexi_target,
+                                "allocation_pct": float(flexi_pct),
+                                "plan_type": "Direct-Growth",
+                                "rationale": "Flexible multi-cap exposure for growth enhancement with automatic rebalancing across market caps.",
+                            }
             
-            # Validate using shared function - provenance gate enforced
-            validation = _validate_scheme_for_sleeve(
-                selected_fund,
-                "Flexi-Multi Cap",
-                ["flexi", "multi-cap", "multi cap", "multi-cap"],
-                require_provenance=True,
-                allowed_provenance=["existing", "dynamic", "fallback"]
-            )
-            
-            # Only add allocation if validation passes
-            if validation["validation"] == "valid":
-                s_name = validation["scheme"]
-                f_num = validation["folio_no"]
-                allocations.append({
-                    "sleeve": "Flexi-Multi Cap",
-                    "scheme_name": s_name,
-                    "folio_no": f_num,
-                    "source": validation.get("source", "dynamic"),
-                    "validation": validation.get("validation", "valid"),
-                    "amount_inr": flexi_target,
-                    "allocation_pct": float(flexi_pct),
-                    "plan_type": "Direct-Growth",
-                    "rationale": "Flexible multi-cap exposure for growth enhancement with automatic rebalancing across market caps.",
-                })
-            elif selected_fund:
-                # Selection failed - mark for integrity check
-                flexi_selection_result = {"validation": "failed", "scheme": validation["scheme"]}
-# Debt Sleeve - unified with dynamic selection
+            if validated_allocation:
+                allocations.append(validated_allocation)
+
+        # Debt Sleeve
         if db_target > Decimal("0.00"):
-            selected_fund = db_fund
-            if not db_fund:
-                selection_result = _get_market_nom_fund("debt_liquid", fund_universe)
-                selected_name = selection_result.get("scheme", "SPIVA_FALLBACK_FAILED")
-                db_validation_result = selection_result.get("validation", "failed")
-                if db_validation_result == "valid" and selected_name != "SPIVA_FALLBACK_FAILED":
-                    # Preserve actual source and category from selection (dynamic or fallback)
-                    selected_fund = {
-                        "scheme": selected_name,
-                        "category": selection_result.get("category", "Debt"),
-                        "plan_type": "Direct",
-                        "folio_no": "New Direct Folio Mandate",
-                        "source": selection_result.get("source", "dynamic"),
-                        "validation": selection_result.get("validation", "valid")
+            validated_allocation = None
+            if db_fund:
+                db_val = _validate_scheme_for_sleeve(
+                    db_fund,
+                    "Debt & Capital Preservation",
+                    ["debt", "liquid", "arbitrage", "money market"],
+                    require_provenance=True,
+                    allowed_provenance=["existing"],
+                )
+                if db_val.get("validation") == "valid":
+                    validated_allocation = {
+                        "sleeve": "Debt & Capital Preservation",
+                        "scheme_name": db_val["scheme"],
+                        "folio_no": db_val["folio_no"],
+                        "source": db_val["source"],
+                        "validation": db_val["validation"],
+                        "amount_inr": db_target,
+                        "allocation_pct": float(db_pct),
+                        "plan_type": "Direct-Growth",
+                        "rationale": "Statutory capital preservation floor (100% Sovereign T-Bills/Repo).",
                     }
-                else:
-                    selected_fund = None
-            elif db_fund:
-                # Copy existing fund; default source to 'existing' if not set (CAS-verified holdings)
-                selected_fund = dict(db_fund)
-                if not selected_fund.get("source"):
-                    selected_fund["source"] = "existing"
-                # For existing funds, check if they match the debt category
-                fund_cat = str(selected_fund.get("category", "")).lower()
-                fund_scheme = str(selected_fund.get("scheme", "")).lower()
-                is_debt = (fund_cat == "debt" or
-                          any(kw in fund_scheme for kw in ["liquid", "arbitrage", "money market"]))
-                if not is_debt:
-                    selected_fund = None
             
-            # Validate using shared function - provenance gate enforced
-            validation = _validate_scheme_for_sleeve(
-                selected_fund,
-                "Debt & Capital Preservation",
-                ["debt", "liquid", "arbitrage", "money market"],
-                require_provenance=True,
-                allowed_provenance=["existing", "dynamic", "fallback"]
-            )
+            if not validated_allocation:
+                selection_result = _get_market_nom_fund("debt_liquid", fund_universe)
+                if isinstance(selection_result, dict) and selection_result.get("validation") == "valid":
+                    sel_source = selection_result.get("source")
+                    if sel_source in ("dynamic", "fallback"):
+                        dyn_fund = {
+                            "scheme": selection_result.get("scheme", ""),
+                            "category": selection_result.get("category", "Debt"),
+                            "plan_type": "Direct",
+                            "folio_no": "New Direct Folio Mandate",
+                            "source": sel_source,
+                            "validation": selection_result.get("validation"),
+                        }
+                        dyn_val = _validate_scheme_for_sleeve(
+                            dyn_fund,
+                            "Debt & Capital Preservation",
+                            ["debt", "liquid", "arbitrage", "money market"],
+                            require_provenance=True,
+                            allowed_provenance=["dynamic", "fallback"],
+                        )
+                        if dyn_val.get("validation") == "valid":
+                            validated_allocation = {
+                                "sleeve": "Debt & Capital Preservation",
+                                "scheme_name": dyn_val["scheme"],
+                                "folio_no": dyn_val["folio_no"],
+                                "source": dyn_val["source"],
+                                "validation": dyn_val["validation"],
+                                "amount_inr": db_target,
+                                "allocation_pct": float(db_pct),
+                                "plan_type": "Direct-Growth",
+                                "rationale": "Statutory capital preservation floor (100% Sovereign T-Bills/Repo).",
+                            }
             
-            # Only add allocation if validation passes
-            if validation["validation"] == "valid":
-                s_name = validation["scheme"]
-                f_num = validation["folio_no"]
-                allocations.append({
-                    "sleeve": "Debt & Capital Preservation",
-                    "scheme_name": s_name,
-                    "folio_no": f_num,
-                    "source": validation.get("source", "dynamic"),
-                    "validation": validation.get("validation", "valid"),
-                    "amount_inr": db_target,
-                    "allocation_pct": float(db_pct),
-                    "plan_type": "Direct-Growth",
-                    "rationale": "Statutory capital preservation floor (100% Sovereign T-Bills/Repo).",
-                })
+            if validated_allocation:
+                allocations.append(validated_allocation)
     else:
         # Client has no Direct schemes yet (or 100% regular) — provide canonical sleeve blueprint with market nominations
         # All allocations must go through the shared validator for provenance enforcement
@@ -1128,7 +1127,7 @@ def generate_fiduciary_sip_blueprint(
             "Large-Cap Core Index",
             lc_target,
             float(lc_pct),
-            ["large cap", "index", "nifty", "equity"],
+            ["large cap", "large-cap", "largecap", "large & mid", "index", "nifty", "sensex"],
         )
         if lc_alloc:
             allocations.append(lc_alloc)
@@ -1139,7 +1138,7 @@ def generate_fiduciary_sip_blueprint(
             "Mid/Small-Cap Alpha",
             ms_target,
             float(ms_pct),
-            ["mid cap", "small cap", "equity"],
+            ["mid cap", "small cap", "mid-cap", "small-cap", "midcap", "smallcap", "emerging equity", "mid & small"],
         )
         if ms_alloc:
             allocations.append(ms_alloc)
@@ -1150,7 +1149,7 @@ def generate_fiduciary_sip_blueprint(
             "Flexi-Multi Cap",
             flexi_target,
             float(flexi_pct),
-            ["flexi", "multi-cap", "multi cap", "multi-cap"],
+            ["flexi cap", "multi cap", "flexi-cap", "multi-cap", "flexicap", "multicap"],
         )
         if flexi_alloc:
             allocations.append(flexi_alloc)

@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, "fix/**"]
   pull_request:
     branches: [main]
 
@@ -14,6 +14,22 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  provenance-gate:
+    timeout-minutes: 10
+    name: Fiduciary / provenance gate verification
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: requirements.lock
+      - name: Install hash-locked dependencies
+        run: python -m pip install --require-hashes -r requirements.lock
+      - name: Run provenance gate test suite
+        run: python -m pytest tests/test_provenance_gate.py -v --tb=short
+
   dependency-lock-consistency:
     timeout-minutes: 10
     name: Dependencies / lock matches declared constraints

@@ -434,6 +434,8 @@ def parse_cas_file(file_obj: BinaryIO) -> list[dict]:
             "units": u,
             "nav": n,
             "folio_no": ", ".join(folios) if folios else "",
+            "source": "existing",
+            "validation": "valid",
         })
 
     return funds
