@@ -394,7 +394,9 @@ def _select_market_nom_fund(
         # Get scheme name and category from the best fund (from VALID filtered only)
         best = valid_filtered[0]
         scheme_name = best.get("scheme") or best.get("canonical_name") or best.get("id", "Selected Fund")
-        scheme_category = best.get("category") or best.get("cat", "") or "Equity"
+        scheme_category = best.get("category") or best.get("cat", "")
+        if not scheme_category:
+            return {"scheme": "SPIVA_FALLBACK_FAILED", "source": "unavailable", "validation": "failed"}
         # Ensure Direct plan
         if "Direct" not in scheme_name and "Direct Plan" not in scheme_name:
             scheme_name = scheme_name + " - Direct Plan - Growth"
@@ -701,9 +703,10 @@ def generate_fiduciary_sip_blueprint(
                     "error": str(e),
                 }
 
-            # Enforce 100% sum tolerance (inclusive 0.1 percentage point)
+            # POL-SIP-002: Fiduciary SAA Target Sum Invariant
+            # Target allocations must strictly sum to 100.0%. Undocumented permissive approximations are rejected.
             saa_sum = lc_pct + ms_pct + flexi_pct + db_pct
-            if abs(saa_sum - Decimal("100.0")) > Decimal("0.1"):
+            if abs(saa_sum - Decimal("100.0")) > Decimal("0.00"):
                 return {
                     "status": "INVALID_SAA_TARGET",
                     "monthly_budget_inr": budget_dec,
@@ -712,59 +715,105 @@ def generate_fiduciary_sip_blueprint(
                     "allocations": [],
                     "recommendations": [],
                     "reconciliation_valid": False,
-                    "error": f"Target SAA allocations sum to {saa_sum}%, expected 100.0% (±0.1%)",
+                    "error": f"Target SAA allocations sum to {saa_sum}%, expected exactly 100.0% (strict policy tolerance ±0.00%).",
                 }
 
     # Stability Buffer Override (per POL-SIP-001):
     # If current portfolio debt >= target debt, redirect all SIP debt allocation to equity.
     # Existing debt holdings are maintained for rebalancing ammunition but receive no new SIP inflows.
-    # Look-through debt calculation: accurately includes pure debt AND debt component of hybrid funds.
+    # Exposure-aware calculation: Restricts strictly to validated client holdings with verified factsheet look-through.
+    # If debt exposure is unavailable or unparseable for ANY valid holding, the portfolio exposure
+    # is INDETERMINATE, and the override is withheld (fails closed) without heuristic substitution.
     stability_override_applied = False
+    stability_override_status = "NOT_APPLIED"
+    stability_override_reason = ""
     if db_pct > Decimal("0.0") and funds:
-        total_value = sum(
-            float(f.get("current_value", 0) or 0) for f in funds if isinstance(f, dict)
-        )
-        if total_value > 0:
+        valid_holdings = [
+            f for f in funds
+            if isinstance(f, dict)
+            and float(f.get("current_value", 0) or 0) > 0.001
+            and f.get("validation", "valid") == "valid"
+        ]
+        if valid_holdings:
+            total_value = sum(float(f["current_value"]) for f in valid_holdings)
             debt_value = 0.0
-            for f in funds:
-                if not isinstance(f, dict):
-                    continue
-                c_val = float(f.get("current_value", 0) or 0)
-                if c_val <= 0:
-                    continue
-                # Look-through debt percentage
-                raw_debt = f.get("debt") if f.get("debt") is not None else f.get("debt_pct")
-                if raw_debt is not None:
-                    try:
-                        f_debt_pct = max(0.0, min(100.0, float(raw_debt)))
-                    except (ValueError, TypeError):
-                        f_debt_pct = 0.0
-                else:
-                    cat_lower = str(f.get("category", "")).lower()
-                    sch_lower = str(f.get("scheme", "")).lower()
-                    if cat_lower in ["debt", "liquid", "money market", "overnight", "arbitrage"] or any(
-                        kw in sch_lower for kw in ["liquid", "arbitrage", "money market", "overnight", "treasury", "gilt"]
-                    ):
-                        f_debt_pct = 100.0
-                    elif "hybrid" in cat_lower or any(kw in sch_lower for kw in ["hybrid", "balanced", "advantage", "equity savings"]):
-                        f_debt_pct = 35.0
-                    else:
-                        f_debt_pct = 0.0
-                debt_value += c_val * (f_debt_pct / 100.0)
+            debt_exposure_indeterminate = False
+            indeterminate_reasons = []
 
-            current_debt_pct = Decimal(str(round((debt_value / total_value) * 100.0, 4)))
-            if current_debt_pct >= db_pct:
-                # Debt is already at or above target — redirect SIP debt to equity
-                debt_to_add = db_pct
-                total_equity_pct = lc_pct + ms_pct + flexi_pct
-                if total_equity_pct > Decimal("0.0"):
-                    lc_pct = lc_pct + (debt_to_add * (lc_pct / total_equity_pct))
-                    ms_pct = ms_pct + (debt_to_add * (ms_pct / total_equity_pct))
-                    flexi_pct = flexi_pct + (debt_to_add * (flexi_pct / total_equity_pct))
+            for f in valid_holdings:
+                c_val = float(f["current_value"])
+                raw_debt = None
+                if f.get("verified_debt_pct") is not None:
+                    raw_debt = f.get("verified_debt_pct")
+                elif f.get("debt") is not None:
+                    raw_debt = f.get("debt")
+                elif f.get("debt_pct") is not None:
+                    raw_debt = f.get("debt_pct")
+                elif f.get("portfolio_debt_pct") is not None:
+                    raw_debt = f.get("portfolio_debt_pct")
                 else:
-                    lc_pct = lc_pct + debt_to_add
-                db_pct = Decimal("0.0")
-                stability_override_applied = True
+                    # Resolve from authoritative scheme master
+                    try:
+                        from services.cas_parser import resolve_authoritative_scheme
+                        m_entry = resolve_authoritative_scheme(str(f.get("scheme", "")))
+                        if m_entry is not None:
+                            raw_debt = m_entry.get("portfolio_debt_pct") if m_entry.get("portfolio_debt_pct") is not None else m_entry.get("debt")
+                    except Exception:
+                        pass
+
+                # If still None, pure debt category has 100% debt statutory floor
+                if raw_debt is None:
+                    cat_lower = str(f.get("category", "")).lower()
+                    if cat_lower in ["debt", "liquid", "money market", "overnight", "arbitrage", "gilt"]:
+                        raw_debt = 100.0
+
+                if raw_debt is None:
+                    debt_exposure_indeterminate = True
+                    s_name = f.get("scheme", "Unknown Scheme")
+                    indeterminate_reasons.append(f"Holding '{s_name}' lacks verified factsheet debt look-through")
+                    break
+
+                try:
+                    f_debt_pct = float(raw_debt)
+                    if math.isnan(f_debt_pct) or math.isinf(f_debt_pct) or f_debt_pct < 0.0 or f_debt_pct > 100.0:
+                        debt_exposure_indeterminate = True
+                        s_name = f.get("scheme", "Unknown Scheme")
+                        indeterminate_reasons.append(f"Holding '{s_name}' has non-finite or out-of-bounds debt value: {raw_debt}")
+                        break
+                    debt_value += c_val * (f_debt_pct / 100.0)
+                except (ValueError, TypeError):
+                    debt_exposure_indeterminate = True
+                    s_name = f.get("scheme", "Unknown Scheme")
+                    indeterminate_reasons.append(f"Holding '{s_name}' has unparseable debt exposure: {raw_debt}")
+                    break
+
+            if debt_exposure_indeterminate:
+                stability_override_status = "INDETERMINATE"
+                stability_override_reason = "Debt exposure indeterminate: " + "; ".join(indeterminate_reasons)
+            else:
+                current_debt_pct = Decimal(str(round((debt_value / total_value) * 100.0, 4)))
+                if current_debt_pct >= db_pct:
+                    debt_to_add = db_pct
+                    total_equity_pct = lc_pct + ms_pct + flexi_pct
+                    if total_equity_pct > Decimal("0.0"):
+                        lc_pct = lc_pct + (debt_to_add * (lc_pct / total_equity_pct))
+                        ms_pct = ms_pct + (debt_to_add * (ms_pct / total_equity_pct))
+                        flexi_pct = flexi_pct + (debt_to_add * (flexi_pct / total_equity_pct))
+                    else:
+                        lc_pct = lc_pct + debt_to_add
+                    db_pct = Decimal("0.0")
+                    stability_override_applied = True
+                    stability_override_status = "APPLIED"
+                    stability_override_reason = (
+                        f"Current verified look-through debt ({current_debt_pct:.2f}%) >= target ({db_pct:.2f}%). "
+                        f"Redirected SIP debt inflows to equity sleeves."
+                    )
+                else:
+                    stability_override_status = "BELOW_TARGET"
+                    stability_override_reason = (
+                        f"Current verified look-through debt ({current_debt_pct:.2f}%) < target ({db_pct:.2f}%). "
+                        f"Maintaining SIP debt buffer inflows."
+                    )
 
     # Quantized target sleeve allocations
     lc_target = (budget_dec * (lc_pct / Decimal("100.0"))).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
@@ -978,39 +1027,18 @@ def generate_fiduciary_sip_blueprint(
                     }
             
             # If no existing fund or existing fund failed provenance/category validation,
-            # execute dynamic market nomination selection
+            # execute dynamic market nomination selection via shared helper (no manufactured category)
             if not validated_allocation:
                 selection_result = _get_market_nom_fund("large_cap_index", fund_universe)
-                if isinstance(selection_result, dict) and selection_result.get("validation") == "valid":
-                    sel_source = selection_result.get("source")
-                    if sel_source in ("dynamic", "fallback"):
-                        dyn_fund = {
-                            "scheme": selection_result.get("scheme", ""),
-                            "category": selection_result.get("category", "Large Cap"),
-                            "plan_type": "Direct",
-                            "folio_no": "New Direct Folio Mandate",
-                            "source": sel_source,
-                            "validation": selection_result.get("validation"),
-                        }
-                        dyn_val = _validate_scheme_for_sleeve(
-                            dyn_fund,
-                            "Large-Cap Core Index",
-                            ["large cap", "large-cap", "largecap", "large & mid", "index", "nifty", "sensex"],
-                            require_provenance=True,
-                            allowed_provenance=["dynamic", "fallback"],
-                        )
-                        if dyn_val.get("validation") == "valid":
-                            validated_allocation = {
-                                "sleeve": "Large-Cap Core Index",
-                                "scheme_name": dyn_val["scheme"],
-                                "folio_no": dyn_val["folio_no"],
-                                "source": dyn_val["source"],
-                                "validation": dyn_val["validation"],
-                                "amount_inr": lc_target,
-                                "allocation_pct": float(lc_pct),
-                                "plan_type": "Direct-Growth",
-                                "rationale": "Anchor core equity compounding in lowest-cost Direct large cap index scheme.",
-                            }
+                validated_allocation = _make_allocation_from_market_result(
+                    selection_result,
+                    "Large-Cap Core Index",
+                    lc_target,
+                    float(lc_pct),
+                    ["large cap", "large-cap", "largecap", "large & mid", "index", "nifty", "sensex"],
+                )
+                if validated_allocation:
+                    validated_allocation["rationale"] = "Anchor core equity compounding in lowest-cost Direct large cap index scheme."
             
             if validated_allocation:
                 allocations.append(validated_allocation)
@@ -1041,36 +1069,15 @@ def generate_fiduciary_sip_blueprint(
             
             if not validated_allocation:
                 selection_result = _get_market_nom_fund("mid_cap_active", fund_universe)
-                if isinstance(selection_result, dict) and selection_result.get("validation") == "valid":
-                    sel_source = selection_result.get("source")
-                    if sel_source in ("dynamic", "fallback"):
-                        dyn_fund = {
-                            "scheme": selection_result.get("scheme", ""),
-                            "category": selection_result.get("category", "Mid Cap"),
-                            "plan_type": "Direct",
-                            "folio_no": "New Direct Folio Mandate",
-                            "source": sel_source,
-                            "validation": selection_result.get("validation"),
-                        }
-                        dyn_val = _validate_scheme_for_sleeve(
-                            dyn_fund,
-                            "Mid/Small-Cap Alpha",
-                            ["mid cap", "small cap", "mid-cap", "small-cap", "midcap", "smallcap", "emerging equity", "mid & small"],
-                            require_provenance=True,
-                            allowed_provenance=["dynamic", "fallback"],
-                        )
-                        if dyn_val.get("validation") == "valid":
-                            validated_allocation = {
-                                "sleeve": "Mid/Small-Cap Alpha",
-                                "scheme_name": dyn_val["scheme"],
-                                "folio_no": dyn_val["folio_no"],
-                                "source": dyn_val["source"],
-                                "validation": dyn_val["validation"],
-                                "amount_inr": ms_target,
-                                "allocation_pct": float(ms_pct),
-                                "plan_type": "Direct-Growth",
-                                "rationale": "Long-term alpha accumulation aligned with investor risk tolerance.",
-                            }
+                validated_allocation = _make_allocation_from_market_result(
+                    selection_result,
+                    "Mid/Small-Cap Alpha",
+                    ms_target,
+                    float(ms_pct),
+                    ["mid cap", "small cap", "mid-cap", "small-cap", "midcap", "smallcap", "emerging equity", "mid & small"],
+                )
+                if validated_allocation:
+                    validated_allocation["rationale"] = "Long-term alpha accumulation aligned with investor risk tolerance."
             
             if validated_allocation:
                 allocations.append(validated_allocation)
@@ -1101,36 +1108,15 @@ def generate_fiduciary_sip_blueprint(
             
             if not validated_allocation:
                 selection_result = _get_market_nom_fund("flexi_multi_cap", fund_universe)
-                if isinstance(selection_result, dict) and selection_result.get("validation") == "valid":
-                    sel_source = selection_result.get("source")
-                    if sel_source in ("dynamic", "fallback"):
-                        dyn_fund = {
-                            "scheme": selection_result.get("scheme", ""),
-                            "category": selection_result.get("category", "Flexi Cap"),
-                            "plan_type": "Direct",
-                            "folio_no": "New Direct Folio Mandate",
-                            "source": sel_source,
-                            "validation": selection_result.get("validation"),
-                        }
-                        dyn_val = _validate_scheme_for_sleeve(
-                            dyn_fund,
-                            "Flexi-Multi Cap",
-                            ["flexi cap", "multi cap", "flexi-cap", "multi-cap", "flexicap", "multicap"],
-                            require_provenance=True,
-                            allowed_provenance=["dynamic", "fallback"],
-                        )
-                        if dyn_val.get("validation") == "valid":
-                            validated_allocation = {
-                                "sleeve": "Flexi-Multi Cap",
-                                "scheme_name": dyn_val["scheme"],
-                                "folio_no": dyn_val["folio_no"],
-                                "source": dyn_val["source"],
-                                "validation": dyn_val["validation"],
-                                "amount_inr": flexi_target,
-                                "allocation_pct": float(flexi_pct),
-                                "plan_type": "Direct-Growth",
-                                "rationale": "Flexible multi-cap exposure for growth enhancement with automatic rebalancing across market caps.",
-                            }
+                validated_allocation = _make_allocation_from_market_result(
+                    selection_result,
+                    "Flexi-Multi Cap",
+                    flexi_target,
+                    float(flexi_pct),
+                    ["flexi cap", "multi cap", "flexi-cap", "multi-cap", "flexicap", "multicap"],
+                )
+                if validated_allocation:
+                    validated_allocation["rationale"] = "Flexible multi-cap exposure for growth enhancement with automatic rebalancing across market caps."
             
             if validated_allocation:
                 allocations.append(validated_allocation)
@@ -1161,36 +1147,15 @@ def generate_fiduciary_sip_blueprint(
             
             if not validated_allocation:
                 selection_result = _get_market_nom_fund("debt_liquid", fund_universe)
-                if isinstance(selection_result, dict) and selection_result.get("validation") == "valid":
-                    sel_source = selection_result.get("source")
-                    if sel_source in ("dynamic", "fallback"):
-                        dyn_fund = {
-                            "scheme": selection_result.get("scheme", ""),
-                            "category": selection_result.get("category", "Debt"),
-                            "plan_type": "Direct",
-                            "folio_no": "New Direct Folio Mandate",
-                            "source": sel_source,
-                            "validation": selection_result.get("validation"),
-                        }
-                        dyn_val = _validate_scheme_for_sleeve(
-                            dyn_fund,
-                            "Debt & Capital Preservation",
-                            ["debt", "liquid", "arbitrage", "money market"],
-                            require_provenance=True,
-                            allowed_provenance=["dynamic", "fallback"],
-                        )
-                        if dyn_val.get("validation") == "valid":
-                            validated_allocation = {
-                                "sleeve": "Debt & Capital Preservation",
-                                "scheme_name": dyn_val["scheme"],
-                                "folio_no": dyn_val["folio_no"],
-                                "source": dyn_val["source"],
-                                "validation": dyn_val["validation"],
-                                "amount_inr": db_target,
-                                "allocation_pct": float(db_pct),
-                                "plan_type": "Direct-Growth",
-                                "rationale": "Statutory capital preservation floor (100% Sovereign T-Bills/Repo).",
-                            }
+                validated_allocation = _make_allocation_from_market_result(
+                    selection_result,
+                    "Debt & Capital Preservation",
+                    db_target,
+                    float(db_pct),
+                    ["debt", "liquid", "arbitrage", "money market"],
+                )
+                if validated_allocation:
+                    validated_allocation["rationale"] = "Statutory capital preservation floor (100% Sovereign T-Bills/Repo)."
             
             if validated_allocation:
                 allocations.append(validated_allocation)
@@ -1498,6 +1463,8 @@ def generate_fiduciary_sip_blueprint(
         "fiduciary_routing_rationale": routing_rationale,
         "sip_selection_confidence_pct": confidence_score,
         "stability_override_applied": stability_override_applied,
+        "stability_override_status": stability_override_status,
+        "stability_override_reason": stability_override_reason,
     }
 
 

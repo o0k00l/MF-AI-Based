@@ -8,10 +8,12 @@ and transaction-level FIFO lot maturation (LTCG >365d vs STCG <=365d).
 from __future__ import annotations
 
 import io
+import json
 import math
 from datetime import datetime, date
 from collections import defaultdict
-from typing import BinaryIO
+from pathlib import Path
+from typing import BinaryIO, Any
 
 from openpyxl import load_workbook
 
@@ -50,36 +52,108 @@ def _estimate_allocations(scheme_name: str) -> dict:
     return {"eq": 100.0, "debt": 2.0, "lc": 30.0, "mc": 40.0, "sc": 30.0}
 
 
-def _infer_sebi_category(scheme_name: str) -> str:
-    """Infer AMFI/SEBI scheme category from scheme name during ingestion."""
-    nl = scheme_name.lower()
-    if "arbitrage" in nl:
-        return "Arbitrage"
-    if "liquid" in nl or "overnight" in nl or "money market" in nl or "ultra short" in nl:
-        return "Debt"
-    if "debt" in nl or "fixed income" in nl or "gilt" in nl or "treasury" in nl:
-        return "Debt"
-    if "balanced advantage" in nl or "dynamic asset" in nl or "equity savings" in nl:
-        return "Hybrid"
-    if "hybrid" in nl or "aggressive hybrid" in nl or "conservative hybrid" in nl:
-        return "Hybrid"
-    if "flexi cap" in nl or "flexicap" in nl:
-        return "Flexi Cap"
-    if "multi cap" in nl or "multicap" in nl:
-        return "Multi Cap"
-    if "mid cap" in nl or "midcap" in nl or "emerging equity" in nl:
-        return "Mid Cap"
-    if "small cap" in nl or "smallcap" in nl:
-        return "Small Cap"
-    if "large & mid" in nl or "large and mid" in nl:
-        return "Large & Mid Cap"
-    if "large cap" in nl or "largecap" in nl or "nifty" in nl or "sensex" in nl or "index" in nl:
-        return "Large Cap"
-    if "elss" in nl or "tax saver" in nl:
-        return "ELSS"
-    if "contra" in nl or "value" in nl:
-        return "Contra"
-    return "Equity"
+_SCHEME_MASTER_CACHE: dict | None = None
+
+
+def load_authoritative_scheme_master() -> dict | None:
+    """Load the versioned, timestamped official AMFI/SEBI scheme master from data/policy/."""
+    global _SCHEME_MASTER_CACHE
+    if _SCHEME_MASTER_CACHE is not None:
+        return _SCHEME_MASTER_CACHE
+    policy_path = Path(__file__).resolve().parents[1] / "data" / "policy" / "scheme_master.json"
+    if policy_path.exists():
+        try:
+            with open(policy_path, "r", encoding="utf-8") as f:
+                _SCHEME_MASTER_CACHE = json.load(f)
+            return _SCHEME_MASTER_CACHE
+        except Exception:
+            return None
+    return None
+
+
+def _normalize_scheme_name(name: str) -> str:
+    """Normalize raw scheme name for deterministic scheme master resolution."""
+    s = name.lower().strip()
+    s = s.replace("pru ", "prudential ")
+    s = s.replace("motilal oswal ", "motilal ")
+    s = s.replace("&", "and")
+    # Strip common plan and option variants
+    for suf in [
+        " - direct plan - growth option", " - direct plan - growth", " - regular plan - growth",
+        " - direct plan - idcw", " - regular plan - idcw",
+        " direct plan growth option", " regular plan growth option",
+        " direct growth", " regular growth", " growth option",
+        " direct plan", " regular plan",
+        " direct", " regular", " growth", " idcw",
+    ]:
+        if s.endswith(suf):
+            s = s[:-len(suf)].strip()
+    if s.endswith(" fund"):
+        s = s[:-5].strip()
+    return s
+
+
+def resolve_authoritative_scheme(scheme_name: str, scheme_master: dict | None = None) -> dict | None:
+    """Resolve raw scheme name against official AMFI/SEBI scheme master.
+    
+    Returns master scheme dict if verified; None if unknown or ambiguous.
+    Unknown or ambiguous schemes remain strictly unclassified.
+    """
+    if not scheme_name or not isinstance(scheme_name, str):
+        return None
+        
+    if scheme_master is None:
+        scheme_master = load_authoritative_scheme_master()
+    if not scheme_master or not isinstance(scheme_master, dict):
+        return None
+        
+    schemes = scheme_master.get("schemes", {})
+    if not isinstance(schemes, dict):
+        return None
+        
+    norm = _normalize_scheme_name(scheme_name)
+    compact_norm = norm.replace(" ", "").replace("-", "").replace(".", "")
+    
+    # 1. Exact or compact match against canonical key
+    for k, v in schemes.items():
+        k_norm = _normalize_scheme_name(k)
+        if norm == k_norm or compact_norm == k_norm.replace(" ", "").replace("-", "").replace(".", ""):
+            return v
+            
+    # 2. Match against aliases
+    for k, v in schemes.items():
+        for alias in v.get("aliases", []):
+            a_norm = _normalize_scheme_name(alias)
+            if norm == a_norm or compact_norm == a_norm.replace(" ", "").replace("-", "").replace(".", ""):
+                return v
+                
+    # 3. Canonical name contained in input scheme name (minimum 6 characters to prevent trivial matches)
+    for k, v in schemes.items():
+        k_norm = _normalize_scheme_name(k)
+        if len(k_norm) >= 6 and k_norm in norm:
+            return v
+        for alias in v.get("aliases", []):
+            a_norm = _normalize_scheme_name(alias)
+            if len(a_norm) >= 6 and a_norm in norm:
+                return v
+                
+    return None
+
+
+def _infer_sebi_category(scheme_name: str) -> str | None:
+    """Authoritative AMFI/SEBI scheme category resolution.
+    
+    Unknown or ambiguous schemes return None (remain unclassified).
+    """
+    master = resolve_authoritative_scheme(scheme_name)
+    if master:
+        cat = master.get("category") or master.get("cat")
+        if cat:
+            cat_str = str(cat).strip()
+            if "hybrid" in cat_str.lower() or "daa" in cat_str.lower():
+                return "Hybrid"
+            return cat_str
+    return None
 
 
 classify_fund_by_name = _estimate_allocations
@@ -420,10 +494,92 @@ def parse_cas_file(file_obj: BinaryIO) -> list[dict]:
             continue
 
         alloc = classify_fund_by_name(scheme)
-        category = _infer_sebi_category(scheme)
-        broad_asset_class = "Debt" if alloc["eq"] == 0 else ("Hybrid" if alloc["debt"] > 10 else "Equity")
         plan_type = "Direct" if "direct" in scheme.lower() else "Regular"
         option_type = "IDCW" if "idcw" in scheme.lower() else "Growth"
+
+        # Record integrity verification at ingestion boundary
+        is_valid_row = (
+            bool(scheme.strip())
+            and math.isfinite(val)
+            and math.isfinite(inv)
+            and math.isfinite(u)
+            and math.isfinite(n)
+        )
+        validation_status = "valid" if is_valid_row else "failed"
+
+        # Separate Validation States (P0 Finding 1 & 3):
+        # 1. parsed_valid: row integrity check passed
+        # 2. scheme_identity_verified: resolved against authoritative AMFI/SEBI scheme master
+        # 3. category_verified: authoritative SEBI category assigned (unknown schemes remain None)
+        # 4. portfolio_exposure_verified: verified factsheet look-through data present
+        master_entry = resolve_authoritative_scheme(scheme)
+        if master_entry is not None:
+            scheme_identity_verified = True
+            canonical_scheme_name = master_entry.get("canonical_name", scheme)
+            scheme_code = master_entry.get("sid")
+            isin = master_entry.get("isin")
+            raw_cat = master_entry.get("category") or master_entry.get("cat")
+            if raw_cat:
+                raw_cat_str = str(raw_cat).strip()
+                if "hybrid" in raw_cat_str.lower() or "daa" in raw_cat_str.lower():
+                    category = "Hybrid"
+                else:
+                    category = raw_cat_str
+            else:
+                category = None
+            category_verified = bool(category)
+
+            # Broad asset class derived strictly from verified category
+            if category:
+                cat_lower = category.lower()
+                if any(kw in cat_lower for kw in ("debt", "liquid", "money market", "overnight", "gilt", "income")):
+                    broad_asset_class = "Debt"
+                elif any(kw in cat_lower for kw in ("hybrid", "balanced", "daa", "equity savings")):
+                    broad_asset_class = "Hybrid"
+                else:
+                    broad_asset_class = "Equity"
+            else:
+                broad_asset_class = None
+
+            # Factsheet exposure
+            verified_debt_num = master_entry.get("portfolio_debt_pct") if master_entry.get("portfolio_debt_pct") is not None else master_entry.get("debt")
+            if verified_debt_num is not None:
+                try:
+                    f_debt = float(verified_debt_num)
+                    if math.isfinite(f_debt) and 0.0 <= f_debt <= 100.0:
+                        portfolio_exposure_verified = True
+                        verified_debt_pct = f_debt
+                        exposure_source = "AMFI_SEBI_SCHEME_MASTER"
+                        exposure_as_of = master_entry.get("as_of") or "2026-08-31"
+                    else:
+                        portfolio_exposure_verified = False
+                        verified_debt_pct = None
+                        exposure_source = None
+                        exposure_as_of = None
+                except (ValueError, TypeError):
+                    portfolio_exposure_verified = False
+                    verified_debt_pct = None
+                    exposure_source = None
+                    exposure_as_of = None
+            else:
+                portfolio_exposure_verified = False
+                verified_debt_pct = None
+                exposure_source = None
+                exposure_as_of = None
+        else:
+            # UNKNOWN / UNVERIFIED SCHEME: MUST REMAIN UNCLASSIFIED
+            # Never default unknown funds to "Equity" or guess categories from keywords
+            scheme_identity_verified = False
+            canonical_scheme_name = None
+            scheme_code = None
+            isin = None
+            category = None
+            category_verified = False
+            broad_asset_class = None
+            portfolio_exposure_verified = False
+            verified_debt_pct = None
+            exposure_source = None
+            exposure_as_of = None
 
         unrealized_gain = round(val - inv, 2) if inv > 0.0 else 0.0
         gain_pct = round((unrealized_gain / inv) * 100, 2) if inv > 0.0 else 0.0
@@ -447,20 +603,19 @@ def parse_cas_file(file_obj: BinaryIO) -> list[dict]:
             unrealized_stcg = None
             is_fully_mature = None
 
-        # Record integrity verification at ingestion boundary
-        is_valid_row = (
-            bool(scheme.strip())
-            and math.isfinite(val)
-            and math.isfinite(inv)
-            and math.isfinite(u)
-            and math.isfinite(n)
-        )
-        validation_status = "valid" if is_valid_row else "failed"
-
         funds.append({
             "scheme": scheme,
+            "canonical_scheme_name": canonical_scheme_name,
+            "scheme_code": scheme_code,
+            "isin": isin,
             "category": category,
             "asset_class": broad_asset_class,
+            "scheme_identity_verified": scheme_identity_verified,
+            "category_verified": category_verified,
+            "portfolio_exposure_verified": portfolio_exposure_verified,
+            "verified_debt_pct": verified_debt_pct,
+            "exposure_source": exposure_source,
+            "exposure_as_of": exposure_as_of,
             "plan_type": plan_type,
             "option_type": option_type,
             "eq": alloc["eq"],

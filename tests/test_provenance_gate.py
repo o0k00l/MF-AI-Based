@@ -636,3 +636,228 @@ def test_allocation_completeness_surfaces_omission_reasons():
     assert "Large-Cap" in omission_text
     assert "Mid/Small-Cap" in omission_text
     assert any("Unallocated" in a.get("action", "") for a in bp["portfolio_completion_alerts"])
+
+
+# =====================================================================
+# 8. FINANCIAL AUDIT: AUTHORITATIVE SCHEME MASTER & EXPOSURE BOUNDARIES
+# =====================================================================
+
+def test_unknown_scheme_remains_unclassified_in_cas():
+    """Authoritative Scheme Master: Unknown scheme in CAS must remain strictly unclassified (category=None)."""
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Portfolio Details"
+    ws.append(["Scheme Name", "Units", "NAV", "Current Value"])
+    ws.append(["Fake Moonshot Crypto Index Arbitrage Fund Direct Growth", 100.0, 50.0, 5000.0])
+    
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    
+    funds = parse_cas_file(buf)
+    assert len(funds) == 1
+    f = funds[0]
+    
+    # 1. Row integrity passes
+    assert f["ingestion_status"] == "parsed_valid"
+    assert f["validation"] == "valid"
+    
+    # 2. Scheme identity NOT verified
+    assert f["scheme_identity_verified"] is False
+    assert f["canonical_scheme_name"] is None
+    
+    # 3. Category MUST be None (NEVER defaulted to "Equity" or guessed from "Index"/"Arbitrage")
+    assert f["category"] is None
+    assert f["category_verified"] is False
+    assert f["asset_class"] is None
+    
+    # 4. Exposure is unverified
+    assert f["portfolio_exposure_verified"] is False
+    assert f["verified_debt_pct"] is None
+
+
+def test_misleading_scheme_name_uses_authoritative_scheme_master_category():
+    """Scheme names with misleading keywords preserve true authoritative category from scheme master."""
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Portfolio Details"
+    ws.append(["Scheme Name", "Units", "NAV", "Current Value"])
+    # Motilal Defence Index contains "Index" but category in master is Thematic/Sectoral
+    ws.append(["Motilal Oswal Defence Index Fund Direct Growth", 100.0, 50.0, 5000.0])
+    
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    
+    funds = parse_cas_file(buf)
+    assert len(funds) == 1
+    f = funds[0]
+    assert f["scheme_identity_verified"] is True
+    # Must NOT be classified as Large Cap just because it contains "Index"
+    assert f["category"] != "Large Cap"
+
+
+def test_dynamic_selection_fails_closed_when_category_is_missing():
+    """Dynamic selection must fail closed if candidate lacks an authoritative category (never manufacture 'Equity')."""
+    from services.fiduciary_engine import _select_market_nom_fund
+    
+    rules = {"category": "Large Cap", "sort_by": "aum_crore", "sort_order": "desc"}
+    # Candidate with missing category
+    unclassified_universe = [
+        {"scheme": "No Category Fund Direct Growth", "plan_type": "Direct", "aum_crore": 50000.0, "category": None, "cat": None}
+    ]
+    res = _select_market_nom_fund(rules, unclassified_universe, nom_key="large_cap_index")
+    assert res["validation"] == "failed"
+    assert res["source"] == "unavailable"
+
+
+def test_stability_buffer_override_withheld_on_indeterminate_debt_exposure():
+    """Stability Buffer Override fails closed (withheld) if debt exposure is indeterminate."""
+    # Client holds an unknown fund without verified factsheet look-through
+    funds_unknown_exposure = [
+        {
+            "scheme": "Unindexed Boutique Hybrid Growth Fund - Direct Plan - Growth",
+            "category": "Hybrid",
+            "plan_type": "Direct",
+            "current_value": 1000000.0,
+            "folio_no": "9999/01",
+            "source": "existing",
+            "validation": "valid",
+            # NO debt or verified_debt_pct field provided
+        }
+    ]
+    
+    target = TargetSaa(large_cap_pct=50.0, mid_small_cap_pct=25.0, flexi_multi_cap_pct=0.0, debt_pct=25.0)
+    bp = generate_fiduciary_sip_blueprint(
+        monthly_budget_inr=10000.0,
+        funds=funds_unknown_exposure,
+        target_saa=target,
+    )
+    
+    # Stability Override MUST NOT trigger based on a guess (no 35% assumption)
+    assert bp["stability_override_applied"] is False
+    assert bp["stability_override_status"] == "INDETERMINATE"
+    assert "indeterminate" in bp["stability_override_reason"].lower()
+    # Debt allocation is preserved
+    debt_allocs = [a for a in bp["allocations"] if "Debt" in a["sleeve"]]
+    assert len(debt_allocs) == 1
+    assert debt_allocs[0]["amount_inr"] == Decimal("2500.00")
+
+
+def test_stability_buffer_override_withheld_on_malformed_debt_values():
+    """Stability Buffer Override fails closed if a holding has non-finite debt values (NaN/inf)."""
+    funds_malformed = [
+        {
+            "scheme": "ICICI Pru Balanced Advantage - Direct Plan - Growth",
+            "category": "Hybrid",
+            "plan_type": "Direct",
+            "current_value": 500000.0,
+            "folio_no": "1111/01",
+            "source": "existing",
+            "validation": "valid",
+            "debt": float("nan"),  # Malformed NaN debt value
+        }
+    ]
+    target = TargetSaa(large_cap_pct=50.0, mid_small_cap_pct=25.0, flexi_multi_cap_pct=0.0, debt_pct=25.0)
+    bp = generate_fiduciary_sip_blueprint(
+        monthly_budget_inr=10000.0,
+        funds=funds_malformed,
+        target_saa=target,
+    )
+    assert bp["stability_override_applied"] is False
+    assert bp["stability_override_status"] == "INDETERMINATE"
+
+
+def test_stability_calculation_excludes_untrusted_corrupted_records():
+    """Corrupted or invalid records (validation!='valid') cannot distort the portfolio debt calculation."""
+    funds_with_corrupted = [
+        {
+            "scheme": "HDFC Liquid Fund - Direct Plan - Growth",
+            "category": "Debt",
+            "plan_type": "Direct",
+            "current_value": 500000.0,
+            "folio_no": "1111/01",
+            "source": "existing",
+            "validation": "valid",
+            "debt": 100.0,
+        },
+        {
+            "scheme": "Corrupted Ghost Holding",
+            "category": "Debt",
+            "plan_type": "Direct",
+            "current_value": 50000000.0,  # Massive 5 Crore fake holding
+            "folio_no": "9999/99",
+            "source": "existing",
+            "validation": "failed",  # Corrupted row
+            "debt": 100.0,
+        },
+    ]
+    # Total valid portfolio is 5 Lakhs (100% debt). The 5 Crore fake holding must be excluded.
+    target = TargetSaa(large_cap_pct=50.0, mid_small_cap_pct=25.0, flexi_multi_cap_pct=0.0, debt_pct=25.0)
+    bp = generate_fiduciary_sip_blueprint(
+        monthly_budget_inr=10000.0,
+        funds=funds_with_corrupted,
+        target_saa=target,
+    )
+    # Stability Override triggers because 100% (of valid 5 Lakhs) >= 25%
+    assert bp["stability_override_applied"] is True
+
+
+def test_strict_saa_validation_rejects_non_100_percent_sums():
+    """Strict policy invariant: SAA targets summing to 99.9% or 100.1% must fail closed (±0.00% tolerance)."""
+    # 99.9% sum
+    res_99_9 = generate_fiduciary_sip_blueprint(
+        monthly_budget_inr=10000.0,
+        funds=[],
+        target_saa={"large_cap_pct": 49.9, "mid_small_cap_pct": 25.0, "debt_pct": 25.0, "flexi_multi_cap_pct": 0.0},
+    )
+    assert res_99_9["status"] == "INVALID_SAA_TARGET"
+    assert "100.0%" in res_99_9["error"]
+
+    # 100.1% sum
+    res_100_1 = generate_fiduciary_sip_blueprint(
+        monthly_budget_inr=10000.0,
+        funds=[],
+        target_saa={"large_cap_pct": 50.1, "mid_small_cap_pct": 25.0, "debt_pct": 25.0, "flexi_multi_cap_pct": 0.0},
+    )
+    assert res_100_1["status"] == "INVALID_SAA_TARGET"
+    assert "100.0%" in res_100_1["error"]
+
+
+def test_mixed_regular_and_direct_holdings_provenance():
+    """In mixed holdings, Regular plans are strictly rejected from sleeves even if validly parsed."""
+    mixed_funds = [
+        {
+            "scheme": "UTI Nifty 50 Index Fund - Regular Plan - Growth",
+            "category": "Large Cap",
+            "plan_type": "Regular",  # Regular plan
+            "current_value": 300000.0,
+            "folio_no": "REG-FOLIO-111",
+            "source": "existing",
+            "validation": "valid",
+        },
+        {
+            "scheme": "Kotak Emerging Equity Fund - Direct Plan - Growth",
+            "category": "Mid Cap",
+            "plan_type": "Direct",  # Direct plan
+            "current_value": 200000.0,
+            "folio_no": "DIR-FOLIO-222",
+            "source": "existing",
+            "validation": "valid",
+        },
+    ]
+    target = TargetSaa(large_cap_pct=50.0, mid_small_cap_pct=50.0, flexi_multi_cap_pct=0.0, debt_pct=0.0)
+    bp = generate_fiduciary_sip_blueprint(
+        monthly_budget_inr=10000.0,
+        funds=mixed_funds,
+        target_saa=target,
+    )
+    # Direct Mid Cap is allocated to client folio
+    mid_alloc = [a for a in bp["allocations"] if "Mid" in a["sleeve"]][0]
+    assert mid_alloc["folio_no"] == "DIR-FOLIO-222"
+    assert mid_alloc["source"] == "existing"
+    
+    # Regular Large Cap is REJECTED; client folio is NOT used; new Direct mandate is issued
+    large_alloc = [a for a in bp["allocations"] if "Large" in a["sleeve"]][0]
+    assert large_alloc["folio_no"] == "New Direct Folio Mandate"
+    assert large_alloc["source"] in ["dynamic", "fallback"]
