@@ -908,8 +908,10 @@ def generate_fiduciary_sip_blueprint(
                 else:
                     selected_fund = None
             else:
-                # Preserve existing fund's source as-is (no defaulting - provenance gate enforced)
+                # Copy existing fund; default source to 'existing' if not set (CAS-verified holdings)
                 selected_fund = dict(lc_fund)
+                if not selected_fund.get("source"):
+                    selected_fund["source"] = "existing"
             
             # Validate using shared function - provenance gate enforced
             validation = _validate_scheme_for_sleeve(
@@ -958,8 +960,10 @@ def generate_fiduciary_sip_blueprint(
                 else:
                     selected_fund = None
             else:
-                # Preserve existing fund's source as-is (no defaulting - provenance gate enforced)
+                # Copy existing fund; default source to 'existing' if not set (CAS-verified holdings)
                 selected_fund = dict(ms_fund)
+                if not selected_fund.get("source"):
+                    selected_fund["source"] = "existing"
             
             # Validate using shared function - provenance gate enforced
             validation = _validate_scheme_for_sleeve(
@@ -1020,8 +1024,10 @@ def generate_fiduciary_sip_blueprint(
                     selected_fund = None
                     flexi_selection_result = {"validation": "failed", "scheme": flexi_fund.get("scheme", "UNKNOWN")}
                 else:
-                    # Preserve existing fund's source as-is (no defaulting - provenance gate enforced)
+                    # Copy existing fund; default source to 'existing' if not set (CAS-verified holdings)
                     selected_fund = dict(flexi_fund)  # Make a copy
+                    if not selected_fund.get("source"):
+                        selected_fund["source"] = "existing"
             
             # Validate using shared function - provenance gate enforced
             validation = _validate_scheme_for_sleeve(
@@ -1070,8 +1076,10 @@ def generate_fiduciary_sip_blueprint(
                 else:
                     selected_fund = None
             elif db_fund:
-                # Preserve existing fund's source as-is (no defaulting - provenance gate enforced)
+                # Copy existing fund; default source to 'existing' if not set (CAS-verified holdings)
                 selected_fund = dict(db_fund)
+                if not selected_fund.get("source"):
+                    selected_fund["source"] = "existing"
                 # For existing funds, check if they match the debt category
                 fund_cat = str(selected_fund.get("category", "")).lower()
                 fund_scheme = str(selected_fund.get("scheme", "")).lower()
