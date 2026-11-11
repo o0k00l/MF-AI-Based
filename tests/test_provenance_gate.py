@@ -589,6 +589,10 @@ def test_stability_buffer_override_hybrid_debt_look_through():
             "folio_no": "1111/01",
             "source": "existing",
             "validation": "valid",
+            "portfolio_exposure_verified": True,
+            "verified_debt_pct": 35.0,
+            "exposure_source": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
+            "exposure_as_of": "2026-08-31",
         }
     ]
 
@@ -861,3 +865,220 @@ def test_mixed_regular_and_direct_holdings_provenance():
     large_alloc = [a for a in bp["allocations"] if "Large" in a["sleeve"]][0]
     assert large_alloc["folio_no"] == "New Direct Folio Mandate"
     assert large_alloc["source"] in ["dynamic", "fallback"]
+
+
+# =====================================================================
+# 6. ENHANCED FIDUCIARY AUDIT GATES (COMMIT REMEDIATION)
+# =====================================================================
+
+def test_scheme_resolution_eliminates_substring_matching():
+    """Substring matching is eliminated: non-exact names never match via substring."""
+    from services.cas_parser import resolve_authoritative_scheme
+    # 'Nippon India Nifty 50 Index Fund' must NOT resolve to a Mid Cap fund just because 'Nippon India' is in the master
+    res_partial = resolve_authoritative_scheme("Nippon India Nifty 50 Index Fund - Direct Plan - Growth")
+    assert res_partial is None, "Substring matching must not resolve non-identical scheme"
+
+    # 'HDFC Top 100 Advantage' must NOT resolve to 'HDFC Top 100'
+    res_adv = resolve_authoritative_scheme("HDFC Top 100 Advantage Fund - Direct Plan - Growth")
+    assert res_adv is None, "Partial scheme name with extra suffix must not match"
+
+
+def test_scheme_resolution_rejects_ambiguous_matches():
+    """Ambiguous queries matching multiple distinct schemes fail closed to None."""
+    from services.cas_parser import resolve_authoritative_scheme
+    # Construct a synthetic master with ambiguous alias
+    ambiguous_master = {
+        "schemes": {
+            "Scheme Alpha": {
+                "sid": 1001,
+                "canonical_name": "Scheme Alpha",
+                "category": "Large Cap",
+                "aliases": ["shared fund alias"],
+            },
+            "Scheme Beta": {
+                "sid": 1002,
+                "canonical_name": "Scheme Beta",
+                "category": "Mid Cap",
+                "aliases": ["shared fund alias"],
+            },
+        }
+    }
+    # Query with the ambiguous alias
+    res = resolve_authoritative_scheme("shared fund alias", scheme_master=ambiguous_master)
+    assert res is None, "Ambiguous matches (>1 matching schemes) must reject to None"
+
+
+def test_cas_parser_attaches_precise_sources_and_as_of_date():
+    """CAS parser stamps SEBI_AMFI identity and SHARPELY factsheet disclosure with authentic as_of."""
+    import io
+    import openpyxl
+    from services.cas_parser import parse_cas_file
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Portfolio Details"
+    ws.append(["Scheme Name", "Units", "NAV", "Current Value"])
+    ws.append(["HDFC Top 100 Fund - Direct Plan - Growth", 100.0, 50.0, 5000.0])
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+
+    funds = parse_cas_file(buf)
+    assert len(funds) == 1
+    f = funds[0]
+    assert f["scheme_identity_verified"] is True
+    assert f["scheme_identity_source"] == "SEBI_AMFI_OFFICIAL_SCHEME_MASTER"
+    assert f["category_verified"] is True
+    assert f["portfolio_exposure_verified"] is True
+    assert f["exposure_source"] == "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE"
+    assert f["exposure_as_of"] == "2026-08-31"
+    assert "heuristic_display_allocations" in f
+    assert f["heuristic_display_allocations"]["eq"] >= 0.0
+
+
+def test_cas_parser_withholds_exposure_verification_when_as_of_missing():
+    """CAS parser does not fabricate freshness: missing as_of sets portfolio_exposure_verified=False."""
+    import io
+    import openpyxl
+    from unittest.mock import patch
+    from services.cas_parser import parse_cas_file
+    # Master entry with metrics but NO as_of date
+    synthetic_master = {
+        "schemes": {
+            "HDFC Top 100": {
+                "sid": 16055,
+                "canonical_name": "HDFC Top 100",
+                "category": "Large Cap",
+                "portfolio_debt_pct": 5.0,
+                "as_of": None,  # Missing authentic as_of date!
+                "aliases": ["hdfc top 100 fund"],
+            }
+        }
+    }
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Portfolio Details"
+    ws.append(["Scheme Name", "Units", "NAV", "Current Value"])
+    ws.append(["HDFC Top 100 Fund - Direct Plan - Growth", 100.0, 50.0, 5000.0])
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+
+    with patch("services.cas_parser.load_authoritative_scheme_master", return_value=synthetic_master):
+        funds = parse_cas_file(buf)
+
+    assert len(funds) == 1
+    f = funds[0]
+    assert f["scheme_identity_verified"] is True
+    # Without authentic as_of date, exposure MUST NOT be verified
+    assert f["portfolio_exposure_verified"] is False
+    assert f["exposure_as_of"] is None
+    assert f["exposure_source"] is None
+    assert f["verified_debt_pct"] is None
+
+
+def test_stability_buffer_override_withheld_on_generic_untrusted_debt():
+    """Generic untrusted debt field on non-debt category fails closed to INDETERMINATE."""
+    from services.risk_profiler import TargetSaa
+    from services.fiduciary_engine import generate_fiduciary_sip_blueprint
+    funds = [
+        {
+            "scheme": "Some Random Hybrid Fund - Direct Plan - Growth",
+            "category": "Hybrid",
+            "plan_type": "Direct",
+            "current_value": 500000.0,
+            "folio_no": "1111/01",
+            "source": "existing",
+            "validation": "valid",
+            "debt": 35.0,  # Generic untrusted debt field without exposure verification
+        }
+    ]
+    target = TargetSaa(large_cap_pct=50.0, mid_small_cap_pct=25.0, flexi_multi_cap_pct=0.0, debt_pct=25.0)
+    bp = generate_fiduciary_sip_blueprint(
+        monthly_budget_inr=10000.0,
+        funds=funds,
+        target_saa=target,
+    )
+    assert bp["stability_override_applied"] is False
+    assert bp["stability_override_status"] == "INDETERMINATE"
+    assert "indeterminate" in bp["stability_override_reason"].lower()
+
+
+def test_stability_buffer_override_fails_closed_when_validation_missing():
+    """Holding without explicit validation='valid' fails closed in stability override."""
+    from services.risk_profiler import TargetSaa
+    from services.fiduciary_engine import generate_fiduciary_sip_blueprint
+    funds = [
+        {
+            "scheme": "HDFC Liquid Fund - Direct Plan - Growth",
+            "category": "Debt",
+            "plan_type": "Direct",
+            "current_value": 500000.0,
+            "folio_no": "1111/01",
+            "source": "existing",
+            # validation key is MISSING (must not default to valid)
+        }
+    ]
+    target = TargetSaa(large_cap_pct=50.0, mid_small_cap_pct=25.0, flexi_multi_cap_pct=0.0, debt_pct=25.0)
+    bp = generate_fiduciary_sip_blueprint(
+        monthly_budget_inr=10000.0,
+        funds=funds,
+        target_saa=target,
+    )
+    # Since holding lacks validation='valid', it is excluded, so stability override cannot apply
+    assert bp["stability_override_applied"] is False
+    assert bp["stability_override_status"] == "NOT_APPLIED"
+
+
+def test_convert_cas_funds_to_holdings_maps_missing_category_to_other():
+    """Missing category in CAS fund converts to AssetClass.OTHER with 0% equity and 0% debt default."""
+    from services.fiduciary_engine import convert_cas_funds_to_holdings
+    from core.models import AssetClass
+    funds = [
+        {
+            "scheme": "Unknown Mystery Fund Direct Growth",
+            "category": None,  # Missing category
+            "plan_type": "Direct",
+            "current_value": 100000.0,
+            "invested_value": 80000.0,
+            "units": 1000.0,
+            "nav": 100.0,
+            "folio_no": "FOLIO-999",
+            "source": "existing",
+            "validation": "valid",
+        }
+    ]
+    holdings = convert_cas_funds_to_holdings(funds)
+    assert len(holdings) == 1
+    h = holdings[0]
+    assert h.asset_class == AssetClass.OTHER, f"Expected AssetClass.OTHER, got {h.asset_class}"
+    assert h.equity_pct == 0.0, f"Expected 0.0% equity, got {h.equity_pct}"
+    assert h.debt_pct == 0.0, f"Expected 0.0% debt, got {h.debt_pct}"
+
+
+def test_stability_override_reason_reports_original_target_debt_pct():
+    """Stability override explanation string reports the true original target debt percentage, not 0.00%."""
+    from services.risk_profiler import TargetSaa
+    from services.fiduciary_engine import generate_fiduciary_sip_blueprint
+    funds = [
+        {
+            "scheme": "HDFC Liquid Fund - Direct Plan - Growth",
+            "category": "Debt",
+            "plan_type": "Direct",
+            "current_value": 500000.0,
+            "folio_no": "1111/01",
+            "source": "existing",
+            "validation": "valid",
+        }
+    ]
+    target = TargetSaa(large_cap_pct=50.0, mid_small_cap_pct=25.0, flexi_multi_cap_pct=0.0, debt_pct=25.0)
+    bp = generate_fiduciary_sip_blueprint(
+        monthly_budget_inr=10000.0,
+        funds=funds,
+        target_saa=target,
+    )
+    assert bp["stability_override_applied"] is True
+    reason = bp["stability_override_reason"]
+    # Target was 25.00%, reason must state 'target (25.00%)', NOT 'target (0.00%)'
+    assert "target (25.00%)" in reason, f"Reason should report original target 25.00%, got: {reason}"

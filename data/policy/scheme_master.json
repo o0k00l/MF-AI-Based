@@ -1,6 +1,6 @@
 {
-  "_notice": "Unified Scheme Master - Merged from scheme_master.json, fund_aliases.json, and fund_metrics.json",
-  "_source": "SEBI / AMFI Official Scheme Master Data + Sharpely fund metrics + Internal alias mappings",
+  "_notice": "Unified Scheme Master - Merged from official AMFI/SEBI data, Sharpely monthly holdings disclosures, and internal alias mappings",
+  "_source": "Identity: SEBI / AMFI Official Scheme Master Data; Exposure: Sharpely Monthly Holdings Disclosure (as of 2026-08-31)",
   "_retrieval_date": "2026-11-07",
   "status": "PRODUCTION - Complete unified scheme reference",
   "schemes": {
@@ -48,7 +48,8 @@
         "hdfc balanced advantage fund regular growth",
         "hdfc balanced advantage fund",
         "hdfc baf"
-      ]
+      ],
+      "as_of": "2026-08-31"
     },
     "HDFC Flexi Cap": {
       "canonical_name": "HDFC Flexi Cap",
@@ -90,7 +91,8 @@
       "n_secs": 84,
       "aliases": [
         "hdfc flexi cap"
-      ]
+      ],
+      "as_of": "2026-08-31"
     },
     "HDFC Mid Cap": {
       "canonical_name": "HDFC Mid Cap",
@@ -132,7 +134,8 @@
       "n_secs": 80,
       "aliases": [
         "hdfc mid cap"
-      ]
+      ],
+      "as_of": "2026-08-31"
     },
     "HDFC Defence": {
       "canonical_name": "HDFC Defence",
@@ -177,7 +180,8 @@
         "hdfc defence fund regular growth",
         "hdfc defence fund direct plan growth",
         "hdfc defence fund"
-      ]
+      ],
+      "as_of": "2026-08-31"
     },
     "SBI Energy Opps": {
       "canonical_name": "SBI Energy Opps",
@@ -222,7 +226,8 @@
         "sbi energy opportunities fund regular growth",
         "sbi energy opportunities fund direct plan growth",
         "sbi energy opportunities fund"
-      ]
+      ],
+      "as_of": "2026-08-31"
     },
     "ICICI Pru Large & Mid": {
       "canonical_name": "ICICI Pru Large & Mid",
@@ -264,7 +269,8 @@
       "n_secs": 121,
       "aliases": [
         "icici pru large & mid"
-      ]
+      ],
+      "as_of": "2026-08-31"
     },
     "PPFAS Flexi Cap": {
       "canonical_name": "PPFAS Flexi Cap",
@@ -310,7 +316,8 @@
         "parag parikh flexi cap fund direct plan growth",
         "parag parikh flexi cap fund",
         "parag parikh flexi cap"
-      ]
+      ],
+      "as_of": "2026-08-31"
     },
     "WhiteOak Special Opps": {
       "canonical_name": "WhiteOak Special Opps",
@@ -352,7 +359,8 @@
       "n_secs": 93,
       "aliases": [
         "whiteoak special opps"
-      ]
+      ],
+      "as_of": "2026-08-31"
     },
     "Mirae Multicap": {
       "canonical_name": "Mirae Multicap",
@@ -394,7 +402,8 @@
       "n_secs": 82,
       "aliases": [
         "mirae multicap"
-      ]
+      ],
+      "as_of": "2026-08-31"
     },
     "Canara Robeco Multi Cap": {
       "canonical_name": "Canara Robeco Multi Cap",
@@ -436,7 +445,8 @@
       "n_secs": 114,
       "aliases": [
         "canara robeco multi cap"
-      ]
+      ],
+      "as_of": "2026-08-31"
     },
     "Edelweiss BAF": {
       "canonical_name": "Edelweiss BAF",
@@ -478,7 +488,8 @@
       "n_secs": 129,
       "aliases": [
         "edelweiss baf"
-      ]
+      ],
+      "as_of": "2026-08-31"
     },
     "Motilal Defence Index": {
       "canonical_name": "Motilal Defence Index",
@@ -520,7 +531,8 @@
       "n_secs": 20,
       "aliases": [
         "motilal defence index"
-      ]
+      ],
+      "as_of": "2026-08-31"
     },
     "Motilal Midcap": {
       "canonical_name": "Motilal Midcap",
@@ -562,7 +574,8 @@
       "n_secs": 31,
       "aliases": [
         "motilal midcap"
-      ]
+      ],
+      "as_of": "2026-08-31"
     },
     "Quant Multi Cap": {
       "canonical_name": "Quant Multi Cap",
@@ -604,7 +617,8 @@
       "n_secs": 63,
       "aliases": [
         "quant multi cap"
-      ]
+      ],
+      "as_of": "2026-08-31"
     },
     "Quant Large & Mid": {
       "canonical_name": "Quant Large & Mid",
@@ -646,7 +660,8 @@
       "n_secs": 29,
       "aliases": [
         "quant large & mid"
-      ]
+      ],
+      "as_of": "2026-08-31"
     },
     "Nippon Large Cap": {
       "canonical_name": "Nippon Large Cap",
@@ -688,7 +703,8 @@
       "n_secs": 67,
       "aliases": [
         "nippon large cap"
-      ]
+      ],
+      "as_of": "2026-08-31"
     },
     "Nippon Multi Cap": {
       "canonical_name": "Nippon Multi Cap",
@@ -730,7 +746,8 @@
       "n_secs": 120,
       "aliases": [
         "nippon multi cap"
-      ]
+      ],
+      "as_of": "2026-08-31"
     },
     "Kotak Multi Cap": {
       "canonical_name": "Kotak Multi Cap",
@@ -772,7 +789,8 @@
       "n_secs": 69,
       "aliases": [
         "kotak multi cap"
-      ]
+      ],
+      "as_of": "2026-08-31"
     },
     "Canara Robeco Multi Asset": {
       "canonical_name": "Canara Robeco Multi Asset",
@@ -817,7 +835,8 @@
         "canara robeco multi asset allocation fund regular growth",
         "canara robeco multi asset allocation fund direct plan growth",
         "canara robeco multi asset allocation fund"
-      ]
+      ],
+      "as_of": "2026-08-31"
     },
     "360 ONE QUANT FUND REGULAR GROWTH": {
       "canonical_name": "360 ONE QUANT FUND REGULAR GROWTH",
@@ -859,7 +878,8 @@
       "n_secs": 0,
       "aliases": [
         "360 one quant fund regular growth"
-      ]
+      ],
+      "as_of": "2026-08-31"
     },
     "JM FLEXICAP FUND GROWTH": {
       "canonical_name": "JM FLEXICAP FUND GROWTH",
@@ -901,7 +921,8 @@
       "n_secs": 0,
       "aliases": [
         "jm flexicap fund growth"
-      ]
+      ],
+      "as_of": "2026-08-31"
     },
     "INF579M01AF8": {
       "canonical_name": "INF579M01AF8",
@@ -943,7 +964,8 @@
       "n_secs": 0,
       "aliases": [
         "inf579m01af8"
-      ]
+      ],
+      "as_of": "2026-08-31"
     },
     "JM Flexi Cap Fund": {
       "canonical_name": "JM Flexi Cap Fund",
@@ -985,7 +1007,8 @@
       "n_secs": 0,
       "aliases": [
         "jm flexi cap fund"
-      ]
+      ],
+      "as_of": "2026-08-31"
     },
     "BANDHAN Nifty 50 Index Fund - Direct Plan - Growth": {
       "canonical_name": "BANDHAN Nifty 50 Index Fund - Direct Plan - Growth",
@@ -1027,7 +1050,8 @@
       "n_secs": null,
       "aliases": [
         "bandhan nifty 50 index fund - direct plan - growth"
-      ]
+      ],
+      "as_of": "2026-08-31"
     },
     "Franklin India NSE Nifty 50 Index Fund - Direct Plan - Growth": {
       "canonical_name": "Franklin India NSE Nifty 50 Index Fund - Direct Plan - Growth",
@@ -1069,7 +1093,8 @@
       "n_secs": null,
       "aliases": [
         "franklin india nse nifty 50 index fund - direct plan - growth"
-      ]
+      ],
+      "as_of": "2026-08-31"
     },
     "Taurus Nifty 50 Index Fund - Direct Plan - Growth": {
       "canonical_name": "Taurus Nifty 50 Index Fund - Direct Plan - Growth",
@@ -1111,7 +1136,8 @@
       "n_secs": null,
       "aliases": [
         "taurus nifty 50 index fund - direct plan - growth"
-      ]
+      ],
+      "as_of": "2026-08-31"
     },
     "HDFC Nifty 50 Index Fund - Direct Plan - Growth Option": {
       "canonical_name": "HDFC Nifty 50 Index Fund - Direct Plan - Growth Option",
@@ -1153,7 +1179,8 @@
       "n_secs": null,
       "aliases": [
         "hdfc nifty 50 index fund - direct plan - growth option"
-      ]
+      ],
+      "as_of": "2026-08-31"
     },
     "Canara Robeco Large and Mid Cap Fund - Direct Plan - GROWTH OPTION": {
       "canonical_name": "Canara Robeco Large and Mid Cap Fund - Direct Plan - GROWTH OPTION",
@@ -1195,7 +1222,8 @@
       "n_secs": null,
       "aliases": [
         "canara robeco large and mid cap fund - direct plan - growth option"
-      ]
+      ],
+      "as_of": "2026-08-31"
     },
     "Bandhan Large & Mid Cap Fund - Direct Plan - Growth": {
       "canonical_name": "Bandhan Large & Mid Cap Fund - Direct Plan - Growth",
@@ -1237,7 +1265,8 @@
       "n_secs": null,
       "aliases": [
         "bandhan large & mid cap fund - direct plan - growth"
-      ]
+      ],
+      "as_of": "2026-08-31"
     },
     "Franklin India Large & Mid Cap Fund - Direct Plan - Growth": {
       "canonical_name": "Franklin India Large & Mid Cap Fund - Direct Plan - Growth",
@@ -1279,7 +1308,8 @@
       "n_secs": null,
       "aliases": [
         "franklin india large & mid cap fund - direct plan - growth"
-      ]
+      ],
+      "as_of": "2026-08-31"
     },
     "Franklin India Mid Cap Fund - Direct Plan - Growth": {
       "canonical_name": "Franklin India Mid Cap Fund - Direct Plan - Growth",
@@ -1321,7 +1351,8 @@
       "n_secs": null,
       "aliases": [
         "franklin india mid cap fund - direct plan - growth"
-      ]
+      ],
+      "as_of": "2026-08-31"
     },
     "UTI Nifty 50 Index Fund - Direct Plan - Growth": {
       "canonical_name": "UTI Nifty 50 Index Fund - Direct Plan - Growth",
@@ -1363,7 +1394,8 @@
       "n_secs": 51,
       "aliases": [
         "uti nifty 50 index fund - direct plan - growth"
-      ]
+      ],
+      "as_of": "2026-08-31"
     },
     "Edelweiss Mid Cap Fund - Direct Plan - Growth": {
       "canonical_name": "Edelweiss Mid Cap Fund - Direct Plan - Growth",
@@ -1405,7 +1437,8 @@
       "n_secs": 65,
       "aliases": [
         "edelweiss mid cap fund - direct plan - growth"
-      ]
+      ],
+      "as_of": "2026-08-31"
     },
     "Nippon India Small Cap": {
       "canonical_name": "Nippon India Small Cap",
@@ -1447,7 +1480,8 @@
       "n_secs": 0,
       "aliases": [
         "nippon india small cap"
-      ]
+      ],
+      "as_of": "2026-08-31"
     },
     "ICICI Prudential Bluechip": {
       "canonical_name": "ICICI Prudential Bluechip",
@@ -1489,7 +1523,8 @@
       "n_secs": 0,
       "aliases": [
         "icici prudential bluechip"
-      ]
+      ],
+      "as_of": "2026-08-31"
     },
     "SBI Contra": {
       "canonical_name": "SBI Contra",
@@ -1531,7 +1566,8 @@
       "n_secs": 0,
       "aliases": [
         "sbi contra"
-      ]
+      ],
+      "as_of": "2026-08-31"
     },
     "Kotak Flexicap": {
       "canonical_name": "Kotak Flexicap",
@@ -1573,7 +1609,8 @@
       "n_secs": 0,
       "aliases": [
         "kotak flexicap"
-      ]
+      ],
+      "as_of": "2026-08-31"
     },
     "Mirae Asset Large Cap": {
       "canonical_name": "Mirae Asset Large Cap",
@@ -1615,7 +1652,8 @@
       "n_secs": 0,
       "aliases": [
         "mirae asset large cap"
-      ]
+      ],
+      "as_of": "2026-08-31"
     },
     "HDFC Top 100": {
       "canonical_name": "HDFC Top 100",
@@ -1657,7 +1695,8 @@
       "n_secs": 0,
       "aliases": [
         "hdfc top 100"
-      ]
+      ],
+      "as_of": "2026-08-31"
     },
     "SBI Bluechip": {
       "canonical_name": "SBI Bluechip",
@@ -1699,7 +1738,8 @@
       "n_secs": 0,
       "aliases": [
         "sbi bluechip"
-      ]
+      ],
+      "as_of": "2026-08-31"
     },
     "Axis Bluechip": {
       "canonical_name": "Axis Bluechip",
@@ -1741,7 +1781,8 @@
       "n_secs": 0,
       "aliases": [
         "axis bluechip"
-      ]
+      ],
+      "as_of": "2026-08-31"
     },
     "Canara Robeco Bluechip": {
       "canonical_name": "Canara Robeco Bluechip",
@@ -1783,7 +1824,8 @@
       "n_secs": 0,
       "aliases": [
         "canara robeco bluechip"
-      ]
+      ],
+      "as_of": "2026-08-31"
     },
     "Kotak Emerging Equity": {
       "canonical_name": "Kotak Emerging Equity",
@@ -1825,7 +1867,8 @@
       "n_secs": 0,
       "aliases": [
         "kotak emerging equity"
-      ]
+      ],
+      "as_of": "2026-08-31"
     },
     "Nippon India Growth": {
       "canonical_name": "Nippon India Growth",
@@ -1867,7 +1910,8 @@
       "n_secs": 0,
       "aliases": [
         "nippon india growth"
-      ]
+      ],
+      "as_of": "2026-08-31"
     },
     "SBI Magnum Midcap": {
       "canonical_name": "SBI Magnum Midcap",
@@ -1909,7 +1953,8 @@
       "n_secs": 0,
       "aliases": [
         "sbi magnum midcap"
-      ]
+      ],
+      "as_of": "2026-08-31"
     },
     "Axis Midcap": {
       "canonical_name": "Axis Midcap",
@@ -1951,7 +1996,8 @@
       "n_secs": 0,
       "aliases": [
         "axis midcap"
-      ]
+      ],
+      "as_of": "2026-08-31"
     },
     "HDFC Small Cap": {
       "canonical_name": "HDFC Small Cap",
@@ -1993,7 +2039,8 @@
       "n_secs": 0,
       "aliases": [
         "hdfc small cap"
-      ]
+      ],
+      "as_of": "2026-08-31"
     },
     "Quant Small Cap": {
       "canonical_name": "Quant Small Cap",
@@ -2035,7 +2082,8 @@
       "n_secs": 0,
       "aliases": [
         "quant small cap"
-      ]
+      ],
+      "as_of": "2026-08-31"
     },
     "SBI Small Cap": {
       "canonical_name": "SBI Small Cap",
@@ -2077,7 +2125,8 @@
       "n_secs": 0,
       "aliases": [
         "sbi small cap"
-      ]
+      ],
+      "as_of": "2026-08-31"
     },
     "Mirae Asset Large & Midcap": {
       "canonical_name": "Mirae Asset Large & Midcap",
@@ -2119,7 +2168,8 @@
       "n_secs": 0,
       "aliases": [
         "mirae asset large & midcap"
-      ]
+      ],
+      "as_of": "2026-08-31"
     },
     "HDFC Large and Mid Cap": {
       "canonical_name": "HDFC Large and Mid Cap",
@@ -2161,7 +2211,8 @@
       "n_secs": 0,
       "aliases": [
         "hdfc large and mid cap"
-      ]
+      ],
+      "as_of": "2026-08-31"
     },
     "Mirae Asset ELSS Tax Saver": {
       "canonical_name": "Mirae Asset ELSS Tax Saver",
@@ -2203,7 +2254,8 @@
       "n_secs": 0,
       "aliases": [
         "mirae asset elss tax saver"
-      ]
+      ],
+      "as_of": "2026-08-31"
     },
     "Axis ELSS Tax Saver": {
       "canonical_name": "Axis ELSS Tax Saver",
@@ -2245,7 +2297,8 @@
       "n_secs": 0,
       "aliases": [
         "axis elss tax saver"
-      ]
+      ],
+      "as_of": "2026-08-31"
     },
     "ICICI Prudential Balanced Advantage": {
       "canonical_name": "ICICI Prudential Balanced Advantage",
@@ -2287,7 +2340,8 @@
       "n_secs": 0,
       "aliases": [
         "icici prudential balanced advantage"
-      ]
+      ],
+      "as_of": "2026-08-31"
     },
     "Kotak Balanced Advantage": {
       "canonical_name": "Kotak Balanced Advantage",
@@ -2329,7 +2383,8 @@
       "n_secs": 0,
       "aliases": [
         "kotak balanced advantage"
-      ]
+      ],
+      "as_of": "2026-08-31"
     },
     "ICICI Prudential Multi-Asset": {
       "canonical_name": "ICICI Prudential Multi-Asset",
@@ -2371,7 +2426,8 @@
       "n_secs": 0,
       "aliases": [
         "icici prudential multi-asset"
-      ]
+      ],
+      "as_of": "2026-08-31"
     },
     "Kotak Equity Arbitrage": {
       "canonical_name": "Kotak Equity Arbitrage",
@@ -2413,7 +2469,8 @@
       "n_secs": 0,
       "aliases": [
         "kotak equity arbitrage"
-      ]
+      ],
+      "as_of": "2026-08-31"
     },
     "HDFC Liquid": {
       "canonical_name": "HDFC Liquid",
@@ -2455,7 +2512,8 @@
       "n_secs": 0,
       "aliases": [
         "hdfc liquid"
-      ]
+      ],
+      "as_of": "2026-08-31"
     },
     "ICICI Prudential Liquid": {
       "canonical_name": "ICICI Prudential Liquid",
@@ -2497,7 +2555,8 @@
       "n_secs": 0,
       "aliases": [
         "icici prudential liquid"
-      ]
+      ],
+      "as_of": "2026-08-31"
     },
     "HDFC Corporate Bond": {
       "canonical_name": "HDFC Corporate Bond",
@@ -2539,7 +2598,8 @@
       "n_secs": 0,
       "aliases": [
         "hdfc corporate bond"
-      ]
+      ],
+      "as_of": "2026-08-31"
     },
     "ICICI Prudential Technology": {
       "canonical_name": "ICICI Prudential Technology",
@@ -2581,7 +2641,8 @@
       "n_secs": 0,
       "aliases": [
         "icici prudential technology"
-      ]
+      ],
+      "as_of": "2026-08-31"
     },
     "Tata Digital India": {
       "canonical_name": "Tata Digital India",
@@ -2623,7 +2684,8 @@
       "n_secs": 0,
       "aliases": [
         "tata digital india"
-      ]
+      ],
+      "as_of": "2026-08-31"
     },
     "Axis Small Cap": {
       "canonical_name": "Axis Small Cap",
@@ -2665,7 +2727,8 @@
       "n_secs": 0,
       "aliases": [
         "axis small cap"
-      ]
+      ],
+      "as_of": "2026-08-31"
     },
     "Quant Active": {
       "canonical_name": "Quant Active",
@@ -2707,7 +2770,8 @@
       "n_secs": 0,
       "aliases": [
         "quant active"
-      ]
+      ],
+      "as_of": "2026-08-31"
     },
     "ICICI Pru Equity & Debt": {
       "canonical_name": "ICICI Pru Equity & Debt",
@@ -2749,7 +2813,8 @@
       "n_secs": 0,
       "aliases": [
         "icici pru equity & debt"
-      ]
+      ],
+      "as_of": "2026-08-31"
     },
     "Bandhan Small Cap": {
       "canonical_name": "Bandhan Small Cap",
@@ -2791,7 +2856,8 @@
       "n_secs": 0,
       "aliases": [
         "bandhan small cap"
-      ]
+      ],
+      "as_of": "2026-08-31"
     },
     "Tata Small Cap": {
       "canonical_name": "Tata Small Cap",
@@ -2833,7 +2899,8 @@
       "n_secs": 0,
       "aliases": [
         "tata small cap"
-      ]
+      ],
+      "as_of": "2026-08-31"
     },
     "SBI Equity Hybrid": {
       "canonical_name": "SBI Equity Hybrid",
@@ -2875,7 +2942,8 @@
       "n_secs": 0,
       "aliases": [
         "sbi equity hybrid"
-      ]
+      ],
+      "as_of": "2026-08-31"
     },
     "Canara Robeco Equity Hybrid": {
       "canonical_name": "Canara Robeco Equity Hybrid",
@@ -2917,7 +2985,8 @@
       "n_secs": 0,
       "aliases": [
         "canara robeco equity hybrid"
-      ]
+      ],
+      "as_of": "2026-08-31"
     },
     "Mirae Asset Midcap": {
       "canonical_name": "Mirae Asset Midcap",
@@ -2959,7 +3028,8 @@
       "n_secs": 0,
       "aliases": [
         "mirae asset midcap"
-      ]
+      ],
+      "as_of": "2026-08-31"
     },
     "UTI Flexi Cap": {
       "canonical_name": "UTI Flexi Cap",
@@ -3001,7 +3071,8 @@
       "n_secs": 0,
       "aliases": [
         "uti flexi cap"
-      ]
+      ],
+      "as_of": "2026-08-31"
     },
     "Parag Parikh Conservative Hybrid": {
       "canonical_name": "Parag Parikh Conservative Hybrid",
@@ -3043,7 +3114,8 @@
       "n_secs": 0,
       "aliases": [
         "parag parikh conservative hybrid"
-      ]
+      ],
+      "as_of": "2026-08-31"
     },
     "SBI Liquid": {
       "canonical_name": "SBI Liquid",
@@ -3088,7 +3160,8 @@
         "sbi liquid fund direct growth",
         "sbi liquid fund regular growth",
         "sbi liquid fund"
-      ]
+      ],
+      "as_of": "2026-08-31"
     },
     "Nippon India Liquid": {
       "canonical_name": "Nippon India Liquid",
@@ -3130,7 +3203,8 @@
       "n_secs": 0,
       "aliases": [
         "nippon india liquid"
-      ]
+      ],
+      "as_of": "2026-08-31"
     },
     "HDFC Money Market": {
       "canonical_name": "HDFC Money Market",
@@ -3172,7 +3246,8 @@
       "n_secs": 0,
       "aliases": [
         "hdfc money market"
-      ]
+      ],
+      "as_of": "2026-08-31"
     },
     "Bandhan Sterling Value": {
       "canonical_name": "Bandhan Sterling Value",
@@ -3214,7 +3289,9 @@
       "n_secs": 0,
       "aliases": [
         "bandhan sterling value"
-      ]
+      ],
+      "as_of": "2026-08-31"
     }
-  }
+  },
+  "_holdings_as_of": "2026-08-31"
 }

@@ -96,8 +96,9 @@ def _normalize_scheme_name(name: str) -> str:
 def resolve_authoritative_scheme(scheme_name: str, scheme_master: dict | None = None) -> dict | None:
     """Resolve raw scheme name against official AMFI/SEBI scheme master.
     
-    Returns master scheme dict if verified; None if unknown or ambiguous.
+    Returns master scheme dict if uniquely verified; None if unknown or ambiguous.
     Unknown or ambiguous schemes remain strictly unclassified.
+    Substring matching is eliminated to prevent false positives and first-match bias.
     """
     if not scheme_name or not isinstance(scheme_name, str):
         return None
@@ -112,31 +113,31 @@ def resolve_authoritative_scheme(scheme_name: str, scheme_master: dict | None = 
         return None
         
     norm = _normalize_scheme_name(scheme_name)
+    if not norm:
+        return None
     compact_norm = norm.replace(" ", "").replace("-", "").replace(".", "")
     
-    # 1. Exact or compact match against canonical key
+    # Collect all exact canonical or alias matches (keyed by canonical identifier)
+    matched_entries: dict[str, dict] = {}
     for k, v in schemes.items():
+        canonical_id = str(v.get("sid") or v.get("canonical_name") or k)
         k_norm = _normalize_scheme_name(k)
-        if norm == k_norm or compact_norm == k_norm.replace(" ", "").replace("-", "").replace(".", ""):
-            return v
-            
-    # 2. Match against aliases
-    for k, v in schemes.items():
+        c_k_norm = k_norm.replace(" ", "").replace("-", "").replace(".", "")
+        if norm == k_norm or compact_norm == c_k_norm:
+            matched_entries[canonical_id] = v
+            continue
+
         for alias in v.get("aliases", []):
             a_norm = _normalize_scheme_name(alias)
-            if norm == a_norm or compact_norm == a_norm.replace(" ", "").replace("-", "").replace(".", ""):
-                return v
-                
-    # 3. Canonical name contained in input scheme name (minimum 6 characters to prevent trivial matches)
-    for k, v in schemes.items():
-        k_norm = _normalize_scheme_name(k)
-        if len(k_norm) >= 6 and k_norm in norm:
-            return v
-        for alias in v.get("aliases", []):
-            a_norm = _normalize_scheme_name(alias)
-            if len(a_norm) >= 6 and a_norm in norm:
-                return v
-                
+            c_a_norm = a_norm.replace(" ", "").replace("-", "").replace(".", "")
+            if norm == a_norm or compact_norm == c_a_norm:
+                matched_entries[canonical_id] = v
+                break
+
+    # Strictly fail closed on unknown (0) or ambiguous (>1) matches
+    if len(matched_entries) == 1:
+        return list(matched_entries.values())[0]
+
     return None
 
 
@@ -515,6 +516,7 @@ def parse_cas_file(file_obj: BinaryIO) -> list[dict]:
         master_entry = resolve_authoritative_scheme(scheme)
         if master_entry is not None:
             scheme_identity_verified = True
+            scheme_identity_source = "SEBI_AMFI_OFFICIAL_SCHEME_MASTER"
             canonical_scheme_name = master_entry.get("canonical_name", scheme)
             scheme_code = master_entry.get("sid")
             isin = master_entry.get("isin")
@@ -541,16 +543,21 @@ def parse_cas_file(file_obj: BinaryIO) -> list[dict]:
             else:
                 broad_asset_class = None
 
-            # Factsheet exposure
-            verified_debt_num = master_entry.get("portfolio_debt_pct") if master_entry.get("portfolio_debt_pct") is not None else master_entry.get("debt")
-            if verified_debt_num is not None:
+            # Factsheet exposure look-through (requires authentic as_of date)
+            verified_debt_num = (
+                master_entry.get("portfolio_debt_pct")
+                if master_entry.get("portfolio_debt_pct") is not None
+                else master_entry.get("debt")
+            )
+            raw_as_of = master_entry.get("as_of")
+            if raw_as_of and verified_debt_num is not None:
                 try:
                     f_debt = float(verified_debt_num)
                     if math.isfinite(f_debt) and 0.0 <= f_debt <= 100.0:
                         portfolio_exposure_verified = True
                         verified_debt_pct = f_debt
-                        exposure_source = "AMFI_SEBI_SCHEME_MASTER"
-                        exposure_as_of = master_entry.get("as_of") or "2026-08-31"
+                        exposure_source = "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE"
+                        exposure_as_of = str(raw_as_of).strip()
                     else:
                         portfolio_exposure_verified = False
                         verified_debt_pct = None
@@ -570,6 +577,7 @@ def parse_cas_file(file_obj: BinaryIO) -> list[dict]:
             # UNKNOWN / UNVERIFIED SCHEME: MUST REMAIN UNCLASSIFIED
             # Never default unknown funds to "Equity" or guess categories from keywords
             scheme_identity_verified = False
+            scheme_identity_source = None
             canonical_scheme_name = None
             scheme_code = None
             isin = None
@@ -611,6 +619,7 @@ def parse_cas_file(file_obj: BinaryIO) -> list[dict]:
             "category": category,
             "asset_class": broad_asset_class,
             "scheme_identity_verified": scheme_identity_verified,
+            "scheme_identity_source": scheme_identity_source,
             "category_verified": category_verified,
             "portfolio_exposure_verified": portfolio_exposure_verified,
             "verified_debt_pct": verified_debt_pct,
@@ -618,6 +627,7 @@ def parse_cas_file(file_obj: BinaryIO) -> list[dict]:
             "exposure_as_of": exposure_as_of,
             "plan_type": plan_type,
             "option_type": option_type,
+            "heuristic_display_allocations": alloc,
             "eq": alloc["eq"],
             "debt": alloc["debt"],
             "lc": alloc["lc"],

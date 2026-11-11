@@ -790,6 +790,8 @@ def test_dynamic_flexi_selection_when_client_has_no_flexi_fund():
             "plan_type": "Direct",
             "current_value": 400000.0,
             "folio_no": "1111/01",
+            "source": "existing",
+            "validation": "valid",
         },
         {
             "scheme": "HDFC Liquid Fund - Direct Plan - Growth",
@@ -797,6 +799,8 @@ def test_dynamic_flexi_selection_when_client_has_no_flexi_fund():
             "plan_type": "Direct",
             "current_value": 100000.0,
             "folio_no": "2222/02",
+            "source": "existing",
+            "validation": "valid",
         },
     ]
 

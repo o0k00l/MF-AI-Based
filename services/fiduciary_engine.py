@@ -423,21 +423,34 @@ def convert_cas_funds_to_holdings(funds: List[Dict[str, Any]]) -> List[HoldingIt
         units = Decimal(str(f.get("units", 0.0))).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
         nav = Decimal(str(f.get("nav", 0.0))).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
 
-        cat = str(f.get("category", "Equity")).upper()
-        if "DEBT" in cat or "LIQUID" in cat or "INCOME" in cat:
-            ac = AssetClass.DEBT
-        elif "HYBRID" in cat or "BALANCED" in cat:
-            ac = AssetClass.HYBRID
-        elif "INTERNATIONAL" in cat or "OVERSEAS" in cat:
-            ac = AssetClass.INTERNATIONAL
+        cat_raw = f.get("category")
+        if not cat_raw:
+            ac = AssetClass.OTHER
+            eq_pct = 0.0
+            debt_pct = 0.0
         else:
-            ac = AssetClass.EQUITY
+            cat = str(cat_raw).strip().upper()
+            if "DEBT" in cat or "LIQUID" in cat or "INCOME" in cat:
+                ac = AssetClass.DEBT
+            elif "HYBRID" in cat or "BALANCED" in cat:
+                ac = AssetClass.HYBRID
+            elif "INTERNATIONAL" in cat or "OVERSEAS" in cat:
+                ac = AssetClass.INTERNATIONAL
+            elif any(kw in cat for kw in ("EQUITY", "CAP", "INDEX", "THEMATIC", "SECTORAL", "ELSS")):
+                ac = AssetClass.EQUITY
+            else:
+                ac = AssetClass.OTHER
+
+            if ac == AssetClass.OTHER:
+                eq_pct = 0.0
+                debt_pct = 0.0
+            else:
+                eq_pct = float(f.get("eq", 100.0 if ac == AssetClass.EQUITY else (0.0 if ac == AssetClass.DEBT else 65.0)))
+                debt_pct = float(f.get("debt", 0.0 if ac == AssetClass.EQUITY else (100.0 if ac == AssetClass.DEBT else 35.0)))
 
         plan_str = str(f.get("plan_type", "Direct")).upper()
         plan = PlanType.REGULAR if "REGULAR" in plan_str else PlanType.DIRECT
 
-        eq_pct = float(f.get("eq", 100.0 if ac == AssetClass.EQUITY else (0.0 if ac == AssetClass.DEBT else 65.0)))
-        debt_pct = float(f.get("debt", 0.0 if ac == AssetClass.EQUITY else (100.0 if ac == AssetClass.DEBT else 35.0)))
         # Gold is a stability asset (like debt) - include it in debt_pct for SAA drift calculation
         gold_pct = float(f.get("gold", 0.0))
         # Adjust debt_pct to include gold for proper SAA drift analysis
@@ -732,7 +745,7 @@ def generate_fiduciary_sip_blueprint(
             f for f in funds
             if isinstance(f, dict)
             and float(f.get("current_value", 0) or 0) > 0.001
-            and f.get("validation", "valid") == "valid"
+            and f.get("validation") == "valid"
         ]
         if valid_holdings:
             total_value = sum(float(f["current_value"]) for f in valid_holdings)
@@ -743,48 +756,75 @@ def generate_fiduciary_sip_blueprint(
             for f in valid_holdings:
                 c_val = float(f["current_value"])
                 raw_debt = None
-                if f.get("verified_debt_pct") is not None:
+                s_name = str(f.get("scheme", "Unknown Scheme"))
+
+                # 1. Check for malformed, non-finite, or unparseable values on any provided debt field
+                for k in ("verified_debt_pct", "debt", "debt_pct", "portfolio_debt_pct"):
+                    if k in f and f[k] is not None:
+                        try:
+                            val_check = float(f[k])
+                            if math.isnan(val_check) or math.isinf(val_check) or val_check < 0.0 or val_check > 100.0:
+                                raw_debt = val_check
+                                break
+                        except (ValueError, TypeError):
+                            raw_debt = f[k]
+                            break
+
+                if raw_debt is not None:
+                    # Found malformed or unparseable debt field directly on holding
+                    pass
+                elif (
+                    f.get("portfolio_exposure_verified") is True
+                    and f.get("exposure_source")
+                    and f.get("exposure_as_of")
+                    and f.get("verified_debt_pct") is not None
+                ):
                     raw_debt = f.get("verified_debt_pct")
-                elif f.get("debt") is not None:
-                    raw_debt = f.get("debt")
-                elif f.get("debt_pct") is not None:
-                    raw_debt = f.get("debt_pct")
-                elif f.get("portfolio_debt_pct") is not None:
-                    raw_debt = f.get("portfolio_debt_pct")
-                else:
-                    # Resolve from authoritative scheme master
+                elif "debt" not in f and "debt_pct" not in f and "verified_debt_pct" not in f:
+                    # 2. Try resolving via authoritative scheme master only if holding didn't supply unverified debt fields
                     try:
                         from services.cas_parser import resolve_authoritative_scheme
-                        m_entry = resolve_authoritative_scheme(str(f.get("scheme", "")))
+                        m_entry = resolve_authoritative_scheme(s_name)
                         if m_entry is not None:
-                            raw_debt = m_entry.get("portfolio_debt_pct") if m_entry.get("portfolio_debt_pct") is not None else m_entry.get("debt")
+                            m_as_of = m_entry.get("as_of")
+                            m_debt = (
+                                m_entry.get("portfolio_debt_pct")
+                                if m_entry.get("portfolio_debt_pct") is not None
+                                else m_entry.get("debt")
+                            )
+                            if m_as_of and m_debt is not None:
+                                raw_debt = m_debt
                     except Exception:
                         pass
 
-                # If still None, pure debt category has 100% debt statutory floor
+                # 3. Pure statutory debt categories have 100% debt statutory floor
                 if raw_debt is None:
-                    cat_lower = str(f.get("category", "")).lower()
-                    if cat_lower in ["debt", "liquid", "money market", "overnight", "arbitrage", "gilt"]:
+                    cat_lower = str(f.get("category", "")).strip().lower()
+                    if cat_lower in ["debt", "liquid", "money market", "overnight", "gilt", "income"]:
                         raw_debt = 100.0
 
+                # 4. If raw_debt is still None, reject generic unverified debt/debt_pct fields
                 if raw_debt is None:
                     debt_exposure_indeterminate = True
-                    s_name = f.get("scheme", "Unknown Scheme")
-                    indeterminate_reasons.append(f"Holding '{s_name}' lacks verified factsheet debt look-through")
+                    indeterminate_reasons.append(
+                        f"Holding '{s_name}' lacks verified factsheet debt look-through"
+                    )
                     break
 
                 try:
                     f_debt_pct = float(raw_debt)
                     if math.isnan(f_debt_pct) or math.isinf(f_debt_pct) or f_debt_pct < 0.0 or f_debt_pct > 100.0:
                         debt_exposure_indeterminate = True
-                        s_name = f.get("scheme", "Unknown Scheme")
-                        indeterminate_reasons.append(f"Holding '{s_name}' has non-finite or out-of-bounds debt value: {raw_debt}")
+                        indeterminate_reasons.append(
+                            f"Holding '{s_name}' has non-finite or out-of-bounds debt value: {raw_debt}"
+                        )
                         break
                     debt_value += c_val * (f_debt_pct / 100.0)
                 except (ValueError, TypeError):
                     debt_exposure_indeterminate = True
-                    s_name = f.get("scheme", "Unknown Scheme")
-                    indeterminate_reasons.append(f"Holding '{s_name}' has unparseable debt exposure: {raw_debt}")
+                    indeterminate_reasons.append(
+                        f"Holding '{s_name}' has unparseable debt exposure: {raw_debt}"
+                    )
                     break
 
             if debt_exposure_indeterminate:
@@ -792,6 +832,7 @@ def generate_fiduciary_sip_blueprint(
                 stability_override_reason = "Debt exposure indeterminate: " + "; ".join(indeterminate_reasons)
             else:
                 current_debt_pct = Decimal(str(round((debt_value / total_value) * 100.0, 4)))
+                original_db_pct = db_pct
                 if current_debt_pct >= db_pct:
                     debt_to_add = db_pct
                     total_equity_pct = lc_pct + ms_pct + flexi_pct
@@ -805,13 +846,13 @@ def generate_fiduciary_sip_blueprint(
                     stability_override_applied = True
                     stability_override_status = "APPLIED"
                     stability_override_reason = (
-                        f"Current verified look-through debt ({current_debt_pct:.2f}%) >= target ({db_pct:.2f}%). "
+                        f"Current verified look-through debt ({current_debt_pct:.2f}%) >= target ({original_db_pct:.2f}%). "
                         f"Redirected SIP debt inflows to equity sleeves."
                     )
                 else:
                     stability_override_status = "BELOW_TARGET"
                     stability_override_reason = (
-                        f"Current verified look-through debt ({current_debt_pct:.2f}%) < target ({db_pct:.2f}%). "
+                        f"Current verified look-through debt ({current_debt_pct:.2f}%) < target ({original_db_pct:.2f}%). "
                         f"Maintaining SIP debt buffer inflows."
                     )
 
