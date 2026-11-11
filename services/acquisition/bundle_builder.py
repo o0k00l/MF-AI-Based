@@ -66,6 +66,10 @@ class EvidenceBundleBuilder:
         reviewer_attested: bool = False,
         reviewer_approval_envelope: Optional[Dict[str, Any]] = None,
         reviewer_trust_registry: Optional[Dict[str, Any]] = None,
+        expected_commit_sha: Optional[str] = None,
+        expected_policy_digest: Optional[str] = None,
+        require_commit_binding: bool = False,
+        require_policy_binding: bool = False,
     ) -> Path:
         """
         Build an evidence bundle in a staging directory, verify its integrity,
@@ -82,6 +86,10 @@ class EvidenceBundleBuilder:
             envelope=reviewer_approval_envelope,
             trust_registry=reviewer_trust_registry,
             expected_scope="SIP_EVIDENCE_RELEASE",
+            expected_commit_sha=expected_commit_sha,
+            expected_policy_digest=expected_policy_digest,
+            require_commit_binding=require_commit_binding,
+            require_policy_binding=require_policy_binding,
         )
         if not approval_res.ok:
             raise ValueError(f"Independent reviewer approval verification failed: {'; '.join(approval_res.errors)}")
@@ -263,6 +271,10 @@ class EvidenceBundleBuilder:
             if reviewer_envelope_manifest and reviewer_registry_manifest:
                 manifest["reviewer_approval_envelope_file"] = reviewer_envelope_manifest
                 manifest["reviewer_trust_registry_file"] = reviewer_registry_manifest
+            if expected_commit_sha is not None:
+                manifest["commit_sha"] = expected_commit_sha
+            if expected_policy_digest is not None:
+                manifest["policy_digest"] = expected_policy_digest
 
             self._write_json(staging_dir / "manifest.json", manifest)
 

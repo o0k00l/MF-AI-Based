@@ -145,6 +145,11 @@ def verify_sip_reviewer_approval(
     expected_source_sha256: Optional[str] = None,
     structured_records: Optional[Any] = None,
     expected_scheme_id: Optional[str] = None,
+    expected_commit_sha: Optional[str] = None,
+    expected_policy_digest: Optional[str] = None,
+    expected_artifact_digest: Optional[str] = None,
+    require_commit_binding: bool = False,
+    require_policy_binding: bool = False,
     repository: str = "o0k00l/MF-AI-Based",
     now: Optional[datetime] = None,
 ) -> ApprovalResult:
@@ -318,6 +323,37 @@ def verify_sip_reviewer_approval(
         if payload_scheme_id != expected_scheme_id:
             errors.append(f"Scheme ID mismatch: expected {expected_scheme_id}, got {payload_scheme_id}")
 
+    # 6b. Check commit_sha binding
+    commit_sha = payload.get("commit_sha")
+    if commit_sha is not None:
+        if not isinstance(commit_sha, str) or not COMMIT_RE.fullmatch(commit_sha.lower()):
+            errors.append("Invalid commit_sha in approval payload: must be a 40-character hex string")
+        elif expected_commit_sha is not None:
+            if commit_sha.lower() != expected_commit_sha.lower():
+                errors.append(f"Commit SHA mismatch: expected {expected_commit_sha}, got {commit_sha}")
+    elif require_commit_binding:
+        errors.append("Approval payload is missing required commit_sha binding")
+
+    # 6c. Check policy_digest binding
+    policy_digest = payload.get("policy_digest") or payload.get("policy_sha256")
+    if policy_digest is not None:
+        if not isinstance(policy_digest, str) or not SHA256_RE.fullmatch(policy_digest.lower()):
+            errors.append("Invalid policy_digest in approval payload: must be a 64-character hex SHA-256")
+        elif expected_policy_digest is not None:
+            if policy_digest.lower() != expected_policy_digest.lower():
+                errors.append(f"Policy digest mismatch: expected {expected_policy_digest}, got {policy_digest}")
+    elif require_policy_binding:
+        errors.append("Approval payload is missing required policy_digest binding")
+
+    # 6d. Check artifact_digest / bundle_sha256 binding
+    art_digest = payload.get("artifact_digest") or payload.get("bundle_sha256")
+    if art_digest is not None:
+        if not isinstance(art_digest, str) or not SHA256_RE.fullmatch(art_digest.lower()):
+            errors.append("Invalid artifact_digest in approval payload: must be a 64-character hex SHA-256")
+        elif expected_artifact_digest is not None:
+            if art_digest.lower() != expected_artifact_digest.lower():
+                errors.append(f"Artifact digest mismatch: expected {expected_artifact_digest}, got {art_digest}")
+
     # 7. Cryptographic Ed25519 signature verification
     try:
         pub_bytes = _b64url_decode(key_entry.get("public_key"), 32)
@@ -359,6 +395,9 @@ def create_sip_reviewer_approval_envelope(
     structured_records: Any,
     scheme_id: Optional[str] = None,
     source_url: Optional[str] = None,
+    commit_sha: Optional[str] = None,
+    policy_digest: Optional[str] = None,
+    artifact_digest: Optional[str] = None,
     repository: str = "o0k00l/MF-AI-Based",
     issued_at: Optional[datetime] = None,
     expires_at: Optional[datetime] = None,
@@ -392,6 +431,18 @@ def create_sip_reviewer_approval_envelope(
         payload["scheme_id"] = scheme_id
     if source_url is not None:
         payload["source_url"] = source_url
+    if commit_sha is not None:
+        if not COMMIT_RE.fullmatch(commit_sha.lower()):
+            raise ValueError(f"commit_sha must be a 40-character hex string, got {commit_sha!r}")
+        payload["commit_sha"] = commit_sha.lower()
+    if policy_digest is not None:
+        if not SHA256_RE.fullmatch(policy_digest.lower()):
+            raise ValueError(f"policy_digest must be a 64-character hex SHA-256, got {policy_digest!r}")
+        payload["policy_digest"] = policy_digest.lower()
+    if artifact_digest is not None:
+        if not SHA256_RE.fullmatch(artifact_digest.lower()):
+            raise ValueError(f"artifact_digest must be a 64-character hex SHA-256, got {artifact_digest!r}")
+        payload["artifact_digest"] = artifact_digest.lower()
 
     canonical_bytes = canonical_jcs(payload)
     signature_bytes = private_key.sign(canonical_bytes)

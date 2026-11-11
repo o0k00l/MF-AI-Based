@@ -46,11 +46,33 @@ def create_sip_app(
     else:
         auth_enabled = require_auth
 
+    import time
+    tenant_request_counts: dict[str, list[float]] = {}
+
     app = FastAPI(
         title="Mutual Fund SIP Decision Support API",
         version="1.0.0",
         description="Read-only SIP analysis. No orders or execution are supported.",
     )
+
+    @app.middleware("http")
+    async def add_security_headers(request, call_next):
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+        return response
+
+    @app.get("/v1/deployment/status")
+    def deployment_status() -> dict[str, Any]:
+        env_mode = os.environ.get("MF_DEPLOYMENT_ENVIRONMENT", "production").lower()
+        return {
+            "deployment_environment": env_mode,
+            "auth_enforced": auth_enabled,
+            "quota_management_active": api_key_registry is not None,
+            "evidence_configured": evidence_provider is not None,
+            "reviewer_registry_configured": reviewer_trust_registry is not None,
+        }
 
     @app.get("/health")
     def health() -> dict[str, str]:
@@ -132,6 +154,7 @@ def create_sip_app(
                         "reasons": ["Invalid or revoked API key."],
                     })
                 key_info = api_key_registry[token]
+                tenant_id = key_info.get("tenant_id", token)
                 allowed_clients = key_info.get("authorized_client_ids", [])
                 if x_client_id and allowed_clients and x_client_id not in allowed_clients:
                     return JSONResponse(status_code=403, content={
@@ -139,6 +162,20 @@ def create_sip_app(
                         "decision": "NO_ACTION",
                         "reasons": [f"Forbidden: Client ID '{x_client_id}' is not within the authorized scope of this credential."],
                     })
+                # Tenant Quota & Rate Limit Enforcement
+                rate_limit = key_info.get("rate_limit_per_minute", 60)
+                now_ts = time.time()
+                window = 60.0
+                timestamps = tenant_request_counts.setdefault(tenant_id, [])
+                tenant_request_counts[tenant_id] = [t for t in timestamps if now_ts - t < window]
+                if len(tenant_request_counts[tenant_id]) >= rate_limit:
+                    return JSONResponse(status_code=429, content={
+                        "status": "HOLD",
+                        "decision": "NO_ACTION",
+                        "reasons": [f"Tenant quota exceeded: rate limit of {rate_limit} requests/minute reached."],
+                        "retry_after_seconds": int(window - (now_ts - tenant_request_counts[tenant_id][0])) + 1,
+                    })
+                tenant_request_counts[tenant_id].append(now_ts)
         if not math.isfinite(monthly_budget_inr) or monthly_budget_inr <= 0:
             return JSONResponse(status_code=422, content={
                 "status": "HOLD",
@@ -146,13 +183,12 @@ def create_sip_app(
                 "reasons": ["Monthly SIP budget must be finite and greater than zero."],
                 "unallocated_budget_inr": monthly_budget_inr if math.isfinite(monthly_budget_inr) else None,
             })
-        if risk_profile not in {"Conservative", "Moderate", "Aggressive"}:
+        if risk_profile not in {"Conservative", "Moderate", "Aggressive", "Custom"}:
             return JSONResponse(status_code=422, content={
                 "status": "HOLD",
                 "decision": "NO_ACTION",
                 "reasons": [
-                    "This SIP endpoint currently supports Conservative, Moderate and Aggressive profiles only.",
-                    "Custom SAA is not implemented at the API-to-engine boundary; no allocation has been calculated.",
+                    "This SIP endpoint currently supports Conservative, Moderate, Aggressive and Custom profiles only.",
                 ],
                 "unallocated_budget_inr": monthly_budget_inr,
             })
@@ -180,6 +216,33 @@ def create_sip_app(
                 return JSONResponse(status_code=422, content={
                     "status": "HOLD", "decision": "NO_ACTION",
                     "reasons": ["Portfolio context must be a valid JSON object."],
+                    "unallocated_budget_inr": monthly_budget_inr,
+                })
+
+        custom_saa_target_obj = None
+        if risk_profile == "Custom":
+            target_data = None
+            if portfolio_context and isinstance(portfolio_context, dict):
+                target_data = portfolio_context.get("custom_saa_target")
+            if not target_data:
+                return JSONResponse(status_code=422, content={
+                    "status": "HOLD",
+                    "decision": "NO_ACTION",
+                    "reasons": [
+                        "Custom SAA is not implemented without a reviewed client IPS mandate; valid custom_saa_target is required in portfolio context.",
+                    ],
+                    "unallocated_budget_inr": monthly_budget_inr,
+                })
+            from core.models import AssetAllocationTarget
+            try:
+                custom_saa_target_obj = AssetAllocationTarget(**target_data)
+            except Exception as exc:
+                return JSONResponse(status_code=422, content={
+                    "status": "HOLD",
+                    "decision": "NO_ACTION",
+                    "reasons": [
+                        f"Invalid custom_saa_target schema: {exc}",
+                    ],
                     "unallocated_budget_inr": monthly_budget_inr,
                 })
 
@@ -283,6 +346,8 @@ def create_sip_app(
                     # but cannot attest source authenticity or perimeter completeness.
                     portfolio_context["_client_supplied_unverified"] = True
                     service_inputs["portfolio_context"] = portfolio_context
+                if custom_saa_target_obj is not None:
+                    service_inputs["custom_saa_target"] = custom_saa_target_obj
                 result = recommend_sip(**service_inputs)
             except Exception as exc:
                 # Do not expose exception text, local paths, source records or

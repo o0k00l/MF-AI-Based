@@ -4691,7 +4691,7 @@ def select_autonomous_blueprint_funds(
         if not isinstance(candidate, dict):
             raise ValueError(f"Candidate row {row_index} must be an object")
         fund_id = candidate.get("fund_id") or candidate.get("id")
-        fund_name = candidate.get("fund_name") or candidate.get("name")
+        fund_name = candidate.get("fund_name") or candidate.get("name") or candidate.get("scheme_name")
         if not isinstance(fund_id, str) or not fund_id.strip():
             raise ValueError(f"Candidate row {row_index} is missing a stable fund_id")
         if fund_id in seen_ids:

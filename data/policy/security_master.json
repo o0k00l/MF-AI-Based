@@ -10,7 +10,10 @@
       "isin": "INE002A01018",
       "sector": "Energy",
       "market_cap_bucket": "Large Cap",
-      "themes": ["Diversified", "Energy"]
+      "themes": [
+        "Diversified",
+        "Energy"
+      ]
     },
     "RELIANCE": {
       "canonical_id": "RELIANCE",
@@ -18,7 +21,10 @@
       "isin": "INE002A01018",
       "sector": "Energy",
       "market_cap_bucket": "Large Cap",
-      "themes": ["Diversified", "Energy"]
+      "themes": [
+        "Diversified",
+        "Energy"
+      ]
     },
     "RELIANCE IND": {
       "canonical_id": "RELIANCE",
@@ -26,7 +32,10 @@
       "isin": "INE002A01018",
       "sector": "Energy",
       "market_cap_bucket": "Large Cap",
-      "themes": ["Diversified", "Energy"]
+      "themes": [
+        "Diversified",
+        "Energy"
+      ]
     },
     "RELIANCE LIMITED": {
       "canonical_id": "RELIANCE",
@@ -34,7 +43,10 @@
       "isin": "INE002A01018",
       "sector": "Energy",
       "market_cap_bucket": "Large Cap",
-      "themes": ["Diversified", "Energy"]
+      "themes": [
+        "Diversified",
+        "Energy"
+      ]
     },
     "INE009A01021": {
       "canonical_id": "INFY",
@@ -42,7 +54,10 @@
       "isin": "INE009A01021",
       "sector": "Technology",
       "market_cap_bucket": "Large Cap",
-      "themes": ["Technology", "IT Services"]
+      "themes": [
+        "Technology",
+        "IT Services"
+      ]
     },
     "INFY": {
       "canonical_id": "INFY",
@@ -50,7 +65,10 @@
       "isin": "INE009A01021",
       "sector": "Technology",
       "market_cap_bucket": "Large Cap",
-      "themes": ["Technology", "IT Services"]
+      "themes": [
+        "Technology",
+        "IT Services"
+      ]
     },
     "INFOSYS": {
       "canonical_id": "INFY",
@@ -58,7 +76,10 @@
       "isin": "INE009A01021",
       "sector": "Technology",
       "market_cap_bucket": "Large Cap",
-      "themes": ["Technology", "IT Services"]
+      "themes": [
+        "Technology",
+        "IT Services"
+      ]
     },
     "INE040A01034": {
       "canonical_id": "HDFCBANK",
@@ -66,7 +87,10 @@
       "isin": "INE040A01034",
       "sector": "Financial Services",
       "market_cap_bucket": "Large Cap",
-      "themes": ["Banking", "Private Banks"]
+      "themes": [
+        "Banking",
+        "Private Banks"
+      ]
     },
     "HDFCBANK": {
       "canonical_id": "HDFCBANK",
@@ -74,7 +98,10 @@
       "isin": "INE040A01034",
       "sector": "Financial Services",
       "market_cap_bucket": "Large Cap",
-      "themes": ["Banking", "Private Banks"]
+      "themes": [
+        "Banking",
+        "Private Banks"
+      ]
     },
     "HDFC BANK": {
       "canonical_id": "HDFCBANK",
@@ -82,7 +109,10 @@
       "isin": "INE040A01034",
       "sector": "Financial Services",
       "market_cap_bucket": "Large Cap",
-      "themes": ["Banking", "Private Banks"]
+      "themes": [
+        "Banking",
+        "Private Banks"
+      ]
     },
     "INE467B01029": {
       "canonical_id": "TCS",
@@ -90,7 +120,10 @@
       "isin": "INE467B01029",
       "sector": "Technology",
       "market_cap_bucket": "Large Cap",
-      "themes": ["Technology", "IT Services"]
+      "themes": [
+        "Technology",
+        "IT Services"
+      ]
     },
     "TCS": {
       "canonical_id": "TCS",
@@ -98,7 +131,10 @@
       "isin": "INE467B01029",
       "sector": "Technology",
       "market_cap_bucket": "Large Cap",
-      "themes": ["Technology", "IT Services"]
+      "themes": [
+        "Technology",
+        "IT Services"
+      ]
     },
     "INE018A01030": {
       "canonical_id": "LT",
@@ -106,7 +142,10 @@
       "isin": "INE018A01030",
       "sector": "Industrials",
       "market_cap_bucket": "Large Cap",
-      "themes": ["Infrastructure", "Capital Goods"]
+      "themes": [
+        "Infrastructure",
+        "Capital Goods"
+      ]
     },
     "LT": {
       "canonical_id": "LT",
@@ -114,7 +153,10 @@
       "isin": "INE018A01030",
       "sector": "Industrials",
       "market_cap_bucket": "Large Cap",
-      "themes": ["Infrastructure", "Capital Goods"]
+      "themes": [
+        "Infrastructure",
+        "Capital Goods"
+      ]
     },
     "INE090A01021": {
       "canonical_id": "ICICIBANK",
@@ -122,7 +164,10 @@
       "isin": "INE090A01021",
       "sector": "Financial Services",
       "market_cap_bucket": "Large Cap",
-      "themes": ["Banking", "Private Banks"]
+      "themes": [
+        "Banking",
+        "Private Banks"
+      ]
     },
     "ICICIBANK": {
       "canonical_id": "ICICIBANK",
@@ -130,7 +175,45 @@
       "isin": "INE090A01021",
       "sector": "Financial Services",
       "market_cap_bucket": "Large Cap",
-      "themes": ["Banking", "Private Banks"]
+      "themes": [
+        "Banking",
+        "Private Banks"
+      ]
     }
+  },
+  "corporate_actions": {
+    "HDFC": {
+      "action": "MERGER",
+      "successor_canonical_id": "HDFCBANK",
+      "effective_date": "2023-07-01",
+      "notes": "HDFC Ltd merged into HDFC Bank"
+    },
+    "HDFC LTD": {
+      "action": "MERGER",
+      "successor_canonical_id": "HDFCBANK",
+      "effective_date": "2023-07-01"
+    },
+    "HDFC LIMITED": {
+      "action": "MERGER",
+      "successor_canonical_id": "HDFCBANK",
+      "effective_date": "2023-07-01"
+    },
+    "HOUSING DEVELOPMENT FINANCE CORP": {
+      "action": "MERGER",
+      "successor_canonical_id": "HDFCBANK",
+      "effective_date": "2023-07-01"
+    }
+  },
+  "amc_aliases": {
+    "L AND T": "LT",
+    "LARSEN AND TOUBRO": "LT",
+    "LARSEN & TOUBRO": "LT",
+    "TATA CONSULTANCY SERVICES": "TCS",
+    "RELIANCE IND": "RELIANCE",
+    "RELIANCE INDUSTRIES": "RELIANCE",
+    "RIL": "RELIANCE",
+    "ICICI BK": "ICICIBANK",
+    "HDFC BK": "HDFCBANK"
   }
 }
+

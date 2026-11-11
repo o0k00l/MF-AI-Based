@@ -19,15 +19,23 @@ _LEGAL_SUFFIXES = re.compile(
     re.IGNORECASE,
 )
 _PUNCTUATION = re.compile(r"[^A-Za-z0-9\s]")
+_CORPORATE_ACTION_ANNOTATIONS = re.compile(
+    r"(\((?:MERGED|AMALGAMATED|BONUS|SPLIT)[^)]*\)|-\s*(?:PP|PARTLY\s+PAID|DVR|RE|RIGHTS|EQ)|\b(?:PP|PARTLY\s+PAID|DVR|EQUITY)\b)",
+    re.IGNORECASE,
+)
 
 
 def canonicalize_security_label(label: str) -> str:
     """
     Produce a deterministic base string representation of a security or issuer label.
+    Handles punctuation, corporate action parentheticals, and legal entity suffixes.
     """
     if not isinstance(label, str):
         return ""
     text = label.strip().upper()
+    text = _CORPORATE_ACTION_ANNOTATIONS.sub(" ", text)
+    # Convert & to AND before punctuation stripping
+    text = re.sub(r"\s*&\s*", " AND ", text)
     text = _PUNCTUATION.sub(" ", text)
     text = _LEGAL_SUFFIXES.sub("", text)
     # Collapse consecutive whitespace
@@ -96,6 +104,25 @@ def normalize_security_identifier(
     # Unwrap if wrapped in {"securities": {...}}
     master_dict = security_master.get("securities", security_master) if isinstance(security_master, Mapping) else security_master
 
+    # 0a. Check corporate_actions dictionary (e.g. Mergers, Spinoffs)
+    corporate_actions = security_master.get("corporate_actions", {}) if isinstance(security_master, Mapping) else {}
+    for key in (raw, raw.upper(), canon_base):
+        if key in corporate_actions:
+            ca = corporate_actions[key]
+            successor = ca.get("successor_canonical_id", ca.get("canonical_id", ca)) if isinstance(ca, dict) else str(ca)
+            return successor, True
+
+    # 0b. Check cross-AMC aliases dictionary
+    amc_aliases = security_master.get("amc_aliases", {}) if isinstance(security_master, Mapping) else {}
+    for key in (raw, raw.upper(), canon_base):
+        if key in amc_aliases:
+            alias_target = amc_aliases[key]
+            if alias_target in master_dict:
+                resolved = master_dict[alias_target]
+                canonical_id = resolved.get("canonical_id", alias_target) if isinstance(resolved, dict) else str(resolved)
+                return canonical_id, True
+            return alias_target, True
+
     # 1. Exact match in security_master
     if raw in master_dict:
         resolved = master_dict[raw]
@@ -109,21 +136,32 @@ def normalize_security_identifier(
         canonical_id = resolved.get("canonical_id", raw_upper) if isinstance(resolved, dict) else str(resolved)
         return canonical_id, True
 
-    # 3. Canonicalized base match
+    # 3. Canonicalized base match (with and without whitespace collapsing)
     if canon_base in master_dict:
         resolved = master_dict[canon_base]
         canonical_id = resolved.get("canonical_id", canon_base) if isinstance(resolved, dict) else str(resolved)
         return canonical_id, True
 
-    # 4. Alias resolution: scan all securities for aliases matching the identifier
+    canon_nospace = canon_base.replace(" ", "")
+    if canon_nospace in master_dict:
+        resolved = master_dict[canon_nospace]
+        canonical_id = resolved.get("canonical_id", canon_nospace) if isinstance(resolved, dict) else str(resolved)
+        return canonical_id, True
+
+    # 4. Alias resolution: scan all securities for aliases or ISIN matching the identifier
     if isinstance(master_dict, Mapping):
         for security_id, security_info in master_dict.items():
             if isinstance(security_info, dict):
                 aliases = security_info.get("aliases", [])
                 if isinstance(aliases, list):
-                    if raw_upper in [str(a).strip().upper() for a in aliases]:
+                    clean_aliases = [str(a).strip().upper() for a in aliases]
+                    if raw_upper in clean_aliases or canon_base in clean_aliases:
                         canonical_id = security_info.get("canonical_id", security_id)
                         return canonical_id, True
+                isin = str(security_info.get("isin", "")).strip().upper()
+                if isin and (raw_upper == isin or canon_base == isin):
+                    canonical_id = security_info.get("canonical_id", security_id)
+                    return canonical_id, True
 
     if strict:
         raise ValueError(f"Unresolved security identifier: {raw!r}")

@@ -134,6 +134,10 @@ class EngineBootstrapPipeline:
         reviewer_attested: bool = False,
         reviewer_approval_envelope: Optional[Dict[str, Any]] = None,
         reviewer_trust_registry: Optional[Dict[str, Any]] = None,
+        expected_commit_sha: Optional[str] = None,
+        expected_policy_digest: Optional[str] = None,
+        require_commit_binding: bool = False,
+        require_policy_binding: bool = False,
     ) -> ValidationReport:
         """
         Builds and validates an unpromoted staging bundle.
@@ -159,6 +163,10 @@ class EngineBootstrapPipeline:
                     envelope=reviewer_approval_envelope,
                     trust_registry=reviewer_trust_registry,
                     expected_scope="SIP_EVIDENCE_RELEASE",
+                    expected_commit_sha=expected_commit_sha,
+                    expected_policy_digest=expected_policy_digest,
+                    require_commit_binding=require_commit_binding,
+                    require_policy_binding=require_policy_binding,
                 )
                 if verification.ok:
                     gates.append(GateReport(
@@ -403,6 +411,68 @@ class EngineBootstrapPipeline:
             unpromoted_reason=unpromoted,
         )
 
+
+    def bootstrap_staging_bundle(
+        self,
+        staging_dir: Path,
+        as_of: date,
+        *,
+        reviewer_approval_envelope: Optional[Dict[str, Any]] = None,
+        reviewer_trust_registry: Optional[Dict[str, Any]] = None,
+        expected_commit_sha: Optional[str] = None,
+        expected_policy_digest: Optional[str] = None,
+        require_commit_binding: bool = False,
+        require_policy_binding: bool = False,
+        metrics_source_url: Optional[str] = None,
+        universe_source_url: Optional[str] = None,
+        master_source_url: Optional[str] = None,
+        nav_source_url: Optional[str] = None,
+        hermetic_inputs: Optional[Dict[str, Any]] = None,
+    ) -> ValidationReport:
+        """
+        Autonomously orchestrates data acquisition, validates quality gates,
+        and constructs a staging bundle without requiring caller manual staging.
+        """
+        inputs = dict(hermetic_inputs or {})
+
+        # Acquire Scheme Master if not supplied
+        if "scheme_master" not in inputs:
+            try:
+                rec = self.scheme_master_adapter.acquire(as_of)
+                inputs["scheme_master"] = rec.source_bytes
+            except Exception:
+                pass
+
+        # Acquire Daily NAV if not supplied
+        if "daily_nav" not in inputs:
+            try:
+                rec = self.nav_adapter.acquire(as_of)
+                inputs["daily_nav"] = rec.source_bytes
+            except Exception:
+                pass
+
+        # Acquire metrics if URL supplied and not in inputs
+        if "metrics" not in inputs and metrics_source_url:
+            try:
+                raw_m = self.nav_adapter._fetch_url(metrics_source_url)
+                inputs["metrics"] = raw_m
+                inputs["metrics_json"] = raw_m
+            except Exception:
+                pass
+
+        return self.build_staging_bundle(
+            staging_dir=staging_dir,
+            as_of=as_of,
+            hermetic_inputs=inputs,
+            reviewer_attested=reviewer_approval_envelope is not None,
+            reviewer_approval_envelope=reviewer_approval_envelope,
+            reviewer_trust_registry=reviewer_trust_registry,
+            expected_commit_sha=expected_commit_sha,
+            expected_policy_digest=expected_policy_digest,
+            require_commit_binding=require_commit_binding,
+            require_policy_binding=require_policy_binding,
+        )
+
     def promote(
         self,
         staging_bundle_dir: Path,
@@ -410,6 +480,10 @@ class EngineBootstrapPipeline:
         *,
         reviewer_approval_envelope: Dict[str, Any],
         reviewer_trust_registry: Dict[str, Any],
+        expected_commit_sha: Optional[str] = None,
+        expected_policy_digest: Optional[str] = None,
+        require_commit_binding: bool = False,
+        require_policy_binding: bool = False,
     ) -> Dict[str, Any]:
         """
         Executes atomic promotion of verified bundle after verifying detached Ed25519 reviewer approval.
@@ -425,11 +499,20 @@ class EngineBootstrapPipeline:
         if not staging_path.is_dir():
             raise ValueError(f"Staging bundle directory does not exist: {staging_path}")
 
+        # bundle_digest already computed above
+
         # Cryptographic verification of detached reviewer approval
+        payload_env = reviewer_approval_envelope.get("payload", {}) if isinstance(reviewer_approval_envelope, dict) else {}
+        expected_art = bundle_digest if payload_env.get("artifact_digest") or payload_env.get("bundle_sha256") else None
         verification = verify_sip_reviewer_approval(
             envelope=reviewer_approval_envelope,
             trust_registry=reviewer_trust_registry,
             expected_scope="SIP_EVIDENCE_RELEASE",
+            expected_commit_sha=expected_commit_sha,
+            expected_policy_digest=expected_policy_digest,
+            expected_artifact_digest=expected_art,
+            require_commit_binding=require_commit_binding,
+            require_policy_binding=require_policy_binding,
         )
         if not verification.ok:
             raise ValueError(

@@ -55,6 +55,10 @@ class FinancialDataRefreshPipeline:
         metrics_source_url: Optional[str] = None,
         universe_source_url: Optional[str] = None,
         require_reviewer_signature: bool = True,
+        expected_commit_sha: Optional[str] = None,
+        expected_policy_digest: Optional[str] = None,
+        require_commit_binding: bool = False,
+        require_policy_binding: bool = False,
     ) -> RefreshResult:
         """
         Execute an end-to-end financial data acquisition and bundle refresh.
@@ -111,6 +115,10 @@ class FinancialDataRefreshPipeline:
             envelope=reviewer_approval_envelope,
             trust_registry=reviewer_trust_registry,
             expected_scope="SIP_EVIDENCE_RELEASE",
+            expected_commit_sha=expected_commit_sha,
+            expected_policy_digest=expected_policy_digest,
+            require_commit_binding=require_commit_binding,
+            require_policy_binding=require_policy_binding,
         )
         if not v_res.ok:
             errors.extend(v_res.errors)
@@ -123,6 +131,21 @@ class FinancialDataRefreshPipeline:
                 completed_at=start_time,
                 is_atomic_rollback=True,
             )
+
+        # Online retrieval orchestration if hermetic inputs omitted
+        if not inputs.get("metrics") and metrics_source_url:
+            try:
+                raw_m = self.nav_adapter._fetch_url(metrics_source_url)
+                inputs["metrics"] = raw_m
+                inputs["metrics_json"] = raw_m
+            except Exception as exc:
+                errors.append(f"Failed online retrieval of metrics from {metrics_source_url}: {exc}")
+
+        if not inputs.get("candidate_universe_source") and universe_source_url:
+            try:
+                inputs["candidate_universe_source"] = self.nav_adapter._fetch_url(universe_source_url)
+            except Exception as exc:
+                errors.append(f"Failed online retrieval of candidate universe from {universe_source_url}: {exc}")
 
         required_keys = ("metrics", "metrics_json", "candidate_universe_source", "disclosures", "direct_evidence")
         missing_keys = [k for k in required_keys if not inputs.get(k)]
@@ -360,6 +383,10 @@ class FinancialDataRefreshPipeline:
                 reviewer_attested=reviewer_attested,
                 reviewer_approval_envelope=reviewer_approval_envelope,
                 reviewer_trust_registry=reviewer_trust_registry,
+                expected_commit_sha=expected_commit_sha,
+                expected_policy_digest=expected_policy_digest,
+                require_commit_binding=require_commit_binding,
+                require_policy_binding=require_policy_binding,
             )
         except Exception as exc:
             errors.append(f"Atomic bundle build/promotion failed: {exc}")

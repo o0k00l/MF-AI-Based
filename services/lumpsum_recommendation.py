@@ -15,6 +15,8 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from core.math_engine import (
     load_holdings_from_cas_excel,
     compute_deterministic_lumpsum_blueprint,
+    _parse_sebi_risk_tier,
+    select_autonomous_blueprint_funds,
 )
 from core.models import HoldingItem, PlanType
 from services.engine_bootstrap import InvestorMandateInput
@@ -88,9 +90,11 @@ def evaluate_portfolio_aware_lumpsum(
     lookthrough_coverage = 0.0
 
     if cas_path.exists() and cas_path.is_file():
-        metrics_p = bundle_evidence.get("metrics_path")
-        aliases_p = bundle_evidence.get("aliases_path")
-        if not metrics_p or not Path(metrics_p).is_file():
+        raw_met = bundle_evidence.get("metrics_path")
+        raw_ali = bundle_evidence.get("aliases_path")
+        metrics_p = Path(raw_met).resolve() if raw_met else None
+        aliases_p = Path(raw_ali).resolve() if raw_ali else None
+        if not metrics_p or not metrics_p.is_file():
             missing_evidence.append(
                 "HOLD_INCOMPLETE_EVIDENCE: Verified fund metrics evidence path is missing or unreadable; "
                 "repository-relative fallbacks are strictly prohibited."
@@ -99,8 +103,8 @@ def evaluate_portfolio_aware_lumpsum(
             try:
                 holdings = load_holdings_from_cas_excel(
                     cas_path,
-                    metrics_path=metrics_p,
-                    aliases_path=aliases_p,
+                    fund_metrics_path=metrics_p,
+                    fund_aliases_path=aliases_p,
                     scheme_master=bundle_evidence.get("scheme_master"),
                     scheme_master_source_bytes=bundle_evidence.get("scheme_master_source_bytes"),
                     portfolio_disclosures_by_scheme_id=bundle_evidence.get("portfolio_disclosures_by_scheme_id"),
@@ -239,6 +243,52 @@ def evaluate_portfolio_aware_lumpsum(
                 "allocation_pct": parking_ratio * 100.0,
                 "status": "PROPOSED_FOR_REVIEW",
             })
+
+        tier_str = mandate.explicit_authorized_risk_tier
+        if tier_str and stp_amount > Decimal("0"):
+            try:
+                tier_num = _parse_sebi_risk_tier(tier_str)
+                slots = select_autonomous_blueprint_funds(
+                    holdings=holdings,
+                    candidate_universe=candidate_univ,
+                    client_risk_tier=tier_num,
+                )
+                total_slot_pct = sum(
+                    float((slots.get(s) or {}).get("allocation_pct", 0.0))
+                    + float((slots.get(s) or {}).get("unallocated_pct", 0.0))
+                    for s in slots
+                )
+                if total_slot_pct > 0.0:
+                    for slot_name, slot_data in slots.items():
+                        if not isinstance(slot_data, dict):
+                            continue
+                        s_pct = float(slot_data.get("allocation_pct", 0.0)) + float(slot_data.get("unallocated_pct", 0.0))
+                        if s_pct <= 0.0:
+                            continue
+                        scheme_name = slot_data.get("scheme") or slot_data.get("fund_name")
+                        is_fillable = (
+                            float(slot_data.get("allocation_pct", 0.0)) > 0.0
+                            and isinstance(scheme_name, str)
+                            and bool(scheme_name.strip())
+                            and not scheme_name.strip().upper().startswith("NO_ACTION")
+                            and slot_data.get("is_direct") is True
+                        )
+                        slot_fraction = Decimal(str(s_pct)) / Decimal(str(total_slot_pct))
+                        slot_inr = (stp_amount * slot_fraction).quantize(Decimal("0.01"))
+                        overall_pct = float((Decimal(str(stp_ratio * 100.0)) * slot_fraction).quantize(Decimal("0.01")))
+
+                        if is_fillable:
+                            candidate_allocations.append({
+                                "role": f"STP Deployment ({slot_name})",
+                                "scheme_name": scheme_name,
+                                "fund_id": slot_data.get("fund_id"),
+                                "isin": slot_data.get("isin"),
+                                "allocation_inr": str(slot_inr),
+                                "allocation_pct": overall_pct,
+                                "status": "PROPOSED_FOR_REVIEW",
+                            })
+            except Exception:
+                pass
 
     facts_used = {
         "as_of_date": mandate.as_of_date.isoformat(),
