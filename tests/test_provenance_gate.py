@@ -1082,3 +1082,339 @@ def test_stability_override_reason_reports_original_target_debt_pct():
     reason = bp["stability_override_reason"]
     # Target was 25.00%, reason must state 'target (25.00%)', NOT 'target (0.00%)'
     assert "target (25.00%)" in reason, f"Reason should report original target 25.00%, got: {reason}"
+
+
+# =====================================================================
+# 11. STRUCTURED EXPOSURE EVIDENCE & FIDUCIARY CALCULATION ISOLATION
+# =====================================================================
+
+def test_evidence_validation_rejects_missing_and_malformed():
+    """validate_exposure_evidence rejects missing fields, bad types, unallowlisted sources, and malformed dates."""
+    from datetime import date
+    from services.cas_parser import validate_exposure_evidence
+
+    ref_date = date(2026, 11, 11)
+
+    # 1. Non-dict or empty
+    assert not validate_exposure_evidence(None)[0]
+    assert not validate_exposure_evidence({})[0]
+    assert not validate_exposure_evidence("not-a-dict")[0]
+
+    # Valid base template
+    valid_base = {
+        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
+        "source_document": "HDFC_MF_Monthly_Portfolio_Disclosure_Oct_2026.xlsx",
+        "scheme_code": "120503",
+        "reporting_period": "2026-10-31",
+        "retrieval_date": "2026-11-05",
+        "verified_exposure": {"equity_pct": 98.0, "debt_pct": 2.0},
+        "equity_pct": 98.0,
+        "debt_pct": 2.0,
+        "evidence_hash": "a" * 64,
+        "is_verified": True,
+    }
+    assert validate_exposure_evidence(valid_base, holding_scheme_code="120503", reference_date=ref_date)[0]
+
+    # 2. Unallowlisted source
+    bad_source = dict(valid_base, source_name="BLOG_SCRAPER")
+    is_valid, msg = validate_exposure_evidence(bad_source, reference_date=ref_date)
+    assert not is_valid
+    assert "unsupported exposure source" in msg.lower()
+
+    bad_source_2 = dict(valid_base, source_name="REDDIT_THREAD")
+    assert not validate_exposure_evidence(bad_source_2, reference_date=ref_date)[0]
+
+    # 3. Missing source document
+    no_doc = dict(valid_base, source_document="")
+    is_valid, msg = validate_exposure_evidence(no_doc, reference_date=ref_date)
+    assert not is_valid
+    assert "source_document" in msg.lower()
+
+    # 4. is_verified not True
+    unverified = dict(valid_base, is_verified=False)
+    assert not validate_exposure_evidence(unverified, reference_date=ref_date)[0]
+
+    # 5. Missing or malformed reporting_period
+    no_rep = dict(valid_base, reporting_period="")
+    assert not validate_exposure_evidence(no_rep, reference_date=ref_date)[0]
+
+    bad_rep = dict(valid_base, reporting_period="31-10-2026")
+    is_valid, msg = validate_exposure_evidence(bad_rep, reference_date=ref_date)
+    assert not is_valid
+    assert "malformed" in msg.lower() or "iso" in msg.lower()
+
+    # 6. Missing or malformed retrieval_date
+    no_ret = dict(valid_base, retrieval_date="")
+    assert not validate_exposure_evidence(no_ret, reference_date=ref_date)[0]
+
+    bad_ret = dict(valid_base, retrieval_date="not-a-date")
+    assert not validate_exposure_evidence(bad_ret, reference_date=ref_date)[0]
+
+    # 7. Invalid numeric bounds
+    bad_equity_neg = dict(valid_base, equity_pct=-5.0)
+    assert not validate_exposure_evidence(bad_equity_neg, reference_date=ref_date)[0]
+
+    bad_equity_high = dict(valid_base, equity_pct=105.0)
+    assert not validate_exposure_evidence(bad_equity_high, reference_date=ref_date)[0]
+
+    bad_sum = dict(valid_base, equity_pct=70.0, debt_pct=40.0)
+    is_valid, msg = validate_exposure_evidence(bad_sum, reference_date=ref_date)
+    assert not is_valid
+    assert "exceeds 100%" in msg.lower()
+
+
+def test_evidence_validation_rejects_future_dates():
+    """validate_exposure_evidence rejects future reporting periods and future retrieval dates."""
+    from datetime import date
+    from services.cas_parser import validate_exposure_evidence
+
+    ref_date = date(2026, 11, 11)
+
+    future_rep = {
+        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
+        "source_document": "Future_Disclosure.xlsx",
+        "scheme_code": "120503",
+        "reporting_period": "2026-12-31",  # Future relative to 2026-11-11
+        "retrieval_date": "2026-11-05",
+        "equity_pct": 98.0,
+        "debt_pct": 2.0,
+        "is_verified": True,
+    }
+    is_valid, msg = validate_exposure_evidence(future_rep, reference_date=ref_date)
+    assert not is_valid
+    assert "future reporting_period" in msg.lower()
+
+    future_ret = {
+        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
+        "source_document": "Future_Retrieval.xlsx",
+        "scheme_code": "120503",
+        "reporting_period": "2026-10-31",
+        "retrieval_date": "2026-11-20",  # Future relative to 2026-11-11
+        "equity_pct": 98.0,
+        "debt_pct": 2.0,
+        "is_verified": True,
+    }
+    is_valid, msg = validate_exposure_evidence(future_ret, reference_date=ref_date)
+    assert not is_valid
+    assert "future retrieval_date" in msg.lower()
+
+
+def test_evidence_validation_rejects_stale_dates():
+    """validate_exposure_evidence rejects evidence reporting periods older than 365 days."""
+    from datetime import date
+    from services.cas_parser import validate_exposure_evidence
+
+    ref_date = date(2026, 11, 11)
+
+    stale_evidence = {
+        "source_name": "AMFI_SEBI_OFFICIAL_DISCLOSURE",
+        "source_document": "AMFI_Historical_2025.xlsx",
+        "scheme_code": "120503",
+        "reporting_period": "2025-10-31",  # ~376 days before 2026-11-11
+        "retrieval_date": "2026-11-05",
+        "equity_pct": 98.0,
+        "debt_pct": 2.0,
+        "is_verified": True,
+    }
+    is_valid, msg = validate_exposure_evidence(stale_evidence, reference_date=ref_date)
+    assert not is_valid
+    assert "stale reporting_period" in msg.lower()
+
+
+def test_evidence_validation_rejects_mismatched_scheme_code():
+    """validate_exposure_evidence rejects evidence where scheme_code does not match the holding."""
+    from datetime import date
+    from services.cas_parser import validate_exposure_evidence
+
+    ref_date = date(2026, 11, 11)
+
+    mismatched_evidence = {
+        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
+        "source_document": "HDFC_Monthly.xlsx",
+        "scheme_code": "120503",  # Evidence is for 120503
+        "reporting_period": "2026-10-31",
+        "retrieval_date": "2026-11-05",
+        "equity_pct": 98.0,
+        "debt_pct": 2.0,
+        "is_verified": True,
+    }
+    # Holding scheme code is 999999
+    is_valid, msg = validate_exposure_evidence(mismatched_evidence, holding_scheme_code="999999", reference_date=ref_date)
+    assert not is_valid
+    assert "scheme code mismatch" in msg.lower()
+
+    # Exact match passes
+    is_valid_match, _ = validate_exposure_evidence(mismatched_evidence, holding_scheme_code="120503", reference_date=ref_date)
+    assert is_valid_match
+
+
+def test_category_to_asset_class_explicit_mapping():
+    """Authoritative category mapping assigns broad asset classes strictly via allowlist, never falling through to Equity."""
+    from services.cas_parser import SEBI_CATEGORY_TO_ASSET_CLASS
+
+    # Equity classes
+    assert SEBI_CATEGORY_TO_ASSET_CLASS["flexi cap"] == "Equity"
+    assert SEBI_CATEGORY_TO_ASSET_CLASS["mid cap"] == "Equity"
+    assert SEBI_CATEGORY_TO_ASSET_CLASS["small cap"] == "Equity"
+    assert SEBI_CATEGORY_TO_ASSET_CLASS["large cap"] == "Equity"
+    assert SEBI_CATEGORY_TO_ASSET_CLASS["elss"] == "Equity"
+
+    # Debt classes
+    assert SEBI_CATEGORY_TO_ASSET_CLASS["liquid"] == "Debt"
+    assert SEBI_CATEGORY_TO_ASSET_CLASS["money market"] == "Debt"
+    assert SEBI_CATEGORY_TO_ASSET_CLASS["corporate bond"] == "Debt"
+    assert SEBI_CATEGORY_TO_ASSET_CLASS["overnight"] == "Debt"
+
+    # Hybrid classes
+    assert SEBI_CATEGORY_TO_ASSET_CLASS["balanced advantage"] == "Hybrid"
+    assert SEBI_CATEGORY_TO_ASSET_CLASS["arbitrage"] == "Hybrid"
+    assert SEBI_CATEGORY_TO_ASSET_CLASS["aggressive hybrid"] == "Hybrid"
+
+    # International
+    assert SEBI_CATEGORY_TO_ASSET_CLASS["fund of funds - overseas"] == "International"
+
+    # Unknown categories return None
+    assert SEBI_CATEGORY_TO_ASSET_CLASS.get("unregistered_asset_class") is None
+    assert SEBI_CATEGORY_TO_ASSET_CLASS.get("cryptocurrency") is None
+    assert SEBI_CATEGORY_TO_ASSET_CLASS.get("") is None
+
+
+def test_convert_cas_funds_does_not_manufacture_percentages_from_category():
+    """Unverified CAS funds never receive manufactured 100% equity or 65/35% hybrid defaults."""
+    from services.fiduciary_engine import convert_cas_funds_to_holdings
+    from core.models import AssetClass
+
+    unverified_hybrid = {
+        "scheme": "Unverified Generic Hybrid Fund Direct Growth",
+        "category": "Balanced Advantage",
+        "plan_type": "Direct",
+        "current_value": 200000.0,
+        "invested_value": 180000.0,
+        "units": 2000.0,
+        "nav": 100.0,
+        "folio_no": "F-001",
+        "source": "existing",
+        "validation": "valid",
+        # No exposure_evidence, portfolio_exposure_verified is False
+        "portfolio_exposure_verified": False,
+    }
+
+    holdings = convert_cas_funds_to_holdings([unverified_hybrid])
+    assert len(holdings) == 1
+    h = holdings[0]
+    assert h.asset_class == AssetClass.HYBRID
+    # Must NOT manufacture 65.0% equity or 35.0% debt!
+    assert h.equity_pct == 0.0, f"Expected 0.0% measured equity, got {h.equity_pct}"
+    assert h.debt_pct == 0.0, f"Expected 0.0% measured debt, got {h.debt_pct}"
+    assert h.lookthrough_status == "INDETERMINATE"
+
+
+def test_evaluate_portfolio_saa_audit_fails_closed_on_indeterminate_holdings():
+    """evaluate_portfolio_saa_audit returns status='INDETERMINATE' when any holding lacks verified look-through."""
+    from services.fiduciary_engine import evaluate_portfolio_saa_audit
+
+    unverified_funds = [
+        {
+            "scheme": "Unverified Emerging Opportunities Fund Direct Growth",
+            "category": "Mid Cap",
+            "plan_type": "Direct",
+            "current_value": 300000.0,
+            "invested_value": 250000.0,
+            "units": 3000.0,
+            "nav": 100.0,
+            "folio_no": "F-002",
+            "source": "existing",
+            "validation": "valid",
+            "portfolio_exposure_verified": False,
+        }
+    ]
+
+    target = {"total_equity_pct": 70.0, "debt_pct": 30.0}
+    audit = evaluate_portfolio_saa_audit(unverified_funds, target_saa=target)
+
+    assert audit["status"] == "INDETERMINATE"
+    assert audit["lookthrough_verified"] is False
+    assert len(audit["indeterminate_holdings"]) == 1
+    assert "Unverified Emerging Opportunities Fund" in audit["indeterminate_holdings"][0]
+    assert "Fiduciary SAA calculations require authenticated factsheet disclosures" in audit["reason"]
+    # Fail closed: no rebalance or gap calculated
+    assert audit["rebalance_required"] is None
+    assert audit["is_debt_deficit"] is None
+
+
+def test_changing_display_estimates_does_not_alter_fiduciary_recommendations():
+    """Mutating heuristic display allocations or display fields has zero effect on fiduciary SIP recommendations or SAA audit."""
+    from services.fiduciary_engine import (
+        generate_fiduciary_sip_blueprint,
+        convert_cas_funds_to_holdings,
+        evaluate_portfolio_saa_audit,
+    )
+    from services.risk_profiler import TargetSaa
+
+    base_fund = {
+        "scheme": "Parag Parikh Flexi Cap Fund - Direct Plan - Growth",
+        "canonical_scheme_name": "Parag Parikh Flexi Cap Fund",
+        "scheme_code": "122639",
+        "category": "Flexi Cap",
+        "plan_type": "Direct",
+        "current_value": 500000.0,
+        "invested_value": 400000.0,
+        "units": 10000.0,
+        "nav": 50.0,
+        "folio_no": "112233/44",
+        "source": "existing",
+        "validation": "valid",
+        "portfolio_exposure_verified": True,
+        "verified_equity_pct": 82.24,
+        "verified_debt_pct": 6.26,
+        "exposure_source": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
+        "exposure_as_of": "2026-08-31",
+        "exposure_evidence": {
+            "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
+            "source_document": "PPFAS_Factsheet_Aug_2026.pdf",
+            "scheme_code": "122639",
+            "reporting_period": "2026-08-31",
+            "retrieval_date": "2026-11-07",
+            "verified_exposure": {"equity_pct": 82.24, "debt_pct": 6.26, "cash_pct": 11.5},
+            "equity_pct": 82.24,
+            "debt_pct": 6.26,
+            "evidence_hash": "c" * 64,
+            "is_verified": True,
+        },
+        # Display estimates
+        "heuristic_display_allocations": {"eq": 100.0, "debt": 2.0, "lc": 60.0, "mc": 30.0, "sc": 10.0},
+        "eq": 82.24,
+        "debt": 6.26,
+    }
+
+    target = TargetSaa(large_cap_pct=50.0, mid_small_cap_pct=25.0, flexi_multi_cap_pct=25.0, debt_pct=0.0)
+
+    # Run fiduciary calculations with baseline display estimates
+    h1 = convert_cas_funds_to_holdings([base_fund])
+    audit1 = evaluate_portfolio_saa_audit([base_fund], target_saa={"total_equity_pct": 100.0, "debt_pct": 0.0})
+    bp1 = generate_fiduciary_sip_blueprint(monthly_budget_inr=20000.0, funds=[base_fund], target_saa=target)
+
+    # Now create modified fund where heuristic display allocations are radically changed
+    modified_fund = dict(base_fund)
+    modified_fund["heuristic_display_allocations"] = {
+        "eq": 15.0,     # Radically changed
+        "debt": 85.0,   # Radically changed
+        "lc": 5.0,
+        "mc": 5.0,
+        "sc": 5.0,
+    }
+
+    h2 = convert_cas_funds_to_holdings([modified_fund])
+    audit2 = evaluate_portfolio_saa_audit([modified_fund], target_saa={"total_equity_pct": 100.0, "debt_pct": 0.0})
+    bp2 = generate_fiduciary_sip_blueprint(monthly_budget_inr=20000.0, funds=[modified_fund], target_saa=target)
+
+    # Fiduciary outputs must be IDENTICAL
+    assert h1[0].equity_pct == h2[0].equity_pct
+    assert h1[0].debt_pct == h2[0].debt_pct
+    assert audit1["status"] == audit2["status"]
+    assert audit1["current_equity_pct"] == audit2["current_equity_pct"]
+    assert audit1["current_debt_pct"] == audit2["current_debt_pct"]
+    assert bp1["status"] == bp2["status"]
+    assert bp1["allocations"] == bp2["allocations"]
+    assert bp1["stability_override_applied"] == bp2["stability_override_applied"]
+

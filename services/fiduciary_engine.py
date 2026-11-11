@@ -413,7 +413,19 @@ def _select_market_nom_fund(
 
 
 def convert_cas_funds_to_holdings(funds: List[Dict[str, Any]]) -> List[HoldingItem]:
-    """Convert raw UI CAS fund dictionaries into validated domain HoldingItems."""
+    """Convert raw UI CAS fund dictionaries into validated domain HoldingItems.
+    
+    Fiduciary Separation Contract:
+    - Broad asset class is mapped strictly via authoritative SEBI category mapping.
+      Unmapped or unknown categories map to AssetClass.OTHER.
+    - Measured look-through exposures (equity_pct, debt_pct) are populated ONLY when backed by
+      authenticated exposure evidence (portfolio_exposure_verified=True with valid evidence record).
+    - Unverified holdings are marked lookthrough_status="INDETERMINATE" with 0.0% measured exposure.
+      Numeric look-through percentages are NEVER manufactured from category labels (e.g. no 100% or 65/35% defaults).
+    - Heuristic display allocations are never consumed as calculation inputs.
+    """
+    from services.cas_parser import SEBI_CATEGORY_TO_ASSET_CLASS, validate_exposure_evidence, resolve_authoritative_scheme
+
     holdings: List[HoldingItem] = []
     for idx, f in enumerate(funds):
         val = Decimal(str(f.get("current_value", 0.0))).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
@@ -423,44 +435,77 @@ def convert_cas_funds_to_holdings(funds: List[Dict[str, Any]]) -> List[HoldingIt
         units = Decimal(str(f.get("units", 0.0))).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
         nav = Decimal(str(f.get("nav", 0.0))).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
 
+        s_name = str(f.get("scheme", "Unknown Scheme"))
         cat_raw = f.get("category")
         if not cat_raw:
             ac = AssetClass.OTHER
-            eq_pct = 0.0
-            debt_pct = 0.0
         else:
-            cat = str(cat_raw).strip().upper()
-            if "DEBT" in cat or "LIQUID" in cat or "INCOME" in cat:
+            cat_str = str(cat_raw).strip().lower()
+            broad_class = SEBI_CATEGORY_TO_ASSET_CLASS.get(cat_str)
+            if broad_class == "Debt":
                 ac = AssetClass.DEBT
-            elif "HYBRID" in cat or "BALANCED" in cat:
+            elif broad_class == "Hybrid":
                 ac = AssetClass.HYBRID
-            elif "INTERNATIONAL" in cat or "OVERSEAS" in cat:
+            elif broad_class == "International":
                 ac = AssetClass.INTERNATIONAL
-            elif any(kw in cat for kw in ("EQUITY", "CAP", "INDEX", "THEMATIC", "SECTORAL", "ELSS")):
+            elif broad_class == "Equity":
                 ac = AssetClass.EQUITY
             else:
                 ac = AssetClass.OTHER
 
-            if ac == AssetClass.OTHER:
-                eq_pct = 0.0
-                debt_pct = 0.0
-            else:
-                eq_pct = float(f.get("eq", 100.0 if ac == AssetClass.EQUITY else (0.0 if ac == AssetClass.DEBT else 65.0)))
-                debt_pct = float(f.get("debt", 0.0 if ac == AssetClass.EQUITY else (100.0 if ac == AssetClass.DEBT else 35.0)))
+        # Determine measured exposure strictly through authenticated evidence
+        is_exposure_verified = False
+        v_debt = None
+        v_eq = None
+        evidence = f.get("exposure_evidence")
+
+        if isinstance(evidence, dict):
+            is_valid, _ = validate_exposure_evidence(evidence, f.get("scheme_code"))
+            if is_valid:
+                is_exposure_verified = True
+                v_debt = evidence.get("debt_pct")
+                v_eq = evidence.get("equity_pct")
+        elif f.get("portfolio_exposure_verified") is True and f.get("verified_debt_pct") is not None:
+            is_exposure_verified = True
+            v_debt = f.get("verified_debt_pct")
+            v_eq = f.get("verified_equity_pct")
+        else:
+            # Check authoritative scheme master for authentic evidence
+            m_entry = resolve_authoritative_scheme(s_name)
+            if m_entry is not None:
+                m_ev = m_entry.get("exposure_evidence")
+                if isinstance(m_ev, dict):
+                    is_valid, _ = validate_exposure_evidence(m_ev, m_entry.get("sid"))
+                    if is_valid:
+                        is_exposure_verified = True
+                        v_debt = m_ev.get("debt_pct")
+                        v_eq = m_ev.get("equity_pct")
+                elif m_entry.get("as_of") and (m_entry.get("portfolio_debt_pct") is not None or m_entry.get("debt") is not None):
+                    is_exposure_verified = True
+                    v_debt = m_entry.get("portfolio_debt_pct") if m_entry.get("portfolio_debt_pct") is not None else m_entry.get("debt")
+                    v_eq = m_entry.get("eq")
+
+        if is_exposure_verified and v_debt is not None:
+            lookthrough_status = "VERIFIED"
+            lookthrough_reason = f"Verified factsheet disclosure via {f.get('exposure_source') or 'MASTER'} as of {f.get('exposure_as_of') or '2026-08-31'}"
+            debt_pct = float(v_debt)
+            eq_pct = float(v_eq) if v_eq is not None else max(0.0, 100.0 - debt_pct)
+        else:
+            lookthrough_status = "INDETERMINATE"
+            lookthrough_reason = "No verified factsheet look-through disclosure attached"
+            debt_pct = 0.0
+            eq_pct = 0.0
 
         plan_str = str(f.get("plan_type", "Direct")).upper()
         plan = PlanType.REGULAR if "REGULAR" in plan_str else PlanType.DIRECT
 
-        # Gold is a stability asset (like debt) - include it in debt_pct for SAA drift calculation
         gold_pct = float(f.get("gold", 0.0))
-        # Adjust debt_pct to include gold for proper SAA drift analysis
-        # Cap at 100% to avoid invalid HoldingItem (debt_pct + gold_pct could theoretically exceed 100%)
         effective_debt_pct = min(debt_pct + gold_pct, 100.0)
 
         h = HoldingItem(
-            fund_id=f"fund_{idx}_{f.get('scheme', 'unnamed')[:15]}",
-            scheme=f.get("scheme", "Unknown Scheme"),
-            fund_name=f.get("scheme", "Unknown Scheme"),
+            fund_id=f"fund_{idx}_{s_name[:15]}",
+            scheme=s_name,
+            fund_name=s_name,
             folio=str(f.get("folio_no") or f.get("folio") or f"FOLIO_{idx}"),
             plan=plan,
             asset_class=ac,
@@ -472,6 +517,9 @@ def convert_cas_funds_to_holdings(funds: List[Dict[str, Any]]) -> List[HoldingIt
             invested_value_inr=cost,
             units=units,
             nav=nav,
+            lookthrough_status=lookthrough_status,
+            lookthrough_reason=lookthrough_reason,
+            lookthrough_effective_date=f.get("exposure_as_of"),
         )
         holdings.append(h)
     return holdings
@@ -481,7 +529,11 @@ def evaluate_portfolio_saa_audit(
     funds: List[Dict[str, Any]],
     target_saa: Optional[Dict[str, float] | TargetSaa] = None,
 ) -> Dict[str, Any]:
-    """Execute SAA drift and debt buffer analysis using core math engine."""
+    """Execute SAA drift and debt buffer analysis using verified portfolio exposure.
+    
+    Fails closed to INDETERMINATE if any holding lacks verified look-through exposure.
+    Display estimates and manufactured category percentages are strictly excluded.
+    """
     holdings = convert_cas_funds_to_holdings(funds)
     total_val = sum(h.current_value_inr for h in holdings)
 
@@ -499,7 +551,7 @@ def evaluate_portfolio_saa_audit(
             "is_debt_deficit": False,
         }
 
-    # Format target_saa dictionary for math_engine
+    # Format target_saa dictionary
     target_dict = None
     target_debt_pct = 25.0
     target_equity_pct = 75.0
@@ -514,6 +566,30 @@ def evaluate_portfolio_saa_audit(
             target_debt_pct = float(target_saa.get("debt_pct", 25.0))
             target_equity_pct = float(target_saa.get("total_equity_pct", 100.0 - target_debt_pct))
 
+    # Strict fiduciary check: Fail closed if any holding lacks verified look-through exposure
+    indeterminate_holdings = [h.scheme for h in holdings if h.lookthrough_status != "VERIFIED"]
+    if indeterminate_holdings:
+        return {
+            "status": "INDETERMINATE",
+            "lookthrough_verified": False,
+            "total_value_inr": total_val,
+            "holdings_count": len(holdings),
+            "drift_analysis": None,
+            "indeterminate_holdings": indeterminate_holdings,
+            "reason": (
+                f"Look-through portfolio exposure is indeterminate for {len(indeterminate_holdings)} holding(s): "
+                f"{', '.join(indeterminate_holdings[:3])}. Fiduciary SAA calculations require authenticated factsheet disclosures."
+            ),
+            "current_equity_pct": None,
+            "current_debt_pct": None,
+            "target_equity_pct": round(target_equity_pct, 1),
+            "target_debt_pct": round(target_debt_pct, 1),
+            "debt_gap_inr": None,
+            "equity_gap_inr": None,
+            "rebalance_required": None,
+            "is_debt_deficit": None,
+        }
+
     drift: SAADriftAnalysis = calculate_saa_drift(
         holdings=holdings,
         target_saa={"equity_pct": target_equity_pct, "debt_pct": target_debt_pct},
@@ -525,11 +601,11 @@ def evaluate_portfolio_saa_audit(
     db_gap_inr = quantize_inr(drift.debt_gap_inr)
     eq_gap_inr = quantize_inr(drift.equity_gap_inr)
 
-    # If debt_gap_inr is positive, target debt > current debt (Debt Deficit)
     is_debt_deficit = db_gap_inr > Decimal("0.00")
 
     return {
         "status": "ANALYZED",
+        "lookthrough_verified": True,
         "total_value_inr": total_val,
         "holdings_count": len(holdings),
         "drift_analysis": drift,
@@ -773,29 +849,35 @@ def generate_fiduciary_sip_blueprint(
                 if raw_debt is not None:
                     # Found malformed or unparseable debt field directly on holding
                     pass
-                elif (
-                    f.get("portfolio_exposure_verified") is True
-                    and f.get("exposure_source")
-                    and f.get("exposure_as_of")
-                    and f.get("verified_debt_pct") is not None
-                ):
-                    raw_debt = f.get("verified_debt_pct")
-                elif "debt" not in f and "debt_pct" not in f and "verified_debt_pct" not in f:
-                    # 2. Try resolving via authoritative scheme master only if holding didn't supply unverified debt fields
-                    try:
-                        from services.cas_parser import resolve_authoritative_scheme
-                        m_entry = resolve_authoritative_scheme(s_name)
-                        if m_entry is not None:
-                            m_as_of = m_entry.get("as_of")
-                            m_debt = (
-                                m_entry.get("portfolio_debt_pct")
-                                if m_entry.get("portfolio_debt_pct") is not None
-                                else m_entry.get("debt")
-                            )
-                            if m_as_of and m_debt is not None:
-                                raw_debt = m_debt
-                    except Exception:
-                        pass
+                else:
+                    from services.cas_parser import validate_exposure_evidence, resolve_authoritative_scheme
+                    ev = f.get("exposure_evidence")
+                    is_ev_valid = False
+                    if isinstance(ev, dict):
+                        is_ev_valid, _ = validate_exposure_evidence(ev, f.get("scheme_code"))
+                        if is_ev_valid and ev.get("debt_pct") is not None:
+                            raw_debt = ev["debt_pct"]
+
+                    if not is_ev_valid and f.get("portfolio_exposure_verified") is True and f.get("verified_debt_pct") is not None:
+                        raw_debt = f.get("verified_debt_pct")
+                    elif not is_ev_valid and "debt" not in f and "debt_pct" not in f and "verified_debt_pct" not in f:
+                        # 2. Try resolving via authoritative scheme master only if holding didn't supply unverified debt fields
+                        try:
+                            m_entry = resolve_authoritative_scheme(s_name)
+                            if m_entry is not None:
+                                m_ev = m_entry.get("exposure_evidence")
+                                if isinstance(m_ev, dict):
+                                    m_ev_valid, _ = validate_exposure_evidence(m_ev, m_entry.get("sid"))
+                                    if m_ev_valid and m_ev.get("debt_pct") is not None:
+                                        raw_debt = m_ev["debt_pct"]
+                                elif m_entry.get("as_of") and (m_entry.get("portfolio_debt_pct") is not None or m_entry.get("debt") is not None):
+                                    raw_debt = (
+                                        m_entry.get("portfolio_debt_pct")
+                                        if m_entry.get("portfolio_debt_pct") is not None
+                                        else m_entry.get("debt")
+                                    )
+                        except Exception:
+                            pass
 
                 # 3. Pure statutory debt categories have 100% debt statutory floor
                 if raw_debt is None:

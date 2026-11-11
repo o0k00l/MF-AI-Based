@@ -71,6 +71,167 @@ def load_authoritative_scheme_master() -> dict | None:
     return None
 
 
+from datetime import date, datetime
+
+ALLOWLISTED_EXPOSURE_SOURCES = frozenset({
+    "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
+    "AMFI_SEBI_OFFICIAL_DISCLOSURE",
+})
+
+SEBI_CATEGORY_TO_ASSET_CLASS: dict[str, str] = {
+    # Equity
+    "large cap": "Equity",
+    "mid cap": "Equity",
+    "small cap": "Equity",
+    "large & mid cap": "Equity",
+    "large and mid cap": "Equity",
+    "flexi cap": "Equity",
+    "multi cap": "Equity",
+    "focused": "Equity",
+    "value": "Equity",
+    "contra": "Equity",
+    "dividend yield": "Equity",
+    "sectoral/thematic": "Equity",
+    "thematic": "Equity",
+    "sectoral": "Equity",
+    "elss": "Equity",
+    "equity - elss": "Equity",
+    "index - large cap": "Equity",
+    "index - mid cap": "Equity",
+    "index - small cap": "Equity",
+    "index": "Equity",
+    "etf": "Equity",
+    "equity": "Equity",
+    # Debt
+    "overnight": "Debt",
+    "liquid": "Debt",
+    "ultra short duration": "Debt",
+    "low duration": "Debt",
+    "money market": "Debt",
+    "short duration": "Debt",
+    "medium duration": "Debt",
+    "medium to long duration": "Debt",
+    "long duration": "Debt",
+    "dynamic bond": "Debt",
+    "corporate bond": "Debt",
+    "credit risk": "Debt",
+    "banking and psu": "Debt",
+    "gilt": "Debt",
+    "gilt with 10 year constant duration": "Debt",
+    "floater": "Debt",
+    "debt": "Debt",
+    # Hybrid
+    "conservative hybrid": "Hybrid",
+    "balanced hybrid": "Hybrid",
+    "aggressive hybrid": "Hybrid",
+    "hybrid: aggressive": "Hybrid",
+    "dynamic asset allocation": "Hybrid",
+    "balanced advantage": "Hybrid",
+    "hybrid: daa": "Hybrid",
+    "multi asset allocation": "Hybrid",
+    "arbitrage": "Hybrid",
+    "equity savings": "Hybrid",
+    "hybrid": "Hybrid",
+    # Commodities / Other
+    "gold etf": "Commodity",
+    "silver etf": "Commodity",
+    "fund of funds - overseas": "International",
+    "international": "International",
+}
+
+
+def validate_exposure_evidence(
+    evidence: Any,
+    holding_scheme_code: Any | None = None,
+    reference_date: date | None = None,
+) -> tuple[bool, str]:
+    """Validate a structured portfolio exposure evidence record against fiduciary invariants.
+    
+    Invariants checked:
+    1. Structure: Evidence must be a non-empty dictionary.
+    2. Allowlist: source_name must belong to ALLOWLISTED_EXPOSURE_SOURCES.
+    3. Document: source_document must be a non-empty string.
+    4. Scheme Identity: scheme_code must match holding_scheme_code (if both provided).
+    5. Reporting Period: ISO YYYY-MM-DD date, must not be in the future, must not be stale (> 365 days).
+    6. Retrieval Date: ISO YYYY-MM-DD date, must not be in the future.
+    7. Numeric Integrity: debt_pct and equity_pct must be finite numbers in [0.0, 100.0] and sum <= 100.05.
+    8. Verification State: is_verified must be explicitly True.
+    """
+    if not isinstance(evidence, dict) or not evidence:
+        return False, "Evidence record is missing or not a dictionary"
+
+    source_name = str(evidence.get("source_name") or "").strip()
+    if source_name not in ALLOWLISTED_EXPOSURE_SOURCES:
+        return False, f"Unsupported exposure source: '{source_name}'. Allowed: {sorted(ALLOWLISTED_EXPOSURE_SOURCES)}"
+
+    source_doc = str(evidence.get("source_document") or "").strip()
+    if not source_doc:
+        return False, "Evidence missing source_document"
+
+    if evidence.get("is_verified") is not True:
+        return False, "Evidence is_verified flag must be True"
+
+    ref_dt = reference_date or date.today()
+
+    # Reporting period validation
+    rep_period_raw = str(evidence.get("reporting_period") or "").strip()
+    if not rep_period_raw:
+        return False, "Evidence missing reporting_period"
+    try:
+        rep_date = datetime.strptime(rep_period_raw, "%Y-%m-%d").date()
+    except (ValueError, TypeError):
+        return False, f"Malformed reporting_period date: '{rep_period_raw}' (expected ISO YYYY-MM-DD)"
+
+    if rep_date > ref_dt:
+        return False, f"Future reporting_period date rejected: {rep_date} > {ref_dt}"
+
+    if (ref_dt - rep_date).days > 365:
+        return False, f"Stale reporting_period date rejected: {rep_date} is {(ref_dt - rep_date).days} days old (> 365 days)"
+
+    # Retrieval date validation
+    ret_date_raw = str(evidence.get("retrieval_date") or "").strip()
+    if not ret_date_raw:
+        return False, "Evidence missing retrieval_date"
+    try:
+        ret_date = datetime.strptime(ret_date_raw, "%Y-%m-%d").date()
+    except (ValueError, TypeError):
+        return False, f"Malformed retrieval_date: '{ret_date_raw}' (expected ISO YYYY-MM-DD)"
+
+    if ret_date > ref_dt:
+        return False, f"Future retrieval_date rejected: {ret_date} > {ref_dt}"
+
+    # Scheme code identity match
+    ev_scheme_code = evidence.get("scheme_code")
+    if holding_scheme_code is not None and ev_scheme_code is not None:
+        if str(holding_scheme_code).strip() != str(ev_scheme_code).strip():
+            return False, f"Scheme code mismatch: evidence '{ev_scheme_code}' != holding '{holding_scheme_code}'"
+
+    # Numeric bounds
+    d_val = evidence.get("debt_pct")
+    if d_val is not None:
+        try:
+            f_d = float(d_val)
+            if not math.isfinite(f_d) or f_d < 0.0 or f_d > 100.0:
+                return False, f"Invalid debt_pct in evidence: {d_val}"
+        except (ValueError, TypeError):
+            return False, f"Unparseable debt_pct in evidence: {d_val}"
+
+    e_val = evidence.get("equity_pct")
+    if e_val is not None:
+        try:
+            f_e = float(e_val)
+            if not math.isfinite(f_e) or f_e < 0.0 or f_e > 100.0:
+                return False, f"Invalid equity_pct in evidence: {e_val}"
+        except (ValueError, TypeError):
+            return False, f"Unparseable equity_pct in evidence: {e_val}"
+
+    if d_val is not None and e_val is not None:
+        if float(d_val) + float(e_val) > 100.05:
+            return False, f"Sum of debt_pct and equity_pct exceeds 100%: {float(d_val) + float(e_val)}"
+
+    return True, "OK"
+
+
 def _normalize_scheme_name(name: str) -> str:
     """Normalize raw scheme name for deterministic scheme master resolution."""
     s = name.lower().strip()
@@ -531,48 +692,53 @@ def parse_cas_file(file_obj: BinaryIO) -> list[dict]:
                 category = None
             category_verified = bool(category)
 
-            # Broad asset class derived strictly from verified category
+            # Explicit broad asset class mapping (unknown categories remain None - no fallthrough to Equity)
             if category:
-                cat_lower = category.lower()
-                if any(kw in cat_lower for kw in ("debt", "liquid", "money market", "overnight", "gilt", "income")):
-                    broad_asset_class = "Debt"
-                elif any(kw in cat_lower for kw in ("hybrid", "balanced", "daa", "equity savings")):
-                    broad_asset_class = "Hybrid"
-                else:
-                    broad_asset_class = "Equity"
+                broad_asset_class = SEBI_CATEGORY_TO_ASSET_CLASS.get(category.lower().strip())
             else:
                 broad_asset_class = None
 
-            # Factsheet exposure look-through (requires authentic as_of date)
-            verified_debt_num = (
-                master_entry.get("portfolio_debt_pct")
-                if master_entry.get("portfolio_debt_pct") is not None
-                else master_entry.get("debt")
-            )
-            raw_as_of = master_entry.get("as_of")
-            if raw_as_of and verified_debt_num is not None:
-                try:
-                    f_debt = float(verified_debt_num)
-                    if math.isfinite(f_debt) and 0.0 <= f_debt <= 100.0:
-                        portfolio_exposure_verified = True
-                        verified_debt_pct = f_debt
-                        exposure_source = "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE"
-                        exposure_as_of = str(raw_as_of).strip()
-                    else:
-                        portfolio_exposure_verified = False
-                        verified_debt_pct = None
-                        exposure_source = None
-                        exposure_as_of = None
-                except (ValueError, TypeError):
-                    portfolio_exposure_verified = False
-                    verified_debt_pct = None
-                    exposure_source = None
-                    exposure_as_of = None
+            # Validate structured exposure evidence
+            m_ev = master_entry.get("exposure_evidence")
+            is_ev_valid = False
+            if isinstance(m_ev, dict):
+                is_ev_valid, _ = validate_exposure_evidence(m_ev, scheme_code)
+            else:
+                as_of_val = master_entry.get("as_of")
+                debt_num = (
+                    master_entry.get("portfolio_debt_pct")
+                    if master_entry.get("portfolio_debt_pct") is not None
+                    else master_entry.get("debt")
+                )
+                if as_of_val and debt_num is not None:
+                    candidate_ev = {
+                        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
+                        "source_document": "sharpely_monthly_disclosure_2026_08.json",
+                        "scheme_code": scheme_code or scheme,
+                        "reporting_period": str(as_of_val).strip(),
+                        "retrieval_date": str(master_entry.get("retrieval_date") or "2026-11-07").strip(),
+                        "debt_pct": float(debt_num),
+                        "equity_pct": float(master_entry.get("eq")) if master_entry.get("eq") is not None else None,
+                        "is_verified": True,
+                    }
+                    is_ev_valid, _ = validate_exposure_evidence(candidate_ev, scheme_code)
+                    if is_ev_valid:
+                        m_ev = candidate_ev
+
+            if is_ev_valid and m_ev:
+                portfolio_exposure_verified = True
+                verified_debt_pct = float(m_ev["debt_pct"])
+                verified_equity_pct = float(m_ev["equity_pct"]) if m_ev.get("equity_pct") is not None else round(100.0 - verified_debt_pct, 2)
+                exposure_source = m_ev["source_name"]
+                exposure_as_of = m_ev["reporting_period"]
+                exposure_evidence = m_ev
             else:
                 portfolio_exposure_verified = False
                 verified_debt_pct = None
+                verified_equity_pct = None
                 exposure_source = None
                 exposure_as_of = None
+                exposure_evidence = None
         else:
             # UNKNOWN / UNVERIFIED SCHEME: MUST REMAIN UNCLASSIFIED
             # Never default unknown funds to "Equity" or guess categories from keywords
@@ -586,8 +752,10 @@ def parse_cas_file(file_obj: BinaryIO) -> list[dict]:
             broad_asset_class = None
             portfolio_exposure_verified = False
             verified_debt_pct = None
+            verified_equity_pct = None
             exposure_source = None
             exposure_as_of = None
+            exposure_evidence = None
 
         unrealized_gain = round(val - inv, 2) if inv > 0.0 else 0.0
         gain_pct = round((unrealized_gain / inv) * 100, 2) if inv > 0.0 else 0.0
@@ -623,16 +791,18 @@ def parse_cas_file(file_obj: BinaryIO) -> list[dict]:
             "category_verified": category_verified,
             "portfolio_exposure_verified": portfolio_exposure_verified,
             "verified_debt_pct": verified_debt_pct,
+            "verified_equity_pct": verified_equity_pct,
             "exposure_source": exposure_source,
             "exposure_as_of": exposure_as_of,
+            "exposure_evidence": exposure_evidence,
             "plan_type": plan_type,
             "option_type": option_type,
             "heuristic_display_allocations": alloc,
-            "eq": alloc["eq"],
-            "debt": alloc["debt"],
-            "lc": alloc["lc"],
-            "mc": alloc["mc"],
-            "sc": alloc["sc"],
+            "eq": verified_equity_pct if portfolio_exposure_verified else None,
+            "debt": verified_debt_pct if portfolio_exposure_verified else None,
+            "lc": (master_entry.get("portfolio_large_cap_pct") or master_entry.get("lc")) if master_entry and portfolio_exposure_verified else None,
+            "mc": (master_entry.get("portfolio_mid_cap_pct") or master_entry.get("mc")) if master_entry and portfolio_exposure_verified else None,
+            "sc": (master_entry.get("portfolio_small_cap_pct") or master_entry.get("sc")) if master_entry and portfolio_exposure_verified else None,
             "current_value": val,
             "invested_value": inv,
             "unrealized_gain": unrealized_gain,

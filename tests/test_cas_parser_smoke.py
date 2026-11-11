@@ -43,32 +43,38 @@ def test_parse_valid_cas():
     flexi = by_scheme["HDFC Flexi Cap Fund Direct Growth"]
     assert flexi["asset_class"] == "Equity"
     assert flexi["category"] == "Flexi Cap"
-    assert flexi["eq"] == 100.0
-    assert flexi["debt"] == 2.0
+    # Verified factsheet look-through exposure from scheme master
+    assert flexi["eq"] == 94.89
+    assert flexi["debt"] == 0.45
+    # Isolated heuristic display allocation hint
+    assert flexi["heuristic_display_allocations"]["eq"] == 100.0
+    assert flexi["heuristic_display_allocations"]["debt"] == 2.0
     assert flexi["current_value"] == 180600.0
     assert flexi["plan_type"] == "Direct"
     assert flexi["option_type"] == "Growth"
 
     mid = by_scheme["Axis Mid Cap Fund Direct Growth"]
-    assert mid["mc"] == 70.0
+    assert mid["heuristic_display_allocations"]["mc"] == 70.0
 
     small = by_scheme["SBI Small Cap Fund Direct Growth"]
-    assert small["sc"] == 80.0
+    assert small["heuristic_display_allocations"]["sc"] == 80.0
 
     ba = by_scheme["ICICI Pru Balanced Advantage Fund Direct Growth"]
     assert ba["category"] == "Hybrid"
-    assert ba["debt"] == 35.0
+    assert ba["heuristic_display_allocations"]["debt"] == 35.0
 
     liquid = by_scheme["HDFC Liquid Fund Direct Growth"]
     assert liquid["category"] == "Debt"
     assert liquid["eq"] == 0.0
     assert liquid["debt"] == 100.0
+    assert liquid["heuristic_display_allocations"]["eq"] == 0.0
+    assert liquid["heuristic_display_allocations"]["debt"] == 100.0
 
     print(f"PASS: Parsed {len(funds)} funds correctly.")
     for f in funds:
         print(
             f"  {f['scheme'][:55]:55s} | cat={f['category']:6s} "
-            f"| val={f['current_value']:>10,.0f} | eq={f['eq']:5.1f}% debt={f['debt']:5.1f}%"
+            f"| val={f['current_value']:>10,.0f} | eq={(f.get('eq') or 0.0):5.1f}% debt={(f.get('debt') or 0.0):5.1f}%"
         )
 
 
