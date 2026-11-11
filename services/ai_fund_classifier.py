@@ -92,22 +92,43 @@ def _load_verified_policy_lookthrough() -> Dict[str, Dict[str, Any]]:
         raw_sch = str(item.get("mandate") or item.get("category") or "").strip()
 
         # Use eq/debt from unified schema directly if available, otherwise calculate from portfolio breakdown
-        lc = float(item.get("portfolio_large_cap_pct") or 0)
-        mc = float(item.get("portfolio_mid_cap_pct") or 0)
-        sc = float(item.get("portfolio_small_cap_pct") or 0)
-        eq_val = float(item.get("eq") or (lc + mc + sc) or 0)
-        debt_val = float(item.get("debt") or item.get("portfolio_debt_pct") or 0.0)
+        lc = float(item.get("portfolio_large_cap_pct")) if item.get("portfolio_large_cap_pct") is not None else None
+        mc = float(item.get("portfolio_mid_cap_pct")) if item.get("portfolio_mid_cap_pct") is not None else None
+        sc = float(item.get("portfolio_small_cap_pct")) if item.get("portfolio_small_cap_pct") is not None else None
 
-        if raw_cat in ("Debt", "Hybrid", "Equity"):
-            broad_cat = raw_cat
-        elif debt_val >= 99.0 or "Debt" in cat_str or "Liquid" in cat_str or "Money Market" in cat_str or "Corporate Bond" in cat_str or "Bond" in cat_str:
+        has_stored_eq = "eq" in item and item.get("eq") is not None
+        has_stored_debt = "debt" in item and item.get("debt") is not None
+        stored_eq = float(item["eq"]) if has_stored_eq else None
+        stored_debt = float(item["debt"]) if has_stored_debt else None
+
+        total_market_cap = ((lc or 0.0) + (mc or 0.0) + (sc or 0.0)) if (lc is not None or mc is not None or sc is not None) else None
+        total_debt = float(item["portfolio_debt_pct"]) if item.get("portfolio_debt_pct") is not None else None
+
+        is_measured = bool(has_stored_eq or (total_market_cap is not None and total_market_cap > 0))
+
+        if has_stored_eq:
+            eq_val = stored_eq
+        elif total_market_cap is not None and total_market_cap > 0:
+            eq_val = total_market_cap
+        else:
+            eq_val = None
+
+        if has_stored_debt:
+            debt_val = stored_debt
+        elif total_debt is not None:
+            debt_val = total_debt
+        else:
+            debt_val = None
+
+        # Determine SEBI Broad Category (Equity, Hybrid, Debt)
+        if "Debt" in cat_str or "Liquid" in cat_str or "Money Market" in cat_str or "Corporate Bond" in cat_str or "Bond" in cat_str or (debt_val is not None and debt_val >= 99.0):
             broad_cat = "Debt"
-        elif debt_val > 15.0 or "Hybrid" in cat_str or "BAF" in cat_str or "DAA" in cat_str or "Multi Asset" in cat_str or "Arbitrage" in cat_str:
+        elif "Hybrid" in cat_str or "BAF" in cat_str or "DAA" in cat_str or "Multi Asset" in cat_str or "Arbitrage" in cat_str or "Equity & Debt" in cat_str or "Equity and Debt" in cat_str or (debt_val is not None and debt_val > 15.0):
             broad_cat = "Hybrid"
         else:
             broad_cat = "Equity"
 
-        # Determine scheme type and benchmark
+        # Determine scheme type and statutory regulatory benchmark per SEBI circular
         if "DAA" in cat_str or "BAF" in cat_str or "baf" in f_id_lower or "balanced advantage" in f_id_lower:
             sch_type = "Hybrid: Dynamic Asset Allocation / BAF"
             bench = raw_bench or "NIFTY 50 Hybrid Composite Debt 50:50 Index TRI"
@@ -147,68 +168,48 @@ def _load_verified_policy_lookthrough() -> Dict[str, Dict[str, Any]]:
         elif "Small Cap" in cat_str or "smallcap" in f_id_lower:
             sch_type = "Small Cap"
             bench = raw_bench or "Nifty Smallcap 250 TRI"
-        elif "Large Cap" in cat_str or "large cap" in f_id_lower or "bluechip" in f_id_lower or "top 100" in f_id_lower:
+        elif "Large Cap" in cat_str or "largecap" in f_id_lower or "index" in f_id_lower or "nifty" in f_id_lower or "sensex" in f_id_lower:
             sch_type = "Large Cap"
-            bench = raw_bench or "Nifty 100 TRI"
-        elif "Index" in cat_str or "index" in f_id_lower:
-            sch_type = "Index - Large Cap"
             bench = raw_bench or "Nifty 50 TRI"
         elif "Flexi Cap" in cat_str or "flexicap" in f_id_lower:
             sch_type = "Flexi Cap"
-            bench = raw_bench or "Nifty 500 TRI"
-        elif "Contra" in cat_str or "contra" in f_id_lower:
-            sch_type = "Contra"
-            bench = raw_bench or "Nifty 500 TRI"
-        elif "Value" in cat_str or "value" in f_id_lower:
-            sch_type = "Value"
-            bench = raw_bench or "Nifty 500 TRI"
-        elif "ELSS" in cat_str or "elss" in f_id_lower or "tax saver" in f_id_lower:
-            sch_type = "ELSS / Tax Saver"
             bench = raw_bench or "Nifty 500 TRI"
         else:
             sch_type = raw_sch or "Diversified Equity"
             bench = raw_bench or "Nifty 500 TRI"
 
-        if raw_cat in ("Debt", "Hybrid", "Equity"):
-            broad_cat = raw_cat
-        if raw_bench:
-            bench = raw_bench
-
-        ter_d = float(item.get("ter_direct_pct") or 0.75)
-        ter_r = float(item.get("ter_regular_pct") or (ter_d + (1.00 if broad_cat == "Equity" else 0.75)))
-        trail = float(item.get("trail_commission_pct") or round(ter_r - ter_d, 2))
-
-        # Use stored eq/debt if available (check key existence, not truthiness), otherwise calculate from portfolio breakdown
-        has_stored_eq = "eq" in item and item.get("eq") is not None
-        has_stored_debt = "debt" in item and item.get("debt") is not None
-        stored_eq = float(item.get("eq") or 0)
-        stored_debt = float(item.get("debt") or 0)
-        total_eq = float(item.get("portfolio_large_cap_pct") or 0) + float(item.get("portfolio_mid_cap_pct") or 0) + float(item.get("portfolio_small_cap_pct") or 0)
-        total_debt = float(item.get("portfolio_debt_pct") or 0)
+        ter_d = float(item["ter_direct_pct"]) if item.get("ter_direct_pct") is not None else None
+        ter_r = float(item["ter_regular_pct"]) if item.get("ter_regular_pct") is not None else None
+        trail = float(item["trail_commission_pct"]) if item.get("trail_commission_pct") is not None else (
+            round(ter_r - ter_d, 2) if (ter_r is not None and ter_d is not None) else None
+        )
+        sharpe = float(item["sharpe_3y"]) if item.get("sharpe_3y") is not None else None
+        risk = item.get("risk_rating") or item.get("risk_tier") or None
 
         entry = {
             "category": broad_cat,
             "scheme_type": sch_type,
             "asset_class": sch_type,
             "sub_category": item.get("sector") or cat_str or sch_type,
-            "eq": stored_eq if has_stored_eq else (total_eq if total_eq > 0 else 95.0),
-            "debt": stored_debt if has_stored_debt else (total_debt if total_debt > 0 else 0.0),
-            "gold": float(item.get("gold_pct") or 0),
-            "intl": float(item.get("intl_pct") or 0),
-            "re": float(item.get("re") or 0),
-            "other": float(item.get("other") or 0),
-            "lc": float(item.get("portfolio_large_cap_pct") or 0),
-            "mc": float(item.get("portfolio_mid_cap_pct") or 0),
-            "sc": float(item.get("portfolio_small_cap_pct") or 0),
-            "sector": item.get("sector") or "Diversified",
-            "sharpe": float(item.get("sharpe_3y") or 0.5),
+            "is_measured": is_measured,
+            "eq": eq_val,
+            "debt": debt_val,
+            "gold": float(item["gold_pct"]) if item.get("gold_pct") is not None else None,
+            "intl": float(item["intl_pct"]) if item.get("intl_pct") is not None else None,
+            "re": float(item["re"]) if item.get("re") is not None else None,
+            "other": float(item["other"]) if item.get("other") is not None else None,
+            "lc": lc,
+            "mc": mc,
+            "sc": sc,
+            "sector": item.get("sector") or None,
+            "sharpe": sharpe,
             "ter_direct": ter_d,
             "ter_regular": ter_r,
             "trail_commission_pct": trail,
             "benchmark": bench,
-            "risk_rating": "High" if broad_cat == "Hybrid" else ("Low" if broad_cat == "Debt" else "Very High"),
-            "source": "AMC Factsheet Look-Through (Unified Scheme Master)",
-            "ai_rationale": "Audited from official AMC portfolio factsheet disclosures (data/policy/scheme_master.json).",
+            "risk_rating": risk,
+            "source": "Unified Scheme Master (AMFI/SEBI)" if is_measured else "Unified Scheme Master (Identity Only - Unmeasured Exposure)",
+            "ai_rationale": "Measured AMC portfolio disclosures from scheme master." if is_measured else "Identity verified from official scheme master; look-through exposure unmeasured.",
         }
 
         # Index by id and all its aliases dynamically from policy storage
@@ -473,9 +474,9 @@ def lookup_fund_segment_allocation_online(scheme_name: str, timeout_sec: float =
                             "category": broad_cat,
                             "scheme_type": f"{broad_cat} Scheme",
                             "asset_class": broad_cat,
-                            "sub_category": "Verified Online Factsheet Disclosure",
+                            "sub_category": "Unverified Online Research Factsheet",
                             "eq": eq_v,
-                            "debt": 0.0,
+                            "debt": None,
                             "other": other_v,
                             "gold": 0.0,
                             "intl": 0.0,
@@ -483,13 +484,17 @@ def lookup_fund_segment_allocation_online(scheme_name: str, timeout_sec: float =
                             "mc": mc_v,
                             "sc": sc_v,
                             "sector": "Diversified",
-                            "benchmark": "Nifty 500 TRI",
-                            "risk_rating": "Very High" if broad_cat == "Equity" else ("High" if broad_cat == "Hybrid" else "Low"),
-                            "source": "Live Online Factsheet / Google Search Grounding",
-                            "ai_rationale": f"Audited from live online factsheet disclosure ({et_url}). Residual preserved as unclassified other, never inferred debt.",
-                            "ter_direct": 0.75,
-                            "ter_regular": 1.75,
-                            "trail_commission_pct": 1.00,
+                            "benchmark": None,
+                            "risk_rating": None,
+                            "source": "Third-Party Indicative Factsheet (Unverified Research)",
+                            "source_authenticity": "UNVERIFIED_THIRD_PARTY",
+                            "publisher_authenticated": False,
+                            "is_verified": False,
+                            "lookthrough_status": "UNVERIFIED_THIRD_PARTY",
+                            "ai_rationale": f"Indicative third-party research from ET Money ({et_url}). Residual preserved as unclassified other, never inferred debt.",
+                            "ter_direct": None,
+                            "ter_regular": None,
+                            "trail_commission_pct": None,
                         }
                         _ONLINE_LOOKTHROUGH_CACHE[canonical] = res
                         _ONLINE_LOOKTHROUGH_CACHE[scheme_name] = res
@@ -552,17 +557,20 @@ def classify_fund_with_ai(scheme_name: str, use_live_ai: bool = False) -> Dict[s
             "scheme_type": "Multi Asset Allocation",
             "asset_class": "Multi Asset Allocation",
             "sub_category": "Equity + Debt + Domestic Gold (Min 10% in 3 asset classes)",
-            "eq": 65.0,
-            "debt": 25.0,
-            "gold": 10.0,
-            "intl": 0.0,
-            "lc": 45.0,
-            "mc": 15.0,
-            "sc": 5.0,
+            "is_measured": False,
+            "eq": None,
+            "debt": None,
+            "gold": None,
+            "intl": None,
+            "lc": None,
+            "mc": None,
+            "sc": None,
             "sector": "Multi-Asset Blend",
-            "ter_direct": 0.70,
-            "ter_regular": 1.85,
-            "trail_commission_pct": 1.15,
+            "ter_direct": None,
+            "ter_regular": None,
+            "trail_commission_pct": None,
+            "is_verified": False,
+            "lookthrough_status": "UNVERIFIED",
             "benchmark": "NIFTY 500 Multi-Asset Index",
             "risk_rating": "High",
             "source": "SEBI Statutory Mandate (SEBI/HO/IMD/DF3/CIR/P/2017/114)",
@@ -575,17 +583,20 @@ def classify_fund_with_ai(scheme_name: str, use_live_ai: bool = False) -> Dict[s
             "scheme_type": "Arbitrage",
             "asset_class": "Arbitrage",
             "sub_category": "Hedging / Low Risk Arbitrage (Min 65% Equity Hedged)",
-            "eq": 65.0,
-            "debt": 35.0,
-            "gold": 0.0,
-            "intl": 0.0,
-            "lc": 65.0,
-            "mc": 0.0,
-            "sc": 0.0,
+            "is_measured": False,
+            "eq": None,
+            "debt": None,
+            "gold": None,
+            "intl": None,
+            "lc": None,
+            "mc": None,
+            "sc": None,
             "sector": "Arbitrage Hedged",
-            "ter_direct": 0.35,
-            "ter_regular": 0.95,
-            "trail_commission_pct": 0.60,
+            "ter_direct": None,
+            "ter_regular": None,
+            "trail_commission_pct": None,
+            "is_verified": False,
+            "lookthrough_status": "UNVERIFIED",
             "benchmark": "Nifty 50 Arbitrage Index",
             "risk_rating": "Low",
             "source": "SEBI Statutory Mandate (SEBI/HO/IMD/DF3/CIR/P/2017/114)",
@@ -598,17 +609,20 @@ def classify_fund_with_ai(scheme_name: str, use_live_ai: bool = False) -> Dict[s
             "scheme_type": "Hybrid: Dynamic Asset Allocation / BAF",
             "asset_class": "Dynamic Asset Allocation / BAF",
             "sub_category": "Dynamic Counter-Cyclical Asset Staging",
-            "eq": 65.0,
-            "debt": 35.0,
-            "gold": 0.0,
-            "intl": 0.0,
-            "lc": 50.0,
-            "mc": 10.0,
-            "sc": 5.0,
+            "is_measured": False,
+            "eq": None,
+            "debt": None,
+            "gold": None,
+            "intl": None,
+            "lc": None,
+            "mc": None,
+            "sc": None,
             "sector": "Dynamic Asset Allocation",
-            "ter_direct": 0.75,
-            "ter_regular": 1.70,
-            "trail_commission_pct": 0.95,
+            "ter_direct": None,
+            "ter_regular": None,
+            "trail_commission_pct": None,
+            "is_verified": False,
+            "lookthrough_status": "UNVERIFIED",
             "benchmark": "NIFTY 50 Hybrid Composite Debt 50:50 Index TRI",
             "risk_rating": "High",
             "source": "SEBI Statutory Mandate (SEBI/HO/IMD/DF3/CIR/P/2017/114)",
@@ -621,17 +635,20 @@ def classify_fund_with_ai(scheme_name: str, use_live_ai: bool = False) -> Dict[s
             "scheme_type": "Hybrid: Aggressive",
             "asset_class": "Aggressive Hybrid",
             "sub_category": "SEBI Mandate (65-80% Equity, 20-35% Debt)",
-            "eq": 70.0,
-            "debt": 30.0,
-            "gold": 0.0,
-            "intl": 0.0,
-            "lc": 48.0,
-            "mc": 16.0,
-            "sc": 6.0,
+            "is_measured": False,
+            "eq": None,
+            "debt": None,
+            "gold": None,
+            "intl": None,
+            "lc": None,
+            "mc": None,
+            "sc": None,
             "sector": "Aggressive Hybrid",
-            "ter_direct": 0.85,
-            "ter_regular": 1.75,
-            "trail_commission_pct": 0.90,
+            "ter_direct": None,
+            "ter_regular": None,
+            "trail_commission_pct": None,
+            "is_verified": False,
+            "lookthrough_status": "UNVERIFIED",
             "benchmark": "CRISIL Hybrid 35+65 Aggressive Index",
             "risk_rating": "High",
             "source": "SEBI Statutory Mandate (SEBI/HO/IMD/DF3/CIR/P/2017/114)",
@@ -644,17 +661,20 @@ def classify_fund_with_ai(scheme_name: str, use_live_ai: bool = False) -> Dict[s
             "scheme_type": "Hybrid: Conservative",
             "asset_class": "Conservative Hybrid",
             "sub_category": "SEBI Mandate (10-25% Equity, 75-90% Debt)",
-            "eq": 20.0,
-            "debt": 80.0,
-            "gold": 0.0,
-            "intl": 0.0,
-            "lc": 15.0,
-            "mc": 5.0,
-            "sc": 0.0,
+            "is_measured": False,
+            "eq": None,
+            "debt": None,
+            "gold": None,
+            "intl": None,
+            "lc": None,
+            "mc": None,
+            "sc": None,
             "sector": "Conservative Fixed Income Blend",
-            "ter_direct": 0.40,
-            "ter_regular": 0.95,
-            "trail_commission_pct": 0.55,
+            "ter_direct": None,
+            "ter_regular": None,
+            "trail_commission_pct": None,
+            "is_verified": False,
+            "lookthrough_status": "UNVERIFIED",
             "benchmark": "CRISIL Hybrid 85+15 Conservative Index",
             "risk_rating": "Low to Moderate",
             "source": "SEBI Statutory Mandate (SEBI/HO/IMD/DF3/CIR/P/2017/114)",
@@ -667,17 +687,20 @@ def classify_fund_with_ai(scheme_name: str, use_live_ai: bool = False) -> Dict[s
             "scheme_type": "Sectoral / Thematic",
             "asset_class": "Equity",
             "sub_category": "Defence & Aerospace Engineering (Min 80% Sectoral)",
-            "eq": 95.0,
-            "debt": 5.0,
-            "gold": 0.0,
-            "intl": 0.0,
-            "lc": 50.0,
-            "mc": 30.0,
-            "sc": 15.0,
+            "is_measured": False,
+            "eq": None,
+            "debt": None,
+            "gold": None,
+            "intl": None,
+            "lc": None,
+            "mc": None,
+            "sc": None,
             "sector": "Capital Goods / Defence",
-            "ter_direct": 0.85,
-            "ter_regular": 1.95,
-            "trail_commission_pct": 1.10,
+            "ter_direct": None,
+            "ter_regular": None,
+            "trail_commission_pct": None,
+            "is_verified": False,
+            "lookthrough_status": "UNVERIFIED",
             "benchmark": "Nifty India Defence Index TRI",
             "risk_rating": "Very High",
             "source": "SEBI Statutory Mandate (SEBI/HO/IMD/DF3/CIR/P/2017/114)",
@@ -690,17 +713,20 @@ def classify_fund_with_ai(scheme_name: str, use_live_ai: bool = False) -> Dict[s
             "scheme_type": "Sectoral / Thematic",
             "asset_class": "Equity",
             "sub_category": "Energy, Oil & Power Sector (Min 80% Sectoral)",
-            "eq": 95.0,
-            "debt": 5.0,
-            "gold": 0.0,
-            "intl": 0.0,
-            "lc": 55.0,
-            "mc": 25.0,
-            "sc": 15.0,
+            "is_measured": False,
+            "eq": None,
+            "debt": None,
+            "gold": None,
+            "intl": None,
+            "lc": None,
+            "mc": None,
+            "sc": None,
             "sector": "Energy & Utilities",
-            "ter_direct": 0.90,
-            "ter_regular": 2.05,
-            "trail_commission_pct": 1.15,
+            "ter_direct": None,
+            "ter_regular": None,
+            "trail_commission_pct": None,
+            "is_verified": False,
+            "lookthrough_status": "UNVERIFIED",
             "benchmark": "Nifty Energy Index TRI",
             "risk_rating": "Very High",
             "source": "SEBI Statutory Mandate (SEBI/HO/IMD/DF3/CIR/P/2017/114)",
@@ -713,17 +739,20 @@ def classify_fund_with_ai(scheme_name: str, use_live_ai: bool = False) -> Dict[s
             "scheme_type": "Sectoral / Thematic",
             "asset_class": "Equity",
             "sub_category": "Healthcare & Pharmaceuticals (Min 80% Sectoral)",
-            "eq": 95.0,
-            "debt": 5.0,
-            "gold": 0.0,
-            "intl": 0.0,
-            "lc": 50.0,
-            "mc": 35.0,
-            "sc": 10.0,
+            "is_measured": False,
+            "eq": None,
+            "debt": None,
+            "gold": None,
+            "intl": None,
+            "lc": None,
+            "mc": None,
+            "sc": None,
             "sector": "Healthcare",
-            "ter_direct": 0.80,
-            "ter_regular": 1.90,
-            "trail_commission_pct": 1.10,
+            "ter_direct": None,
+            "ter_regular": None,
+            "trail_commission_pct": None,
+            "is_verified": False,
+            "lookthrough_status": "UNVERIFIED",
             "benchmark": "Nifty Healthcare Index TRI",
             "risk_rating": "Very High",
             "source": "SEBI Statutory Mandate (SEBI/HO/IMD/DF3/CIR/P/2017/114)",
@@ -736,17 +765,20 @@ def classify_fund_with_ai(scheme_name: str, use_live_ai: bool = False) -> Dict[s
             "scheme_type": "Sectoral / Thematic",
             "asset_class": "Equity",
             "sub_category": "Information Technology (Min 80% Sectoral)",
-            "eq": 95.0,
-            "debt": 5.0,
-            "gold": 0.0,
-            "intl": 0.0,
-            "lc": 60.0,
-            "mc": 25.0,
-            "sc": 10.0,
+            "is_measured": False,
+            "eq": None,
+            "debt": None,
+            "gold": None,
+            "intl": None,
+            "lc": None,
+            "mc": None,
+            "sc": None,
             "sector": "Information Technology",
-            "ter_direct": 0.75,
-            "ter_regular": 1.85,
-            "trail_commission_pct": 1.10,
+            "ter_direct": None,
+            "ter_regular": None,
+            "trail_commission_pct": None,
+            "is_verified": False,
+            "lookthrough_status": "UNVERIFIED",
             "benchmark": "Nifty IT Index TRI",
             "risk_rating": "Very High",
             "source": "SEBI Statutory Mandate (SEBI/HO/IMD/DF3/CIR/P/2017/114)",
@@ -759,17 +791,20 @@ def classify_fund_with_ai(scheme_name: str, use_live_ai: bool = False) -> Dict[s
             "scheme_type": "Small Cap",
             "asset_class": "Small Cap",
             "sub_category": "Small Cap Alpha (Statutory Min 65% in 251st+ stocks)",
-            "eq": 95.0,
-            "debt": 5.0,
-            "gold": 0.0,
-            "intl": 0.0,
-            "lc": 0.0,
-            "mc": 30.0,
-            "sc": 65.0,
+            "is_measured": False,
+            "eq": None,
+            "debt": None,
+            "gold": None,
+            "intl": None,
+            "lc": None,
+            "mc": None,
+            "sc": None,
             "sector": "Broad Small Cap Blend",
-            "ter_direct": 0.70,
-            "ter_regular": 1.70,
-            "trail_commission_pct": 1.00,
+            "ter_direct": None,
+            "ter_regular": None,
+            "trail_commission_pct": None,
+            "is_verified": False,
+            "lookthrough_status": "UNVERIFIED",
             "benchmark": "Nifty Smallcap 250 TRI",
             "risk_rating": "Very High",
             "source": "SEBI Statutory Mandate (SEBI/HO/IMD/DF3/CIR/P/2017/114)",
@@ -782,17 +817,20 @@ def classify_fund_with_ai(scheme_name: str, use_live_ai: bool = False) -> Dict[s
             "scheme_type": "Mid Cap",
             "asset_class": "Mid Cap",
             "sub_category": "Mid Cap Alpha (Statutory Min 65% in 101st-250th stocks)",
-            "eq": 95.0,
-            "debt": 5.0,
-            "gold": 0.0,
-            "intl": 0.0,
-            "lc": 5.0,
-            "mc": 65.0,
-            "sc": 25.0,
+            "is_measured": False,
+            "eq": None,
+            "debt": None,
+            "gold": None,
+            "intl": None,
+            "lc": None,
+            "mc": None,
+            "sc": None,
             "sector": "Broad Mid Cap Blend",
-            "ter_direct": 0.75,
-            "ter_regular": 1.75,
-            "trail_commission_pct": 1.00,
+            "ter_direct": None,
+            "ter_regular": None,
+            "trail_commission_pct": None,
+            "is_verified": False,
+            "lookthrough_status": "UNVERIFIED",
             "benchmark": "Nifty Midcap 150 TRI",
             "risk_rating": "Very High",
             "source": "SEBI Statutory Mandate (SEBI/HO/IMD/DF3/CIR/P/2017/114)",
@@ -805,17 +843,20 @@ def classify_fund_with_ai(scheme_name: str, use_live_ai: bool = False) -> Dict[s
             "scheme_type": "Large & Mid Cap",
             "asset_class": "Large & Mid Cap",
             "sub_category": "Statutory Min 35% Large Cap + Min 35% Mid Cap",
-            "eq": 95.0,
-            "debt": 5.0,
-            "gold": 0.0,
-            "intl": 0.0,
-            "lc": 35.0,
-            "mc": 35.0,
-            "sc": 25.0,
+            "is_measured": False,
+            "eq": None,
+            "debt": None,
+            "gold": None,
+            "intl": None,
+            "lc": None,
+            "mc": None,
+            "sc": None,
             "sector": "Large & Mid Cap",
-            "ter_direct": 0.80,
-            "ter_regular": 1.80,
-            "trail_commission_pct": 1.00,
+            "ter_direct": None,
+            "ter_regular": None,
+            "trail_commission_pct": None,
+            "is_verified": False,
+            "lookthrough_status": "UNVERIFIED",
             "benchmark": "Nifty LargeMidcap 250 TRI",
             "risk_rating": "Very High",
             "source": "SEBI Statutory Mandate (SEBI/HO/IMD/DF3/CIR/P/2017/114)",
@@ -828,17 +869,20 @@ def classify_fund_with_ai(scheme_name: str, use_live_ai: bool = False) -> Dict[s
             "scheme_type": "Multi Cap",
             "asset_class": "Multi Cap",
             "sub_category": "Mandatory 25% LC + 25% MC + 25% SC at all times",
-            "eq": 95.0,
-            "debt": 5.0,
-            "gold": 0.0,
-            "intl": 0.0,
-            "lc": 25.0,
-            "mc": 25.0,
-            "sc": 25.0,
+            "is_measured": False,
+            "eq": None,
+            "debt": None,
+            "gold": None,
+            "intl": None,
+            "lc": None,
+            "mc": None,
+            "sc": None,
             "sector": "Multi Cap Diversified",
-            "ter_direct": 0.75,
-            "ter_regular": 1.80,
-            "trail_commission_pct": 1.05,
+            "ter_direct": None,
+            "ter_regular": None,
+            "trail_commission_pct": None,
+            "is_verified": False,
+            "lookthrough_status": "UNVERIFIED",
             "benchmark": "Nifty 500 Multicap 50:25:25 TRI",
             "risk_rating": "Very High",
             "source": "SEBI Statutory Mandate (SEBI/HO/IMD/DF3/CIR/P/2017/114)",
@@ -851,17 +895,20 @@ def classify_fund_with_ai(scheme_name: str, use_live_ai: bool = False) -> Dict[s
             "scheme_type": "Flexi Cap",
             "asset_class": "Flexi Cap",
             "sub_category": "Dynamic Market Cap Allocation (Min 65% Equity)",
-            "eq": 90.0,
-            "debt": 10.0,
-            "gold": 0.0,
-            "intl": 0.0,
-            "lc": 55.0,
-            "mc": 25.0,
-            "sc": 10.0,
+            "is_measured": False,
+            "eq": None,
+            "debt": None,
+            "gold": None,
+            "intl": None,
+            "lc": None,
+            "mc": None,
+            "sc": None,
             "sector": "Flexi Cap Diversified",
-            "ter_direct": 0.70,
-            "ter_regular": 1.65,
-            "trail_commission_pct": 0.95,
+            "ter_direct": None,
+            "ter_regular": None,
+            "trail_commission_pct": None,
+            "is_verified": False,
+            "lookthrough_status": "UNVERIFIED",
             "benchmark": "Nifty 500 TRI",
             "risk_rating": "Very High",
             "source": "SEBI Statutory Mandate (SEBI/HO/IMD/DF3/CIR/P/2017/114)",
@@ -874,17 +921,20 @@ def classify_fund_with_ai(scheme_name: str, use_live_ai: bool = False) -> Dict[s
             "scheme_type": "Large Cap",
             "asset_class": "Large Cap",
             "sub_category": "Core Large Cap Bluechip (Statutory Min 80% Top 100)",
-            "eq": 95.0,
-            "debt": 5.0,
-            "gold": 0.0,
-            "intl": 0.0,
-            "lc": 80.0,
-            "mc": 15.0,
-            "sc": 0.0,
+            "is_measured": False,
+            "eq": None,
+            "debt": None,
+            "gold": None,
+            "intl": None,
+            "lc": None,
+            "mc": None,
+            "sc": None,
             "sector": "Core Bluechip",
-            "ter_direct": 0.65,
-            "ter_regular": 1.60,
-            "trail_commission_pct": 0.95,
+            "ter_direct": None,
+            "ter_regular": None,
+            "trail_commission_pct": None,
+            "is_verified": False,
+            "lookthrough_status": "UNVERIFIED",
             "benchmark": "Nifty 100 TRI",
             "risk_rating": "Very High",
             "source": "SEBI Statutory Mandate (SEBI/HO/IMD/DF3/CIR/P/2017/114)",
@@ -897,17 +947,20 @@ def classify_fund_with_ai(scheme_name: str, use_live_ai: bool = False) -> Dict[s
             "scheme_type": "ELSS Tax Saver",
             "asset_class": "ELSS Tax Saver",
             "sub_category": "Equity Linked Savings Scheme (3-Yr Statutory Lock)",
-            "eq": 95.0,
-            "debt": 5.0,
-            "gold": 0.0,
-            "intl": 0.0,
-            "lc": 60.0,
-            "mc": 25.0,
-            "sc": 10.0,
+            "is_measured": False,
+            "eq": None,
+            "debt": None,
+            "gold": None,
+            "intl": None,
+            "lc": None,
+            "mc": None,
+            "sc": None,
             "sector": "ELSS Tax Advantage",
-            "ter_direct": 0.65,
-            "ter_regular": 1.65,
-            "trail_commission_pct": 1.00,
+            "ter_direct": None,
+            "ter_regular": None,
+            "trail_commission_pct": None,
+            "is_verified": False,
+            "lookthrough_status": "UNVERIFIED",
             "benchmark": "Nifty 500 TRI",
             "risk_rating": "Very High",
             "source": "SEBI Statutory Mandate (SEBI/HO/IMD/DF3/CIR/P/2017/114)",
@@ -920,17 +973,20 @@ def classify_fund_with_ai(scheme_name: str, use_live_ai: bool = False) -> Dict[s
             "scheme_type": "Liquid / Overnight",
             "asset_class": "Liquid / Overnight",
             "sub_category": "Sovereign T-Bills & Money Market Repo",
-            "eq": 0.0,
-            "debt": 100.0,
-            "gold": 0.0,
-            "intl": 0.0,
-            "lc": 0.0,
-            "mc": 0.0,
-            "sc": 0.0,
+            "is_measured": False,
+            "eq": None,
+            "debt": None,
+            "gold": None,
+            "intl": None,
+            "lc": None,
+            "mc": None,
+            "sc": None,
             "sector": "Cash Equivalents",
-            "ter_direct": 0.20,
-            "ter_regular": 0.30,
-            "trail_commission_pct": 0.10,
+            "ter_direct": None,
+            "ter_regular": None,
+            "trail_commission_pct": None,
+            "is_verified": False,
+            "lookthrough_status": "UNVERIFIED",
             "benchmark": "CRISIL Liquid Debt Index",
             "risk_rating": "Low",
             "source": "SEBI Statutory Mandate (SEBI/HO/IMD/DF3/CIR/P/2017/114)",
@@ -943,17 +999,20 @@ def classify_fund_with_ai(scheme_name: str, use_live_ai: bool = False) -> Dict[s
             "scheme_type": "Debt / Fixed Income",
             "asset_class": "Debt / Fixed Income",
             "sub_category": "High Quality Fixed Income Securities",
-            "eq": 0.0,
-            "debt": 100.0,
-            "gold": 0.0,
-            "intl": 0.0,
-            "lc": 0.0,
-            "mc": 0.0,
-            "sc": 0.0,
+            "is_measured": False,
+            "eq": None,
+            "debt": None,
+            "gold": None,
+            "intl": None,
+            "lc": None,
+            "mc": None,
+            "sc": None,
             "sector": "Fixed Income",
-            "ter_direct": 0.35,
-            "ter_regular": 0.90,
-            "trail_commission_pct": 0.55,
+            "ter_direct": None,
+            "ter_regular": None,
+            "trail_commission_pct": None,
+            "is_verified": False,
+            "lookthrough_status": "UNVERIFIED",
             "benchmark": "CRISIL Composite Bond Index",
             "risk_rating": "Low to Moderate",
             "source": "SEBI Statutory Mandate (SEBI/HO/IMD/DF3/CIR/P/2017/114)",
@@ -966,17 +1025,20 @@ def classify_fund_with_ai(scheme_name: str, use_live_ai: bool = False) -> Dict[s
         "scheme_type": "Diversified Equity",
         "asset_class": "Diversified Equity",
         "sub_category": "Broad Market Blend (Min 65% Equity)",
-        "eq": 90.0,
-        "debt": 10.0,
-        "gold": 0.0,
-        "intl": 0.0,
-        "lc": 50.0,
-        "mc": 30.0,
-        "sc": 10.0,
+        "is_measured": False,
+            "eq": None,
+        "debt": None,
+        "gold": None,
+        "intl": None,
+        "lc": None,
+        "mc": None,
+        "sc": None,
         "sector": "Diversified Blend",
-        "ter_direct": 0.75,
-        "ter_regular": 1.75,
-        "trail_commission_pct": 1.00,
+        "ter_direct": None,
+        "ter_regular": None,
+        "trail_commission_pct": None,
+            "is_verified": False,
+            "lookthrough_status": "UNVERIFIED",
         "benchmark": "Nifty 500 TRI",
         "risk_rating": "Very High",
         "source": "SEBI Statutory Mandate (SEBI/HO/IMD/DF3/CIR/P/2017/114)",
@@ -1086,9 +1148,9 @@ def enrich_funds_with_ai(funds: List[Dict[str, Any]], use_live_ai: bool = False)
         item["ai_rationale"] = profile.get("ai_rationale", "Classified per official SEBI Categorization Circular (2017).")
 
         # Scheme-wise TER & Distributor Commission Bleed
-        item["ter_direct"] = profile.get("ter_direct", 0.75)
-        item["ter_regular"] = profile.get("ter_regular", 1.75)
-        item["trail_commission_pct"] = profile.get("trail_commission_pct", 1.00)
+        item["ter_direct"] = profile.get("ter_direct")
+        item["ter_regular"] = profile.get("ter_regular")
+        item["trail_commission_pct"] = profile.get("trail_commission_pct")
 
         plan = str(item.get("plan_type", "")).lower()
         sch_l = scheme_name.lower()
@@ -1096,17 +1158,311 @@ def enrich_funds_with_ai(funds: List[Dict[str, Any]], use_live_ai: bool = False)
         item["plan_type"] = "Regular" if is_regular else "Direct"
 
         c_val = float(item.get("current_value", 0.0) or 0.0)
-        if is_regular and c_val > 0.0:
-            item["annual_commission_bleed"] = round(c_val * (item["trail_commission_pct"] / 100.0), 2)
+        trail_comm = item["trail_commission_pct"]
+        if is_regular and c_val > 0.0 and trail_comm is not None:
+            item["annual_commission_bleed"] = round(c_val * (trail_comm / 100.0), 2)
             item["ten_year_linear_commission"] = round(item["annual_commission_bleed"] * 10, 2)
-            # Compounding at realistic 12% portfolio equity CAGR
             r = 0.12
             annuity_factor = ((1.0 + r) ** 10 - 1.0) / r
             item["ten_year_compounded_drag"] = round(item["annual_commission_bleed"] * annuity_factor, 2)
         else:
-            item["annual_commission_bleed"] = 0.0
-            item["ten_year_linear_commission"] = 0.0
-            item["ten_year_compounded_drag"] = 0.0
+            item["annual_commission_bleed"] = None if is_regular and trail_comm is None else 0.0
+            item["ten_year_linear_commission"] = None if is_regular and trail_comm is None else 0.0
+            item["ten_year_compounded_drag"] = None if is_regular and trail_comm is None else 0.0
+
+        enriched.append(item)
+
+    return enriched
+
+
+def compute_portfolio_segment_breakdown(funds: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Authoritative canonical segment allocation calculation across the portfolio.
+
+    Computes mathematically rigorous market capitalization look-through (Large, Mid, Small Cap),
+    pure stability debt reserves (Bonds, G-Secs, T-Bills, TREPS), gold, and international allocations.
+    Only measured fund allocations are aggregated; unmeasured funds are explicitly tracked.
+    """
+    total_val = sum(float(f.get("current_value", 0.0) or 0.0) for f in funds)
+
+    eq_inr = 0.0
+    debt_inr = 0.0
+    lc_inr = 0.0
+    mc_inr = 0.0
+    sc_inr = 0.0
+    gold_inr = 0.0
+    intl_inr = 0.0
+    re_inr = 0.0
+    other_inr = 0.0
+    unmeasured_inr = 0.0
+
+    scheme_rows = []
+    sorted_funds = sorted(funds, key=lambda x: -float(x.get("current_value", 0.0) or 0.0))
+
+    for sf in sorted_funds:
+        c_val = float(sf.get("current_value", 0.0) or 0.0)
+        if c_val <= 0.0:
+            continue
+
+        raw_eq = sf.get("eq")
+        raw_debt = sf.get("debt")
+        raw_lc = sf.get("lc")
+        raw_mc = sf.get("mc")
+        raw_sc = sf.get("sc")
+        raw_gold = sf.get("gold")
+        raw_intl = sf.get("intl")
+        raw_re = sf.get("re")
+        raw_other = sf.get("other")
+
+        # Check if fund has measured exposure
+        is_fund_measured = (raw_eq is not None and math.isfinite(float(raw_eq))) or (raw_debt is not None and math.isfinite(float(raw_debt)))
+
+        if not is_fund_measured:
+            unmeasured_inr += c_val
+            scheme_rows.append({
+                "scheme": sf.get("scheme", ""),
+                "mandate": sf.get("scheme_type", sf.get("category", "")),
+                "current_value": c_val,
+                "is_measured": False,
+                "large_cap_pct": None,
+                "large_cap_inr": None,
+                "mid_cap_pct": None,
+                "mid_cap_inr": None,
+                "small_cap_pct": None,
+                "small_cap_inr": None,
+                "debt_pct": None,
+                "debt_inr": None,
+                "equity_pct": None,
+                "equity_inr": None,
+                "intl_pct": None,
+                "intl_inr": None,
+                "re_pct": None,
+                "re_inr": None,
+                "other_pct": None,
+                "other_inr": None,
+                "provenance": sf.get("classification_source", "Unmeasured Holdings"),
+            })
+            continue
+
+        eq = float(raw_eq) if raw_eq is not None else 0.0
+        debt = float(raw_debt) if raw_debt is not None else 0.0
+        lc = float(raw_lc) if raw_lc is not None else 0.0
+        mc = float(raw_mc) if raw_mc is not None else 0.0
+        sc = float(raw_sc) if raw_sc is not None else 0.0
+        gold = float(raw_gold) if raw_gold is not None else 0.0
+        intl = float(raw_intl) if raw_intl is not None else 0.0
+        re = float(raw_re) if raw_re is not None else 0.0
+        other = float(raw_other) if raw_other is not None else 0.0
+
+        l_amt = c_val * (lc / 100.0)
+        m_amt = c_val * (mc / 100.0)
+        s_amt = c_val * (sc / 100.0)
+        d_amt = c_val * (debt / 100.0)
+        g_amt = c_val * (gold / 100.0)
+        e_amt = c_val * (eq / 100.0)
+        i_amt = e_amt * (intl / 100.0)
+        re_amt = c_val * (re / 100.0)
+        o_amt = c_val * (other / 100.0)
+
+        lc_inr += l_amt
+        mc_inr += m_amt
+        sc_inr += s_amt
+        debt_inr += d_amt
+        gold_inr += g_amt
+        intl_inr += i_amt
+        re_inr += re_amt
+        other_inr += o_amt
+        eq_inr += e_amt
+
+        scheme_rows.append({
+            "scheme": sf.get("scheme", ""),
+            "mandate": sf.get("scheme_type", sf.get("category", "")),
+            "current_value": c_val,
+            "is_measured": True,
+            "large_cap_pct": lc,
+            "large_cap_inr": l_amt,
+            "mid_cap_pct": mc,
+            "mid_cap_inr": m_amt,
+            "small_cap_pct": sc,
+            "small_cap_inr": s_amt,
+            "debt_pct": debt,
+            "debt_inr": d_amt,
+            "equity_pct": eq,
+            "equity_inr": e_amt,
+            "intl_pct": intl,
+            "intl_inr": i_amt,
+            "re_pct": re,
+            "re_inr": re_amt,
+            "other_pct": other,
+            "other_inr": o_amt,
+            "provenance": sf.get("classification_source", "AMC Factsheet Look-Through"),
+        })
+
+    eq_pct = (eq_inr / total_val * 100.0) if total_val > 0 else 0.0
+    debt_pct = (debt_inr / total_val * 100.0) if total_val > 0 else 0.0
+    gold_pct = (gold_inr / total_val * 100.0) if total_val > 0 else 0.0
+    re_pct = (re_inr / total_val * 100.0) if total_val > 0 else 0.0
+    other_pct = (other_inr / total_val * 100.0) if total_val > 0 else 0.0
+    lc_pct = (lc_inr / total_val * 100.0) if total_val > 0 else 0.0
+    mc_pct = (mc_inr / total_val * 100.0) if total_val > 0 else 0.0
+    sc_pct = (sc_inr / total_val * 100.0) if total_val > 0 else 0.0
+    intl_pct = (intl_inr / eq_inr * 100.0) if eq_inr > 0 else 0.0
+
+    stability_value = debt_inr + gold_inr + re_inr + other_inr
+    stability_pct = (stability_value / total_val * 100.0) if total_val > 0 else 0.0
+
+    is_fully_measured = (unmeasured_inr == 0.0)
+
+    return {
+        "total_value": round(total_val, 2),
+        "equity_value": round(eq_inr, 2),
+        "debt_value": round(debt_inr, 2),
+        "large_cap_value": round(lc_inr, 2),
+        "mid_cap_value": round(mc_inr, 2),
+        "small_cap_value": round(sc_inr, 2),
+        "gold_value": round(gold_inr, 2),
+        "international_value": round(intl_inr, 2),
+        "re_value": round(re_inr, 2),
+        "other_value": round(other_inr, 2),
+        "unmeasured_value": round(unmeasured_inr, 2),
+        "equity_pct": round(eq_pct, 2),
+        "debt_pct": round(debt_pct, 2),
+        "large_cap_pct": round(lc_pct, 2),
+        "mid_cap_pct": round(mc_pct, 2),
+        "small_cap_pct": round(sc_pct, 2),
+        "gold_pct": round(gold_pct, 2),
+        "international_pct": round(intl_pct, 2),
+        "re_pct": round(re_pct, 2),
+        "other_pct": round(other_pct, 2),
+        "stability_pct": round(stability_pct, 2),
+        "unmeasured_pct": round(unmeasured_inr / total_val * 100.0, 2) if total_val > 0 else 0.0,
+        "is_fully_measured": is_fully_measured,
+        "measurement_status": "COMPLETE" if is_fully_measured else ("PARTIAL" if unmeasured_inr < total_val else "UNMEASURED"),
+        "scheme_breakdown": scheme_rows,
+    }
+
+def extract_canonical_scheme_name(scheme_name: str) -> str:
+    """Extract canonical underlying mutual fund strategy name, stripping plan/option variants.
+
+    Distinguishes unique underlying strategies (e.g. 'Diversified Equity Fund Strategy')
+    from plan/option variants (Direct vs Regular, Growth vs IDCW).
+    """
+    s = scheme_name.lower().strip()
+    if "(" in s:
+        s = s[:s.find("(")].strip()
+
+    for phrase in [
+        "- direct growth plan growth option",
+        "- growth plan growth option",
+        "- direct plan - growth option",
+        "- regular plan - growth option",
+        "- regular plan - growth",
+        "- direct plan - growth",
+        "- regular plan growth",
+        "- direct plan growth",
+        "- regular growth plan",
+        "- direct growth plan",
+        "regular growth",
+        "direct growth",
+        "- regular plan",
+        "- direct plan",
+        "growth option",
+        "growth plan",
+        "regular plan",
+        "direct plan",
+        "idcw option",
+        "dividend option",
+        "reinvestment",
+        "payout",
+        "growth",
+        "direct",
+        "regular",
+        "plan",
+        "option",
+    ]:
+        s = s.replace(phrase, "")
+
+    s = s.replace("-", " ").strip()
+    cleaned = " ".join(s.split()).title()
+    return cleaned
+
+
+def enrich_funds_with_ai(funds: List[Dict[str, Any]], use_live_ai: bool = False) -> List[Dict[str, Any]]:
+    """Enrich an uploaded portfolio fund list with fund-by-fund AI look-through intelligence.
+
+    Replaces static heuristic assumptions with verified AMC factsheet data,
+    true SEBI categories, actual equity/debt/gold proportions, real market-cap look-through,
+    and exact scheme-wise distributor commission bleed calculations.
+    """
+    if use_live_ai:
+        names = [f.get("scheme", "") for f in funds if f.get("scheme")]
+        batch_classify_funds_with_llm(names)
+
+    # Fast parallel pre-fetch for any funds not in local policy factsheet
+    unindexed = []
+    for f in funds:
+        s_name = f.get("scheme", "")
+        if not s_name:
+            continue
+        c_name = extract_canonical_scheme_name(s_name)
+        clean = _clean_scheme_name(s_name)
+        if not any(k in clean for k in VERIFIED_SCHEME_LOOKTHROUGH) and c_name not in _ONLINE_LOOKTHROUGH_CACHE and s_name not in _ONLINE_LOOKTHROUGH_CACHE:
+            unindexed.append(s_name)
+
+    if unindexed:
+        try:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=min(6, len(unindexed))) as executor:
+                list(executor.map(lambda name: lookup_fund_segment_allocation_online(name, timeout_sec=5.0), unindexed))
+        except Exception:
+            pass
+
+    enriched: List[Dict[str, Any]] = []
+    for f in funds:
+        scheme_name = f.get("scheme", "")
+        profile = classify_fund_with_ai(scheme_name, use_live_ai=use_live_ai)
+
+        item = dict(f)
+        item["category"] = profile["category"]
+        item["scheme_type"] = profile.get("scheme_type", profile.get("asset_class", "Diversified Equity"))
+        item["asset_class"] = profile.get("asset_class", item["scheme_type"])
+        item["sub_category"] = profile.get("sub_category", "")
+        item["eq"] = profile["eq"]
+        item["debt"] = profile["debt"]
+        item["gold"] = profile.get("gold", 0.0)
+        item["intl"] = profile.get("intl", 0.0)
+        item["lc"] = profile["lc"]
+        item["mc"] = profile["mc"]
+        item["sc"] = profile["sc"]
+        item["re"] = profile.get("re", 0.0)
+        item["other"] = profile.get("other", 0.0)
+        item["sector"] = profile.get("sector", "Diversified")
+        item["benchmark"] = profile.get("benchmark", "Nifty 500 TRI")
+        item["risk_rating"] = profile.get("risk_rating", "High")
+        item["classification_source"] = profile.get("source", "AI Look-Through")
+        item["canonical_scheme"] = extract_canonical_scheme_name(scheme_name)
+        item["ai_rationale"] = profile.get("ai_rationale", "Classified per official SEBI Categorization Circular (2017).")
+
+        # Scheme-wise TER & Distributor Commission Bleed
+        item["ter_direct"] = profile.get("ter_direct")
+        item["ter_regular"] = profile.get("ter_regular")
+        item["trail_commission_pct"] = profile.get("trail_commission_pct")
+
+        plan = str(item.get("plan_type", "")).lower()
+        sch_l = scheme_name.lower()
+        is_regular = ("regular" in plan or "regular" in sch_l) and ("direct" not in plan and "direct" not in sch_l)
+        item["plan_type"] = "Regular" if is_regular else "Direct"
+
+        c_val = float(item.get("current_value", 0.0) or 0.0)
+        trail_comm = item["trail_commission_pct"]
+        if is_regular and c_val > 0.0 and trail_comm is not None:
+            item["annual_commission_bleed"] = round(c_val * (trail_comm / 100.0), 2)
+            item["ten_year_linear_commission"] = round(item["annual_commission_bleed"] * 10, 2)
+            r = 0.12
+            annuity_factor = ((1.0 + r) ** 10 - 1.0) / r
+            item["ten_year_compounded_drag"] = round(item["annual_commission_bleed"] * annuity_factor, 2)
+        else:
+            item["annual_commission_bleed"] = None if is_regular and trail_comm is None else 0.0
+            item["ten_year_linear_commission"] = None if is_regular and trail_comm is None else 0.0
+            item["ten_year_compounded_drag"] = None if is_regular and trail_comm is None else 0.0
 
         enriched.append(item)
 

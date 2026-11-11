@@ -93,10 +93,14 @@ def test_convert_cas_funds_and_saa_audit():
                 "scheme_code": "JM Flexi Cap Fund",
                 "reporting_period": "2026-08-31",
                 "retrieval_date": "2026-11-07",
+                "cash_pct": 0.0,
                 "debt_pct": 2.0,
                 "equity_pct": 98.0,
+                "gold_pct": 0.0,
+                "other_pct": 0.0,
+                "schema_version": "2.0",
                 "is_verified": True,
-                "evidence_hash": "3b86d29ed6b62b4b84a498eb42a9c22a45ec8b358b278a8b467fd9752e6e4061",
+                "evidence_hash": "86f47c59d508567999de6f3aa5d324d062be6a208219cee86078318d0e079e6f",
             },
             "source": "existing",
             "validation": "valid",
@@ -124,10 +128,14 @@ def test_convert_cas_funds_and_saa_audit():
                 "scheme_code": 13222,
                 "reporting_period": "2026-08-31",
                 "retrieval_date": "2026-11-07",
+                "cash_pct": 0.0,
                 "debt_pct": 100.0,
                 "equity_pct": 0.0,
+                "gold_pct": 0.0,
+                "other_pct": 0.0,
+                "schema_version": "2.0",
                 "is_verified": True,
-                "evidence_hash": "e6c6a6e61ad7bc1027e16118b60bde5422277a2b374080b80c18927b51154204",
+                "evidence_hash": "52a3e3529a937393f2dc2319c4a988973a853e6d985425d142a4091472635360",
             },
             "source": "existing",
             "validation": "valid",
@@ -136,20 +144,25 @@ def test_convert_cas_funds_and_saa_audit():
         },
     ]
 
-    holdings = convert_cas_funds_to_holdings(funds)
-    assert len(holdings) == 2
-    assert holdings[0].current_value_inr == Decimal("400000.00")
+    from services.cas_parser import set_central_evidence_policy, ExposureEvidencePolicy
+    set_central_evidence_policy(ExposureEvidencePolicy.RESEARCH_PROVISIONAL)
+    try:
+        holdings = convert_cas_funds_to_holdings(funds)
+        assert len(holdings) == 2
+        assert holdings[0].current_value_inr == Decimal("400000.00")
 
-    # Evaluate SAA audit against 70/30 target
-    target = TargetSaa(large_cap_pct=45.0, mid_small_cap_pct=25.0, debt_pct=30.0)
-    audit = evaluate_portfolio_saa_audit(funds, target_saa=target)
+        # Evaluate SAA audit against 70/30 target
+        target = TargetSaa(large_cap_pct=45.0, mid_small_cap_pct=25.0, debt_pct=30.0)
+        audit = evaluate_portfolio_saa_audit(funds, target_saa=target)
 
-    assert audit["status"] == "ANALYZED"
-    assert audit["total_value_inr"] == Decimal("500000.00")
-    # Current debt is: (400k * 0.02) + (100k * 1.0) = 8k + 100k = 108k (21.6%)
-    # Target debt is 30% = 150k -> Debt deficit of 42k
-    assert audit["is_debt_deficit"] is True
-    assert audit["debt_gap_inr"] > Decimal("0.00")
+        assert audit["status"] == "ANALYZED"
+        assert audit["total_value_inr"] == Decimal("500000.00")
+        # Current debt is: (400k * 0.02) + (100k * 1.0) = 8k + 100k = 108k (21.6%)
+        # Target debt is 30% = 150k -> Debt deficit of 42k
+        assert audit["is_debt_deficit"] is True
+        assert audit["debt_gap_inr"] > Decimal("0.00")
+    finally:
+        set_central_evidence_policy(ExposureEvidencePolicy.STRICT_ADVICE)
 
 
 def test_generate_fiduciary_sip_blueprint():
@@ -825,6 +838,7 @@ def test_dynamic_flexi_selection_when_client_has_no_flexi_fund():
         {
             "scheme": "UTI Nifty 50 Index Fund - Direct Plan - Growth",
             "category": "Equity",
+            "category_verified": True,
             "plan_type": "Direct",
             "current_value": 400000.0,
             "folio_no": "1111/01",
@@ -834,6 +848,7 @@ def test_dynamic_flexi_selection_when_client_has_no_flexi_fund():
         {
             "scheme": "HDFC Liquid Fund - Direct Plan - Growth",
             "category": "Debt",
+            "category_verified": True,
             "plan_type": "Direct",
             "current_value": 100000.0,
             "folio_no": "2222/02",
@@ -843,13 +858,18 @@ def test_dynamic_flexi_selection_when_client_has_no_flexi_fund():
     ]
 
     # Target requires 30% flexi but client has 0% flexi (30% of 40000 = 12000)
+    from services.cas_parser import set_central_evidence_policy, ExposureEvidencePolicy
     target = TargetSaa(large_cap_pct=50.0, mid_small_cap_pct=0.0, flexi_multi_cap_pct=30.0, debt_pct=20.0)
-    blueprint = generate_fiduciary_sip_blueprint(
-        monthly_budget_inr=40000.0,
-        funds=funds,
-        target_saa=target,
-        fund_universe=fund_universe,
-    )
+    set_central_evidence_policy(ExposureEvidencePolicy.RESEARCH_PROVISIONAL)
+    try:
+        blueprint = generate_fiduciary_sip_blueprint(
+            monthly_budget_inr=40000.0,
+            funds=funds,
+            target_saa=target,
+            fund_universe=fund_universe,
+        )
+    finally:
+        set_central_evidence_policy(ExposureEvidencePolicy.STRICT_ADVICE)
 
     # Should require dynamic selection for flexi category
     assert blueprint["status"] in ("DETERMINISTIC_SIP_READY", "DYNAMIC_SELECTION_REQUIRED")

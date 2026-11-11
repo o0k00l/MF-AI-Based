@@ -431,7 +431,17 @@ def convert_cas_funds_to_holdings(
 
     holdings: List[HoldingItem] = []
     for idx, f in enumerate(funds):
-        val = Decimal(str(f.get("current_value", 0.0))).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        raw_val = f.get("current_value")
+        if raw_val is None or str(raw_val).strip() == "":
+            raise ValueError(f"Holding '{f.get('scheme', 'Unknown')}' is missing mandatory 'current_value'")
+        try:
+            val_flt = float(raw_val)
+            if not math.isfinite(val_flt):
+                raise ValueError(f"Holding '{f.get('scheme', 'Unknown')}' has non-finite current_value: {raw_val}")
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"Holding '{f.get('scheme', 'Unknown')}' has unparseable current_value: {raw_val}") from exc
+
+        val = Decimal(str(val_flt)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
         if val <= Decimal("0.00"):
             continue
         cost = Decimal(str(f.get("invested_value", 0.0))).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
@@ -473,7 +483,7 @@ def convert_cas_funds_to_holdings(
         evidence = f.get("exposure_evidence")
 
         if isinstance(evidence, dict):
-            is_valid, _ = validate_exposure_evidence(evidence, f.get("scheme_code"))
+            is_valid, _ = validate_exposure_evidence(evidence, f.get("scheme_code"), evidence_policy=ExposureEvidencePolicy.RESEARCH_PROVISIONAL, require_publisher_authentication=False)
             if is_valid:
                 is_exposure_verified = True
                 v_debt = evidence.get("debt_pct")
@@ -485,7 +495,7 @@ def convert_cas_funds_to_holdings(
             if m_entry is not None:
                 m_ev = m_entry.get("exposure_evidence")
                 if isinstance(m_ev, dict):
-                    is_valid, _ = validate_exposure_evidence(m_ev, m_entry.get("sid"))
+                    is_valid, _ = validate_exposure_evidence(m_ev, m_entry.get("sid"), evidence_policy=ExposureEvidencePolicy.RESEARCH_PROVISIONAL, require_publisher_authentication=False)
                     if is_valid:
                         is_exposure_verified = True
                         v_debt = m_ev.get("debt_pct")
@@ -493,7 +503,11 @@ def convert_cas_funds_to_holdings(
                         validated_ev = m_ev
 
         # Centrally governed policy threshold: advice-grade vs research provisional
-        pol = evidence_policy or get_central_evidence_policy()
+        central_policy = get_central_evidence_policy()
+        if central_policy == ExposureEvidencePolicy.STRICT_ADVICE:
+            pol = ExposureEvidencePolicy.STRICT_ADVICE
+        else:
+            pol = evidence_policy or central_policy
 
         # Missing measurements must NEVER become assumed equity. Both debt and equity must be present.
         if is_exposure_verified and v_debt is not None and v_eq is not None:
@@ -577,7 +591,11 @@ def evaluate_portfolio_saa_audit(
     Display estimates and manufactured category percentages are strictly excluded.
     """
     from services.cas_parser import ExposureEvidencePolicy, get_central_evidence_policy
-    pol = evidence_policy or get_central_evidence_policy()
+    central_policy = get_central_evidence_policy()
+    if central_policy == ExposureEvidencePolicy.STRICT_ADVICE:
+        pol = ExposureEvidencePolicy.STRICT_ADVICE
+    else:
+        pol = evidence_policy or central_policy
     holdings = convert_cas_funds_to_holdings(funds, evidence_policy=pol)
     total_val = sum(h.current_value_inr for h in holdings)
 

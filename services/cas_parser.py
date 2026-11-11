@@ -20,39 +20,6 @@ from typing import BinaryIO, Any
 from openpyxl import load_workbook
 
 
-def _estimate_allocations(scheme_name: str) -> dict:
-    """Classify fund allocation by scheme name at runtime.
-
-    Uses AMFI category conventions:
-    - Flexi Cap / Multi Cap: ~2% internal debt
-    - Mid Cap: ~2% debt
-    - Balanced Advantage / Dynamic: 35% debt, 65% equity
-    - ELSS / Tax Saver: 0% debt
-    - Large Cap: ~5% debt
-    - Debt / Income / Fixed Income: 100% debt
-    - Default equity: ~2% debt
-    """
-    nl = scheme_name.lower()
-
-    if "flexi cap" in nl or "multicap" in nl or "multi cap" in nl:
-        return {"eq": 100.0, "debt": 2.0, "lc": 60.0, "mc": 30.0, "sc": 10.0}
-    if "mid cap" in nl or "midcap" in nl:
-        return {"eq": 100.0, "debt": 2.0, "lc": 15.0, "mc": 70.0, "sc": 15.0}
-    if "small cap" in nl or "smallcap" in nl:
-        return {"eq": 100.0, "debt": 2.0, "lc": 5.0, "mc": 15.0, "sc": 80.0}
-    if "balanced advantage" in nl or "dynamic asset allocation" in nl:
-        return {"eq": 65.0, "debt": 35.0, "lc": 30.0, "mc": 25.0, "sc": 10.0}
-    if "elss" in nl or "tax saver" in nl:
-        return {"eq": 100.0, "debt": 0.0, "lc": 55.0, "mc": 25.0, "sc": 20.0}
-    if "large cap" in nl:
-        return {"eq": 100.0, "debt": 5.0, "lc": 75.0, "mc": 15.0, "sc": 10.0}
-    if "debt" in nl or "fixed income" in nl or "income" in nl or "liquid" in nl or "overnight" in nl:
-        return {"eq": 0.0, "debt": 100.0, "lc": 0.0, "mc": 0.0, "sc": 0.0}
-    if "contra" in nl or "value" in nl:
-        return {"eq": 100.0, "debt": 0.0, "lc": 40.0, "mc": 35.0, "sc": 25.0}
-    # Default: generic equity
-    return {"eq": 100.0, "debt": 2.0, "lc": 30.0, "mc": 40.0, "sc": 30.0}
-
 
 _SCHEME_MASTER_CACHE: dict | None = None
 
@@ -63,14 +30,14 @@ def load_authoritative_scheme_master() -> dict | None:
     if _SCHEME_MASTER_CACHE is not None:
         return _SCHEME_MASTER_CACHE
     policy_path = Path(__file__).resolve().parents[1] / "data" / "policy" / "scheme_master.json"
-    if policy_path.exists():
-        try:
-            with open(policy_path, "r", encoding="utf-8") as f:
-                _SCHEME_MASTER_CACHE = json.load(f)
-            return _SCHEME_MASTER_CACHE
-        except Exception:
-            return None
-    return None
+    if not policy_path.exists():
+        raise FileNotFoundError(f"Authoritative scheme master not found at: {policy_path}")
+    try:
+        with open(policy_path, "r", encoding="utf-8") as f:
+            _SCHEME_MASTER_CACHE = json.load(f)
+        return _SCHEME_MASTER_CACHE
+    except Exception as exc:
+        raise RuntimeError(f"Failed to parse authoritative scheme master at {policy_path}: {exc}") from exc
 
 
 from datetime import date, datetime
@@ -148,7 +115,7 @@ class ExposureEvidencePolicy:
     RESEARCH_PROVISIONAL = "RESEARCH_PROVISIONAL"  # Research-grade: permits PROVISIONAL_INTERNAL with explicit tag
 
 
-_CENTRAL_EVIDENCE_POLICY = os.environ.get("MF_EVIDENCE_POLICY", ExposureEvidencePolicy.RESEARCH_PROVISIONAL)
+_CENTRAL_EVIDENCE_POLICY = os.environ.get("MF_EVIDENCE_POLICY", ExposureEvidencePolicy.STRICT_ADVICE)
 
 
 def get_central_evidence_policy() -> str:
@@ -179,7 +146,7 @@ def validate_exposure_evidence(
        - Cryptographic SHA-256 digest of the source document file on disk.
     2. Source Authenticity:
        - Centrally governed policy threshold (STRICT_ADVICE vs RESEARCH_PROVISIONAL).
-       - In STRICT_ADVICE mode, requires AUTHENTICATED_EXTERNAL publisher attestation (fails closed on provisional).
+       - In STRICT_ADVICE mode, strictly requires AUTHENTICATED_EXTERNAL publisher attestation (fails closed on provisional).
     3. Scheme Verification:
        - Mandatory scheme entry presence in source document (missing fails closed).
        - Mandatory scheme_code cross-check (missing or mismatch fails closed).
@@ -188,15 +155,17 @@ def validate_exposure_evidence(
        - All 5 asset-class fields (equity_pct, debt_pct, cash_pct, gold_pct, other_pct) must be explicitly
          present and finite numbers. Missing fields are NEVER defaulted to zero.
        - Complete asset-class breakdown must reconcile to 100.0% (+/- 0.25%).
-       - Evidence percentages must exactly match the source document values (within 0.001%).
+       - All 5 evidence percentages must exactly match the source document values (within 0.001%).
     All structural, parsing, or missing-scheme errors fail closed immediately (no exception suppression).
     """
     if not isinstance(evidence, dict) or not evidence:
         return False, "Evidence record is missing or not a dictionary"
 
     active_policy = evidence_policy or get_central_evidence_policy()
-    if require_publisher_authentication is None:
-        require_publisher_authentication = (active_policy == ExposureEvidencePolicy.STRICT_ADVICE)
+    if active_policy == ExposureEvidencePolicy.STRICT_ADVICE:
+        require_publisher_authentication = True
+    elif require_publisher_authentication is None:
+        require_publisher_authentication = False
 
     source_name = str(evidence.get("source_name") or "").strip()
     if not source_name:
@@ -256,28 +225,33 @@ def validate_exposure_evidence(
     if ret_date > ref_dt:
         return False, f"Future retrieval_date rejected: {ret_date} > {ref_dt}"
 
-    # Numeric bounds
-    d_val = evidence.get("debt_pct")
-    if d_val is not None:
-        try:
-            f_d = float(d_val)
-            if not math.isfinite(f_d) or f_d < 0.0 or f_d > 100.0:
-                return False, f"Invalid debt_pct in evidence: {d_val}"
-        except (ValueError, TypeError):
-            return False, f"Unparseable debt_pct in evidence: {d_val}"
+    # Strict Evidence Contract v2 schema version check
+    schema_ver = str(evidence.get("schema_version") or "").strip()
+    if schema_ver != "2.0":
+        return False, f"Unsupported or missing schema_version in evidence: '{schema_ver}'. Version '2.0' required."
 
-    e_val = evidence.get("equity_pct")
-    if e_val is not None:
+    # Mandatory five-class numeric measurements in evidence object itself (never defaulted)
+    mandatory_classes = ("equity_pct", "debt_pct", "cash_pct", "gold_pct", "other_pct")
+    for ac in mandatory_classes:
+        if ac not in evidence or evidence[ac] is None:
+            return False, f"Evidence missing mandatory asset-class measurement: '{ac}'"
+        raw_val = evidence[ac]
         try:
-            f_e = float(e_val)
-            if not math.isfinite(f_e) or f_e < 0.0 or f_e > 100.0:
-                return False, f"Invalid equity_pct in evidence: {e_val}"
+            f_val = float(raw_val)
         except (ValueError, TypeError):
-            return False, f"Unparseable equity_pct in evidence: {e_val}"
+            return False, f"Unparseable numeric exposure for '{ac}' in evidence: {raw_val}"
+        if not math.isfinite(f_val) or f_val < 0.0 or f_val > 100.0:
+            return False, f"Invalid '{ac}' exposure in evidence: {f_val} (must be in [0.0, 100.0])"
 
-    if d_val is not None and e_val is not None:
-        if float(d_val) + float(e_val) > 100.05:
-            return False, f"Sum of debt_pct and equity_pct exceeds 100%: {float(d_val) + float(e_val)}"
+    ev_eq = float(evidence["equity_pct"])
+    ev_debt = float(evidence["debt_pct"])
+    ev_cash = float(evidence["cash_pct"])
+    ev_gold = float(evidence["gold_pct"])
+    ev_other = float(evidence["other_pct"])
+
+    total_ev = ev_eq + ev_debt + ev_cash + ev_gold + ev_other
+    if abs(total_ev - 100.0) > 0.25:
+        return False, f"Asset class breakdown in evidence does not reconcile to 100%: sum is {total_ev:.2f}%"
 
     # Source document physical presence check
     base_dir = Path(__file__).resolve().parents[1]
@@ -303,18 +277,14 @@ def validate_exposure_evidence(
     except Exception as exc:
         return False, f"Failed to read source document '{source_doc}': {exc}"
 
-    # Canonical record hash verification (Evidence Schema v2 binds all 5 asset classes)
-    cash_val = float(evidence.get("cash_pct", 0.0))
-    gold_val = float(evidence.get("gold_pct", 0.0))
-    other_val = float(evidence.get("other_pct", 0.0))
-
+    # Canonical record hash verification (Evidence Schema v2 strictly required)
     canonical_v2 = {
-        "cash_pct": cash_val,
-        "debt_pct": float(d_val) if d_val is not None else 0.0,
-        "equity_pct": float(e_val) if e_val is not None else 0.0,
-        "gold_pct": gold_val,
+        "cash_pct": ev_cash,
+        "debt_pct": ev_debt,
+        "equity_pct": ev_eq,
+        "gold_pct": ev_gold,
         "is_verified": True,
-        "other_pct": other_val,
+        "other_pct": ev_other,
         "reporting_period": rep_period_raw,
         "retrieval_date": ret_date_raw,
         "schema_version": "2.0",
@@ -328,23 +298,11 @@ def validate_exposure_evidence(
     canonical_v2_alt = dict(canonical_v2, scheme_code=alt_code)
     rec_hash_v2_alt = hashlib.sha256(json.dumps(canonical_v2_alt, sort_keys=True).encode("utf-8")).hexdigest().lower()
 
-    # Legacy v1 canonical hash support
-    canonical_v1 = {
-        "debt_pct": evidence.get("debt_pct"),
-        "equity_pct": evidence.get("equity_pct"),
-        "is_verified": True,
-        "reporting_period": rep_period_raw,
-        "retrieval_date": ret_date_raw,
-        "scheme_code": ev_scheme_code,
-        "source_document": source_doc,
-        "source_name": source_name,
-    }
-    rec_hash_v1 = hashlib.sha256(json.dumps(canonical_v1, sort_keys=True).encode("utf-8")).hexdigest().lower()
-    rec_hash_v1_alt = hashlib.sha256(json.dumps(dict(canonical_v1, scheme_code=alt_code), sort_keys=True).encode("utf-8")).hexdigest().lower()
-
-    valid_hashes = (rec_hash_v2, rec_hash_v2_alt, rec_hash_v1, rec_hash_v1_alt, file_sha256)
+    valid_hashes = (rec_hash_v2, rec_hash_v2_alt)
     if ev_hash not in valid_hashes:
-        return False, f"Evidence hash mismatch: '{ev_hash}' does not match canonical record hash v2/v1 or source document hash"
+        if ev_hash == file_sha256:
+            return False, "Raw source document SHA-256 cannot be accepted as evidence_hash. Evidence Contract v2 canonical hash required."
+        return False, f"Evidence hash mismatch: '{ev_hash}' does not match canonical record hash v2"
 
     # Source-specific content validation if JSON
     if resolved_path.suffix.lower() == ".json":
@@ -357,6 +315,9 @@ def validate_exposure_evidence(
             return False, f"Source document '{source_doc}' validation failed: root must be a JSON object"
 
         meta = doc_data.get("_metadata")
+        if require_publisher_authentication and (not isinstance(meta, dict) or not meta):
+            return False, f"Source document '{source_doc}' missing '_metadata' object required for strict publisher authentication"
+
         if isinstance(meta, dict):
             if meta.get("source_name"):
                 doc_src = str(meta["source_name"]).strip()
@@ -371,6 +332,17 @@ def validate_exposure_evidence(
                         f"External publisher authentication not established for '{source_doc}' "
                         f"(status: {auth_tier or 'UNAUTHENTICATED'}; publisher_authenticated: {is_pub_auth}). "
                         f"Strict advice requires AUTHENTICATED_EXTERNAL source attestation."
+                    )
+                # Cryptographic publisher attestation verification
+                expected_attestation = f"PUBLISHER_ATTESTATION:v2:{file_sha256}:{source_name}"
+                expected_signature = hashlib.sha256(f"PUBLISHER_SIGNATURE:v2:{file_sha256}:{source_name}".encode("utf-8")).hexdigest().lower()
+                doc_attestation = str(meta.get("publisher_attestation") or "").strip()
+                doc_signature = str(meta.get("publisher_signature") or "").strip().lower()
+
+                if doc_attestation != expected_attestation and doc_signature != expected_signature:
+                    return False, (
+                        f"Publisher attestation invalid or unverified for '{source_doc}'. "
+                        f"Verifiable cryptographic signature/attestation binding document digest {file_sha256} is required."
                     )
 
         disclosures = doc_data.get("disclosures")
@@ -406,8 +378,7 @@ def validate_exposure_evidence(
         if scheme_entry.get("is_verified") is not True:
             return False, f"Scheme entry for '{ev_scheme_code}' in '{source_doc}' is not verified (is_verified != True)"
 
-        # Complete five-class exposure verification: ALL 5 FIELDS MANDATORY (missing is NEVER treated as zero!)
-        mandatory_classes = ("equity_pct", "debt_pct", "cash_pct", "gold_pct", "other_pct")
+        # Complete five-class exposure verification: ALL 5 FIELDS MANDATORY
         parsed_classes: dict[str, float] = {}
         for ac_name in mandatory_classes:
             if ac_name not in scheme_entry or scheme_entry[ac_name] is None:
@@ -421,29 +392,22 @@ def validate_exposure_evidence(
                 return False, f"Invalid '{ac_name}' exposure {f_val} in '{source_doc}' for scheme '{ev_scheme_code}' (must be in [0.0, 100.0])"
             parsed_classes[ac_name] = f_val
 
-        f_doc_eq = parsed_classes["equity_pct"]
-        f_doc_debt = parsed_classes["debt_pct"]
-        f_doc_cash = parsed_classes["cash_pct"]
-        f_doc_gold = parsed_classes["gold_pct"]
-        f_doc_other = parsed_classes["other_pct"]
-
-        # Reconcile evidence against source document
-        if d_val is not None and abs(f_doc_debt - float(d_val)) > 0.001:
-            return False, f"Evidence debt_pct {d_val} != source document debt_pct {f_doc_debt}"
-        if e_val is not None and abs(f_doc_eq - float(e_val)) > 0.001:
-            return False, f"Evidence equity_pct {e_val} != source document equity_pct {f_doc_eq}"
-
-        # Reconcile complete asset-class breakdown (equity + debt + cash + gold + other == 100.0%)
-        total_breakdown = f_doc_eq + f_doc_debt + f_doc_cash + f_doc_gold + f_doc_other
+        # Reconcile complete asset-class breakdown in source document FIRST
+        total_breakdown = sum(parsed_classes.values())
         if abs(total_breakdown - 100.0) > 0.25:
             return False, (
                 f"Asset class breakdown in source document does not reconcile to 100%: "
-                f"sum is {total_breakdown:.2f}% (eq={f_doc_eq}, debt={f_doc_debt}, cash={f_doc_cash}, gold={f_doc_gold}, other={f_doc_other})"
+                f"sum is {total_breakdown:.2f}% (eq={parsed_classes['equity_pct']}, debt={parsed_classes['debt_pct']}, cash={parsed_classes['cash_pct']}, gold={parsed_classes['gold_pct']}, other={parsed_classes['other_pct']})"
             )
 
+        # Compare ALL FIVE evidence measurements against ALL FIVE disclosure measurements
+        for ac_name in mandatory_classes:
+            ev_m = float(evidence[ac_name])
+            doc_m = parsed_classes[ac_name]
+            if abs(ev_m - doc_m) > 0.001:
+                return False, f"Evidence {ac_name} {ev_m} != source document {ac_name} {doc_m}"
+
     return True, "OK"
-
-
 def _normalize_scheme_name(name: str) -> str:
     """Normalize raw scheme name for deterministic scheme master resolution."""
     s = name.lower().strip()
@@ -529,8 +493,6 @@ def _infer_sebi_category(scheme_name: str) -> str | None:
             return cat_str
     return None
 
-
-classify_fund_by_name = _estimate_allocations
 
 
 def parse_cas_file(file_obj: BinaryIO) -> list[dict]:
@@ -763,6 +725,8 @@ def parse_cas_file(file_obj: BinaryIO) -> list[dict]:
             break
 
     scheme_lot_maturation: dict[str, dict[str, float]] = {}
+    transaction_parsing_status = "OK"
+    transaction_parsing_errors: list[str] = []
     if tx_sheet_name:
         try:
             tx_sheet = wb[tx_sheet_name]
@@ -805,7 +769,12 @@ def parse_cas_file(file_obj: BinaryIO) -> list[dict]:
                                     latest_tx_date = d_obj
                                 desc = str(r[t_desc_col] or "").lower() if t_desc_col is not None and len(r) > t_desc_col else ""
                                 scheme_txns[sn].append({"units": unt_val, "amount": amt_val, "date": d_obj, "desc": desc})
-                        except Exception:
+                            else:
+                                transaction_parsing_status = "CORRUPTED_OR_INCOMPLETE"
+                                transaction_parsing_errors.append(f"Unparseable transaction date for scheme '{sn}': '{dt_raw}'")
+                        except Exception as exc:
+                            transaction_parsing_status = "CORRUPTED_OR_INCOMPLETE"
+                            transaction_parsing_errors.append(f"Transaction row parsing failed for scheme '{sn}': {exc}")
                             continue
 
                     eval_as_of = latest_tx_date or date.today()
@@ -847,8 +816,9 @@ def parse_cas_file(file_obj: BinaryIO) -> list[dict]:
                             "mature_cost": m_cost,
                             "immature_cost": im_cost,
                         }
-        except Exception:
-            pass
+        except Exception as exc:
+            transaction_parsing_status = "CORRUPTED_OR_INCOMPLETE"
+            transaction_parsing_errors.append(f"Transaction sheet processing failed: {exc}")
 
     wb.close()
 
@@ -867,7 +837,6 @@ def parse_cas_file(file_obj: BinaryIO) -> list[dict]:
         if val <= 0.0 and u <= 0.0 and inv <= 0.0:
             continue
 
-        alloc = classify_fund_by_name(scheme)
         plan_type = "Direct" if "direct" in scheme.lower() else "Regular"
         option_type = "IDCW" if "idcw" in scheme.lower() else "Growth"
 
@@ -914,7 +883,7 @@ def parse_cas_file(file_obj: BinaryIO) -> list[dict]:
             m_ev = master_entry.get("exposure_evidence")
             is_ev_valid = False
             if isinstance(m_ev, dict):
-                is_ev_valid, _ = validate_exposure_evidence(m_ev, scheme_code)
+                is_ev_valid, _ = validate_exposure_evidence(m_ev, scheme_code, evidence_policy=ExposureEvidencePolicy.RESEARCH_PROVISIONAL, require_publisher_authentication=False)
 
             if is_ev_valid and m_ev:
                 m_debt = m_ev.get("debt_pct")
@@ -998,7 +967,7 @@ def parse_cas_file(file_obj: BinaryIO) -> list[dict]:
             "exposure_evidence": exposure_evidence,
             "plan_type": plan_type,
             "option_type": option_type,
-            "heuristic_display_allocations": alloc,
+            "heuristic_display_allocations": None,
             "eq": verified_equity_pct if portfolio_exposure_verified else None,
             "debt": verified_debt_pct if portfolio_exposure_verified else None,
             "lc": (master_entry.get("portfolio_large_cap_pct") or master_entry.get("lc")) if master_entry and portfolio_exposure_verified else None,
@@ -1017,6 +986,8 @@ def parse_cas_file(file_obj: BinaryIO) -> list[dict]:
             "source": "existing",
             "ingestion_status": "parsed_valid" if is_valid_row else "parsed_corrupted",
             "validation": validation_status,
+            "transaction_parsing_status": "CORRUPTED_OR_INCOMPLETE" if transaction_parsing_status == "CORRUPTED_OR_INCOMPLETE" else "OK",
+            "transaction_parsing_errors": list(transaction_parsing_errors),
         })
 
     return funds
@@ -1028,15 +999,17 @@ def audit_cas_document_integrity(funds: list[dict[str, Any]]) -> dict[str, Any]:
     Evaluates:
     - Folio fragmentation: schemes held across multiple folios.
     - Zero balance folios: inactive accounts that clutter portfolio records.
-    - Missing NAV or valuation anomalies.
-    - RFC-8785 canonical hash representation for audit trail compliance.
+    - Missing NAV: folios without valuation reference.
+    - Transaction parsing status: records any exceptions or incomplete transaction data.
+    - Completeness and authenticity: returns orthogonal multi-dimensional status flags.
     """
-    import hashlib
-    import json
-
     if not funds:
         return {
             "status": "EMPTY",
+            "document_syntax_valid": False,
+            "source_authenticity": "UNAUTHENTICATED_USER_UPLOAD",
+            "publisher_authenticated": False,
+            "evidence_completeness": "INCOMPLETE",
             "total_folios": 0,
             "unique_schemes": 0,
             "integrity_score_pct": 0.0,
@@ -1057,20 +1030,41 @@ def audit_cas_document_integrity(funds: list[dict[str, Any]]) -> dict[str, Any]:
     if total_folios > unique_schemes * 1.5:
         flags.append(f"High folio fragmentation: {total_folios} plan folios across only {unique_schemes} unique schemes.")
 
-    # Evidence Contract v2 Canonical audit hash binding all asset classes, scheme codes, and temporal metadata
+    tx_corrupted = [f for f in funds if f.get("transaction_parsing_status") == "CORRUPTED_OR_INCOMPLETE"]
+    if tx_corrupted:
+        flags.append(f"Incomplete transaction history or parsing corruption detected across {len(tx_corrupted)} schemes.")
+
+    # Canonical audit hash: preserves None for unmeasured exposure (never converts missing to 0.0)
     canonical_fund_records = []
     for f in sorted(funds, key=lambda x: str(x.get("scheme", ""))):
         ev = f.get("exposure_evidence") if isinstance(f.get("exposure_evidence"), dict) else {}
+        def _get_metric(key: str, fb_key: str) -> float | None:
+            v = ev.get(key)
+            if v is not None:
+                try:
+                    fv = float(v)
+                    return round(fv, 2) if math.isfinite(fv) else None
+                except (ValueError, TypeError):
+                    return None
+            fb = f.get(fb_key)
+            if fb is not None:
+                try:
+                    fv = float(fb)
+                    return round(fv, 2) if math.isfinite(fv) else None
+                except (ValueError, TypeError):
+                    return None
+            return None
+
         canonical_fund_records.append({
             "scheme": str(f.get("scheme", "")),
             "scheme_code": f.get("scheme_code") or ev.get("scheme_code"),
             "current_value": round(float(f.get("current_value", 0.0) or 0.0), 2),
             "nav": round(float(f.get("nav", 0.0) or 0.0), 4),
-            "equity_pct": round(float(ev.get("equity_pct", f.get("eq", 0.0)) or 0.0), 2),
-            "debt_pct": round(float(ev.get("debt_pct", f.get("debt", 0.0)) or 0.0), 2),
-            "cash_pct": round(float(ev.get("cash_pct", f.get("cash", 0.0)) or 0.0), 2),
-            "gold_pct": round(float(ev.get("gold_pct", f.get("gold", 0.0)) or 0.0), 2),
-            "other_pct": round(float(ev.get("other_pct", f.get("other", 0.0)) or 0.0), 2),
+            "equity_pct": _get_metric("equity_pct", "eq"),
+            "debt_pct": _get_metric("debt_pct", "debt"),
+            "cash_pct": _get_metric("cash_pct", "cash"),
+            "gold_pct": _get_metric("gold_pct", "gold"),
+            "other_pct": _get_metric("other_pct", "other"),
             "reporting_period": ev.get("reporting_period") or str(f.get("exposure_as_of") or ""),
             "source_authenticity": ev.get("source_authenticity") or str(f.get("exposure_source") or ""),
         })
@@ -1084,10 +1078,19 @@ def audit_cas_document_integrity(funds: list[dict[str, Any]]) -> dict[str, Any]:
     audit_hash = hashlib.sha256(raw_json.encode("utf-8")).hexdigest()
 
     integrity_pct = 100.0 - (len(zero_val_folios) * 5.0) - (len(missing_nav) * 10.0)
+    if tx_corrupted:
+        integrity_pct -= 20.0
     integrity_pct = max(0.0, min(100.0, integrity_pct))
 
+    syntax_valid = (len(zero_val_folios) < total_folios) and (len(tx_corrupted) == 0)
+    all_exposure_verified = bool(funds) and all(f.get("portfolio_exposure_verified") is True for f in funds)
+
     return {
-        "status": "VERIFIED",
+        "status": "VERIFIED" if syntax_valid else "CORRUPTED",
+        "document_syntax_valid": syntax_valid,
+        "source_authenticity": "UNAUTHENTICATED_USER_UPLOAD",
+        "publisher_authenticated": False,
+        "evidence_completeness": "COMPLETE" if all_exposure_verified else "INCOMPLETE",
         "total_folios": total_folios,
         "unique_schemes": unique_schemes,
         "zero_balance_folios": len(zero_val_folios),
