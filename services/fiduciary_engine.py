@@ -389,16 +389,18 @@ def _select_market_nom_fund(
             except ValueError:
                 return {"scheme": "SPIVA_FALLBACK_FAILED", "source": "unavailable", "validation": "failed"}
 
-        # Get scheme name from the best fund (from VALID filtered only)
+        # Get scheme name and category from the best fund (from VALID filtered only)
         best = valid_filtered[0]
         scheme_name = best.get("scheme") or best.get("canonical_name") or best.get("id", "Selected Fund")
+        scheme_category = best.get("category") or best.get("cat", "") or "Equity"
         # Ensure Direct plan
         if "Direct" not in scheme_name and "Direct Plan" not in scheme_name:
             scheme_name = scheme_name + " - Direct Plan - Growth"
         
-        # Return dict with provenance info (source="dynamic" for dynamic selection)
+        # Return dict with provenance info including actual category from selected fund
         return {
             "scheme": scheme_name,
+            "category": scheme_category,
             "source": "dynamic",
             "validation": "valid"
         }
@@ -683,8 +685,8 @@ def generate_fiduciary_sip_blueprint(
                     fund_is_passive = fund.get("is_passive", False)
                     if expected_is_passive != fund_is_passive:
                         continue
-                    # All checks passed - fallback is valid
-                    return {"scheme": fallback_scheme, "source": "fallback", "validation": "valid"}
+                    # All checks passed - fallback is valid (include actual category from fund)
+                    return {"scheme": fallback_scheme, "category": fund_cat, "source": "fallback", "validation": "valid"}
             # Fallback scheme not found or doesn't match criteria in universe
             return {"scheme": "SPIVA_FALLBACK_FAILED", "source": "unavailable", "validation": "failed"}
         
@@ -706,7 +708,7 @@ def generate_fiduciary_sip_blueprint(
             sleeve: Sleeve name for error reporting
             expected_category_keywords: List of keywords to match against category/scheme
             require_provenance: If True, fund must have valid source metadata
-            allowed_provenance: List of allowed source values (e.g., ["dynamic", "fallback"])
+            allowed_provenance: List of allowed source values (e.g., ["dynamic", "fallback", "existing"])
         
         Returns dict with: validation, scheme, folio_no, is_new, and optionally source/validation
         """
@@ -737,13 +739,18 @@ def generate_fiduciary_sip_blueprint(
             if not is_valid_category:
                 return {"validation": "failed", "scheme": scheme, "folio_no": folio, "is_new": False}
         
-        # CRITICAL: If require_provenance=True but fund has no source, FAIL
-        if require_provenance and not fund_source:
-            return {"validation": "failed", "scheme": scheme, "folio_no": folio, "is_new": False}
-        
-        # Check provenance against allowed list if provided
-        if require_provenance and allowed_provenance and fund_source not in allowed_provenance:
-            return {"validation": "failed", "scheme": scheme, "folio_no": folio, "is_new": False}
+        # CRITICAL: Provenance gate enforcement
+        # If require_provenance=True, source must be present AND in allowed_provenance list
+        if require_provenance:
+            # Fail if no source provided
+            if not fund_source:
+                return {"validation": "failed", "scheme": scheme, "folio_no": folio, "is_new": False}
+            # Fail if allowed_provenance is empty or missing (fail-closed policy)
+            if not allowed_provenance:
+                return {"validation": "failed", "scheme": scheme, "folio_no": folio, "is_new": False}
+            # Fail if source is not in allowed list
+            if fund_source not in allowed_provenance:
+                return {"validation": "failed", "scheme": scheme, "folio_no": folio, "is_new": False}
         
         result = {"validation": "valid", "scheme": scheme, "folio_no": folio, "is_new": folio == "New Direct Folio Mandate"}
         if require_provenance:
@@ -771,10 +778,15 @@ def generate_fiduciary_sip_blueprint(
         if not scheme or scheme == "SPIVA_FALLBACK_FAILED":
             return None
         
+        # Use actual category from selection if available, otherwise infer
+        actual_category = market_result.get("category", "")
+        inferred_category = _infer_category_from_keywords(allocation_keywords + [scheme.lower()]) if not actual_category else None
+        category_to_use = actual_category or inferred_category or "Equity"
+        
         # Build a fund dict for validation
         fund_for_validation = {
             "scheme": scheme,
-            "category": _infer_category_from_keywords(allocation_keywords + [scheme.lower()]),
+            "category": category_to_use,
             "plan_type": "Direct",
             "folio_no": "New Direct Folio Mandate",
             "source": market_result.get("source", "dynamic"),
@@ -884,14 +896,20 @@ def generate_fiduciary_sip_blueprint(
                 selected_name = selection_result.get("scheme", "SPIVA_FALLBACK_FAILED")
                 lc_validation_result = selection_result.get("validation", "failed")
                 if lc_validation_result == "valid" and selected_name != "SPIVA_FALLBACK_FAILED":
-                    selected_fund = {"scheme": selected_name, "category": "Large Cap", "plan_type": "Direct", "folio_no": "New Direct Folio Mandate", "source": "dynamic", "validation": "valid"}
+                    # Preserve actual source from selection (dynamic or fallback)
+                    selected_fund = {
+                        "scheme": selected_name,
+                        "category": selection_result.get("category", "Large Cap"),
+                        "plan_type": "Direct",
+                        "folio_no": "New Direct Folio Mandate",
+                        "source": selection_result.get("source", "dynamic"),
+                        "validation": "valid"
+                    }
                 else:
                     selected_fund = None
             else:
-                # Preserve existing fund's source, default to "existing" if missing
+                # Preserve existing fund's source as-is (no defaulting - provenance gate enforced)
                 selected_fund = dict(lc_fund)
-                if "source" not in selected_fund:
-                    selected_fund["source"] = "existing"
             
             # Validate using shared function - provenance gate enforced
             validation = _validate_scheme_for_sleeve(
@@ -928,14 +946,20 @@ def generate_fiduciary_sip_blueprint(
                 selected_name = selection_result.get("scheme", "SPIVA_FALLBACK_FAILED")
                 ms_validation_result = selection_result.get("validation", "failed")
                 if ms_validation_result == "valid" and selected_name != "SPIVA_FALLBACK_FAILED":
-                    selected_fund = {"scheme": selected_name, "category": "Mid Cap", "plan_type": "Direct", "folio_no": "New Direct Folio Mandate", "source": "dynamic", "validation": "valid"}
+                    # Preserve actual source from selection (dynamic or fallback)
+                    selected_fund = {
+                        "scheme": selected_name,
+                        "category": selection_result.get("category", "Mid Cap"),
+                        "plan_type": "Direct",
+                        "folio_no": "New Direct Folio Mandate",
+                        "source": selection_result.get("source", "dynamic"),
+                        "validation": "valid"
+                    }
                 else:
                     selected_fund = None
             else:
-                # Preserve existing fund's source, default to "existing" if missing
+                # Preserve existing fund's source as-is (no defaulting - provenance gate enforced)
                 selected_fund = dict(ms_fund)
-                if "source" not in selected_fund:
-                    selected_fund["source"] = "existing"
             
             # Validate using shared function - provenance gate enforced
             validation = _validate_scheme_for_sleeve(
@@ -974,7 +998,15 @@ def generate_fiduciary_sip_blueprint(
                 selected_name = selection_result.get("scheme", "SPIVA_FALLBACK_FAILED")
                 flexi_validation_result = selection_result.get("validation", "failed")
                 if flexi_validation_result == "valid" and selected_name != "SPIVA_FALLBACK_FAILED":
-                    selected_fund = {"scheme": selected_name, "category": "Flexi Cap", "plan_type": "Direct", "folio_no": "New Direct Folio Mandate", "source": "dynamic", "validation": "valid"}
+                    # Preserve actual source from selection (dynamic or fallback)
+                    selected_fund = {
+                        "scheme": selected_name,
+                        "category": selection_result.get("category", "Flexi Cap"),
+                        "plan_type": "Direct",
+                        "folio_no": "New Direct Folio Mandate",
+                        "source": selection_result.get("source", "dynamic"),
+                        "validation": "valid"
+                    }
                 else:
                     selected_fund = None
             # If using client's existing fund, we need to validate it
@@ -988,10 +1020,8 @@ def generate_fiduciary_sip_blueprint(
                     selected_fund = None
                     flexi_selection_result = {"validation": "failed", "scheme": flexi_fund.get("scheme", "UNKNOWN")}
                 else:
-                    # Preserve existing fund's source, default to "existing" if missing
+                    # Preserve existing fund's source as-is (no defaulting - provenance gate enforced)
                     selected_fund = dict(flexi_fund)  # Make a copy
-                    if "source" not in selected_fund:
-                        selected_fund["source"] = "existing"
             
             # Validate using shared function - provenance gate enforced
             validation = _validate_scheme_for_sleeve(
@@ -1028,14 +1058,20 @@ def generate_fiduciary_sip_blueprint(
                 selected_name = selection_result.get("scheme", "SPIVA_FALLBACK_FAILED")
                 db_validation_result = selection_result.get("validation", "failed")
                 if db_validation_result == "valid" and selected_name != "SPIVA_FALLBACK_FAILED":
-                    selected_fund = {"scheme": selected_name, "category": "Debt", "plan_type": "Direct", "folio_no": "New Direct Folio Mandate", "source": selection_result.get("source", "dynamic"), "validation": selection_result.get("validation", "valid")}
+                    # Preserve actual source and category from selection (dynamic or fallback)
+                    selected_fund = {
+                        "scheme": selected_name,
+                        "category": selection_result.get("category", "Debt"),
+                        "plan_type": "Direct",
+                        "folio_no": "New Direct Folio Mandate",
+                        "source": selection_result.get("source", "dynamic"),
+                        "validation": selection_result.get("validation", "valid")
+                    }
                 else:
                     selected_fund = None
             elif db_fund:
-                # Preserve existing fund's source, default to "existing" if missing
+                # Preserve existing fund's source as-is (no defaulting - provenance gate enforced)
                 selected_fund = dict(db_fund)
-                if "source" not in selected_fund:
-                    selected_fund["source"] = "existing"
                 # For existing funds, check if they match the debt category
                 fund_cat = str(selected_fund.get("category", "")).lower()
                 fund_scheme = str(selected_fund.get("scheme", "")).lower()

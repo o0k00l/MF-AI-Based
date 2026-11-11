@@ -136,7 +136,7 @@ def test_portfolio_peer_attribution():
 
 def test_sip_blueprint_alerts_and_timing():
     funds = [
-        {"scheme": "Nifty 50 Index Fund Direct Growth", "current_value": 200000.0, "plan_type": "Direct"},
+        {"scheme": "Nifty 50 Index Fund Direct Growth", "current_value": 200000.0, "plan_type": "Direct", "source": "existing", "category": "Large Cap"},
     ]
     bp = generate_fiduciary_sip_blueprint(30000.0, funds=funds)
     assert bp["status"] == "DETERMINISTIC_SIP_READY"
