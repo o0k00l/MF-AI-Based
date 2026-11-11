@@ -518,8 +518,8 @@ def classify_fund_with_ai(scheme_name: str, use_live_ai: bool = False) -> Dict[s
         if ai_res:
             return ai_res
 
-    # 2. Second Pass: Check against verified disclosures knowledgebase (exact substring & cleaned key)
-    for key, profile in VERIFIED_SCHEME_LOOKTHROUGH.items():
+    # 2. Second Pass: Check against verified disclosures knowledgebase (prefer longest/most specific match)
+    for key, profile in sorted(VERIFIED_SCHEME_LOOKTHROUGH.items(), key=lambda kv: len(kv[0]), reverse=True):
         clean_key = _clean_scheme_name(key)
         if key in clean_name or clean_key in clean_name:
             res = dict(profile)
@@ -528,10 +528,11 @@ def classify_fund_with_ai(scheme_name: str, use_live_ai: bool = False) -> Dict[s
                 res["ai_rationale"] = "Audited from official AMC monthly factsheet portfolio disclosures (data/policy/fund_metrics.json)."
             return res
 
-    # 3. Third Pass: Check key component words
-    for key, profile in VERIFIED_SCHEME_LOOKTHROUGH.items():
+    # 3. Third Pass: Check key component words (prefer longest word sequences and ignore plan-option words)
+    plan_words = {"growth", "direct", "regular", "plan", "option", "idcw", "dividend", "fund"}
+    for key, profile in sorted(VERIFIED_SCHEME_LOOKTHROUGH.items(), key=lambda kv: len(kv[0].split()), reverse=True):
         clean_key = _clean_scheme_name(key)
-        key_words = [w for w in clean_key.split() if len(w) > 1]
+        key_words = [w for w in clean_key.split() if len(w) > 1 and w not in plan_words]
         if len(key_words) >= 2 and all(w in clean_name for w in key_words):
             res = dict(profile)
             res["source"] = "AMC Factsheet Look-Through"

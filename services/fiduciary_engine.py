@@ -466,6 +466,7 @@ def convert_cas_funds_to_holdings(funds: List[Dict[str, Any]]) -> List[HoldingIt
         is_exposure_verified = False
         v_debt = None
         v_eq = None
+        validated_ev = None
         evidence = f.get("exposure_evidence")
 
         if isinstance(evidence, dict):
@@ -474,6 +475,7 @@ def convert_cas_funds_to_holdings(funds: List[Dict[str, Any]]) -> List[HoldingIt
                 is_exposure_verified = True
                 v_debt = evidence.get("debt_pct")
                 v_eq = evidence.get("equity_pct")
+                validated_ev = evidence
         else:
             # Check authoritative scheme master for authentic evidence
             m_entry = resolve_authoritative_scheme(s_name)
@@ -485,17 +487,24 @@ def convert_cas_funds_to_holdings(funds: List[Dict[str, Any]]) -> List[HoldingIt
                         is_exposure_verified = True
                         v_debt = m_ev.get("debt_pct")
                         v_eq = m_ev.get("equity_pct")
+                        validated_ev = m_ev
 
-        if is_exposure_verified and v_debt is not None:
+        # Missing measurements must NEVER become assumed equity. Both debt and equity must be present.
+        if is_exposure_verified and v_debt is not None and v_eq is not None:
             lookthrough_status = "VERIFIED"
-            lookthrough_reason = f"Verified factsheet disclosure via {f.get('exposure_source') or 'MASTER'} as of {f.get('exposure_as_of') or '2026-08-31'}"
+            ev_source = validated_ev.get("source_name") if validated_ev else f.get("exposure_source")
+            ev_as_of = validated_ev.get("reporting_period") if validated_ev else f.get("exposure_as_of")
+            as_of_str = str(ev_as_of).strip() if ev_as_of else "date unavailable"
+            src_str = str(ev_source).strip() if ev_source else "MASTER"
+            lookthrough_reason = f"Verified factsheet disclosure via {src_str} as of {as_of_str}"
             debt_pct = float(v_debt)
-            eq_pct = float(v_eq) if v_eq is not None else max(0.0, 100.0 - debt_pct)
+            eq_pct = float(v_eq)
         else:
             lookthrough_status = "INDETERMINATE"
             lookthrough_reason = "No verified factsheet look-through disclosure attached"
             debt_pct = 0.0
             eq_pct = 0.0
+            as_of_str = None
 
         plan_str = str(f.get("plan_type", "Direct")).upper()
         plan = PlanType.REGULAR if "REGULAR" in plan_str else PlanType.DIRECT
@@ -520,7 +529,7 @@ def convert_cas_funds_to_holdings(funds: List[Dict[str, Any]]) -> List[HoldingIt
             nav=nav,
             lookthrough_status=lookthrough_status,
             lookthrough_reason=lookthrough_reason,
-            lookthrough_effective_date=f.get("exposure_as_of"),
+            lookthrough_effective_date=as_of_str if as_of_str and as_of_str != "date unavailable" else None,
         )
         holdings.append(h)
     return holdings

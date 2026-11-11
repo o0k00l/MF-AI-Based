@@ -1635,3 +1635,305 @@ def test_category_provenance_requires_verified_category():
     assert h.asset_class == AssetClass.OTHER
 
 
+# =====================================================================
+# 11. ADVERSARIAL DISCLOSURE INTEGRITY & AUTHENTICITY TESTS
+# =====================================================================
+
+def test_evidence_validation_fails_closed_when_scheme_missing_from_disclosure():
+    """Fail-Closed: validate_exposure_evidence rejects evidence referencing scheme absent from disclosure store."""
+    from services.cas_parser import validate_exposure_evidence
+    import hashlib, json
+
+    canonical_obj = {
+        "debt_pct": 5.0,
+        "equity_pct": 95.0,
+        "is_verified": True,
+        "reporting_period": "2026-08-31",
+        "retrieval_date": "2026-11-07",
+        "scheme_code": 99999999,  # Absent from disclosures
+        "source_document": "sharpely_monthly_disclosure_2026_08.json",
+        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
+    }
+    rec_hash = hashlib.sha256(json.dumps(canonical_obj, sort_keys=True).encode("utf-8")).hexdigest()
+
+    ev = dict(canonical_obj, evidence_hash=rec_hash)
+    is_valid, msg = validate_exposure_evidence(ev, 99999999)
+    assert is_valid is False
+    assert "not found in disclosure document" in msg
+
+
+def test_evidence_validation_fails_closed_on_malformed_json_source(tmp_path):
+    """Zero Exception Suppression: malformed JSON in source document fails closed with descriptive error."""
+    from services.cas_parser import validate_exposure_evidence
+    import hashlib
+
+    # Create a corrupted JSON file
+    corrupt_file = tmp_path / "corrupt_disclosure.json"
+    corrupt_file.write_text("{ this is completely invalid json !!! ", encoding="utf-8")
+    corrupt_hash = hashlib.sha256(corrupt_file.read_bytes()).hexdigest()
+
+    ev = {
+        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
+        "source_document": str(corrupt_file),
+        "scheme_code": 10101,
+        "reporting_period": "2026-08-31",
+        "retrieval_date": "2026-11-07",
+        "debt_pct": 4.3,
+        "equity_pct": 95.7,
+        "evidence_hash": corrupt_hash,
+        "is_verified": True,
+    }
+
+    is_valid, msg = validate_exposure_evidence(ev, 10101)
+    assert is_valid is False
+    assert "validation failed: malformed JSON" in msg
+
+
+def test_evidence_validation_fails_closed_on_mismatched_reporting_period():
+    """Reporting Period Reconciliation: evidence claiming different period than disclosure file fails closed."""
+    from services.cas_parser import validate_exposure_evidence
+    import hashlib, json
+
+    canonical_obj = {
+        "debt_pct": 4.3,
+        "equity_pct": 95.7,
+        "is_verified": True,
+        "reporting_period": "2026-07-31",  # Document has 2026-08-31!
+        "retrieval_date": "2026-11-07",
+        "scheme_code": 10101,
+        "source_document": "sharpely_monthly_disclosure_2026_08.json",
+        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
+    }
+    rec_hash = hashlib.sha256(json.dumps(canonical_obj, sort_keys=True).encode("utf-8")).hexdigest()
+
+    ev = dict(canonical_obj, evidence_hash=rec_hash)
+    is_valid, msg = validate_exposure_evidence(ev, 10101)
+    assert is_valid is False
+    assert "Reporting period mismatch" in msg
+
+
+def test_evidence_validation_fails_closed_on_incomplete_asset_class_breakdown(tmp_path):
+    """Calculation Reconciliation: disclosure entry whose asset classes do not sum to 100% fails closed."""
+    from services.cas_parser import validate_exposure_evidence
+    import hashlib, json
+
+    incomplete_store = {
+        "_metadata": {
+            "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
+            "source_authenticity": "PROVISIONAL_INTERNAL",
+        },
+        "disclosures": {
+            "77777": {
+                "scheme_code": 77777,
+                "canonical_name": "Incomplete Fund",
+                "reporting_period": "2026-08-31",
+                "retrieval_date": "2026-11-07",
+                "is_verified": True,
+                "debt_pct": 20.0,
+                "equity_pct": 50.0,
+                "cash_pct": 0.0,
+                "gold_pct": 0.0,
+                "other_pct": 0.0,  # Sum = 70.0% != 100.0%!
+            }
+        }
+    }
+    doc_path = tmp_path / "incomplete_disclosure.json"
+    doc_path.write_text(json.dumps(incomplete_store), encoding="utf-8")
+    doc_hash = hashlib.sha256(doc_path.read_bytes()).hexdigest()
+
+    ev = {
+        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
+        "source_document": str(doc_path),
+        "scheme_code": 77777,
+        "reporting_period": "2026-08-31",
+        "retrieval_date": "2026-11-07",
+        "debt_pct": 20.0,
+        "equity_pct": 50.0,
+        "evidence_hash": doc_hash,
+        "is_verified": True,
+    }
+
+    is_valid, msg = validate_exposure_evidence(ev, 77777)
+    assert is_valid is False
+    assert "does not reconcile to 100%" in msg
+
+
+def test_convert_cas_funds_never_assumes_equity_when_equity_missing():
+    """Assumed Equity Bug Prevention: missing equity exposure NEVER defaults to 100 - debt."""
+    from services.fiduciary_engine import convert_cas_funds_to_holdings
+
+    # Fund has debt measured but equity is missing/None
+    partial_fund = {
+        "scheme": "Adversarial Partial Holding Direct Growth",
+        "category": "Hybrid",
+        "category_verified": True,
+        "plan_type": "Direct",
+        "current_value": 100000.0,
+        "invested_value": 90000.0,
+        "units": 1000.0,
+        "nav": 100.0,
+        "folio_no": "PARTIAL-01",
+        "source": "existing",
+        "validation": "valid",
+        "exposure_evidence": {
+            "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
+            "source_document": "sharpely_monthly_disclosure_2026_08.json",
+            "scheme_code": 10101,
+            "reporting_period": "2026-08-31",
+            "retrieval_date": "2026-11-07",
+            "debt_pct": 4.3,
+            "equity_pct": None,  # Missing equity!
+            "is_verified": True,
+            "evidence_hash": "a" * 64,
+        },
+    }
+
+    holdings = convert_cas_funds_to_holdings([partial_fund])
+    assert len(holdings) == 1
+    h = holdings[0]
+    # Incomplete measurement must remain missing (0.0%), and status must be INDETERMINATE
+    assert h.lookthrough_status == "INDETERMINATE"
+    assert h.equity_pct == 0.0
+    assert h.debt_pct == 0.0
+    assert "No verified factsheet look-through" in h.lookthrough_reason
+
+
+def test_holding_explanation_never_uses_stale_hardcoded_date():
+    """Explanation Governance: missing reporting date produces 'date unavailable', never '2026-08-31'."""
+    from services.fiduciary_engine import convert_cas_funds_to_holdings
+
+    unverified_fund = {
+        "scheme": "Some Random Fund - Direct Plan - Growth",
+        "category": "Equity",
+        "category_verified": True,
+        "plan_type": "Direct",
+        "current_value": 50000.0,
+        "folio_no": "FOLIO-X",
+        "source": "existing",
+        "validation": "valid",
+    }
+
+    holdings = convert_cas_funds_to_holdings([unverified_fund])
+    assert len(holdings) == 1
+    h = holdings[0]
+    assert h.lookthrough_status == "INDETERMINATE"
+    assert "2026-08-31" not in h.lookthrough_reason
+    assert h.lookthrough_effective_date is None
+
+
+def test_dummy_unmeasured_schemes_in_master_fail_closed_to_indeterminate():
+    """Provisional Dataset Governance: the 9 unmeasured schemes in master have no fake evidence and fail closed."""
+    from services.fiduciary_engine import convert_cas_funds_to_holdings
+    from services.cas_parser import resolve_authoritative_scheme
+
+    # Verify in scheme master directly
+    master_entry = resolve_authoritative_scheme("BANDHAN Nifty 50 Index Fund - Direct Plan - Growth")
+    assert master_entry is not None
+    assert master_entry.get("exposure_evidence") is None
+    assert master_entry.get("eq") is None
+    assert master_entry.get("debt") is None
+
+    # Verify when held in client portfolio
+    holding_fund = {
+        "scheme": "BANDHAN Nifty 50 Index Fund - Direct Plan - Growth",
+        "category": "Large Cap",
+        "category_verified": True,
+        "plan_type": "Direct",
+        "current_value": 200000.0,
+        "folio_no": "BND-01",
+        "source": "existing",
+        "validation": "valid",
+    }
+
+    holdings = convert_cas_funds_to_holdings([holding_fund])
+    assert len(holdings) == 1
+    h = holdings[0]
+    assert h.lookthrough_status == "INDETERMINATE"
+    assert h.equity_pct == 0.0
+    assert h.debt_pct == 0.0
+
+
+def test_provenance_tier_distinguishes_integrity_from_publisher_authentication():
+    """Source Authenticity: validate_exposure_evidence fails closed when publisher authentication is required."""
+    from services.cas_parser import validate_exposure_evidence, resolve_authoritative_scheme
+
+    hdfc_top100 = resolve_authoritative_scheme("HDFC Top 100 Fund - Direct Plan - Growth")
+    assert hdfc_top100 is not None
+    ev = hdfc_top100["exposure_evidence"]
+    assert ev is not None
+
+    # When require_publisher_authentication=False: integrity and scheme verification pass on PROVISIONAL_INTERNAL
+    ok_prov, msg_prov = validate_exposure_evidence(ev, hdfc_top100["sid"], require_publisher_authentication=False)
+    assert ok_prov is True
+    assert msg_prov == "OK"
+
+    # When require_publisher_authentication=True: fails closed because dataset is provisional
+    ok_auth, msg_auth = validate_exposure_evidence(ev, hdfc_top100["sid"], require_publisher_authentication=True)
+    assert ok_auth is False
+    assert "External publisher authentication not established" in msg_auth
+
+
+def test_evidence_validation_fails_closed_when_disclosure_content_percentage_mismatched():
+    """Adversarial Tampering: modifying debt_pct in evidence vs verified source document fails closed."""
+    from services.cas_parser import validate_exposure_evidence, resolve_authoritative_scheme
+    import hashlib, json
+
+    hdfc_top100 = resolve_authoritative_scheme("HDFC Top 100 Fund - Direct Plan - Growth")
+    real_ev = dict(hdfc_top100["exposure_evidence"])
+
+    # Adversary alters debt from 4.3 to 9.9 and adjusts equity to 90.1 so sum=100.0,
+    # and creates valid canonical hash for their altered record
+    tampered_obj = dict(real_ev, debt_pct=9.9, equity_pct=90.1)
+    tampered_canonical = {
+        "debt_pct": 9.9,
+        "equity_pct": 90.1,
+        "is_verified": True,
+        "reporting_period": tampered_obj["reporting_period"],
+        "retrieval_date": tampered_obj["retrieval_date"],
+        "scheme_code": tampered_obj["scheme_code"],
+        "source_document": tampered_obj["source_document"],
+        "source_name": tampered_obj["source_name"],
+    }
+    tampered_hash = hashlib.sha256(json.dumps(tampered_canonical, sort_keys=True).encode("utf-8")).hexdigest()
+    tampered_obj["evidence_hash"] = tampered_hash
+
+    # Cross-document reconciliation must detect that source document has 4.3, not 9.9
+    is_valid, msg = validate_exposure_evidence(tampered_obj, hdfc_top100["sid"])
+    assert is_valid is False
+    assert "Evidence debt_pct 9.9 != source document debt_pct 4.3" in msg
+
+
+def test_evidence_validation_fails_closed_when_file_bytes_modified(tmp_path):
+    """Integrity Verification: modifying a single byte in source document invalidates byte hash."""
+    from services.cas_parser import validate_exposure_evidence
+    from pathlib import Path
+    import hashlib
+
+    # Create a legitimate document
+    original_path = Path("data/policy/sharpely_monthly_disclosure_2026_08.json")
+    original_bytes = original_path.read_bytes()
+
+    tampered_doc = tmp_path / "sharpely_monthly_disclosure_2026_08.json"
+    tampered_doc.write_bytes(original_bytes + b" ")  # Tamper by appending whitespace
+
+    original_file_hash = hashlib.sha256(original_bytes).hexdigest()
+
+    ev = {
+        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
+        "source_document": str(tampered_doc),
+        "scheme_code": 10101,
+        "reporting_period": "2026-08-31",
+        "retrieval_date": "2026-11-07",
+        "debt_pct": 4.3,
+        "equity_pct": 95.7,
+        "evidence_hash": original_file_hash,  # Hash of original file, but file on disk has changed!
+        "is_verified": True,
+    }
+
+    is_valid, msg = validate_exposure_evidence(ev, 10101)
+    assert is_valid is False
+    assert "Evidence hash mismatch" in msg
+
+
+
+

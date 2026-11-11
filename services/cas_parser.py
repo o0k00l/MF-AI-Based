@@ -145,22 +145,18 @@ def validate_exposure_evidence(
     evidence: Any,
     holding_scheme_code: Any | None = None,
     reference_date: date | None = None,
+    require_publisher_authentication: bool = False,
 ) -> tuple[bool, str]:
     """Validate a structured portfolio exposure evidence record against strict fiduciary invariants.
     
-    Invariants enforced:
-    1. Structure: Evidence must be a non-empty dictionary.
-    2. Allowlist: source_name must belong to ALLOWLISTED_EXPOSURE_SOURCES.
-    3. Document Existence: source_document must be a non-empty string referencing a real file on disk.
-    4. Document Integrity & Hash Verification: evidence_hash must be present, 64-hex chars, and verified
-       against the actual source document bytes / canonical record.
-    5. Source-Specific Validation: If the document is a JSON disclosure store, the source declared inside
-       must match source_name, and the scheme's exposure percentages must match the document data.
-    6. Scheme Identity: scheme_code in evidence is mandatory and must match holding_scheme_code (if provided).
-    7. Reporting Period: ISO YYYY-MM-DD date, must not be in the future, must not be stale (> 365 days).
-    8. Retrieval Date: ISO YYYY-MM-DD date, must not be in the future.
-    9. Numeric Integrity: debt_pct and equity_pct must be finite numbers in [0.0, 100.0] and sum <= 100.05.
-    10. Verification State: is_verified must be explicitly True.
+    Enforces four distinct verification dimensions:
+    1. Integrity Verification: SHA-256 digests of document bytes and canonical record representation.
+    2. Source Authenticity: Provenance tier (PROVISIONAL_INTERNAL vs AUTHENTICATED_EXTERNAL).
+       If require_publisher_authentication=True, fails closed if publisher is not externally attested.
+    3. Scheme Verification: Mandatory scheme entry presence, matching scheme_code, and reporting_period.
+    4. Calculation Verification: Full asset-class breakdown (equity, debt, cash, gold, other) reconciling
+       to 100.0% (+/- 0.25%) with exact percentage agreement.
+    All structural, parsing, or missing-scheme errors fail closed immediately (no exception suppression).
     """
     if not isinstance(evidence, dict) or not evidence:
         return False, "Evidence record is missing or not a dictionary"
@@ -294,25 +290,95 @@ def validate_exposure_evidence(
     if resolved_path.suffix.lower() == ".json":
         try:
             doc_data = json.loads(doc_bytes.decode("utf-8"))
-            if isinstance(doc_data, dict):
-                meta = doc_data.get("_metadata")
-                if isinstance(meta, dict) and meta.get("source_name"):
-                    doc_src = str(meta["source_name"]).strip()
-                    if doc_src != source_name:
-                        return False, f"Source document declared source '{doc_src}' != evidence source '{source_name}'"
+        except Exception as exc:
+            return False, f"Source document '{source_doc}' validation failed: malformed JSON ({exc})"
 
-                disclosures = doc_data.get("disclosures")
-                if isinstance(disclosures, dict):
-                    scheme_entry = disclosures.get(str(ev_scheme_code))
-                    if scheme_entry is not None and isinstance(scheme_entry, dict):
-                        doc_debt = scheme_entry.get("debt_pct")
-                        doc_eq = scheme_entry.get("equity_pct")
-                        if doc_debt is not None and d_val is not None and abs(float(doc_debt) - float(d_val)) > 0.01:
-                            return False, f"Evidence debt_pct {d_val} != source document debt_pct {doc_debt}"
-                        if doc_eq is not None and e_val is not None and abs(float(doc_eq) - float(e_val)) > 0.01:
-                            return False, f"Evidence equity_pct {e_val} != source document equity_pct {doc_eq}"
-        except Exception:
-            pass
+        if not isinstance(doc_data, dict):
+            return False, f"Source document '{source_doc}' validation failed: root must be a JSON object"
+
+        meta = doc_data.get("_metadata")
+        if isinstance(meta, dict):
+            if meta.get("source_name"):
+                doc_src = str(meta["source_name"]).strip()
+                if doc_src != source_name:
+                    return False, f"Source document declared source '{doc_src}' != evidence source '{source_name}'"
+
+            if require_publisher_authentication:
+                is_pub_auth = meta.get("publisher_authenticated") is True
+                auth_tier = str(meta.get("source_authenticity") or "")
+                if not is_pub_auth or auth_tier != "AUTHENTICATED_EXTERNAL":
+                    return False, (
+                        f"External publisher authentication not established for '{source_doc}' "
+                        f"(status: {auth_tier or 'UNAUTHENTICATED'}; publisher_authenticated: {is_pub_auth})"
+                    )
+
+        disclosures = doc_data.get("disclosures")
+        if not isinstance(disclosures, dict):
+            return False, f"Source document '{source_doc}' validation failed: missing 'disclosures' mapping"
+
+        # Check scheme entry existence - FAIL CLOSED IF MISSING
+        scheme_entry = disclosures.get(str(ev_scheme_code))
+        if scheme_entry is None and isinstance(ev_scheme_code, int):
+            scheme_entry = disclosures.get(ev_scheme_code)
+
+        if scheme_entry is None:
+            return False, f"Scheme '{ev_scheme_code}' not found in disclosure document '{source_doc}'"
+
+        if not isinstance(scheme_entry, dict):
+            return False, f"Scheme entry for '{ev_scheme_code}' in '{source_doc}' is not a valid dictionary"
+
+        # Cross-validate scheme code
+        doc_code = scheme_entry.get("scheme_code")
+        if doc_code is not None and str(doc_code).strip() != str(ev_scheme_code).strip():
+            return False, f"Scheme code mismatch in disclosure document: '{doc_code}' != evidence '{ev_scheme_code}'"
+
+        # Cross-validate reporting period
+        doc_period = scheme_entry.get("reporting_period")
+        if doc_period and str(doc_period).strip() != rep_period_raw:
+            return False, f"Reporting period mismatch: document '{doc_period}' != evidence '{rep_period_raw}'"
+
+        # Cross-validate is_verified flag
+        if scheme_entry.get("is_verified") is not True:
+            return False, f"Scheme entry for '{ev_scheme_code}' in '{source_doc}' is not verified (is_verified != True)"
+
+        # Numerical fields must be present and finite
+        doc_debt = scheme_entry.get("debt_pct")
+        doc_eq = scheme_entry.get("equity_pct")
+        if doc_debt is None or doc_eq is None:
+            return False, f"Scheme entry for '{ev_scheme_code}' in '{source_doc}' missing debt_pct or equity_pct"
+
+        try:
+            f_doc_debt = float(doc_debt)
+            f_doc_eq = float(doc_eq)
+        except (ValueError, TypeError):
+            return False, f"Unparseable numeric exposure in source document for scheme '{ev_scheme_code}'"
+
+        if not math.isfinite(f_doc_debt) or f_doc_debt < 0.0 or f_doc_debt > 100.0:
+            return False, f"Invalid debt_pct in source document for scheme '{ev_scheme_code}': {doc_debt}"
+        if not math.isfinite(f_doc_eq) or f_doc_eq < 0.0 or f_doc_eq > 100.0:
+            return False, f"Invalid equity_pct in source document for scheme '{ev_scheme_code}': {doc_eq}"
+
+        # Reconcile evidence against source document
+        if d_val is not None and abs(f_doc_debt - float(d_val)) > 0.001:
+            return False, f"Evidence debt_pct {d_val} != source document debt_pct {f_doc_debt}"
+        if e_val is not None and abs(f_doc_eq - float(e_val)) > 0.001:
+            return False, f"Evidence equity_pct {e_val} != source document equity_pct {f_doc_eq}"
+
+        # Complete asset-class reconciliation (debt + equity + cash + gold + other == 100.0%)
+        doc_cash = float(scheme_entry.get("cash_pct") or 0.0)
+        doc_gold = float(scheme_entry.get("gold_pct") or 0.0)
+        doc_other = float(scheme_entry.get("other_pct") or 0.0)
+
+        for ac_name, ac_val in [("cash_pct", doc_cash), ("gold_pct", doc_gold), ("other_pct", doc_other)]:
+            if not math.isfinite(ac_val) or ac_val < 0.0 or ac_val > 100.0:
+                return False, f"Invalid {ac_name} {ac_val} in source document for scheme '{ev_scheme_code}'"
+
+        total_breakdown = f_doc_debt + f_doc_eq + doc_cash + doc_gold + doc_other
+        if abs(total_breakdown - 100.0) > 0.25:
+            return False, (
+                f"Asset class breakdown in source document does not reconcile to 100%: "
+                f"sum is {total_breakdown:.2f}% (debt={f_doc_debt}, eq={f_doc_eq}, cash={doc_cash}, gold={doc_gold}, other={doc_other})"
+            )
 
     return True, "OK"
 
@@ -790,12 +856,22 @@ def parse_cas_file(file_obj: BinaryIO) -> list[dict]:
                 is_ev_valid, _ = validate_exposure_evidence(m_ev, scheme_code)
 
             if is_ev_valid and m_ev:
-                portfolio_exposure_verified = True
-                verified_debt_pct = float(m_ev["debt_pct"])
-                verified_equity_pct = float(m_ev["equity_pct"]) if m_ev.get("equity_pct") is not None else round(100.0 - verified_debt_pct, 2)
-                exposure_source = m_ev["source_name"]
-                exposure_as_of = m_ev["reporting_period"]
-                exposure_evidence = m_ev
+                m_debt = m_ev.get("debt_pct")
+                m_eq = m_ev.get("equity_pct")
+                if m_debt is not None and m_eq is not None:
+                    portfolio_exposure_verified = True
+                    verified_debt_pct = float(m_debt)
+                    verified_equity_pct = float(m_eq)
+                    exposure_source = m_ev.get("source_name")
+                    exposure_as_of = m_ev.get("reporting_period")
+                    exposure_evidence = m_ev
+                else:
+                    portfolio_exposure_verified = False
+                    verified_debt_pct = None
+                    verified_equity_pct = None
+                    exposure_source = None
+                    exposure_as_of = None
+                    exposure_evidence = None
             else:
                 portfolio_exposure_verified = False
                 verified_debt_pct = None

@@ -1293,8 +1293,8 @@
       "top10": null,
       "single_sector_weight_pct": null,
       "top10_concentration_pct": null,
-      "eq": 0,
-      "debt": 0,
+      "eq": null,
+      "debt": null,
       "lc": null,
       "mc": null,
       "sc": null,
@@ -1305,17 +1305,7 @@
         "bandhan nifty 50 index fund - direct plan - growth"
       ],
       "as_of": "2026-08-31",
-      "exposure_evidence": {
-        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
-        "source_document": "sharpely_monthly_disclosure_2026_08.json",
-        "scheme_code": 118482,
-        "reporting_period": "2026-08-31",
-        "retrieval_date": "2026-11-07",
-        "debt_pct": 0.0,
-        "equity_pct": 0.0,
-        "is_verified": true,
-        "evidence_hash": "4ec08d7df06523f90e57231b63ed57cdc4c9e013d8a3a35055f8cc392184e791"
-      }
+      "exposure_evidence": null
     },
     "Franklin India NSE Nifty 50 Index Fund - Direct Plan - Growth": {
       "canonical_name": "Franklin India NSE Nifty 50 Index Fund - Direct Plan - Growth",
@@ -1347,8 +1337,8 @@
       "top10": null,
       "single_sector_weight_pct": null,
       "top10_concentration_pct": null,
-      "eq": 0,
-      "debt": 0,
+      "eq": null,
+      "debt": null,
       "lc": null,
       "mc": null,
       "sc": null,
@@ -1359,17 +1349,7 @@
         "franklin india nse nifty 50 index fund - direct plan - growth"
       ],
       "as_of": "2026-08-31",
-      "exposure_evidence": {
-        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
-        "source_document": "sharpely_monthly_disclosure_2026_08.json",
-        "scheme_code": 118581,
-        "reporting_period": "2026-08-31",
-        "retrieval_date": "2026-11-07",
-        "debt_pct": 0.0,
-        "equity_pct": 0.0,
-        "is_verified": true,
-        "evidence_hash": "8e2af7dc6256b39ef7b8bc3787c59db85a945505d5b15cf8ef735181243d709f"
-      }
+      "exposure_evidence": null
     },
     "Taurus Nifty 50 Index Fund - Direct Plan - Growth": {
       "canonical_name": "Taurus Nifty 50 Index Fund - Direct Plan - Growth",
@@ -1401,8 +1381,8 @@
       "top10": null,
       "single_sector_weight_pct": null,
       "top10_concentration_pct": null,
-      "eq": 0,
-      "debt": 0,
+      "eq": null,
+      "debt": null,
       "lc": null,
       "mc": null,
       "sc": null,
@@ -1413,17 +1393,7 @@
         "taurus nifty 50 index fund - direct plan - growth"
       ],
       "as_of": "2026-08-31",
-      "exposure_evidence": {
-        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
-        "source_document": "sharpely_monthly_disclosure_2026_08.json",
-        "scheme_code": 118881,
-        "reporting_period": "2026-08-31",
-        "retrieval_date": "2026-11-07",
-        "debt_pct": 0.0,
-        "equity_pct": 0.0,
-        "is_verified": true,
-        "evidence_hash": "2d05bcfe2a7cdb4d59e5d6ca7dfca0c11531458b6cf5a6ab5595dffb260dcdac"
-      }
+      "exposure_evidence": null
     },
     "HDFC Nifty 50 Index Fund - Direct Plan - Growth Option": {
       "canonical_name": "HDFC Nifty 50 Index Fund - Direct Plan - Growth Option",
@@ -1455,8 +1425,8 @@
       "top10": null,
       "single_sector_weight_pct": null,
       "top10_concentration_pct": null,
-      "eq": 0,
-      "debt": 0,
+      "eq": null,
+      "debt": null,
       "lc": null,
       "mc": null,
       "sc": null,
@@ -1467,17 +1437,7 @@
         "hdfc nifty 50 index fund - direct plan - growth option"
       ],
       "as_of": "2026-08-31",
-      "exposure_evidence": {
-        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
-        "source_document": "sharpely_monthly_disclosure_2026_08.json",
-        "scheme_code": 119063,
-        "reporting_period": "2026-08-31",
-        "retrieval_date": "2026-11-07",
-        "debt_pct": 0.0,
-        "equity_pct": 0.0,
-        "is_verified": true,
-        "evidence_hash": "28506fa231843c3b465a9a89c0fac1e306c39e683b0776dda3c410b4f72ff4e9"
-      }
+      "exposure_evidence": null
     },
     "Canara Robeco Large and Mid Cap Fund - Direct Plan - GROWTH OPTION": {
       "canonical_name": "Canara Robeco Large and Mid Cap Fund - Direct Plan - GROWTH OPTION",
@@ -1509,8 +1469,8 @@
       "top10": null,
       "single_sector_weight_pct": null,
       "top10_concentration_pct": null,
-      "eq": 0,
-      "debt": 0,
+      "eq": null,
+      "debt": null,
       "lc": null,
       "mc": null,
       "sc": null,
@@ -1521,17 +1481,7 @@
         "canara robeco large and mid cap fund - direct plan - growth option"
       ],
       "as_of": "2026-08-31",
-      "exposure_evidence": {
-        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
-        "source_document": "sharpely_monthly_disclosure_2026_08.json",
-        "scheme_code": 118278,
-        "reporting_period": "2026-08-31",
-        "retrieval_date": "2026-11-07",
-        "debt_pct": 0.0,
-        "equity_pct": 0.0,
-        "is_verified": true,
-        "evidence_hash": "38d0239b876e77b384f398ef96fb102cf83ddd5e6328018bfbe7b86327d1f484"
-      }
+      "exposure_evidence": null
     },
     "Bandhan Large & Mid Cap Fund - Direct Plan - Growth": {
       "canonical_name": "Bandhan Large & Mid Cap Fund - Direct Plan - Growth",
@@ -1563,8 +1513,8 @@
       "top10": null,
       "single_sector_weight_pct": null,
       "top10_concentration_pct": null,
-      "eq": 0,
-      "debt": 0,
+      "eq": null,
+      "debt": null,
       "lc": null,
       "mc": null,
       "sc": null,
@@ -1575,17 +1525,7 @@
         "bandhan large & mid cap fund - direct plan - growth"
       ],
       "as_of": "2026-08-31",
-      "exposure_evidence": {
-        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
-        "source_document": "sharpely_monthly_disclosure_2026_08.json",
-        "scheme_code": 118419,
-        "reporting_period": "2026-08-31",
-        "retrieval_date": "2026-11-07",
-        "debt_pct": 0.0,
-        "equity_pct": 0.0,
-        "is_verified": true,
-        "evidence_hash": "e1e483a6db54b5ffc88739952eb42608df5d0a677d65237e5e115c28cec8eae1"
-      }
+      "exposure_evidence": null
     },
     "Franklin India Large & Mid Cap Fund - Direct Plan - Growth": {
       "canonical_name": "Franklin India Large & Mid Cap Fund - Direct Plan - Growth",
@@ -1617,8 +1557,8 @@
       "top10": null,
       "single_sector_weight_pct": null,
       "top10_concentration_pct": null,
-      "eq": 0,
-      "debt": 0,
+      "eq": null,
+      "debt": null,
       "lc": null,
       "mc": null,
       "sc": null,
@@ -1629,17 +1569,7 @@
         "franklin india large & mid cap fund - direct plan - growth"
       ],
       "as_of": "2026-08-31",
-      "exposure_evidence": {
-        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
-        "source_document": "sharpely_monthly_disclosure_2026_08.json",
-        "scheme_code": 118510,
-        "reporting_period": "2026-08-31",
-        "retrieval_date": "2026-11-07",
-        "debt_pct": 0.0,
-        "equity_pct": 0.0,
-        "is_verified": true,
-        "evidence_hash": "f1fde703960b10bb1116671df609d4636e4564ca5f02d36576d1fe0a0219a13b"
-      }
+      "exposure_evidence": null
     },
     "Franklin India Mid Cap Fund - Direct Plan - Growth": {
       "canonical_name": "Franklin India Mid Cap Fund - Direct Plan - Growth",
@@ -1671,8 +1601,8 @@
       "top10": null,
       "single_sector_weight_pct": null,
       "top10_concentration_pct": null,
-      "eq": 0,
-      "debt": 0,
+      "eq": null,
+      "debt": null,
       "lc": null,
       "mc": null,
       "sc": null,
@@ -1683,17 +1613,7 @@
         "franklin india mid cap fund - direct plan - growth"
       ],
       "as_of": "2026-08-31",
-      "exposure_evidence": {
-        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
-        "source_document": "sharpely_monthly_disclosure_2026_08.json",
-        "scheme_code": 118533,
-        "reporting_period": "2026-08-31",
-        "retrieval_date": "2026-11-07",
-        "debt_pct": 0.0,
-        "equity_pct": 0.0,
-        "is_verified": true,
-        "evidence_hash": "5d0a77ef927c67be4c08d4860f1390d3200ee3cd1741ce4babd699e43966bb01"
-      }
+      "exposure_evidence": null
     },
     "UTI Nifty 50 Index Fund - Direct Plan - Growth": {
       "canonical_name": "UTI Nifty 50 Index Fund - Direct Plan - Growth",
@@ -1726,7 +1646,7 @@
       "single_sector_weight_pct": 0.0,
       "top10_concentration_pct": 100.0,
       "eq": 99.8,
-      "debt": 0.2,
+      "debt": 0.0,
       "lc": 99.8,
       "mc": 0.0,
       "sc": 0.0,
@@ -1779,8 +1699,8 @@
       "top10": 45.0,
       "single_sector_weight_pct": 20.0,
       "top10_concentration_pct": 45.0,
-      "eq": 0,
-      "debt": 0,
+      "eq": null,
+      "debt": null,
       "lc": 15.0,
       "mc": 70.0,
       "sc": 15.0,
@@ -1791,17 +1711,7 @@
         "edelweiss mid cap fund - direct plan - growth"
       ],
       "as_of": "2026-08-31",
-      "exposure_evidence": {
-        "source_name": "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
-        "source_document": "sharpely_monthly_disclosure_2026_08.json",
-        "scheme_code": 118990,
-        "reporting_period": "2026-08-31",
-        "retrieval_date": "2026-11-07",
-        "debt_pct": 0.0,
-        "equity_pct": 0.0,
-        "is_verified": true,
-        "evidence_hash": "6b7473a30b86b07192979f9dbdca2b0609f08752bcc183a1cf056c89e158950a"
-      }
+      "exposure_evidence": null
     },
     "Nippon India Small Cap": {
       "canonical_name": "Nippon India Small Cap",
@@ -4134,5 +4044,14 @@
   "_allowed_exposure_sources": [
     "SHARPELY_MONTHLY_HOLDINGS_DISCLOSURE",
     "AMFI_SEBI_OFFICIAL_DISCLOSURE"
-  ]
+  ],
+  "_metadata": {
+    "source_name": "AMFI_SEBI_OFFICIAL_SCHEME_MASTER",
+    "source_authenticity": "PROVISIONAL_INTERNAL",
+    "release_eligibility": "PROVISIONAL_PENDING_PUBLISHER_AUDIT",
+    "integrity_verification": "SHA256_MATCHED",
+    "publisher_authenticated": false,
+    "last_updated": "2026-11-07",
+    "total_schemes": 76
+  }
 }
