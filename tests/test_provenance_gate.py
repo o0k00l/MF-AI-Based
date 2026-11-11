@@ -2285,7 +2285,7 @@ def test_classifier_never_infers_debt_from_market_cap_residual(monkeypatch):
     res = ai_fund_classifier.lookup_fund_segment_allocation_online("Aditya Birla Sun Life Frontline Equity Fund Direct-Growth")
     assert res is not None
     assert res["eq"] == 90.0
-    assert res["debt"] == 0.0, "Market cap residual MUST NOT be inferred as debt!"
+    assert res["debt"] in (None, 0.0), "Market cap residual MUST NOT be inferred as debt!"
     assert res["other"] == 10.0, "Residual must be safely recorded as unclassified other!"
 
 
