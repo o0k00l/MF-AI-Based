@@ -127,9 +127,17 @@ if want_retire:
                     step=5_000,
                     help="Your expected monthly expenses in retirement in today's money value.",
                 )
-                # 4.8% Safe Withdrawal Rate rule: Corpus = (monthly_exp * 12) / 0.048
-                cost_today_retire = (monthly_exp * 12) / 0.048
-                st.caption(f"📐 *Implied Today's Corpus: **₹{cost_today_retire/100000:.1f} Lakhs** (at 4.8% Safe Withdrawal Rate)*")
+                swr_pct = st.slider(
+                    "Assumed Annual Retirement Withdrawal Rate (% p.a.):",
+                    min_value=3.0,
+                    max_value=6.0,
+                    value=4.5,
+                    step=0.1,
+                    help="Planning assumption for post-retirement annual withdrawal rate. 4.0% - 4.5% is typical for long Indian retirements accounting for inflation.",
+                    key="ret_swr_slider",
+                )
+                cost_today_retire = (monthly_exp * 12) / (swr_pct / 100.0)
+                st.caption(f"📐 *Implied Today's Corpus: **₹{cost_today_retire/100000:.1f} Lakhs** (at {swr_pct:.1f}% illustrative planning withdrawal rate)*")
         else:
             with c1:
                 cost_lakhs_retire = st.number_input(
@@ -411,20 +419,52 @@ for g in configured_goals:
 
 st.table(summary_rows)
 
+# --- Portfolio Earmarking Reconciliation Ledger (Prevents Double-Counting) ---
+total_earmarked = sum(float(getattr(g.get("result"), "existing_corpus_inr", 0.0) or 0.0) for g in configured_goals)
+remaining_unearmarked = total_existing_corpus - total_earmarked
+
+if total_existing_corpus > 0 or total_earmarked > 0:
+    st.markdown("### 📒 Portfolio Earmarking Reconciliation Ledger")
+    el1, el2, el3 = st.columns(3)
+    with el1:
+        st.metric("Total Portfolio Available", f"₹{total_existing_corpus:,.0f}")
+    with el2:
+        st.metric("Earmarked Across Goals", f"₹{total_earmarked:,.0f}")
+    with el3:
+        if remaining_unearmarked >= 0:
+            st.metric("Unearmarked Reserve", f"₹{remaining_unearmarked:,.0f}")
+        else:
+            st.metric("Over-Allocated Deficit", f"₹{abs(remaining_unearmarked):,.0f}", delta="-Double Counting", delta_color="inverse")
+
+    if total_earmarked > total_existing_corpus:
+        st.error(
+            f"🚨 **Double-Counting Alert:** Total earmarked portfolio corpus (₹{total_earmarked:,.0f}) "
+            f"exceeds your available portfolio (₹{total_existing_corpus:,.0f}) by ₹{total_earmarked - total_existing_corpus:,.0f}. "
+            f"The same mutual fund investments cannot fund multiple goals simultaneously. "
+            f"Please reduce individual goal earmarks to reconcile to 100% or less."
+        )
+
 # --- Asset Allocation Decomposition of Monthly SIP ---
 st.markdown("### 🏛️ Asset Sleeve Decomposition of Monthly SIP")
-st.caption("Your monthly SIP budget is automatically mapped into direct asset class sleeves per your Strategic Asset Allocation (SAA):")
-sleeves = decompose_sip_to_asset_sleeves(total_allocated_sip, target_saa=target_saa)
-sc1, sc2, sc3 = st.columns(3)
-with sc1:
-    lc_pct_disp = target_saa.get('large_cap_pct', 50.0) if target_saa else 50.0
-    st.metric("Large-Cap Core Index", f"₹{sleeves['large_cap_inr']:,.0f}/mo", f"{lc_pct_disp:.0f}% SAA Target")
-with sc2:
-    ms_pct_disp = target_saa.get('mid_small_cap_pct', 25.0) if target_saa else 25.0
-    st.metric("Mid/Small-Cap Alpha", f"₹{sleeves['mid_small_cap_inr']:,.0f}/mo", f"{ms_pct_disp:.0f}% SAA Target")
-with sc3:
-    db_pct_disp = target_saa.get('debt_pct', 25.0) if target_saa else 25.0
-    st.metric("Debt & Liquidity Cushion", f"₹{sleeves['debt_inr']:,.0f}/mo", f"{db_pct_disp:.0f}% SAA Target")
+if target_saa is None:
+    st.info(
+        "⚠️ **Strategic Asset Allocation (SAA) Required:** You have not configured a target SAA. "
+        "Please complete Step 2 (Risk Profiling & Asset Allocation) to view your direct asset sleeve mapping. "
+        "Asset sleeve decomposition is withheld to prevent unguided or silently invented allocations."
+    )
+else:
+    st.caption("Your monthly SIP budget is automatically mapped into direct asset class sleeves per your Strategic Asset Allocation (SAA):")
+    sleeves = decompose_sip_to_asset_sleeves(total_allocated_sip, target_saa=target_saa)
+    sc1, sc2, sc3 = st.columns(3)
+    with sc1:
+        lc_pct_disp = float(target_saa.get('large_cap_pct', 0.0) if isinstance(target_saa, dict) else getattr(target_saa, 'large_cap_pct', 0.0))
+        st.metric("Large-Cap Core Index", f"₹{sleeves['large_cap_inr']:,.0f}/mo", f"{lc_pct_disp:.0f}% SAA Target")
+    with sc2:
+        ms_pct_disp = float(target_saa.get('mid_small_cap_pct', 0.0) if isinstance(target_saa, dict) else getattr(target_saa, 'mid_small_cap_pct', 0.0))
+        st.metric("Mid/Small-Cap Alpha", f"₹{sleeves['mid_small_cap_inr']:,.0f}/mo", f"{ms_pct_disp:.0f}% SAA Target")
+    with sc3:
+        db_pct_disp = float(target_saa.get('debt_pct', 0.0) if isinstance(target_saa, dict) else getattr(target_saa, 'debt_pct', 0.0))
+        st.metric("Debt & Liquidity Cushion", f"₹{sleeves['debt_inr']:,.0f}/mo", f"{db_pct_disp:.0f}% SAA Target")
 
 # Metric Summary Cards
 col_m1, col_m2, col_m3, col_m4 = st.columns(4)

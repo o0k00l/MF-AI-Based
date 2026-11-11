@@ -16,6 +16,7 @@ from datetime import datetime, date
 from collections import defaultdict
 from pathlib import Path
 from typing import BinaryIO, Any
+from decimal import Decimal
 
 from openpyxl import load_workbook
 
@@ -974,8 +975,11 @@ def parse_cas_file(file_obj: BinaryIO) -> list[dict]:
             "mc": (master_entry.get("portfolio_mid_cap_pct") or master_entry.get("mc")) if master_entry and portfolio_exposure_verified else None,
             "sc": (master_entry.get("portfolio_small_cap_pct") or master_entry.get("sc")) if master_entry and portfolio_exposure_verified else None,
             "current_value": val,
+            "current_value_inr": Decimal(str(round(val, 2))),
             "invested_value": inv,
+            "invested_value_inr": Decimal(str(round(inv, 2))),
             "unrealized_gain": unrealized_gain,
+            "unrealized_gain_inr": Decimal(str(round(unrealized_gain, 2))),
             "gain_pct": gain_pct,
             "unrealized_ltcg": unrealized_ltcg,
             "unrealized_stcg": unrealized_stcg,

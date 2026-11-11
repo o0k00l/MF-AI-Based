@@ -627,3 +627,50 @@ def test_incremental_sip_routing_respects_saa_tolerance_deadband():
     assert beyond_band["allocations_inr"] == {"equity": "10000"}
     assert beyond_band["unallocated_budget_inr"] == "0"
     assert beyond_band["reconciliation_ok"] is True
+
+
+def test_incremental_sip_post_contribution_weights_reconcile_when_partially_unallocated():
+    """P1 invariant: When part of the SIP budget is unallocated, post-contribution
+    weights must reconcile to 100% of the invested portfolio, and unallocated money
+    must be explicitly accounted for outside the invested perimeter.
+    """
+    current = {"large_cap": "30000", "mid_cap": "10000", "debt": "60000"}
+    targets = {"large_cap": "35", "mid_cap": "25", "debt": "40"}
+    # Underweight: large_cap (5% deficit), mid_cap (15% deficit). Total gap = 20%.
+    # Budget = 10,000.
+    # But only large_cap is eligible! mid_cap has no eligible fund.
+    routing = route_incremental_sip(
+        monthly_budget_inr="10000",
+        current_values_inr=current,
+        target_weights_pct=targets,
+        portfolio_total_inr="100000",
+        tolerance_band_pct="0",
+        eligible_sleeves={"large_cap"},
+        rounding_increment_inr="100",
+    )
+    assert routing["status"] == "ROUTED"
+    # large_cap receives 5/20 of 10,000 = 2,500
+    assert routing["allocations_inr"] == {"large_cap": "2500"}
+    # Remaining 7,500 remains unallocated
+    assert routing["allocated_budget_inr"] == "2500"
+    assert routing["unallocated_budget_inr"] == "7500"
+    assert routing["unallocated_cash_inr"] == "7500"
+
+    # Post-contribution invested total = 100,000 + 2,500 = 102,500
+    assert routing["post_contribution_invested_total_inr"] == "102500"
+    assert routing["post_contribution_total_inr"] == "102500"
+    assert routing["post_contribution_perimeter_total_inr"] == "110000"
+
+    # Values: large_cap=32,500, mid_cap=10,000, debt=60,000. Sum = 102,500
+    vals = routing["post_contribution_values_inr"]
+    assert vals["large_cap"] == "32500"
+    assert vals["mid_cap"] == "10000"
+    assert vals["debt"] == "60000"
+    assert sum(Decimal(v) for v in vals.values()) == Decimal("102500")
+
+    # Weights reconcile to 100% of invested portfolio
+    w = routing["post_contribution_weights_pct"]
+    total_w = sum(Decimal(v) for v in w.values())
+    assert pytest.approx(float(total_w), abs=0.05) == 100.0
+
+    assert routing["reconciliation_ok"] is True
