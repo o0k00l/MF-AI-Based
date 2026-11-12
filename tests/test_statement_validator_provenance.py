@@ -65,7 +65,7 @@ def test_cas_excel_with_cams_text_marker_is_unauthenticated_content():
     res = validate_cas_excel(file_bytes, "cams_cas.xlsx")
     assert res.is_valid is True
     assert res.structural_validity is True
-    assert res.rta_source == "CAMS"
+    assert res.rta_source == "Unknown"
     assert res.detected_content_publisher == "CAMS"
     assert res.publisher_authenticity_status == "UNAUTHENTICATED_DOCUMENT_CONTENT"
     assert res.is_publisher_authenticated is False
@@ -117,7 +117,7 @@ def test_cgs_excel_with_kfintech_text_marker_is_unauthenticated_content():
     res = validate_cgs_excel(file_bytes, "kfintech_cgs.xlsx")
     assert res.is_valid is True
     assert res.structural_validity is True
-    assert res.rta_source == "KFintech"
+    assert res.rta_source == "Unknown"
     assert res.detected_content_publisher == "KFintech"
     assert res.publisher_authenticity_status == "UNAUTHENTICATED_DOCUMENT_CONTENT"
     assert res.is_publisher_authenticated is False
@@ -144,7 +144,8 @@ def test_adversarial_spoofed_text_and_mixed_registrar_labels():
     # Still unauthenticated despite mentions of multiple RTAs
     assert res.is_publisher_authenticated is False
     assert res.authenticated_publisher is None
-    assert res.publisher_authenticity_status == "UNAUTHENTICATED_DOCUMENT_CONTENT"
+    assert res.publisher_authenticity_status == "AMBIGUOUS_DOCUMENT_CONTENT"
+    assert res.detected_content_publisher == "Ambiguous"
 
 
 def test_authentic_statement_provenance_verification():
@@ -164,12 +165,16 @@ def test_authentic_statement_provenance_verification():
     valid_evidence = {
         "source_digest": res.provenance_digest,
         "publisher": "CAMS",
-        "reviewer_attestation": "Audited by Operations Lead OP-104",
-        "source_url": "https://www.camsonline.com/InvestorServices/COL_ISAccountStatementCAS.aspx",
+        "verification_method": "INDEPENDENT_REVIEW",
         "verified_at": "2026-11-05T10:00:00Z",
+        "evidence_reference": "review-record:OP-104:2026-11-05",
     }
 
-    authenticated_res = authenticate_statement_provenance(res, valid_evidence)
+    authenticated_res = authenticate_statement_provenance(
+        res,
+        valid_evidence,
+        trusted_verifier=lambda digest, publisher, evidence: digest == res.provenance_digest and publisher == "CAMS",
+    )
     assert authenticated_res.is_publisher_authenticated is True
     assert authenticated_res.authenticated_publisher == "CAMS"
     assert authenticated_res.publisher_authenticity_status == "AUTHENTICATED_SOURCE"
@@ -199,7 +204,7 @@ def test_tampered_or_invalid_evidence_fails_closed():
         "reviewer_attestation": "Audited by Ops",
     }
     with pytest.raises(ValueError, match="Provenance digest mismatch"):
-        authenticate_statement_provenance(res, tampered_evidence)
+        authenticate_statement_provenance(res, tampered_evidence, trusted_verifier=lambda *_: True)
     assert res.is_publisher_authenticated is False
     assert res.publisher_authenticity_status == "AUTHENTICATION_FAILED"
 
@@ -210,12 +215,14 @@ def test_tampered_or_invalid_evidence_fails_closed():
         "reviewer_attestation": "Audited",
     }
     with pytest.raises(ValueError, match="Unrecognized authentic publisher"):
-        authenticate_statement_provenance(res, invalid_publisher_evidence)
+        authenticate_statement_provenance(res, invalid_publisher_evidence, trusted_verifier=lambda *_: True)
 
     # 3. Missing attestation / signature / download metadata
     no_attestation_evidence = {
         "source_digest": res.provenance_digest,
         "publisher": "CAMS",
+        "verification_method": "INDEPENDENT_REVIEW",
+        "verified_at": "2026-11-05T10:00:00Z",
     }
-    with pytest.raises(ValueError, match="missing reviewer attestation"):
-        authenticate_statement_provenance(res, no_attestation_evidence)
+    with pytest.raises(ValueError, match="evidence_reference"):
+        authenticate_statement_provenance(res, no_attestation_evidence, trusted_verifier=lambda *_: True)
