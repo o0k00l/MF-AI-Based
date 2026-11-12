@@ -329,12 +329,12 @@
     "no_candidate_rule": "If no separately verified thematic candidate passes, keep satellite at zero; do not automatically redirect its budget."
   },
   "custom_saa_policy": {
-    "default_tolerance_band_pct": 3.0,
+    "default_tolerance_band_pct": 3,
     "default_equity_distribution_pct": {
-      "large_cap_pct": 35.0,
-      "flexi_multi_cap_pct": 25.0,
-      "mid_cap_pct": 20.0,
-      "small_cap_pct": 20.0
+      "large_cap_pct": 35,
+      "flexi_multi_cap_pct": 25,
+      "mid_cap_pct": 20,
+      "small_cap_pct": 20
     },
     "default_risk_ceiling": 6,
     "note": "When custom SAA specifies total equity without explicit sub-sleeves, this policy distribution is used."
@@ -353,10 +353,24 @@
     "rationale": "A simplified two-core-sleeve routing for smaller portfolios; review when AUM or monthly SIP exceeds either threshold. Not a statutory or universal rule."
   },
   "default_saa_distribution": {
-    "large_cap_pct": 50.0,
-    "mid_small_pct": 25.0,
-    "flexi_pct": 0.0,
-    "debt_pct": 25.0,
+    "large_cap_pct": 50,
+    "mid_small_pct": 25,
+    "flexi_pct": 0,
+    "debt_pct": 25,
     "note": "Default fallback when no SAA is provided (represents 50% Large Cap, 25% Mid/Small, 0% Flexi, 25% Debt)"
+  },
+  "public_risk_profile_mapping": {
+    "Conservative": {
+      "behavioral_profile": "low_to_moderate",
+      "risk_ceiling": 2
+    },
+    "Moderate": {
+      "behavioral_profile": "moderately_high",
+      "risk_ceiling": 4
+    },
+    "Aggressive": {
+      "behavioral_profile": "very_high",
+      "risk_ceiling": 6
+    }
   }
 }
