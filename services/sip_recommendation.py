@@ -145,11 +145,11 @@ def _build_cas_portfolio_assessment(
                 raise ValueError("SAA policy buckets do not match service contract")
             targets = {bucket: raw_targets[source] for source, bucket in policy_bucket_map.items()}
             targets["unclassified"] = 0
-        current = {key: 0.0 for key in targets}
-        total = 0.0
+        current = {key: Decimal("0") for key in targets}
+        total = Decimal("0")
         for holding in holdings:
-            value = float(holding.current_value_inr)
-            if not math.isfinite(value) or value <= 0:
+            value = quantize_inr(holding.current_value_inr)
+            if not value.is_finite() or value <= 0:
                 raise ValueError("holding valuation is invalid")
             asset_class = getattr(holding, "asset_class", None)
             asset_class = getattr(asset_class, "value", asset_class)
@@ -157,7 +157,7 @@ def _build_cas_portfolio_assessment(
             bucket = _ASSET_CLASS_TO_SAA_BUCKET.get(normalized_class, "unclassified")
             current[bucket] += value
             total += value
-        if not math.isfinite(total) or total <= 0:
+        if not total.is_finite() or total <= 0:
             raise ValueError("CAS holdings total is invalid")
         drift = calculate_saa_drift(
             current, targets, tolerance_band_pct=tolerance, portfolio_total_inr=total
@@ -195,7 +195,7 @@ def _build_cas_portfolio_assessment(
             "is_total_portfolio_lookthrough": False,
             "portfolio_perimeter_complete": False,
             "valuation_date_verified": False,
-            "total_value_inr": round(total, 2),
+            "total_value_inr": str(total),
             "holding_count": len(holdings),
             "holding_plan_option_identity": [
                 {
@@ -209,7 +209,7 @@ def _build_cas_portfolio_assessment(
                 for holding in holdings
             ],
             "current_sleeve_values_inr": {
-                key: round(value, 2) for key, value in sorted(current.items())
+                key: str(value) for key, value in sorted(current.items())
             },
             "target_sleeve_weights_pct": {
                 key: value for key, value in sorted(targets.items())
