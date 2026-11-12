@@ -7,6 +7,7 @@ Parses CAMS, KFintech, and MFCentral CGS Excel reports ('cgs_detailed_report_*.x
 3. TransactionDetails: Lot-level subscription and redemption audit.
 """
 from __future__ import annotations
+import io
 import openpyxl
 from pathlib import Path
 import hashlib
@@ -96,7 +97,7 @@ def parse_cgs_excel(
         statement_as_of_date = None
         statement_selection_error = str(exc)
 
-    wb = openpyxl.load_workbook(path, data_only=True)
+    wb = openpyxl.load_workbook(io.BytesIO(source_bytes), data_only=True)
     summary_data = {
         "stcg_inr": None,
         "ltcg_inr": None,
