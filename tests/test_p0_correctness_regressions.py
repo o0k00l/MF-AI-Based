@@ -1,5 +1,6 @@
 """Regression tests for fiduciary P0 correctness defects."""
 from datetime import date
+from decimal import Decimal
 from core.candidate_scoring import ScoringWeights
 from pathlib import Path
 
@@ -834,10 +835,10 @@ def test_sip_builder_withholds_entire_budget_when_any_required_slot_is_unverifie
 
     monkeypatch.setattr(engine, "select_autonomous_blueprint_funds", fake_slots)
     plan = engine.compute_deterministic_sip_blueprint(
-        monthly_budget=100000.0,
+        monthly_budget=Decimal("100000.00"),
         risk_tier="Tier 6 (Very High)",
         stability_buffer_pct=7.54,
-        client_aum=5000000.0,
+        client_aum=Decimal("5000000.00"),
     )
     assert plan.total_monthly_budget_inr == pytest.approx(100000.0)
     assert plan.unallocated_budget_inr == pytest.approx(100000.0)
@@ -1569,9 +1570,9 @@ def test_starter_routing_thresholds_and_weights_are_policy_driven():
     assert policy["thematic_satellite_default_pct_of_equity"] == 0
 
     starter = compute_deterministic_sip_blueprint(
-        monthly_budget=20000.0,
+        monthly_budget=Decimal("20000.00"),
         risk_tier="Tier 6 (Very High)",
-        client_aum=policy["aum_threshold_inr"] - 1,
+        client_aum=Decimal(str(policy["aum_threshold_inr"])) - Decimal("1.00"),
         client_aum_verified=True,
         equity_sip_routing_override=True,
     )
@@ -1582,9 +1583,9 @@ def test_starter_routing_thresholds_and_weights_are_policy_driven():
     assert "Large-Cap Bluechip Anchor" not in roles
 
     at_threshold = compute_deterministic_sip_blueprint(
-        monthly_budget=policy["monthly_budget_threshold_inr"],
+        monthly_budget=Decimal(str(policy["monthly_budget_threshold_inr"])),
         risk_tier="Tier 6 (Very High)",
-        client_aum=policy["aum_threshold_inr"],
+        client_aum=Decimal(str(policy["aum_threshold_inr"])),
         client_aum_verified=True,
         equity_sip_routing_override=True,
     )
@@ -2194,10 +2195,10 @@ def test_sip_plan_accepts_fully_unallocated_budget_when_on_hold():
 
 
 def test_sip_plan_rejects_non_finite_budget():
-    with pytest.raises(ValueError, match="finite number"):
+    with pytest.raises(ValueError, match="finite"):
         DeterministicSIPPlan(
-            total_monthly_budget_inr=float("nan"),
-            unallocated_budget_inr=0.0,
+            total_monthly_budget_inr=Decimal("NaN"),
+            unallocated_budget_inr=Decimal("0.00"),
             equity_sip_pct=100.0,
             debt_sip_pct=0.0,
             items=[],
