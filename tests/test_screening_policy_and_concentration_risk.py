@@ -97,7 +97,9 @@ def test_changing_policy_threshold_changes_effective_gate_behavior():
     ]
 
     # Policy A: min_sharpe = 0.40 -> passes
-    res_a = check_eligibility_gates(fund, portfolio_holdings=holdings, policy=policy)
+    res_a = check_eligibility_gates(
+        fund, portfolio_holdings=holdings, policy=policy, client_risk_tier_num=6
+    )
     assert res_a.passed is True
     assert res_a.policy_version == policy["version"]
     assert res_a.policy_digest == policy["_policy_digest"]
@@ -105,7 +107,9 @@ def test_changing_policy_threshold_changes_effective_gate_behavior():
     # Policy B: min_sharpe modified to 0.70 -> fails Gate 4 (Sharpe below threshold)
     policy_strict = dict(policy)
     policy_strict["gate_thresholds"] = dict(policy["gate_thresholds"], min_sharpe=0.70)
-    res_b = check_eligibility_gates(fund, portfolio_holdings=holdings, policy=policy_strict)
+    res_b = check_eligibility_gates(
+        fund, portfolio_holdings=holdings, policy=policy_strict, client_risk_tier_num=6
+    )
     assert res_b.passed is False
     assert any("Sharpe" in g for g in res_b.failed_gates)
 
@@ -331,6 +335,9 @@ def test_evaluate_candidate_portfolio_concentration_multi_dimensional_breaches()
         max_overlap_pct=100.0,  # Allow overlap check to pass, test sector breach
         max_sector_pct=35.0,
         max_issuer_pct=100.0,
+        max_theme_pct=100.0,
+        max_market_cap_pct=100.0,
+        max_scheme_pct=100.0,
     )
     assert res_sector["passed"] is False
     assert res_sector["status"] == "REJECT"
@@ -346,6 +353,8 @@ def test_evaluate_candidate_portfolio_concentration_multi_dimensional_breaches()
         max_sector_pct=100.0,
         max_theme_pct=15.0,
         max_issuer_pct=100.0,
+        max_market_cap_pct=100.0,
+        max_scheme_pct=100.0,
     )
     assert res_theme["passed"] is False
     assert res_theme["status"] == "REJECT"
