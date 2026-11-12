@@ -1,38 +1,43 @@
-name: AI provider integration
+name: Optional free AI provider smoke test
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - "core/ai_engine.py"
-      - "scripts/smoke_test_ai_providers.py"
-      - "test_ai_provider_adapters.py"
-      - ".github/workflows/ai-provider-integration.yml"
 
 permissions:
   contents: read
 
 concurrency:
-  group: ai-provider-integration-${{ github.ref }}
+  group: optional-ai-provider-smoke-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
   provider-smoke-test:
-    name: Live AI provider connectivity (synthetic prompt only)
+    name: Optional / free AI provider connectivity (synthetic prompt only)
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
-          python-version: '3.11'
+          python-version: "3.11"
           cache: pip
           cache-dependency-path: requirements.lock
       - name: Install hash-locked dependencies
         run: python -m pip install --require-hashes -r requirements.lock
-      - name: Test enabled free provider credentials
+      - name: Test provider adapter contracts without credentials
+        run: python -m pytest tests/test_ai_provider_adapters.py -q --tb=short
+      - name: Test configured free provider credentials (opt-in)
         env:
           REQUESTY_API_KEY: ${{ secrets.REQUESTY_API_KEY }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: python scripts/smoke_test_ai_providers.py
+      - name: Record non-authoritative scope
+        if: always()
+        run: |
+          {
+            echo "## Optional AI provider smoke test"
+            echo "- Only synthetic prompts are sent."
+            echo "- This workflow is manual and is not a required check for SIP financial decisions."
+            echo "- AI is narrative-only; provider availability must not change eligibility, scoring, portfolio analysis or SIP allocation."
+            echo "- Only verified zero-cost provider models are permitted; no paid fallback."
+          } >> "$GITHUB_STEP_SUMMARY"
