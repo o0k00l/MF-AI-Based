@@ -488,7 +488,7 @@ def test_issue_24_complete_eligible_candidate_recommendation_trace(tmp_path, mon
     trace_obj = json.loads(trace["canonical_record"])
     assert trace_obj["eligibility"]["current_holding_evidence"] == "PASS"
     assert trace_obj["eligibility"]["candidate_universe_count"] == 30
-    assert trace_obj["allocation"]["requested_budget_inr"] == monthly_budget
+    assert trace_obj["allocation"]["requested_budget_inr"] == "20000.00"
     assert trace_obj["allocation"]["simulated_allocated_budget_inr"] == str(total_allocated)
     assert trace_obj["allocation"]["simulated_unallocated_budget_inr"] == str(total_unallocated)
 
