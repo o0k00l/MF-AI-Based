@@ -478,6 +478,40 @@ def test_issue_112_engine_bootstrap_promote_mandatory_artifact_binding(tmp_path)
         artifact_digest="0" * 64,  # Mismatched!
     )
 
+    # 1. Attempting to bypass artifact binding with require_artifact_binding=False fails closed
+    with pytest.raises(ValueError, match="mandatory cryptographic artifact digest binding"):
+        pipeline.promote(
+            staging_dir,
+            target_dir,
+            reviewer_approval_envelope=bad_envelope,
+            reviewer_trust_registry=registry,
+            require_artifact_binding=False,  # Attempting to bypass
+        )
+
+    # 2. Envelope completely missing artifact_digest fails closed under default promotion
+    envelope_no_art = create_sip_reviewer_approval_envelope(
+        priv,
+        key_id="test-key-1",
+        reviewer_id="test-reviewer-1",
+        scope="SIP_EVIDENCE_RELEASE",
+        source_bytes=b"staging_manifest",
+        structured_records={"verified": True},
+        commit_sha=commit_sha,
+        policy_digest=policy_digest,
+        # artifact_digest omitted!
+    )
+    with pytest.raises(ValueError, match="missing required artifact_digest binding"):
+        pipeline.promote(
+            staging_dir,
+            target_dir,
+            reviewer_approval_envelope=envelope_no_art,
+            reviewer_trust_registry=registry,
+            expected_commit_sha=commit_sha,
+            expected_policy_digest=policy_digest,
+            # require_artifact_binding omitted -> defaults to mandatory True!
+        )
+
+    # 3. Create envelope with MISMATCHED artifact digest fails closed
     with pytest.raises(ValueError, match="Artifact digest mismatch"):
         pipeline.promote(
             staging_dir,
@@ -486,12 +520,9 @@ def test_issue_112_engine_bootstrap_promote_mandatory_artifact_binding(tmp_path)
             reviewer_trust_registry=registry,
             expected_commit_sha=commit_sha,
             expected_policy_digest=policy_digest,
-            require_commit_binding=True,
-            require_policy_binding=True,
-            require_artifact_binding=True,
         )
 
-    # Now create envelope with MATCHING artifact digest
+    # 4. Now create envelope with MATCHING artifact digest under default promotion
     good_envelope = create_sip_reviewer_approval_envelope(
         priv,
         key_id="test-key-1",
@@ -513,7 +544,6 @@ def test_issue_112_engine_bootstrap_promote_mandatory_artifact_binding(tmp_path)
         expected_policy_digest=policy_digest,
         require_commit_binding=True,
         require_policy_binding=True,
-        require_artifact_binding=True,
     )
     assert res["status"] == "PROMOTED"
     assert res["bundle_digest"] == actual_bundle_digest

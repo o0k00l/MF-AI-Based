@@ -286,7 +286,10 @@ class EvidenceBundleBuilder:
 
             payload_env = reviewer_approval_envelope.get("payload", {}) if isinstance(reviewer_approval_envelope, dict) else {}
             if require_artifact_binding or payload_env.get("artifact_digest") or payload_env.get("bundle_sha256"):
-                bundle_files = sorted([p for p in staging_dir.rglob("*") if p.is_file()])
+                bundle_files = sorted([
+                    p for p in staging_dir.rglob("*")
+                    if p.is_file() and p.name not in ("reviewer_approval_envelope.json", "reviewer_trust_registry.json")
+                ])
                 hasher = hashlib.sha256()
                 for bf in bundle_files:
                     rel = str(bf.relative_to(staging_dir)).replace("\\", "/")

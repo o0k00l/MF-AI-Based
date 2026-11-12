@@ -170,6 +170,14 @@ def test_engine_bootstrap_promote_enforces_commit_and_policy_binding(tmp_path):
     commit = "07cb506f8c35d4572cf58645e61d36f22302048a"
     policy_hash = hashlib.sha256(b"screening_policy").hexdigest()
 
+    bundle_files = sorted([p for p in staging.rglob("*") if p.is_file()])
+    hasher = hashlib.sha256()
+    for bf in bundle_files:
+        rel = str(bf.relative_to(staging)).replace("\\", "/")
+        hasher.update(rel.encode("utf-8"))
+        hasher.update(bf.read_bytes())
+    actual_bundle_digest = hasher.hexdigest()
+
     envelope = create_sip_reviewer_approval_envelope(
         priv,
         key_id="key-001",
@@ -179,6 +187,7 @@ def test_engine_bootstrap_promote_enforces_commit_and_policy_binding(tmp_path):
         structured_records={"k": "v"},
         commit_sha=commit,
         policy_digest=policy_hash,
+        artifact_digest=actual_bundle_digest,
     )
 
     # 1. Promotion with wrong commit SHA fails closed

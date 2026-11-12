@@ -354,7 +354,7 @@ def verify_sip_reviewer_approval(
         elif expected_artifact_digest is not None:
             if art_digest.lower() != expected_artifact_digest.lower():
                 errors.append(f"Artifact digest mismatch: expected {expected_artifact_digest}, got {art_digest}")
-    elif require_artifact_binding:
+    elif require_artifact_binding or expected_artifact_digest is not None:
         errors.append("Approval payload is missing required artifact_digest binding")
 
     # 7. Cryptographic Ed25519 signature verification

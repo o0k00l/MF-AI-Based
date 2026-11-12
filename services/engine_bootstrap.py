@@ -487,12 +487,20 @@ class EngineBootstrapPipeline:
         expected_policy_digest: Optional[str] = None,
         require_commit_binding: bool = False,
         require_policy_binding: bool = False,
-        require_artifact_binding: bool = False,
+        require_artifact_binding: bool = True,
     ) -> Dict[str, Any]:
         """
         Executes atomic promotion of verified bundle after verifying detached Ed25519 reviewer approval.
         Performs real filesystem atomic copy/swap with rollback to preserve last-known-good state on failure.
+        Issue #112: In every production promotion path, cryptographic artifact digest binding
+        against the staging bundle is strictly mandatory and cannot be disabled.
         """
+        if require_artifact_binding is False:
+            raise ValueError(
+                "Promotion requires mandatory cryptographic artifact digest binding; "
+                "caller cannot disable it."
+            )
+
         import shutil
         import uuid
         import time
@@ -525,18 +533,17 @@ class EngineBootstrapPipeline:
         bundle_digest = hasher.hexdigest()
 
         # Cryptographic verification of detached reviewer approval
-        payload_env = reviewer_approval_envelope.get("payload", {}) if isinstance(reviewer_approval_envelope, dict) else {}
-        expected_art = bundle_digest if (payload_env.get("artifact_digest") or payload_env.get("bundle_sha256") or require_artifact_binding) else None
+        # Mandatory binding: expected_artifact_digest is bound to the computed bundle_digest.
         verification = verify_sip_reviewer_approval(
             envelope=reviewer_approval_envelope,
             trust_registry=reviewer_trust_registry,
             expected_scope="SIP_EVIDENCE_RELEASE",
             expected_commit_sha=expected_commit_sha,
             expected_policy_digest=expected_policy_digest,
-            expected_artifact_digest=expected_art,
+            expected_artifact_digest=bundle_digest,
             require_commit_binding=require_commit_binding,
             require_policy_binding=require_policy_binding,
-            require_artifact_binding=require_artifact_binding,
+            require_artifact_binding=True,
         )
         if not verification.ok:
             raise ValueError(

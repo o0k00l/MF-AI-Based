@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from datetime import date
 from decimal import Decimal
+import hashlib
 import io
 import json
 from pathlib import Path
@@ -31,7 +32,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives import serialization
 import base64
 
-def _make_test_approval(scope="SIP_EVIDENCE_RELEASE"):
+def _make_test_approval(scope="SIP_EVIDENCE_RELEASE", artifact_digest: Optional[str] = None):
     priv = Ed25519PrivateKey.generate()
     pub_bytes = priv.public_key().public_bytes(
         serialization.Encoding.Raw, serialization.PublicFormat.Raw
@@ -53,6 +54,7 @@ def _make_test_approval(scope="SIP_EVIDENCE_RELEASE"):
         scope=scope,
         source_bytes=b"test_source_bytes",
         structured_records={"verified": True},
+        artifact_digest=artifact_digest,
     )
     return envelope, registry
 
@@ -221,7 +223,15 @@ def test_engine_bootstrap_pipeline_promotion_atomic_and_rollback(tmp_path):
     target_dir.mkdir(parents=True)
     (target_dir / "manifest.json").write_text(json.dumps({"schema_version": 1, "version": "v1_original"}), encoding="utf-8")
 
-    envelope, registry = _make_test_approval()
+    bundle_files = sorted([p for p in staging_dir.rglob("*") if p.is_file()])
+    hasher = hashlib.sha256()
+    for bf in bundle_files:
+        rel = str(bf.relative_to(staging_dir)).replace("\\", "/")
+        hasher.update(rel.encode("utf-8"))
+        hasher.update(bf.read_bytes())
+    bundle_digest = hasher.hexdigest()
+
+    envelope, registry = _make_test_approval(artifact_digest=bundle_digest)
 
     # 1. Successful promotion
     result = pipeline.promote(
