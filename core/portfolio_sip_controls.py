@@ -468,23 +468,38 @@ def route_incremental_sip(
         else:
             unallocated_by_sleeve["rounding_unallocated"] = difference
 
-    # Calculate post-contribution exposure mathematically using invested portfolio denominator.
-    # Unallocated contributions remain outside the invested perimeter (in cash / bank).
+    # Keep invested exposure and the full post-contribution perimeter distinct.
+    # Unallocated contribution remains cash; include it in debt/liquid where that
+    # sleeve exists, otherwise expose it as a separate unallocated-cash perimeter row.
     port_total_dec = portfolio_total
     post_contribution_invested_total = port_total_dec + allocated
     post_contribution_values: dict[str, str] = {}
-    post_contribution_weights_pct: dict[str, str] = {}
-    post_contribution_drift_pct: dict[str, str] = {}
+    post_contribution_invested_weights_pct: dict[str, str] = {}
+    post_contribution_perimeter_values: dict[str, Decimal] = {}
     for sleeve in target_weights_pct:
-        cur_v = Decimal(str(current_values_inr.get(sleeve, "0")))
+        cur_v = _decimal(current_values_inr.get(sleeve, "0"), f"current[{sleeve}]")
         alloc_v = allocations.get(sleeve, Decimal("0"))
         post_v = cur_v + alloc_v
         post_contribution_values[sleeve] = str(post_v)
+        post_contribution_perimeter_values[sleeve] = post_v
         if post_contribution_invested_total > 0:
-            post_w = (post_v / post_contribution_invested_total) * Decimal("100")
+            invested_w = (post_v / post_contribution_invested_total) * Decimal("100")
+            post_contribution_invested_weights_pct[sleeve] = str(invested_w.quantize(Decimal("0.01")))
+
+    if "debt_liquid" in post_contribution_perimeter_values:
+        post_contribution_perimeter_values["debt_liquid"] += unallocated
+    elif unallocated > 0:
+        post_contribution_perimeter_values["unallocated_cash"] = unallocated
+
+    post_contribution_weights_pct: dict[str, str] = {}
+    post_contribution_drift_pct: dict[str, str] = {}
+    for sleeve, post_v in post_contribution_perimeter_values.items():
+        if post_contribution_perimeter_total > 0:
+            post_w = (post_v / post_contribution_perimeter_total) * Decimal("100")
             post_contribution_weights_pct[sleeve] = str(post_w.quantize(Decimal("0.01")))
-            tgt_w = _decimal(target_weights_pct[sleeve], sleeve)
-            post_contribution_drift_pct[sleeve] = str((post_w - tgt_w).quantize(Decimal("0.01")))
+            if sleeve in target_weights_pct:
+                tgt_w = _decimal(target_weights_pct[sleeve], sleeve)
+                post_contribution_drift_pct[sleeve] = str((post_w - tgt_w).quantize(Decimal("0.01")))
 
     return {
         "status": "ROUTED" if allocated > 0 else "HOLD",
@@ -498,11 +513,16 @@ def route_incremental_sip(
         "post_contribution_perimeter_total_inr": str(post_contribution_perimeter_total),
         "unallocated_cash_inr": str(unallocated),
         "post_contribution_values_inr": post_contribution_values,
+        "post_contribution_invested_weights_pct": post_contribution_invested_weights_pct,
+        "post_contribution_perimeter_values_inr": {
+            key: str(value) for key, value in sorted(post_contribution_perimeter_values.items())
+        },
         "post_contribution_weights_pct": post_contribution_weights_pct,
         "post_contribution_drift_pct": post_contribution_drift_pct,
         "reconciliation_ok": (
             allocated + unallocated == budget
             and sum(Decimal(v) for v in post_contribution_values.values()) == post_contribution_invested_total
+            and sum(post_contribution_perimeter_values.values(), Decimal("0")) == post_contribution_perimeter_total
         ),
         "basis": "POST_CONTRIBUTION_CURRENCY_GAPS_PRO_RATA_TO_ALL_APPROVED_SAA_UNDERWEIGHTS_NO_REDISTRIBUTION",
     }
