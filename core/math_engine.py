@@ -5435,11 +5435,11 @@ def _sip_operational_constraint_violations(
 
 
 def compute_deterministic_sip_blueprint(
-    monthly_budget: float,
+    monthly_budget: Decimal | str | int,
     risk_tier: Optional[str] = None,
     stability_buffer_pct: Optional[float] = None,
     holdings: Optional[List[HoldingItem]] = None,
-    client_aum: Optional[float] = None,
+    client_aum: Optional[Decimal | str | int] = None,
     thematic_deficit_theme: str = "",
     thematic_satellite_pct_of_equity: float = 0.0,
     thematic_satellite_authorized: bool = False,
@@ -5471,6 +5471,8 @@ def compute_deterministic_sip_blueprint(
     if not isinstance(client_aum_verified, bool):
         raise ValueError("client_aum_verified must be an explicit boolean")
     try:
+        if isinstance(monthly_budget, (bool, float)) or isinstance(client_aum, (bool, float)):
+            raise ValueError("Binary float is not accepted for SIP budget or client AUM; provide Decimal or decimal text.")
         b = quantize_inr(monthly_budget)
         aum_value = quantize_inr(client_aum)
         stability_value = None if stability_buffer_pct is None else float(stability_buffer_pct)
