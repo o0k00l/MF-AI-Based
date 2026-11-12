@@ -410,7 +410,6 @@ def create_sip_reviewer_approval_envelope(
     verification_method: Optional[str] = None,
     verified_at: Optional[str] = None,
     evidence_reference: Optional[str] = None,
-    source_url: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Helper to generate a valid detached approval envelope for testing and ceremony use."""
     now = issued_at or datetime.now(timezone.utc)
