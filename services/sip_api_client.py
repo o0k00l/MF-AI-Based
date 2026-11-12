@@ -47,13 +47,24 @@ def request_sip_recommendations(
     risk_profile: str,
     filename: str = "portfolio.xlsx",
 ) -> dict[str, Any]:
-    """Send uploaded CAS bytes to the SIP recommendations API endpoint."""
+    """Send uploaded CAS bytes to the SIP recommendations API endpoint.
+
+    Money enters this client as Decimal, integer, or decimal text. Binary
+    floats are rejected before any network or API operation.
+    """
+    if isinstance(monthly_budget_inr, (bool, float)):
+        raise ValueError(
+            "Monthly SIP budget must be supplied as Decimal, integer, or decimal string; "
+            "binary float is not accepted."
+        )
     try:
-        if isinstance(monthly_budget_inr, (bool, float)):
-            raise ValueError("Monthly SIP budget must be supplied as Decimal, integer, or decimal string; binary float is not accepted.")
         budget = quantize_inr(monthly_budget_inr)
-        if not budget.is_finite() or budget <= 0:
-            raise ValueError("Monthly SIP budget must be finite and greater than zero.")
+    except (TypeError, ValueError, ArithmeticError) as exc:
+        raise ValueError("Monthly SIP budget must be a valid exact INR decimal amount.") from exc
+    if not budget.is_finite() or budget <= 0:
+        raise ValueError("Monthly SIP budget must be finite and greater than zero.")
+
+    try:
         client = TestClient(fastapi_app)
         res = client.post(
             "/v1/sip/recommendations",
@@ -75,13 +86,12 @@ def request_sip_recommendations(
             "status": "ERROR",
             "decision": "NO_ACTION",
             "reasons": [f"API returned status {res.status_code}: {res.text}"],
-            "unallocated_budget_inr": str(budget) if "budget" in locals() else None,
+            "unallocated_budget_inr": str(budget),
         }
     except Exception as exc:
         return {
             "status": "HOLD",
             "decision": "NO_ACTION",
-            "reasons": [f"Client connection error: {str(exc)}"],
-            "unallocated_budget_inr": monthly_budget_inr,
+            "reasons": [f"Client connection error: {type(exc).__name__}"],
+            "unallocated_budget_inr": str(budget),
         }
-
