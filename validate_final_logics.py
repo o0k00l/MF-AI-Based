@@ -208,7 +208,7 @@ check(
 check(
     "100% Direct Plan Mandate",
     all(item.is_direct is True for item in established_plan.items if item.monthly_inr > 0)
-    and (established_plan.unallocated_budget_inr == 0 or sum_alloc == 0.0),
+    and (established_plan.unallocated_budget_inr == 0 or sum_alloc == Decimal("0.00")),
     "Uses explicit selected-candidate metadata, not scheme-name substring inference"
  )
 check("Zero Standalone Debt Drag", established_plan.debt_sip_pct == 0.0 and established_plan.equity_sip_pct == 100.0)
@@ -372,7 +372,7 @@ for t_name, exp_eq, exp_debt in tier_targets:
         monthly_budget=Decimal("50000.00"),
         risk_tier=t_name,
         stability_buffer_pct=None,
-        client_aum=5000000.0,
+        client_aum=Decimal("5000000.00"),
         client_aum_verified=True,
     )
     check(
@@ -382,10 +382,10 @@ for t_name, exp_eq, exp_debt in tier_targets:
     )
     if t_name == "Tier 6 (Very High)":
         sip_override = compute_deterministic_sip_blueprint(
-            monthly_budget=50000.0,
+            monthly_budget=Decimal("50000.00"),
             risk_tier=t_name,
             stability_buffer_pct=None,
-            client_aum=5000000.0,
+            client_aum=Decimal("5000000.00"),
             client_aum_verified=True,
             equity_sip_routing_override=True,
         )
@@ -398,7 +398,7 @@ for t_name, exp_eq, exp_debt in tier_targets:
     sip_accounted = sip_tot + sip_tier.unallocated_budget_inr
     check(
         f"{t_name} SIP Budget Accounted For",
-        abs(sip_accounted - 50000.0) < 0.01,
+        sip_accounted == Decimal("50000.00"),
         f"Allocated: INR {sip_tot:,.2f}; withheld: INR {sip_tier.unallocated_budget_inr:,.2f}"
     )
     if float(sip_tier.unallocated_budget_inr) > 0.0:
@@ -436,10 +436,10 @@ for t_name, exp_eq, exp_debt in tier_targets:
     )
 
 tier6_override = compute_deterministic_sip_blueprint(
-    monthly_budget=50000.0,
+    monthly_budget=Decimal("50000.00"),
     risk_tier="Tier 6 (Very High)",
     stability_buffer_pct=0.0,
-    client_aum=5000000.0,
+    client_aum=Decimal("5000000.00"),
     client_aum_verified=True,
     equity_sip_routing_override=True,
 )
