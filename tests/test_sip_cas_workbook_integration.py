@@ -89,7 +89,7 @@ def _recommendation(cas_path, scheme_master, scheme_master_bytes, disclosures, d
         cas_path=cas_path,
         metrics_path=_metrics_file(Path(cas_path).parent),
         aliases_path=None,
-        monthly_budget_inr=25000.0,
+        monthly_budget_inr=Decimal("25000.00"),
         risk_profile="Aggressive",
         scheme_master=scheme_master,
         scheme_master_source_bytes=scheme_master_bytes,
