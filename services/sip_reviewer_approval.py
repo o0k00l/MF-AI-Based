@@ -41,6 +41,7 @@ SUPPORTED_APPROVAL_SCOPES: Set[str] = {
     "SIP_PORTFOLIO_DISCLOSURE",
     "SIP_CANDIDATE_UNIVERSE",
     "SIP_DIRECT_PLAN_EVIDENCE",
+    "STATEMENT_PUBLISHER_AUTHENTICATION",
 }
 
 REQUIRED_PAYLOAD_FIELDS: Set[str] = {
@@ -405,6 +406,11 @@ def create_sip_reviewer_approval_envelope(
     issued_at: Optional[datetime] = None,
     expires_at: Optional[datetime] = None,
     approval_id: Optional[str] = None,
+    publisher: Optional[str] = None,
+    verification_method: Optional[str] = None,
+    verified_at: Optional[str] = None,
+    evidence_reference: Optional[str] = None,
+    source_url: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Helper to generate a valid detached approval envelope for testing and ceremony use."""
     now = issued_at or datetime.now(timezone.utc)
@@ -430,6 +436,14 @@ def create_sip_reviewer_approval_envelope(
         "structured_records_sha256": records_sha256,
         "review_attestation": True,
     }
+    if scope == "STATEMENT_PUBLISHER_AUTHENTICATION":
+        payload.update({
+            "publisher": publisher,
+            "verification_method": verification_method,
+            "verified_at": verified_at,
+            "evidence_reference": evidence_reference,
+            "source_url": source_url,
+        })
     if scheme_id is not None:
         payload["scheme_id"] = scheme_id
     if source_url is not None:
