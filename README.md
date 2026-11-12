@@ -109,7 +109,11 @@ The checked-in TRI files are provisional test fixtures. Monthly or interpolated 
 
 A matching checksum verifies the integrity of a local file against its stated checksum. It does not authenticate the publisher, establish that the series is the correct TRI, or prove that the observations are complete.
 
-## Verified Flow: CAS Upload to Debt Allocation Report
+## Legacy CAS parsing flow (structural parsing only)
+
+> **Trust boundary:** This legacy dashboard flow parses user-supplied CAS files for portfolio display. It does not authenticate CAMS/KFintech/MFCentral publisher identity. Parser success or `is_valid=True` means structural/data parsing only. Embedded labels and SHA-256 digests do not prove publisher authenticity. The canonical SIP workflow must retain source-unverified status unless a separately configured trusted publisher verifier establishes evidence bound to the exact uploaded-byte digest. See [Statement Publisher Provenance Contract](docs/STATEMENT_PUBLISHER_PROVENANCE.md).
+
+
 
 ### Overview
 The dashboard supports a clean data flow from user-uploaded CAS files to portfolio analysis. All portfolio values are parsed dynamically from the user's CAS file — no hardcoded values are used.
