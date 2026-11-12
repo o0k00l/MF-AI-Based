@@ -115,7 +115,7 @@ The detailed normative calculation/data/API contract is [SIP_DECISION_CALCULATIO
 
 ## 8. Code corrections — 2026-11-12
 
-The following corrections are now present on main (code revision: 8ec155d7ad49c5ccbf80a38e8932c9e29fb9904f; current documentation revision: 6c6056c975c2c8afca6d10d1589a671412139f24). These are implementation changes, not a declaration of workstream closure:
+The following corrections are now present on main (code revision: `8ec155d7ad49c5ccbf80a38e8932c9e29fb9904f`; issue/status reconciliation revision: `aff00e2338fce6c07ca34c4cb7a128659993efc0`). These are implementation changes, not a declaration of workstream closure:
 
 - SIP routing now derives post-contribution INR gaps from the P+B perimeter and applies the tolerance on that same base. Unfillable sleeve shares and rounding residue remain unallocated.
 - The production routing increment comes from the validated allocation policy. The primitive no longer embeds a numeric increment default.
