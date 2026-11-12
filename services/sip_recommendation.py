@@ -164,11 +164,11 @@ def _build_cas_portfolio_assessment(
         )
         equity_rows = []
         for holding in holdings:
-            holding_value = float(holding.current_value_inr)
-            equity_pct = float(getattr(holding, "equity_pct", 0.0))
-            if not math.isfinite(equity_pct) or not 0.0 <= equity_pct <= 100.0:
+            holding_value = quantize_inr(holding.current_value_inr)
+            equity_pct = Decimal(str(getattr(holding, "equity_pct", 0.0)))
+            if not equity_pct.is_finite() or not Decimal("0") <= equity_pct <= Decimal("100"):
                 raise ValueError("holding equity exposure is invalid")
-            equity_value = holding_value * equity_pct / 100.0
+            equity_value = holding_value * equity_pct / Decimal("100")
             if equity_value <= 0:
                 continue
             constituents = getattr(holding, "constituent_weights", None)
