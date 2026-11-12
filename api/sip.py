@@ -62,7 +62,7 @@ def create_sip_app(
         deployment_mode = os.environ.get("MF_DEPLOYMENT_ENVIRONMENT", "production").lower()
         configured_cas_auth = os.environ.get("MF_SIP_REQUIRE_AUTHENTICATED_CAS")
         if configured_cas_auth is None:
-            authenticated_cas_required = deployment_mode == "production"
+            authenticated_cas_required = deployment_mode not in {"test", "testing", "development", "dev", "local"}
         elif configured_cas_auth.strip().lower() in {"1", "true", "yes"}:
             authenticated_cas_required = True
         elif configured_cas_auth.strip().lower() in {"0", "false", "no"}:
@@ -121,7 +121,7 @@ def create_sip_app(
                     "authenticated_daily_tri_unavailable",
                     "independent_nse_calendar_unavailable",
                     "research_release_approval_missing",
-                ],
+                ] + (["statement_publisher_trust_registry_unavailable"] if authenticated_cas_required and statement_publisher_trust_registry is None else []),
             }
         if reviewer_trust_registry is None:
             return {
@@ -147,7 +147,7 @@ def create_sip_app(
                 "authenticated_daily_tri_unavailable",
                 "independent_nse_calendar_unavailable",
                 "research_release_approval_missing",
-            ],
+            ] + (["statement_publisher_trust_registry_unavailable"] if authenticated_cas_required and statement_publisher_trust_registry is None else []),
         }
 
     @app.post("/v1/sip/recommendations")

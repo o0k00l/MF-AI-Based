@@ -696,3 +696,10 @@ def test_authenticated_cas_policy_holds_before_provider_without_signed_review(mo
     assert body["unallocated_budget_inr"] == "25000.00"
     assert body["statement_provenance"]["publisher_authenticity_status"] == "UNVERIFIED"
     assert called == []
+
+
+def test_production_defaults_to_requiring_authenticated_cas(monkeypatch):
+    monkeypatch.setenv("MF_DEPLOYMENT_ENVIRONMENT", "production")
+    monkeypatch.delenv("MF_SIP_REQUIRE_AUTHENTICATED_CAS", raising=False)
+    status = TestClient(sip.create_sip_app()).get("/v1/deployment/status").json()
+    assert status["authenticated_cas_required"] is True
