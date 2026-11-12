@@ -458,17 +458,11 @@ def check_eligibility_gates(
     risk_ceiling: Optional[int] = None,
 ) -> EligibilityGateResult:
     """
-    Evaluates all 10 Hard Binary Selection Gates for a candidate fund:
-    - Gate 1: AMC Concentration Gate (< 30% AUM)
-    - Gate 2: Liquidity & AUM Stability Gate (>= ₹1,000 Cr & <= Category Cap)
-    - Gate 3: Top-10 Concentration Gate (<= 55%)
-    - Gate 4: Risk-Adjusted Sharpe & Alpha Gate (Sharpe >= 0.40 & Alpha >= 0)
-    - Gate 5: Downside Capture Ratio Gate (Downside <= 100 or Upside >= Downside)
-    - Gate 6: Mandate Suitability Gate (Riskometer <= Client Tier; Starters reject sector bets)
-    - Gate 7: Data Integrity & Provenance Gate (Confidence >= 0.8 & TRI Benchmark)
-    - Gate 8: Manager Tenure & Process Continuity Gate (Tenure >= 2.0 Yrs)
-    - Gate 9: Thematic Satellite Cap Gate (Thematic <= 15% Established / 0% Starter)
-    - Gate 10: 100% Direct Plan Mandate Gate (Direct Plan only, zero regular commission)
+    Evaluate the ten fiduciary gates using the validated, versioned screening
+    policy supplied by the caller or loaded from the authoritative policy file.
+    Numeric thresholds, category caps, overlap coverage and thematic limits are
+    policy parameters; this function does not supply investor or scheme defaults.
+    Missing investor risk profile or required evidence fails closed.
     """
     failed = []
     details = {}
