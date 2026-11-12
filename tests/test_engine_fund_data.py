@@ -144,3 +144,59 @@ def test_engine_paths_are_independent_of_client_data_directory(tmp_path, monkeyp
     assert paths["fund_aliases"].is_file()
     assert paths["scheme_master"].is_file()
     assert store_dir in paths["fund_metrics"].parents
+
+
+def test_manifest_rejects_artifact_tampering_even_when_dataset_id_is_preserved(tmp_path):
+    paths = refresh_engine_fund_data(
+        EngineRuntimeConfig(data_dir=tmp_path),
+        session=FakeSession(),
+        now=datetime(2026, 11, 5, tzinfo=timezone.utc),
+    )
+    metrics = json.loads(paths["fund_metrics"].read_text())
+    metrics["coverage_note"] = "tampered"
+    paths["fund_metrics"].write_text(json.dumps(metrics), encoding="utf-8")
+    with pytest.raises(FundDataAcquisitionError, match="artifact digest mismatch"):
+        load_engine_manifest(tmp_path)
+
+
+def test_manifest_rejects_unsupported_or_promoted_status_without_release_evidence(tmp_path):
+    paths = refresh_engine_fund_data(
+        EngineRuntimeConfig(data_dir=tmp_path),
+        session=FakeSession(),
+        now=datetime(2026, 11, 5, tzinfo=timezone.utc),
+    )
+    manifest = json.loads(paths["manifest"].read_text())
+    manifest["status"] = "PROMOTED"
+    manifest["promotion_eligible"] = True
+    paths["manifest"].write_text(json.dumps(manifest), encoding="utf-8")
+    with pytest.raises(FundDataAcquisitionError, match="unsupported"):
+        load_engine_manifest(tmp_path)
+
+
+def test_engine_paths_ignore_legacy_flat_artifacts_and_mark_unverified_not_decision_eligible(tmp_path, monkeypatch):
+    from advisor import get_engine_data_paths
+
+    store_dir = tmp_path / "engine-store"
+    store_dir.mkdir()
+    (store_dir / "fund_metrics.json").write_text('{"funds": []}', encoding="utf-8")
+    (store_dir / "fund_aliases.json").write_text('{"aliases": {}}', encoding="utf-8")
+    monkeypatch.setenv("MF_ENGINE_DATA_DIR", str(store_dir))
+    monkeypatch.delenv("MF_CLIENT_DATA_DIR", raising=False)
+
+    missing = get_engine_data_paths()
+    assert missing["status"] == "NOT_ACQUIRED"
+    assert missing["is_acquired"] is False
+    assert missing["fund_metrics"] is None
+    assert missing["is_decision_eligible"] is False
+
+    cfg = EngineRuntimeConfig(data_dir=store_dir)
+    refresh_engine_fund_data(
+        cfg,
+        session=FakeSession(),
+        now=datetime(2026, 11, 5, tzinfo=timezone.utc),
+    )
+    acquired = get_engine_data_paths()
+    assert acquired["status"] == "ACQUIRED_UNVERIFIED"
+    assert acquired["is_acquired"] is True
+    assert acquired["is_decision_eligible"] is False
+    assert acquired["promotion_eligible"] is False

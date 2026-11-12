@@ -40,32 +40,36 @@ The current policy uses a 60% Flexi-cap / 40% Mid-Small-cap equity split when AU
 
 The legacy Streamlit dashboard is retired and intentionally disabled. Its former client-discovery and planning flows used an obsolete in-repository data layout and are not supported. The root `app.py` entry point displays a retirement notice only; it does not load client data or generate recommendations. Do not re-enable the old UI until a replacement has explicit external-data isolation, read-only behavior, and dedicated integration tests.
 
-## Private client data setup
+## Investor inputs and engine-owned public data
 
-Use a directory outside the repository containing the locally verified source inputs:
+Investors must not create or maintain internal engine files such as `config.json`, `fund_metrics.json` or `fund_aliases.json`. Those are engine-owned artifacts, not onboarding inputs.
+
+The investor-specific directory contains only the source documents and mandate facts needed for that investor, for example:
 
 ```text
 private-data/
   client-portfolio/
-    config.json
-    fund_metrics.json
-    fund_aliases.json
-    transactions.json
+    investor_mandate.json
     statements/
       cas_detailed_report_*.xlsx
 ```
 
-Linux/macOS:
+Set the private investor directory only for tooling that explicitly requests it:
 
 ```bash
 export MF_CLIENT_DATA_DIR="$HOME/private-data/client-portfolio"
 ```
 
-Windows PowerShell:
+Engine-owned public datasets use a separate directory and refresh command:
 
-```powershell
-$env:MF_CLIENT_DATA_DIR = "$HOME\private-data\client-portfolio"
+```bash
+export MF_ENGINE_DATA_DIR="$HOME/.local/share/mf-engine/datasets"
+python refresh_fund_data.py status
+python refresh_fund_data.py refresh
+python refresh_fund_data.py status
 ```
+
+**Current capability boundary:** the implemented public adapter currently acquires the AMFI NAVAll feed and builds a NAV-only scheme-code snapshot. Its status remains `ACQUIRED_UNVERIFIED`; it is not a complete scheme master, approved fund-metrics set or decision-ready evidence bundle. It must not be used to produce positive SIP recommendations. Full source acquisition, identity reconciliation and independent promotion remain open under #110, #16, #84 and #121.
 
 Never commit CAS statements, folio identifiers, investor identity, goals, budgets, bank balances, tax details, holdings, transaction histories, portfolio metrics or reports containing client information. Synthetic data belongs in tests only. See [SECURITY_DATA_HANDLING.md](SECURITY_DATA_HANDLING.md) for the client-data boundary and history-purge procedure.
 
@@ -109,58 +113,9 @@ The checked-in TRI files are provisional test fixtures. Monthly or interpolated 
 
 A matching checksum verifies the integrity of a local file against its stated checksum. It does not authenticate the publisher, establish that the series is the correct TRI, or prove that the observations are complete.
 
-## Legacy CAS parsing flow (structural parsing only)
+## Retired legacy CAS dashboard
 
-> **Trust boundary:** This legacy dashboard flow parses user-supplied CAS files for portfolio display. It does not authenticate CAMS/KFintech/MFCentral publisher identity. Parser success or `is_valid=True` means structural/data parsing only. Embedded labels and SHA-256 digests do not prove publisher authenticity. The canonical SIP workflow must retain source-unverified status unless a separately configured trusted publisher verifier establishes evidence bound to the exact uploaded-byte digest. See [Statement Publisher Provenance Contract](docs/STATEMENT_PUBLISHER_PROVENANCE.md).
-
-
-
-### Overview
-The dashboard supports a clean data flow from user-uploaded CAS files to portfolio analysis. All portfolio values are parsed dynamically from the user's CAS file — no hardcoded values are used.
-
-### Data Flow
-```
-User CAS Upload → ui/app.py → parse_cas_file() → st.session_state["user_portfolio"]
-                                 ↓
-                            ui/pages/2_Debt_Allocation.py ← reads session_state
-                                 ↓
-                      Fund metrics (category, eq/debt %) ← data/policy/fund_metrics.json
-                                 ↓
-                     Computed allocations: Equity, Debt, Large/Mid/Small Cap
-```
-
-### Key Pages
-
-#### 1. Portfolio Dashboard (`ui/app.py`)
-- **Purpose**: Main dashboard for CAS upload and portfolio overview
-- **Features**:
-  - CAS file upload (Excel .xlsx format)
-  - Dynamic fund parsing via `services/cas_parser.py`
-  - Portfolio metrics (Total Value, Equity %, Debt %)
-  - Segment allocation (Large/Mid/Small Cap)
-  - Fund-by-fund detail tabs (Equity, Hybrid, Debt)
-- **Session State**: Stores parsed portfolio in `st.session_state["user_portfolio"]`
-
-#### 2. Debt Allocation Verification (`ui/pages/2_Debt_Allocation.py`)
-- **Purpose**: Detailed debt allocation analysis including internal debt in equity funds
-- **Features**:
-  - True equity vs internal debt breakdown
-  - Large/Mid/Small cap segment analysis
-  - Fund-by-fund debt allocation percentages
-  - Visual bar charts for allocation comparison
-- **Data Source**: Reads portfolio from `session_state["user_portfolio"]` from dashboard
-
-### No-Hardcoding Rules
-- ✅ `fund_metrics.json` contains only reference metadata (scheme_id, category, EQ/debt %, expense ratio)
-- ✅ No `current_value`, `total_portfolio_value_inr`, or `portfolio_value_lakhs` in policy files
-- ✅ All portfolio values computed from user-uploaded CAS data
-- ✅ All fund details expanded dynamically
-
-### Market Standard Metrics
-- **Equity vs Debt**: Shows true allocation including internal debt in equity funds
-- **Large Cap**: ~5% debt allocation in Large Cap funds
-- **Flexi/Multi Cap**: ~2% debt allocation
-- **Mid/Small Cap**: ~2% debt allocation
+The former Streamlit dashboard and its portfolio-planning pages are retired. They are not the supported SIP recommendation workflow and must not be used to generate investor reports or decisions. The canonical SIP journey is tracked under #145. CAS structural parsing does not authenticate the publisher; see [Statement Publisher Provenance Contract](docs/STATEMENT_PUBLISHER_PROVENANCE.md).
 
 ## Production release gates
 

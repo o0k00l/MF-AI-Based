@@ -410,6 +410,10 @@ def refresh_engine_fund_data(
     }
     for name, path in output_paths.items():
         _atomic_write_json(path, artifacts[name])
+    artifact_sha256 = {
+        name: hashlib.sha256(path.read_bytes()).hexdigest()
+        for name, path in output_paths.items()
+    }
 
     source_dir = snapshot_dir / "sources"
     source_dir.mkdir(parents=True, exist_ok=True)
@@ -431,6 +435,7 @@ def refresh_engine_fund_data(
             name: str(path.relative_to(config.data_dir))
             for name, path in output_paths.items()
         },
+        "artifact_sha256": artifact_sha256,
         "promotion_eligible": False,
         "promotion_blockers": [
             "AMFI NAV feed alone is not a complete scheme-master or fund-metrics evidence bundle",
@@ -458,32 +463,56 @@ def load_engine_manifest(data_dir: Path) -> dict[str, Any]:
         raise FundDataAcquisitionError("Engine fund-data manifest is unreadable or invalid") from exc
     if not isinstance(manifest, dict) or manifest.get("schema") != _DATASET_SCHEMA:
         raise FundDataAcquisitionError("Engine fund-data manifest schema is unsupported")
-    if manifest.get("status") == "ACQUIRED_UNVERIFIED":
-        dataset_id = manifest.get("dataset_id")
-        artifacts = manifest.get("artifacts")
-        if not isinstance(dataset_id, str) or not isinstance(artifacts, dict):
-            raise FundDataAcquisitionError("Engine fund-data manifest is incomplete")
-        for name in ("scheme_master", "fund_metrics", "fund_aliases"):
-            relative = artifacts.get(name)
-            if not isinstance(relative, str) or Path(relative).is_absolute():
-                raise FundDataAcquisitionError(f"Invalid artifact path for {name}")
-            artifact_path = (Path(data_dir) / relative).resolve()
-            try:
-                artifact_path.relative_to(Path(data_dir).resolve())
-                artifact = json.loads(artifact_path.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError) as exc:
-                raise FundDataAcquisitionError(f"Engine fund-data artifact {name} is missing or invalid") from exc
-            if not isinstance(artifact, dict) or artifact.get("dataset_id") != dataset_id:
-                raise FundDataAcquisitionError(f"Engine fund-data snapshot is inconsistent for {name}")
-        source_relative = manifest.get("source_file")
-        if not isinstance(source_relative, str) or Path(source_relative).is_absolute():
-            raise FundDataAcquisitionError("Engine fund-data source path is invalid")
-        source_path = (Path(data_dir) / source_relative).resolve()
+    status = manifest.get("status")
+    if status != "ACQUIRED_UNVERIFIED":
+        raise FundDataAcquisitionError(
+            f"Engine fund-data manifest status is unsupported for this loader: {status!r}"
+        )
+    if manifest.get("promotion_eligible") is not False:
+        raise FundDataAcquisitionError("AMFI NAV-only snapshots cannot be marked promotion eligible")
+    dataset_id = manifest.get("dataset_id")
+    artifacts = manifest.get("artifacts")
+    artifact_digests = manifest.get("artifact_sha256")
+    if (
+        not isinstance(dataset_id, str)
+        or not re.fullmatch(r"[0-9a-f]{64}", dataset_id)
+        or manifest.get("source_sha256") != dataset_id
+        or not isinstance(artifacts, dict)
+        or not isinstance(artifact_digests, dict)
+    ):
+        raise FundDataAcquisitionError("Engine fund-data manifest is incomplete or has invalid digests")
+    root = Path(data_dir).resolve()
+    for name in ("scheme_master", "fund_metrics", "fund_aliases"):
+        relative = artifacts.get(name)
+        expected_digest = artifact_digests.get(name)
+        if (
+            not isinstance(relative, str)
+            or Path(relative).is_absolute()
+            or not isinstance(expected_digest, str)
+            or not re.fullmatch(r"[0-9a-f]{64}", expected_digest)
+        ):
+            raise FundDataAcquisitionError(f"Invalid artifact path or digest for {name}")
+        artifact_path = (root / relative).resolve()
         try:
-            source_path.relative_to(Path(data_dir).resolve())
-            source_digest = hashlib.sha256(source_path.read_bytes()).hexdigest()
-        except (OSError, ValueError) as exc:
-            raise FundDataAcquisitionError("Original AMFI source bytes are missing or outside the data store") from exc
-        if source_digest != dataset_id:
-            raise FundDataAcquisitionError("Original AMFI source digest does not match the dataset manifest")
+            artifact_path.relative_to(root)
+            artifact_bytes = artifact_path.read_bytes()
+            artifact = json.loads(artifact_bytes.decode("utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+            raise FundDataAcquisitionError(f"Engine fund-data artifact {name} is missing, outside the data store or invalid") from exc
+        if hashlib.sha256(artifact_bytes).hexdigest() != expected_digest:
+            raise FundDataAcquisitionError(f"Engine fund-data artifact digest mismatch for {name}")
+        if not isinstance(artifact, dict) or artifact.get("dataset_id") != dataset_id:
+            raise FundDataAcquisitionError(f"Engine fund-data snapshot is inconsistent for {name}")
+    source_relative = manifest.get("source_file")
+    if not isinstance(source_relative, str) or Path(source_relative).is_absolute():
+        raise FundDataAcquisitionError("Engine fund-data source path is invalid")
+    source_path = (root / source_relative).resolve()
+    try:
+        source_path.relative_to(root)
+        source_digest = hashlib.sha256(source_path.read_bytes()).hexdigest()
+    except (OSError, ValueError) as exc:
+        raise FundDataAcquisitionError("Original AMFI source bytes are missing or outside the data store") from exc
+    if source_digest != dataset_id:
+        raise FundDataAcquisitionError("Original AMFI source digest does not match the dataset manifest")
+    _validate_source_url(manifest.get("source_url", ""))
     return manifest

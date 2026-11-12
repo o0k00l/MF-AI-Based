@@ -69,6 +69,12 @@ def get_engine_data_paths(data_dir: Path | None = None) -> dict[str, Any]:
     metrics_path = _resolve("fund_metrics")
     aliases_path = _resolve("fund_aliases")
 
+    acquired = all(path is not None for path in (master_path, metrics_path, aliases_path))
+    decision_eligible = (
+        status == "PROMOTED"
+        and manifest.get("promotion_eligible") is True
+        and acquired
+    )
     return {
         "status": status,
         "data_dir": target_dir,
@@ -76,9 +82,12 @@ def get_engine_data_paths(data_dir: Path | None = None) -> dict[str, Any]:
         "scheme_master": master_path,
         "fund_metrics": metrics_path,
         "fund_aliases": aliases_path,
-        "is_acquired": (master_path is not None and metrics_path is not None and aliases_path is not None),
+        "is_acquired": acquired,
+        "is_decision_eligible": decision_eligible,
+        "promotion_eligible": decision_eligible,
         "dataset_id": manifest.get("dataset_id"),
         "retrieved_at": manifest.get("retrieved_at"),
+        "promotion_blockers": manifest.get("promotion_blockers", []),
     }
 
 
@@ -133,21 +142,18 @@ def get_default_paths(client_target: str | Path | None = None, *, as_of=None, ma
     )
     cas = selected.path
     engine_paths = get_engine_data_paths()
-    if engine_paths.get("status") == "NOT_ACQUIRED" or not engine_paths.get("fund_metrics"):
-        # Legacy fallback if flat files exist directly in uninitialized data_dir
-        flat_metrics = engine_paths["data_dir"] / "fund_metrics.json"
-        flat_aliases = engine_paths["data_dir"] / "fund_aliases.json"
-        if flat_metrics.is_file() and flat_aliases.is_file():
-            metrics = flat_metrics
-            aliases = flat_aliases
-        else:
-            raise FileNotFoundError(
-                f"Public fund evidence is not acquired in engine data directory ({engine_paths.get('data_dir')}). "
-                "Run engine bootstrap/refresh before invoking advisor."
-            )
-    else:
-        metrics = engine_paths["fund_metrics"]
-        aliases = engine_paths["fund_aliases"]
+    if not engine_paths.get("is_decision_eligible"):
+        status = engine_paths.get("status", "UNKNOWN")
+        blockers = engine_paths.get("promotion_blockers") or []
+        detail = "; ".join(str(item) for item in blockers) or engine_paths.get("error") or (
+            "engine-owned dataset has not passed independent evidence review and promotion"
+        )
+        raise FileNotFoundError(
+            f"Public fund evidence is not decision-eligible (status={status}) in "
+            f"{engine_paths.get('data_dir')}: {detail}"
+        )
+    metrics = engine_paths["fund_metrics"]
+    aliases = engine_paths["fund_aliases"]
 
     # Investor-specific facts remain a separate mandate input; this is not
     # engine configuration and must never contain shared fund research data.
