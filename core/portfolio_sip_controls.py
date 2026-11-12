@@ -389,14 +389,31 @@ def route_incremental_sip(
             "eligible_sleeves contains unknown target sleeves: "
             + ", ".join(sorted(unknown_eligible))
         )
-    # Tolerance is a dead-band: a sleeve is not treated as underweight until
-    # its shortfall exceeds the approved tolerance. Route only the excess gap.
-    # This prevents small measurement/valuation noise from driving SIP flows.
+    # Derive contribution capacity from the post-contribution perimeter.
+    # This avoids routing from pre-SIP percentage-point drift, which can
+    # overstate a sleeve's shortfall when the proposed SIP is material.
+    # The approved tolerance is applied to the same post-contribution base.
     tolerance = _decimal(tolerance_band_pct, "tolerance_band_pct")
+    if tolerance > 100:
+        raise PortfolioInputError("tolerance_band_pct cannot exceed 100")
+    portfolio_total = _decimal(portfolio_total_inr, "portfolio_total_inr")
+    post_contribution_perimeter_total = portfolio_total + budget
+    tolerance_value = post_contribution_perimeter_total * tolerance / Decimal("100")
+    normalized_targets = {
+        sleeve: _decimal(weight, f"target[{sleeve}]")
+        for sleeve, weight in target_weights_pct.items()
+    }
+    normalized_values = {
+        sleeve: _decimal(current_values_inr[sleeve], f"current[{sleeve}]")
+        for sleeve in target_weights_pct
+    }
     all_gaps = {
         sleeve: max(
             Decimal("0"),
-            -_decimal(drift["drift_pct_points"][sleeve], sleeve) - tolerance,
+            normalized_targets[sleeve] * post_contribution_perimeter_total
+            / Decimal("100")
+            - normalized_values[sleeve]
+            - tolerance_value,
         )
         for sleeve in target_weights_pct
     }
@@ -444,9 +461,8 @@ def route_incremental_sip(
 
     # Calculate post-contribution exposure mathematically using invested portfolio denominator.
     # Unallocated contributions remain outside the invested perimeter (in cash / bank).
-    port_total_dec = _decimal(portfolio_total_inr, "portfolio_total_inr")
+    port_total_dec = portfolio_total
     post_contribution_invested_total = port_total_dec + allocated
-    post_contribution_perimeter_total = port_total_dec + budget
     post_contribution_values: dict[str, str] = {}
     post_contribution_weights_pct: dict[str, str] = {}
     post_contribution_drift_pct: dict[str, str] = {}
@@ -479,7 +495,7 @@ def route_incremental_sip(
             allocated + unallocated == budget
             and sum(Decimal(v) for v in post_contribution_values.values()) == post_contribution_invested_total
         ),
-        "basis": "PRO_RATA_TO_ALL_APPROVED_SAA_UNDERWEIGHT_GAPS_NO_REDISTRIBUTION",
+        "basis": "POST_CONTRIBUTION_CURRENCY_GAPS_PRO_RATA_TO_ALL_APPROVED_SAA_UNDERWEIGHTS_NO_REDISTRIBUTION",
     }
 
 
