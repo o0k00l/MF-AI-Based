@@ -55,16 +55,41 @@ def discover_cgs_report(
     )
 
 
-def parse_cgs_excel(cgs_path: str | Path) -> Dict[str, Any]:
-    """Extract CGS source-reported figures only; never calculate tax or headroom."""
+def parse_cgs_excel(
+    cgs_path: str | Path,
+    *,
+    publisher_approval: dict[str, Any] | str | None = None,
+    publisher_trust_registry: dict[str, Any] | None = None,
+    require_authenticated_publisher: bool = False,
+) -> Dict[str, Any]:
+    """Extract CGS figures while preserving structural and publisher-authenticity states."""
     path = Path(cgs_path)
     if not path.exists() or not path.is_file():
         raise FileNotFoundError(f"CGS statement not found at: {path}")
+    if not isinstance(require_authenticated_publisher, bool):
+        raise TypeError("require_authenticated_publisher must be boolean")
+    from ingestion.statement_validator import validate_cgs_excel, require_authenticated_statement
+    from ingestion.statement_publisher_review import (
+        authenticate_statement_with_reviewer_approval, public_statement_provenance,
+    )
+    source_bytes = path.read_bytes()
+    statement_validation = validate_cgs_excel(source_bytes, path.name)
+    if not statement_validation.is_valid or not statement_validation.structural_validity:
+        raise ValueError("CGS structural validation failed: " + "; ".join(statement_validation.errors))
+    if publisher_approval is not None:
+        if publisher_trust_registry is None:
+            raise ValueError("A separately configured statement publisher trust registry is required")
+        authenticate_statement_with_reviewer_approval(
+            statement_validation, publisher_approval, publisher_trust_registry
+        )
+    if require_authenticated_publisher:
+        require_authenticated_statement(statement_validation)
+    statement_provenance = public_statement_provenance(statement_validation)
 
     from ingestion.statement_selection import _validate_document
     try:
         statement_as_of_date, validated_source_sha256 = _validate_document(path, "CGS")
-        if validated_source_sha256 != hashlib.sha256(path.read_bytes()).hexdigest():
+        if validated_source_sha256 != hashlib.sha256(source_bytes).hexdigest():
             raise ValueError("CGS source digest changed during validation")
         statement_selection_error = None
     except (OSError, ValueError, TypeError) as exc:
@@ -307,7 +332,7 @@ def parse_cgs_excel(cgs_path: str | Path) -> Dict[str, Any]:
                 parse_errors.append(f"Transaction row {row_number}: {exc}")
 
     wb.close()
-    source_sha256 = hashlib.sha256(path.read_bytes()).hexdigest()
+    source_sha256 = hashlib.sha256(source_bytes).hexdigest()
     required_summary = {"stcg_inr", "ltcg_inr", "total_outflows", "total_cost"}
     missing_summary = sorted(field for field in required_summary if summary_data[field] is None)
     if missing_summary:
@@ -318,6 +343,7 @@ def parse_cgs_excel(cgs_path: str | Path) -> Dict[str, Any]:
         "statement_path": str(path),
         "filename": path.name,
         "source_sha256": source_sha256,
+        "statement_provenance": statement_provenance,
         "statement_as_of_date": (
             statement_as_of_date.isoformat() if statement_as_of_date is not None else None
         ),

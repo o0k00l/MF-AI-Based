@@ -46,6 +46,15 @@ def test_cgs_parser_does_not_output_hardcoded_tax_exemption_or_headroom(tmp_path
     # SHA256 digest must be present
     assert "source_sha256" in result
     assert len(result["source_sha256"]) == 64
+    # Structural parsing never upgrades embedded registrar claims to authentication.
+    provenance = result["statement_provenance"]
+    assert provenance["structural_validity"] is True
+    assert provenance["is_publisher_authenticated"] is False
+    assert provenance["authenticated_publisher"] is None
+    assert provenance["rta_source"] == "Unknown"
+    assert provenance["publisher_authenticity_status"] in {
+        "UNVERIFIED", "UNAUTHENTICATED_DOCUMENT_CONTENT"
+    }
 
 
 

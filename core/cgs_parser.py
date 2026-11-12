@@ -55,7 +55,7 @@ def discover_cgs_report(
     )
 
 
-def parse_cgs_excel(cgs_path: str | Path) -> Dict[str, Any]:
-    """Compatibility facade over the single fail-closed CGS ingestion parser."""
+def parse_cgs_excel(cgs_path: str | Path, **provenance_options: Any) -> Dict[str, Any]:
+    """Compatibility facade; provenance options pass through to the canonical CGS parser."""
     from ingestion.cgs_parser import parse_cgs_excel as parse_source_report
-    return parse_source_report(cgs_path)
+    return parse_source_report(cgs_path, **provenance_options)
