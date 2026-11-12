@@ -5,15 +5,14 @@
   "as_of": "2026-10-05",
   "status": "reviewed",
   "gate_thresholds": {
-    "amc_max_limit_pct": 30.0,
-    "min_aum_crore": 1000.0,
-    "max_top10_concentration_pct": 55.0,
-    "max_sector_concentration_pct": 35.0,
+    "amc_max_limit_pct": 30,
+    "min_aum_crore": 1000,
+    "max_top10_concentration_pct": 55,
+    "max_sector_concentration_pct": 35,
     "min_sharpe": 0.4,
-    "min_manager_tenure_years": 2.0,
+    "min_manager_tenure_years": 2,
     "min_confidence_score": 0.8,
-    "max_overlap_candidate_pct": 30.0,
-    "client_default_risk_tier": 6
+    "max_overlap_candidate_pct": 30
   },
   "riskometer_tiers": {
     "Low": 1,
@@ -376,7 +375,7 @@
       "test": "aum_cr < 50.0",
       "action": "FLAG",
       "severity": "high",
-      "rationale": "Fund AUM is below institutional threshold (\u20b950 Cr for retail diversified equity / \u20b95 Cr statutory VR cut-off). High risk of expense bleed, illiquidity, and scheme wind-up.",
+      "rationale": "Fund AUM is below institutional threshold (₹50 Cr for retail diversified equity / ₹5 Cr statutory VR cut-off). High risk of expense bleed, illiquidity, and scheme wind-up.",
       "rule_classification": "RESEARCH_HEURISTIC"
     },
     {
@@ -893,5 +892,10 @@
     "emergency_fund_deployment_allowed": false,
     "requires_presigned_approval": true,
     "note": "Per POL-DRAWDOWN-001. Tier 1: log. Tier 2: optional rebalance. Tier 3: mandatory rebalance. Tier 4: emergency review. All actions need pre-signature."
+  },
+  "portfolio_lookthrough_policy": {
+    "required_coverage_pct": 99.5,
+    "constituent_weight_reconciliation_tolerance_pct": 0.5,
+    "note": "Migrated from existing runtime constants; values are policy parameters and must be changed only through reviewed policy versioning."
   }
 }
