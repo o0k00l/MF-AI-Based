@@ -56,7 +56,7 @@ def authenticate_statement_with_reviewer_approval(
         raise ValueError("Signed review must identify CAMS, KFintech or MFCentral")
     if method != "INDEPENDENT_REVIEW":
         raise ValueError("Publisher authentication requires an independent reviewer attestation")
-    if not isinstance(verified_at, str) or not re.fullmatch(r"\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,6})?Z", verified_at):
+    if not isinstance(verified_at, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z", verified_at):
         raise ValueError("Signed review requires canonical UTC RFC3339 verified_at")
     parsed_verified_at = datetime.fromisoformat(verified_at[:-1] + "+00:00")
     if parsed_verified_at.tzinfo is None or parsed_verified_at.utcoffset() != timezone.utc.utcoffset(parsed_verified_at):

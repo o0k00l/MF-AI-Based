@@ -133,3 +133,8 @@ Production approval requires all of the following against one exact release comm
 8. `main` is protected by required CI checks, and release approval is independent of the implementation author.
 
 Until those gates are evidenced, this is a development-stage decision-support prototype, not a production fiduciary recommendation engine.
+
+
+### CAS publisher review (optional independent attestation)
+
+The SIP upload endpoint structurally validates the exact CAS workbook bytes. Structural validity does not authenticate the publisher. Without a signed review, source status remains explicitly `UNVERIFIED` and is included in the decision trace. For independent publisher verification, configure the separately administered `STATEMENT_PUBLISHER_TRUST_REGISTRY_JSON` Ed25519 reviewer trust root and submit a signed `statement_publisher_approval_json` envelope bound to the exact uploaded-byte SHA-256. See [Statement Publisher Provenance Contract](docs/STATEMENT_PUBLISHER_PROVENANCE.md). Only public reviewer keys belong in the runtime trust registry; never put private reviewer keys in app settings or upload requests.

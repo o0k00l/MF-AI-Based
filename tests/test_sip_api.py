@@ -574,3 +574,91 @@ def test_api_rejects_custom_until_custom_saa_contract_is_implemented():
     assert body["unallocated_budget_inr"] == "25000.00"
     assert any("Custom SAA is not implemented" in reason for reason in body["reasons"])
     assert called == []
+
+
+def _valid_api_cas_for_publisher_review():
+    from io import BytesIO
+    import openpyxl
+    workbook = openpyxl.Workbook()
+    sheet = workbook.active
+    sheet.title = "Portfolio Details"
+    sheet.append(["To Date", "12-Nov-2026"])
+    sheet.append(["Name", "Test Investor"])
+    sheet.append(["Scheme Name", "Folio No.", "Invested Value", "Current Value", "Units"])
+    sheet.append(["Example Fund Direct Growth", "FOLIO-1", 100000, 110000, 1000])
+    sheet.append(["Second Fund Direct Growth", "FOLIO-2", 50000, 55000, 500])
+    output = BytesIO()
+    workbook.save(output)
+    return output.getvalue()
+
+
+def test_canonical_sip_upload_rejects_structurally_invalid_cas_before_provider(monkeypatch):
+    called = []
+    monkeypatch.setattr(sip, "load_sip_reviewer_trust_registry", lambda: {"schema_version": 1, "keys": [{"key_id": "sip"}]})
+    monkeypatch.setattr(sip, "load_statement_publisher_trust_registry", lambda: None)
+    client = TestClient(sip.create_sip_app(evidence_provider=lambda **kwargs: called.append(kwargs)))
+    response = _upload(client, cas_bytes=b"not an xlsx workbook", monthly_budget_inr="25000", risk_profile="Aggressive")
+    assert response.status_code == 422
+    assert response.json()["decision"] == "NO_ACTION"
+    assert called == []
+
+
+def test_canonical_sip_upload_verifies_signed_independent_statement_review(monkeypatch):
+    import hashlib
+    from datetime import datetime, timezone, timedelta
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    from cryptography.hazmat.primitives import serialization
+    from services.sip_reviewer_approval import _b64url_encode, create_sip_reviewer_approval_envelope
+
+    raw = _valid_api_cas_for_publisher_review()
+    private_key = Ed25519PrivateKey.generate()
+    public_key = private_key.public_key().public_bytes(
+        encoding=serialization.Encoding.Raw, format=serialization.PublicFormat.Raw
+    )
+    trust = {"schema_version": 1, "keys": [{
+        "key_id": "statement-review-key", "reviewer_id": "independent-reviewer",
+        "reviewer_role": "independent", "public_key": _b64url_encode(public_key),
+        "valid_from": "2026-01-01T00:00:00Z", "valid_until": "2027-12-31T23:59:59Z",
+        "revoked": False,
+    }]}
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    verified_at = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+    records = {
+        "document_type": "CAS_EXCEL", "publisher": "CAMS",
+        "verification_method": "INDEPENDENT_REVIEW", "verified_at": verified_at,
+        "evidence_reference": "review-ticket:CAS-API-001", "source_url": "https://www.camsonline.com/",
+    }
+    approval = create_sip_reviewer_approval_envelope(
+        private_key, key_id="statement-review-key", reviewer_id="independent-reviewer",
+        scope="STATEMENT_PUBLISHER_AUTHENTICATION", source_bytes=raw,
+        structured_records=records, issued_at=now, expires_at=now + timedelta(days=30),
+        publisher="CAMS", verification_method="INDEPENDENT_REVIEW", verified_at=verified_at,
+        evidence_reference="review-ticket:CAS-API-001", source_url="https://www.camsonline.com/",
+    )
+    monkeypatch.setattr(sip, "load_sip_reviewer_trust_registry", lambda: {"schema_version": 1, "keys": [{"key_id": "sip"}]})
+    monkeypatch.setattr(sip, "load_statement_publisher_trust_registry", lambda: trust)
+    monkeypatch.setattr(sip, "validate_evidence_provider_payload", lambda payload, **kwargs: {
+        "metrics_path": Path(__file__), "aliases_path": None, "scheme_master": {},
+        "scheme_master_source_bytes": b"master", "portfolio_disclosures_by_scheme_id": {},
+        "portfolio_disclosure_source_bytes_by_scheme_id": {}, "disclosure_as_of_date": date(2026, 11, 12),
+        "candidate_universe": [],
+    })
+    captured = {}
+    def service(**kwargs):
+        captured.update(kwargs)
+        return {"status": "HOLD", "decision": "NO_ACTION", "unallocated_budget_inr": "25000.00"}
+    monkeypatch.setattr(sip, "recommend_sip", service)
+    client = TestClient(sip.create_sip_app(evidence_provider=lambda **kwargs: {}))
+    response = client.post(
+        "/v1/sip/recommendations",
+        files={"cas_file": ("portfolio.xlsx", raw, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+        data={"monthly_budget_inr": "25000", "risk_profile": "Aggressive",
+              "statement_publisher_approval_json": json.dumps(approval)},
+    )
+    assert response.status_code == 200
+    provenance = response.json()["statement_provenance"]
+    assert provenance["is_publisher_authenticated"] is True
+    assert provenance["authenticated_publisher"] == "CAMS"
+    assert provenance["publisher_authenticity_status"] == "AUTHENTICATED_SOURCE"
+    assert captured["statement_provenance"] == provenance
+    assert hashlib.sha256(raw).hexdigest() == provenance["source_sha256"]
