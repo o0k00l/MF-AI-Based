@@ -34,6 +34,7 @@ def create_sip_app(
     evidence_provider: Callable[..., dict[str, Any]] | None = None,
     api_key_registry: dict[str, dict[str, Any]] | None = None,
     require_auth: bool | None = None,
+    require_authenticated_cas: bool | None = None,
 ) -> FastAPI:
     """Create an isolated SIP API; provider supplies reviewed source evidence."""
     import os
@@ -56,6 +57,20 @@ def create_sip_app(
         auth_enabled = bool(api_key_registry) or os.environ.get("MF_API_REQUIRE_AUTH", "").lower() in ("1", "true", "yes")
     else:
         auth_enabled = require_auth
+
+    if require_authenticated_cas is None:
+        deployment_mode = os.environ.get("MF_DEPLOYMENT_ENVIRONMENT", "production").lower()
+        configured_cas_auth = os.environ.get("MF_SIP_REQUIRE_AUTHENTICATED_CAS")
+        if configured_cas_auth is None:
+            authenticated_cas_required = deployment_mode == "production"
+        elif configured_cas_auth.strip().lower() in {"1", "true", "yes"}:
+            authenticated_cas_required = True
+        elif configured_cas_auth.strip().lower() in {"0", "false", "no"}:
+            authenticated_cas_required = False
+        else:
+            raise ValueError("MF_SIP_REQUIRE_AUTHENTICATED_CAS must be a boolean value")
+    else:
+        authenticated_cas_required = bool(require_authenticated_cas)
 
     import time
     tenant_request_counts: dict[str, list[float]] = {}
@@ -84,6 +99,7 @@ def create_sip_app(
             "evidence_configured": evidence_provider is not None,
             "reviewer_registry_configured": reviewer_trust_registry is not None,
             "statement_publisher_review_configured": statement_publisher_trust_registry is not None,
+            "authenticated_cas_required": authenticated_cas_required,
         }
 
     @app.get("/health")
@@ -343,6 +359,16 @@ def create_sip_app(
                     "unallocated_budget_inr": str(monthly_budget_inr),
                 })
         statement_provenance = public_statement_provenance(statement_validation)
+        if authenticated_cas_required and not statement_validation.is_publisher_authenticated:
+            return JSONResponse(content={
+                "status": "HOLD", "decision": "NO_ACTION",
+                "reasons": [
+                    "This deployment requires independent publisher authentication for CAS input.",
+                    "A valid detached reviewer approval bound to the exact uploaded bytes is required; the full budget remains unallocated.",
+                ],
+                "statement_provenance": statement_provenance,
+                "unallocated_budget_inr": str(monthly_budget_inr),
+            })
 
         # Temporary storage is isolated and removed automatically after the
         # request. Never write investor statements into the repository or logs.

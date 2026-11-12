@@ -675,3 +675,24 @@ def test_canonical_sip_upload_verifies_signed_independent_statement_review(monke
     assert unverified_provenance["authenticated_publisher"] is None
     assert unverified_provenance["rta_source"] == "Unknown"
     assert unverified_provenance["publisher_authenticity_status"] == "UNVERIFIED"
+
+
+def test_authenticated_cas_policy_holds_before_provider_without_signed_review(monkeypatch):
+    called = []
+    monkeypatch.setattr(sip, "load_sip_reviewer_trust_registry", lambda: {"schema_version": 1, "keys": [{"key_id": "sip"}]})
+    monkeypatch.setattr(sip, "load_statement_publisher_trust_registry", lambda: None)
+    client = TestClient(sip.create_sip_app(
+        evidence_provider=lambda **kwargs: called.append(kwargs),
+        require_authenticated_cas=True,
+    ))
+    response = _upload(
+        client, cas_bytes=_valid_api_cas_for_publisher_review(),
+        monthly_budget_inr="25000", risk_profile="Aggressive",
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "HOLD"
+    assert body["decision"] == "NO_ACTION"
+    assert body["unallocated_budget_inr"] == "25000.00"
+    assert body["statement_provenance"]["publisher_authenticity_status"] == "UNVERIFIED"
+    assert called == []
