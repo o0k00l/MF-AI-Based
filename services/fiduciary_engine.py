@@ -34,12 +34,21 @@ def _load_default_saa_distribution() -> Dict[str, Decimal]:
         )
     
     policy = json.loads(policy_path.read_text(encoding="utf-8"))
+    default_saa = policy.get("default_saa_distribution")
+    if default_saa:
+        return {
+            "large_cap": Decimal(str(default_saa.get("large_cap_pct", 50.0))),
+            "mid_small": Decimal(str(default_saa.get("mid_small_pct", 25.0))),
+            "flexi": Decimal(str(default_saa.get("flexi_pct", 0.0))),
+            "debt": Decimal(str(default_saa.get("debt_pct", 25.0))),
+        }
+
     profile = policy.get("behavioral_risk_profiles", {}).get("moderately_high", {})
     saa = profile.get("saa_targets", {})
     
     if not saa:
         raise ValueError(
-            f"Policy file at {policy_path} is missing 'saa_targets' section. "
+            f"Policy file at {policy_path} is missing 'default_saa_distribution' or 'saa_targets' section. "
             "Cannot compute default SAA distribution without valid policy. "
             "This is a fiduciary compliance failure."
         )
@@ -848,10 +857,11 @@ def generate_fiduciary_sip_blueprint(
 
     # SAA Target Extraction & Validation
     # Default baseline if target_saa is explicitly None:
-    lc_pct = Decimal("50.0")
-    ms_pct = Decimal("25.0")
-    flexi_pct = Decimal("0.0")
-    db_pct = Decimal("25.0")
+    # Uses policy-driven defaults to fail closed when policy source is unavailable.
+    lc_pct = _DEFAULT_SAA_DISTRIBUTION["large_cap"]
+    ms_pct = _DEFAULT_SAA_DISTRIBUTION["mid_small"]
+    flexi_pct = _DEFAULT_SAA_DISTRIBUTION["flexi"]
+    db_pct = _DEFAULT_SAA_DISTRIBUTION["debt"]
 
     if target_saa is not None:
         raw_vals = {}

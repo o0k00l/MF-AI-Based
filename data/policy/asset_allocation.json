@@ -351,5 +351,12 @@
     },
     "thematic_satellite_default_pct_of_equity": 0,
     "rationale": "A simplified two-core-sleeve routing for smaller portfolios; review when AUM or monthly SIP exceeds either threshold. Not a statutory or universal rule."
+  },
+  "default_saa_distribution": {
+    "large_cap_pct": 50.0,
+    "mid_small_pct": 25.0,
+    "flexi_pct": 0.0,
+    "debt_pct": 25.0,
+    "note": "Default fallback when no SAA is provided (represents 50% Large Cap, 25% Mid/Small, 0% Flexi, 25% Debt)"
   }
 }
