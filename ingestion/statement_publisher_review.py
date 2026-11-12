@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import json
 import os
+import re
+from datetime import datetime, timezone
 from typing import Any
 
 from ingestion.statement_validator import StatementValidationResult, authenticate_statement_provenance
@@ -19,7 +21,8 @@ def load_statement_publisher_trust_registry() -> dict[str, Any]:
         raise ValueError(f"{TRUST_REGISTRY_ENV} is required")
     if len(raw.encode("utf-8")) > MAX_REGISTRY_BYTES:
         raise ValueError("Statement publisher trust registry exceeds maximum size")
-    registry = json.loads(raw)
+    from services.sip_reviewer_approval import _strict_json
+    registry = _strict_json(raw)
     if not isinstance(registry, dict) or registry.get("schema_version") != 1:
         raise ValueError("Statement publisher trust registry has an unsupported schema")
     if not isinstance(registry.get("keys"), list) or not registry["keys"]:
@@ -53,8 +56,11 @@ def authenticate_statement_with_reviewer_approval(
         raise ValueError("Signed review must identify CAMS, KFintech or MFCentral")
     if method != "INDEPENDENT_REVIEW":
         raise ValueError("Publisher authentication requires an independent reviewer attestation")
-    if not isinstance(verified_at, str) or not verified_at.endswith("Z"):
-        raise ValueError("Signed review requires a UTC verified_at timestamp")
+    if not isinstance(verified_at, str) or not re.fullmatch(r"\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,6})?Z", verified_at):
+        raise ValueError("Signed review requires canonical UTC RFC3339 verified_at")
+    parsed_verified_at = datetime.fromisoformat(verified_at[:-1] + "+00:00")
+    if parsed_verified_at.tzinfo is None or parsed_verified_at.utcoffset() != timezone.utc.utcoffset(parsed_verified_at):
+        raise ValueError("Signed review verified_at must be UTC")
     if not isinstance(evidence_reference, str) or not evidence_reference.strip():
         raise ValueError("Signed review requires a durable evidence_reference")
     if source_url is not None and (not isinstance(source_url, str) or not source_url.startswith("https://")):

@@ -25,9 +25,9 @@ def _trust():
     return key, registry
 
 
-def _result(raw):
+def _result(raw, document_type="CAS_EXCEL"):
     return StatementValidationResult(
-        is_valid=True, document_type="CAS_EXCEL", rta_source="Unknown",
+        is_valid=True, document_type=document_type, rta_source="Unknown",
         file_name="cas.xlsx", file_size_bytes=len(raw),
         provenance_digest=hashlib.sha256(raw).hexdigest(), structural_validity=True,
         detected_content_publisher="CAMS",
@@ -35,10 +35,10 @@ def _result(raw):
     )
 
 
-def _envelope(key, raw):
+def _envelope(key, raw, document_type="CAS_EXCEL"):
     verified_at = "2026-11-13T00:00:00Z"
     records = {
-        "document_type": "CAS_EXCEL", "publisher": "CAMS",
+        "document_type": document_type, "publisher": "CAMS",
         "verification_method": "INDEPENDENT_REVIEW", "verified_at": verified_at,
         "evidence_reference": "review-ticket:CAS-001", "source_url": "https://www.camsonline.com/",
     }
@@ -53,10 +53,13 @@ def _envelope(key, raw):
     )
 
 
-def test_signed_independent_review_authenticates_exact_upload_and_publisher():
-    raw = b"exact uploaded CAS bytes"
+@pytest.mark.parametrize("document_type", ["CAS_EXCEL", "CGS_EXCEL"])
+def test_signed_independent_review_authenticates_exact_upload_and_publisher(document_type):
+    raw = b"exact uploaded statement bytes"
     key, registry = _trust()
-    result = authenticate_statement_with_reviewer_approval(_result(raw), _envelope(key, raw), registry)
+    result = authenticate_statement_with_reviewer_approval(
+        _result(raw, document_type), _envelope(key, raw, document_type), registry
+    )
     assert result.is_publisher_authenticated is True
     assert result.authenticated_publisher == "CAMS"
     assert result.rta_source == "CAMS"
