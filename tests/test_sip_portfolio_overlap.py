@@ -1,5 +1,6 @@
 """Portfolio-aware SIP candidate overlap regressions."""
 import pytest
+from decimal import Decimal
 
 from core.eligibility import _portfolio_weighted_constituent_overlap_pct, filter_candidates
 
