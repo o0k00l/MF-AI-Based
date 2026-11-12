@@ -265,7 +265,6 @@ def _assess_complete_portfolio_context(
     cas_holdings_total_inr: Decimal,
     evidence_as_of_date: date,
     custom_saa_target: Any | None = None,
-    statement_provenance: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Orchestrate portfolio, suitability, affordability and candidate gates.
 

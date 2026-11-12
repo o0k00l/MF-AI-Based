@@ -1,6 +1,6 @@
 # Statement structure and publisher provenance contract
 
-**Status:** fail-closed contract implemented; no trusted CAMS/KFintech/MFCentral publisher verifier is currently configured in the application.
+**Status:** canonical SIP CAS upload is structurally validated and supports independent Ed25519 reviewer approval bound to exact uploaded bytes. Publisher authentication is available only when a separately administered `STATEMENT_PUBLISHER_TRUST_REGISTRY_JSON` trust root is configured and a valid signed review envelope is submitted. Without both, the source remains `UNVERIFIED`.
 
 ## Three independent facts
 
@@ -22,7 +22,7 @@ A digest establishes byte identity/integrity after receipt; it does **not** esta
 
 ## Authentication integration boundary
 
-`authenticate_statement_provenance(result, evidence, trusted_verifier=...)` is the only supported promotion boundary. Evidence must bind:
+`authenticate_statement_provenance(result, evidence, trusted_verifier=...)` is the only supported promotion boundary. The canonical SIP route calls `validate_cas_excel` on the exact upload bytes before passing them to the evidence provider. It accepts an optional `statement_publisher_approval_json` detached Ed25519 envelope with scope `STATEMENT_PUBLISHER_AUTHENTICATION`. The signed envelope binds the exact source SHA-256 and the document type, publisher, verification method, UTC review time, durable evidence reference and optional HTTPS source URL. Evidence must bind:
 - `source_digest`: exact SHA-256 of uploaded bytes
 - `publisher`: one of CAMS, KFintech or MFCentral
 - `verification_method`: `TRUSTED_SIGNATURE`, `AUTHENTICATED_DOWNLOAD` or `INDEPENDENT_REVIEW`
@@ -34,9 +34,11 @@ The verifier must validate source URL/host and retrieval-session evidence where 
 
 `require_authenticated_statement` requires consistent authenticated status, publisher identity, and retained provenance evidence. It rejects structural-only and internally inconsistent/forged result states.
 
-## Current production limitation
+## Runtime configuration and fail-closed behavior
 
-No trusted publisher verifier is configured or called by the canonical SIP upload/recommendation path. Therefore this code does not claim to authenticate CAS/CGS publishers in production. Statements may be structurally parsed for workflows that explicitly permit unverified user-provided data, but must remain source-unverified. Any workflow requiring authenticated registrar evidence must HOLD until a trusted verifier is configured and independently reviewed.
+Configure `STATEMENT_PUBLISHER_TRUST_REGISTRY_JSON` with an independently administered schema-v1 Ed25519 reviewer registry. The reviewer key must have `reviewer_role: independent`, be valid and unrevoked, and must not be supplied by the evidence bundle or upload client. A reviewer signs a detached approval envelope using scope `STATEMENT_PUBLISHER_AUTHENTICATION`. The API verifies the signature, reviewer trust key, expiry, source digest and structured review claims before setting `AUTHENTICATED_SOURCE`.
+
+Without a signed approval, the canonical SIP route may process a structurally valid user-provided CAS only as `UNVERIFIED`; it never upgrades `rta_source`, `authenticated_publisher` or `is_publisher_authenticated`. This status is included in the SIP response and decision-trace digest. If a signed approval is submitted but the trust root is missing, invalid, expired, revoked or mismatched, the route returns HOLD and leaves the full budget unallocated. A workflow whose policy requires authenticated registrar evidence must call `require_authenticated_statement` before using the statement as authenticated evidence.
 
 ## Required adversarial coverage
 
