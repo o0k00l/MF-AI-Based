@@ -558,7 +558,7 @@ def _assess_complete_portfolio_context(
         # Candidate incremental exposure is compared with existing CAS look-through.
         # Concentration is measured against the reconciled total portfolio.
         concentration_policy = context.get("concentration_policy", {})
-        max_issuer_pct = float(concentration_policy.get("max_issuer_pct_of_portfolio", 0))
+        max_issuer_pct = Decimal(str(concentration_policy.get("max_issuer_pct_of_portfolio", 0)))
         concentration_date = date.fromisoformat(concentration_policy.get("effective_date", ""))
         if (
             not 0 < max_issuer_pct <= 100
@@ -571,7 +571,7 @@ def _assess_complete_portfolio_context(
         existing_issuer_values = {}
         if existing_lookthrough.get("status") == "CALCULATED":
             existing_issuer_values = {
-                key: float(value)
+                key: Decimal(str(value))
                 for key, value in existing_lookthrough.get("issuer_exposure_inr", {}).items()
             }
         elif existing_lookthrough.get("status") != "HOLD":
@@ -607,7 +607,7 @@ def _assess_complete_portfolio_context(
             }
         if external_lookthrough.get("status") == "CALCULATED":
             for issuer, value in external_lookthrough.get("issuer_exposure_inr", {}).items():
-                existing_issuer_values[issuer] = existing_issuer_values.get(issuer, 0.0) + float(value)
+                existing_issuer_values[issuer] = existing_issuer_values.get(issuer, Decimal("0")) + Decimal(str(value))
         overlap_results = {}
         for candidate in candidate_universe:
             candidate_id = str(candidate.get("fund_id") or candidate.get("scheme_id") or "")
@@ -653,7 +653,7 @@ def _assess_complete_portfolio_context(
                     "routed_sleeve_budget_inr": str(routed_sleeve_budget),
                 }
                 continue
-            candidate_post_total = Decimal(str(total)) + ticket_budget
+            candidate_post_total = total + ticket_budget
             candidate_exposure = calculate_lookthrough_exposure(
                 [{"holding_value_inr": str(ticket_budget),
                   "coverage_pct": coverage, "constituents": constituents}],
@@ -664,13 +664,14 @@ def _assess_complete_portfolio_context(
                 continue
             issuers = candidate_exposure["issuer_exposure_inr"]
             combined_values = {
-                issuer: existing_issuer_values.get(issuer, 0.0) + float(value)
+                issuer: existing_issuer_values.get(issuer, Decimal("0")) + Decimal(str(value))
                 for issuer, value in issuers.items()
             }
             for issuer, value in existing_issuer_values.items():
                 combined_values.setdefault(issuer, value)
             concentrations = {
-                issuer: value / float(candidate_post_total) * 100 for issuer, value in combined_values.items()
+                issuer: value / candidate_post_total * Decimal("100")
+                for issuer, value in combined_values.items()
             }
             breaches = sorted(
                 issuer for issuer, pct in concentrations.items()
@@ -759,11 +760,11 @@ def _assess_complete_portfolio_context(
                 proposed_issuer_values = dict(existing_issuer_values)
                 for issuer, value in selected_lookthrough["issuer_exposure_inr"].items():
                     proposed_issuer_values[issuer] = (
-                        proposed_issuer_values.get(issuer, 0.0) + float(value)
+                        proposed_issuer_values.get(issuer, Decimal("0")) + Decimal(str(value))
                     )
-                post_investment_total = Decimal(str(total)) + selected_total
+                post_investment_total = total + selected_total
                 proposed_issuer_concentration = {
-                    issuer: value / float(post_investment_total) * 100
+                    issuer: value / post_investment_total * Decimal("100")
                     for issuer, value in proposed_issuer_values.items()
                 }
                 proposed_issuer_breaches = {
