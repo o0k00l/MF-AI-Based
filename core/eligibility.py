@@ -293,6 +293,27 @@ def validate_fund_screening_policy(data: Any, policy_path: Optional[Path] = None
         if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(float(v)) or float(v) < 0:
             raise ValueError(f"Screening policy gate_thresholds[{k!r}] must be a finite non-negative number")
 
+    lookthrough_policy = data.get("portfolio_lookthrough_policy")
+    if not isinstance(lookthrough_policy, dict) or set(lookthrough_policy) != {
+        "required_coverage_pct", "constituent_weight_reconciliation_tolerance_pct", "note"
+    }:
+        raise ValueError("Screening policy portfolio_lookthrough_policy is missing or has an invalid schema")
+    coverage = lookthrough_policy["required_coverage_pct"]
+    weight_tolerance = lookthrough_policy["constituent_weight_reconciliation_tolerance_pct"]
+    for key, value in (
+        ("required_coverage_pct", coverage),
+        ("constituent_weight_reconciliation_tolerance_pct", weight_tolerance),
+    ):
+        if (
+            isinstance(value, bool) or not isinstance(value, (int, float))
+            or not math.isfinite(float(value)) or float(value) < 0 or float(value) > 100
+        ):
+            raise ValueError(f"portfolio_lookthrough_policy[{key!r}] must be finite and between 0 and 100")
+    if float(coverage) <= 0:
+        raise ValueError("portfolio_lookthrough_policy.required_coverage_pct must be greater than zero")
+    if not isinstance(lookthrough_policy["note"], str) or not lookthrough_policy["note"].strip():
+        raise ValueError("portfolio_lookthrough_policy.note must explain the governed parameter")
+
     seen_rule_ids = set()
     for rule_set_key in ("quarantine_rules", "reject_rules", "flag_rules"):
         rules = data.get(rule_set_key, [])
@@ -536,9 +557,15 @@ def check_eligibility_gates(
             raise ValueError("Screening policy missing 'min_confidence_score' gate threshold")
         min_confidence_score = float(gt["min_confidence_score"])
     if client_risk_tier_num is None:
-        if "client_default_risk_tier" not in gt:
-            raise ValueError("Screening policy missing 'client_default_risk_tier' gate threshold")
-        client_risk_tier_num = int(gt["client_default_risk_tier"])
+        return EligibilityGateResult(
+            fund_id=str(fund_id),
+            fund_name=str(fund_name),
+            passed=False,
+            failed_gates=["Gate 6 [Mandate Suitability]: explicit investor risk profile is missing — fail-closed"],
+            details={"risk_profile": "MISSING"},
+            policy_version=policy.get("version"),
+            policy_digest=policy.get("_policy_digest"),
+        )
 
     # --- Gate 1: AMC Concentration Gate ---
     # Never infer an AMC from the first token of a scheme name: many AMCs have
@@ -1008,7 +1035,8 @@ def check_eligibility_gates(
 def _portfolio_weighted_constituent_overlap_pct(
     candidate: Dict[str, Any],
     portfolio_holdings: List[Any],
-    minimum_coverage_pct: float = 99.5,
+    *,
+    minimum_coverage_pct: float,
 ) -> Optional[float]:
     """
     Return weighted constituent overlap (0-100) between a candidate and the
@@ -1140,6 +1168,8 @@ def filter_candidates(
         )
 
     gt = policy["gate_thresholds"]
+    lookthrough_policy = policy["portfolio_lookthrough_policy"]
+    minimum_coverage_pct = float(lookthrough_policy["required_coverage_pct"])
     amc_max_limit_pct = float(gt["amc_max_limit_pct"])
     raw_overlap = gt["max_overlap_candidate_pct"]
 
@@ -1170,7 +1200,8 @@ def filter_candidates(
             continue
 
         overlap_pct = _portfolio_weighted_constituent_overlap_pct(
-            fund_data, current_portfolio
+            fund_data, current_portfolio,
+            minimum_coverage_pct=minimum_coverage_pct,
         )
         if overlap_pct is None or overlap_pct > overlap_limit:
             continue
