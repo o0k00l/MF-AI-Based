@@ -7,6 +7,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+from decimal import Decimal
 from pathlib import Path
 import pytest
 
@@ -124,7 +125,7 @@ def test_cross_consumer_consistency_sip_calculation(tmp_path):
     plan = compute_deterministic_sip_blueprint(
         monthly_budget=20000,
         risk_tier="Aggressive",
-        client_aum=1000000.0,
+        client_aum=Decimal("1000000.00"),
         client_aum_verified=True,
         candidate_universe=candidates,
         policy_path=custom_policy_file,
