@@ -181,3 +181,34 @@ def test_sip_plan_rejects_one_paise_budget_mismatch():
             debt_sip_pct=0.0,
             items=[item],
         )
+
+
+@pytest.mark.parametrize("value", [Decimal("NaN"), Decimal("Infinity"), float("nan"), float("inf"), True])
+def test_quantize_inr_rejects_non_finite_and_boolean_inputs(value):
+    with pytest.raises(ValueError):
+        quantize_inr(value)
+
+
+@pytest.mark.parametrize("field", ["units", "nav"])
+@pytest.mark.parametrize("value", [Decimal("NaN"), Decimal("Infinity"), Decimal("-0.0001"), True])
+def test_holding_item_rejects_invalid_unit_and_nav_values(field, value):
+    data = {
+        "fund_id": "fund-invalid",
+        "scheme": "Invalid precision fund",
+        "fund_name": "Invalid precision fund",
+        "folio": "F-1",
+        "is_direct": True,
+        "plan": PlanType.DIRECT,
+        "asset_class": AssetClass.EQUITY,
+        "equity_pct": 100.0,
+        "debt_pct": 0.0,
+        "hybrid_pct": 0.0,
+        "international_pct": 0.0,
+        "current_value_inr": Decimal("100.00"),
+        "invested_value_inr": Decimal("90.00"),
+        "units": Decimal("1.123456"),
+        "nav": Decimal("89.012345"),
+    }
+    data[field] = value
+    with pytest.raises((ValueError, TypeError)):
+        HoldingItem(**data)
