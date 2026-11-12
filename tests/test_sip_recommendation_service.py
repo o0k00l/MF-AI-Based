@@ -763,3 +763,15 @@ def test_custom_risk_profile_with_valid_target_fails_closed_safely(tmp_path):
     result = service.recommend_sip(**args)
     assert result["status"] == "HOLD"
     assert any("HOLD_CUSTOM_SAA_BLUEPRINT_PENDING" in r for r in result["reasons"])
+
+
+def test_recommend_sip_rejects_binary_float_budget_before_any_evidence_work(tmp_path, monkeypatch):
+    args = _inputs(tmp_path)
+    args["monthly_budget_inr"] = 10000.01
+    monkeypatch.setattr(
+        service, "load_holdings_from_cas_excel",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("CAS must not be loaded")),
+    )
+    import pytest
+    with pytest.raises(ValueError, match="Binary float"):
+        service.recommend_sip(**args)
