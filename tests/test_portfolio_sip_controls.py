@@ -303,13 +303,13 @@ def test_candidate_sip_allocation_reconciles_each_routed_sleeve():
     candidates = [
         {"candidate_id": "large-a", "sleeve": "large_cap", "eligibility_status": "ELIGIBLE",
          "overlap_status": "ASSESSED", "operational_status": "FEASIBLE_FOR_REVIEW",
-         "rank_score": "2", "score_evidence_ref": "sha256:score-a", "score_as_of_date": "2026-11-04"},
+         "minimum_monthly_sip_inr": "1000", "rank_score": "2", "score_evidence_ref": "sha256:score-a", "score_as_of_date": "2026-11-04"},
         {"candidate_id": "large-b", "sleeve": "large_cap", "eligibility_status": "ELIGIBLE",
          "overlap_status": "ASSESSED", "operational_status": "FEASIBLE_FOR_REVIEW",
-         "rank_score": "1", "score_evidence_ref": "sha256:score-b", "score_as_of_date": "2026-11-04"},
+         "minimum_monthly_sip_inr": "1000", "rank_score": "1", "score_evidence_ref": "sha256:score-b", "score_as_of_date": "2026-11-04"},
         {"candidate_id": "debt-a", "sleeve": "debt_liquid", "eligibility_status": "ELIGIBLE",
          "overlap_status": "ASSESSED", "operational_status": "FEASIBLE_FOR_REVIEW",
-         "rank_score": "1", "score_evidence_ref": "sha256:score-c", "score_as_of_date": "2026-11-04"},
+         "minimum_monthly_sip_inr": "1000", "rank_score": "1", "score_evidence_ref": "sha256:score-c", "score_as_of_date": "2026-11-04"},
     ]
     result = allocate_candidate_sip(
         {"large_cap": "5000", "debt_liquid": "3000"},
@@ -332,7 +332,7 @@ def test_candidate_sip_allocation_holds_missing_score_provenance_and_does_not_re
         {"mid_cap": "6000", "large_cap": "4000"},
         [{"candidate_id": "mid-a", "sleeve": "mid_cap", "eligibility_status": "ELIGIBLE",
           "overlap_status": "ASSESSED", "operational_status": "FEASIBLE_FOR_REVIEW",
-          "rank_score": "4", "score_as_of_date": "2026-11-04"}],
+          "minimum_monthly_sip_inr": "1000", "rank_score": "4", "score_as_of_date": "2026-11-04"}],
         as_of_date="2026-11-04",
         max_score_age_days=30,
         min_sip_per_fund_inr="1000",
@@ -349,10 +349,10 @@ def test_candidate_sip_allocation_rejects_stale_scores_and_caps_fund_count():
     candidates = [
         {"candidate_id": "a", "sleeve": "large_cap", "eligibility_status": "ELIGIBLE",
          "overlap_status": "ASSESSED", "operational_status": "FEASIBLE_FOR_REVIEW",
-         "rank_score": "3", "score_evidence_ref": "sha256:a", "score_as_of_date": "2026-11-04"},
+         "minimum_monthly_sip_inr": "1000", "rank_score": "3", "score_evidence_ref": "sha256:a", "score_as_of_date": "2026-11-04"},
         {"candidate_id": "b", "sleeve": "large_cap", "eligibility_status": "ELIGIBLE",
          "overlap_status": "ASSESSED", "operational_status": "FEASIBLE_FOR_REVIEW",
-         "rank_score": "2", "score_evidence_ref": "sha256:b", "score_as_of_date": "2026-11-04"},
+         "minimum_monthly_sip_inr": "1000", "rank_score": "2", "score_evidence_ref": "sha256:b", "score_as_of_date": "2026-11-04"},
     ]
     result = allocate_candidate_sip(
         {"large_cap": "5000"}, candidates,
@@ -368,7 +368,7 @@ def test_candidate_sip_allocation_with_zero_remaining_fund_slots_is_fail_closed(
         {"large_cap": "5000"},
         [{"candidate_id": "a", "sleeve": "large_cap", "eligibility_status": "ELIGIBLE",
           "overlap_status": "ASSESSED", "operational_status": "FEASIBLE_FOR_REVIEW",
-          "rank_score": "2", "score_evidence_ref": "sha256:a", "score_as_of_date": "2026-11-04"}],
+          "minimum_monthly_sip_inr": "1000", "rank_score": "2", "score_evidence_ref": "sha256:a", "score_as_of_date": "2026-11-04"}],
         as_of_date="2026-11-04", max_score_age_days=30, min_sip_per_fund_inr="1000",
         rounding_increment_inr="500", max_funds=0,
     )
@@ -429,16 +429,16 @@ def test_candidate_allocator_preserves_first_candidate_per_routed_sleeve():
     candidates = [
         {"candidate_id": "large-a", "sleeve": "large_cap", "eligibility_status": "ELIGIBLE",
          "overlap_status": "ASSESSED", "operational_status": "FEASIBLE_FOR_REVIEW",
-         "rank_score": "100", "score_evidence_ref": "sha256:a", "score_as_of_date": "2026-11-04"},
+         "minimum_monthly_sip_inr": "1000", "rank_score": "100", "score_evidence_ref": "sha256:a", "score_as_of_date": "2026-11-04"},
         {"candidate_id": "large-b", "sleeve": "large_cap", "eligibility_status": "ELIGIBLE",
          "overlap_status": "ASSESSED", "operational_status": "FEASIBLE_FOR_REVIEW",
-         "rank_score": "90", "score_evidence_ref": "sha256:b", "score_as_of_date": "2026-11-04"},
+         "minimum_monthly_sip_inr": "1000", "rank_score": "90", "score_evidence_ref": "sha256:b", "score_as_of_date": "2026-11-04"},
         {"candidate_id": "mid-a", "sleeve": "mid_cap", "eligibility_status": "ELIGIBLE",
          "overlap_status": "ASSESSED", "operational_status": "FEASIBLE_FOR_REVIEW",
-         "rank_score": "1", "score_evidence_ref": "sha256:c", "score_as_of_date": "2026-11-04"},
+         "minimum_monthly_sip_inr": "1000", "rank_score": "1", "score_evidence_ref": "sha256:c", "score_as_of_date": "2026-11-04"},
         {"candidate_id": "debt-a", "sleeve": "debt_liquid", "eligibility_status": "ELIGIBLE",
          "overlap_status": "ASSESSED", "operational_status": "FEASIBLE_FOR_REVIEW",
-         "rank_score": "2", "score_evidence_ref": "sha256:d", "score_as_of_date": "2026-11-04"},
+         "minimum_monthly_sip_inr": "1000", "rank_score": "2", "score_evidence_ref": "sha256:d", "score_as_of_date": "2026-11-04"},
     ]
     result = allocate_candidate_sip(
         {"large_cap": "5000", "mid_cap": "3000", "debt_liquid": "2000"},
