@@ -36,7 +36,7 @@ def test_request_sip_recommendations_fail_closed_contract():
     cas_bytes = _sample_cas_bytes()
     resp = request_sip_recommendations(
         cas_bytes=cas_bytes,
-        monthly_budget_inr=20000.0,
+        monthly_budget_inr="20000.00",
         risk_profile="Aggressive",
     )
     assert resp.get("status") == "HOLD"
@@ -44,3 +44,14 @@ def test_request_sip_recommendations_fail_closed_contract():
     assert resp.get("unallocated_budget_inr") == "20000.00"
     assert len(resp.get("reasons", [])) > 0
 
+
+
+def test_request_sip_recommendations_rejects_binary_float_budget():
+    import pytest
+
+    with pytest.raises(ValueError, match="decimal string"):
+        request_sip_recommendations(
+            cas_bytes=_sample_cas_bytes(),
+            monthly_budget_inr=20000.01,
+            risk_profile="Aggressive",
+        )
