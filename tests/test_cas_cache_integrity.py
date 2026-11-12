@@ -90,7 +90,7 @@ def test_stage_portfolio_cleans_up_on_validation_failure(tmp_path):
     corrupt_holdings = [
         {"scheme": "Scheme Invalid", "current_value": -500.0, "units": 10.0, "invested_value": 1000.0}
     ]
-    res = stage_portfolio({"holdings": corrupt_holdings}, tmp_path, slug="Test_Corrupt", require_validation=True)
+    res = stage_portfolio({"holdings": corrupt_holdings}, tmp_path, slug="Test_Corrupt")
     assert res.get("staging_failed") is True
     cache_path = tmp_path / "Test_Corrupt" / "data" / "_active_funds_cache.csv"
     assert not cache_path.exists()
@@ -101,9 +101,9 @@ def test_stage_portfolio_rejects_missing_envelope_by_default(tmp_path):
         {"scheme": "Scheme A", "current_value": 1200.0, "units": 10.0, "invested_value": 1000.0, "folio": "F1", "isin": "INF1", "nav": 120.0}
     ]
     # Plain dictionary without as_of or stated_total
-    res = stage_portfolio({"holdings": holdings}, tmp_path, slug="Test_No_Envelope", require_envelope=True)
+    res = stage_portfolio({"holdings": holdings}, tmp_path, slug="Test_No_Envelope")
     assert res.get("staging_failed") is True
-    assert "reconciliation envelope" in res.get("error", "").lower()
+    assert "explicit verified_reconciled" in res.get("error", "").lower()
     cache_path = tmp_path / "Test_No_Envelope" / "data" / "_active_funds_cache.csv"
     assert not cache_path.exists()
 
@@ -151,7 +151,7 @@ def test_stage_portfolio_preserves_existing_cache_on_failed_replacement(tmp_path
         "as_of": "2026-10-15",
         "stated_total": 500.0,
     }
-    res2 = stage_portfolio(corrupt_parsed, tmp_path, slug="Test_Preserve", require_validation=True, require_envelope=True)
+    res2 = stage_portfolio(corrupt_parsed, tmp_path, slug="Test_Preserve")
     assert res2.get("staging_failed") is True
     assert res2.get("last_known_good_preserved") is True
 
@@ -278,3 +278,74 @@ def test_load_cache_csv_from_file_preserves_none(tmp_path):
     assert len(rows) == 1
     assert rows[0]["current_value"] is None
     assert rows[0]["units"] == 5.000
+
+
+def test_stage_portfolio_has_no_validation_or_envelope_opt_out(tmp_path):
+    parsed = {"holdings": []}
+    with pytest.raises(TypeError):
+        stage_portfolio(parsed, tmp_path, require_validation=False)
+    with pytest.raises(TypeError):
+        stage_portfolio(parsed, tmp_path, require_envelope=False)
+
+
+@pytest.mark.parametrize("field,value", [
+    ("current_value", None),
+    ("current_value", ""),
+    ("current_value", "not-a-number"),
+    ("units", None),
+    ("units", ""),
+    ("units", "broken"),
+    ("invested_value", None),
+    ("invested_value", ""),
+    ("invested_value", "broken"),
+])
+def test_holdings_digest_rejects_missing_or_malformed_financial_values(field, value):
+    row = {
+        "scheme": "Scheme A", "current_value": "1000.00",
+        "units": "10.000", "invested_value": "900.00",
+    }
+    row[field] = value
+    with pytest.raises(ValueError):
+        compute_holdings_canonical_digest([row])
+
+
+@pytest.mark.parametrize("field,value", [
+    ("current_value", float("nan")),
+    ("units", float("inf")),
+    ("invested_value", -1),
+    ("current_value", True),
+])
+def test_holdings_digest_rejects_nonfinite_negative_and_boolean_values(field, value):
+    row = {
+        "scheme": "Scheme A", "current_value": "1000.00",
+        "units": "10.000", "invested_value": "900.00",
+    }
+    row[field] = value
+    with pytest.raises(ValueError):
+        compute_holdings_canonical_digest([row])
+
+
+def test_holdings_digest_preserves_exact_decimal_values_without_float_roundtrip():
+    base = {
+        "scheme": "Scheme A", "current_value": "1000.000000000000000001",
+        "units": "10.000000000000000001", "invested_value": "900.000000000000000001",
+    }
+    changed = {**base, "current_value": "1000.000000000000000002"}
+    assert compute_holdings_canonical_digest([base]) != compute_holdings_canonical_digest([changed])
+    equivalent = {**base, "current_value": "1000.0000000000000000010"}
+    assert compute_holdings_canonical_digest([base]) == compute_holdings_canonical_digest([equivalent])
+
+
+def test_stage_portfolio_rejects_envelope_with_tampered_stated_total(tmp_path):
+    parsed = {
+        "holdings": [{
+            "scheme": "Scheme A", "current_value": 1000.0,
+            "units": 10.0, "invested_value": 900.0,
+        }],
+        "as_of": "2026-10-15", "stated_total": 1000.0, "source_digest": "e" * 64,
+    }
+    envelope = validate_statement_reconciliation_envelope(parsed)
+    envelope["stated_total"] = 9999.0
+    result = stage_portfolio(parsed, tmp_path, envelope=envelope)
+    assert result["staging_failed"] is True
+    assert "stated_total mismatch" in result["error"]
