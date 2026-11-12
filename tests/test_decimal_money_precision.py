@@ -234,3 +234,28 @@ def test_decimal_large_budget_split_and_residual_reconcile_exactly():
     residual = budget - first_sleeve - second_sleeve
     assert first_sleeve + second_sleeve + residual == budget
     assert residual >= 0
+
+
+def test_decision_trace_serializes_exact_decimal_money_as_strings():
+    from datetime import datetime, timezone
+    from core.traceability import Decision, DecisionType
+
+    decision = Decision(
+        decision_id="decimal-money-trace",
+        decision_type=DecisionType.SIP_ALLOCATION,
+        timestamp=datetime(2026, 11, 12, 12, 0, tzinfo=timezone.utc),
+        recommendation="HOLD",
+        rationale="Precision serialization regression",
+        policy_version="2026-11-12",
+        code_version="test",
+        policy_digest="a" * 64,
+        inputs={"requested_budget_inr": Decimal("100000000000000.01")},
+        outputs={
+            "allocated_budget_inr": Decimal("99999999999999.99"),
+            "unallocated_budget_inr": Decimal("0.02"),
+        },
+    )
+    payload = decision.to_dict()
+    assert payload["inputs"]["requested_budget_inr"] == "100000000000000.01"
+    assert payload["outputs"]["allocated_budget_inr"] == "99999999999999.99"
+    assert payload["outputs"]["unallocated_budget_inr"] == "0.02"
