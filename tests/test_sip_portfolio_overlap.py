@@ -193,6 +193,8 @@ def test_ips_numeric_contract_rejects_missing_budget_and_nonfinite_values():
         _validated_ips_numeric_inputs({})
     with pytest.raises(ValueError, match="finite"):
         _validated_ips_numeric_inputs({"monthly_sip_budget": float("nan")})
+    with pytest.raises(ValueError, match="finite"):
+        _validated_ips_numeric_inputs({"monthly_sip_budget": Decimal("NaN")})
 
 
 def test_saa_drift_refuses_to_invent_default_aggressive_target():
