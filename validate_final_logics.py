@@ -173,22 +173,22 @@ candidate_universe = [
 
 # 2A: Established synthetic portfolio (INR 1,00,000 monthly budget, INR 50L AUM)
 established_plan = compute_deterministic_sip_blueprint(
-    monthly_budget=100000.0,
+    monthly_budget=Decimal("100000.00"),
     risk_tier="Tier 6 (Very High)",
     stability_buffer_pct=7.54,
-    client_aum=5000000.0,
+    client_aum=Decimal("5000000.00"),
     equity_sip_routing_override=True,
     client_aum_verified=True,
     candidate_universe=candidate_universe,
 )
-check("Established Plan Total Budget", established_plan.total_monthly_budget_inr == 100000.0)
+check("Established Plan Total Budget", established_plan.total_monthly_budget_inr == Decimal("100000.00"))
 check("Established Plan Item Count", len(established_plan.items) == 5, f"Found {len(established_plan.items)} items")
 
-sum_alloc = float(sum(item.monthly_inr for item in established_plan.items))
+sum_alloc = sum((item.monthly_inr for item in established_plan.items), Decimal("0.00"))
 check(
     "Established Plan Budget Accounting",
-    abs(sum_alloc + float(established_plan.unallocated_budget_inr) - 100000.0) < 0.01,
-    f"Invested: ₹{sum_alloc:,.0f}; explicitly unallocated: ₹{float(established_plan.unallocated_budget_inr):,.0f}"
+    sum_alloc + established_plan.unallocated_budget_inr == Decimal("100000.00"),
+    f"Invested: ₹{sum_alloc:,.0f}; explicitly unallocated: ₹{established_plan.unallocated_budget_inr:,.0f}"
  )
 
 # Check individual slots
@@ -202,13 +202,13 @@ check("Slot 4: Large-Cap Anchor target weight (21.1%)", roles["Large-Cap Bluechi
 # Thematic slot is NO_ACTION when satellite_pct=0 by default policy
 check(
     "SIP amounts withheld when budget is unallocated",
-    all(float(item.monthly_inr) == 0.0 for item in established_plan.items)
-    if float(established_plan.unallocated_budget_inr) > 0.0 else abs(sum_alloc - 100000.0) < 0.01
+    all(item.monthly_inr == Decimal("0.00") for item in established_plan.items)
+    if established_plan.unallocated_budget_inr > 0 else sum_alloc == Decimal("100000.00")
 )
 check(
     "100% Direct Plan Mandate",
-    all(item.is_direct is True for item in established_plan.items if float(item.monthly_inr) > 0)
-    and (float(established_plan.unallocated_budget_inr) == 0.0 or sum_alloc == 0.0),
+    all(item.is_direct is True for item in established_plan.items if item.monthly_inr > 0)
+    and (established_plan.unallocated_budget_inr == 0 or sum_alloc == 0.0),
     "Uses explicit selected-candidate metadata, not scheme-name substring inference"
  )
 check("Zero Standalone Debt Drag", established_plan.debt_sip_pct == 0.0 and established_plan.equity_sip_pct == 100.0)
@@ -269,19 +269,19 @@ else:
 print("\n>> [TEST 5] Fiduciary Selection & Policy Binary Gates:")
 
 # Gate 9: Thematic Cap Check
-check("Gate 9 Passes for 15% Satellite on Established", validate_thematic_satellite_cap(established_plan, client_aum=5000000.0, max_satellite_pct=15.0) is True)
+check("Gate 9 Passes for 15% Satellite on Established", validate_thematic_satellite_cap(established_plan, client_aum=Decimal("5000000.00"), max_satellite_pct=15.0) is True)
 
 # Gate 9 Violation Test: Starter investor (< INR 5L AUM) cannot hold thematic
 starter_with_thematic = DeterministicSIPPlan(
-    total_monthly_budget_inr=5000.0,
-    unallocated_budget_inr=4000.0,
+    total_monthly_budget_inr=Decimal("5000.00"),
+    unallocated_budget_inr=Decimal("4000.00"),
     equity_sip_pct=20.0,
     debt_sip_pct=0.0,
     items=[
         DeterministicSIPRecommendation(
             category_role="Thematic",
             scheme_name="Nippon India Pharma Direct",
-            monthly_inr=1000.0,
+            monthly_inr=Decimal("1000.00"),
             allocation_pct=20.0,
             rational_code="SATELLITE_THEME",
             fiduciary_rationale="Test"
@@ -289,7 +289,7 @@ starter_with_thematic = DeterministicSIPPlan(
     ]
 )
 try:
-    validate_thematic_satellite_cap(starter_with_thematic, client_aum=200000.0)
+    validate_thematic_satellite_cap(starter_with_thematic, client_aum=Decimal("200000.00"))
     starter_gate_blocked = False
 except ValueError:
     starter_gate_blocked = True
@@ -299,15 +299,15 @@ check("Gate 9 Blocks Thematic Funds for Starters (< INR 5L)", starter_gate_block
 check("Gate 10 Passes 100% Direct Plans", validate_direct_sip_mandate(established_plan) is True)
 
 regular_plan_test = DeterministicSIPPlan(
-    total_monthly_budget_inr=10000.0,
-    unallocated_budget_inr=0.0,
+    total_monthly_budget_inr=Decimal("10000.00"),
+    unallocated_budget_inr=Decimal("0.00"),
     equity_sip_pct=100.0,
     debt_sip_pct=0.0,
     items=[
         DeterministicSIPRecommendation(
             category_role="Core",
             scheme_name="HDFC Flexi Cap Fund - Regular Plan - Growth",
-            monthly_inr=10000.0,
+            monthly_inr=Decimal("10000.00"),
             allocation_pct=100.0,
             rational_code="CORE_COMPOUNDER",
             fiduciary_rationale="Test"
@@ -369,7 +369,7 @@ tier_targets = [
 for t_name, exp_eq, exp_debt in tier_targets:
     # 7A: SIP Dynamic Scaling (Testing Policy-Defined Base New-SIP Splits)
     sip_tier = compute_deterministic_sip_blueprint(
-        monthly_budget=50000.0,
+        monthly_budget=Decimal("50000.00"),
         risk_tier=t_name,
         stability_buffer_pct=None,
         client_aum=5000000.0,
@@ -394,23 +394,23 @@ for t_name, exp_eq, exp_debt in tier_targets:
             sip_override.equity_sip_pct == 100.0 and sip_override.debt_sip_pct == 0.0,
             f"Authorized override -> Eq: {sip_override.equity_sip_pct}% | Debt: {sip_override.debt_sip_pct}%",
         )
-    sip_tot = float(sum(it.monthly_inr for it in sip_tier.items))
-    sip_accounted = float(sip_tot) + float(sip_tier.unallocated_budget_inr)
+    sip_tot = sum((it.monthly_inr for it in sip_tier.items), Decimal("0.00"))
+    sip_accounted = sip_tot + sip_tier.unallocated_budget_inr
     check(
         f"{t_name} SIP Budget Accounted For",
         abs(sip_accounted - 50000.0) < 0.01,
-        f"Allocated: INR {sip_tot:,.2f}; withheld: INR {float(sip_tier.unallocated_budget_inr):,.2f}"
+        f"Allocated: INR {sip_tot:,.2f}; withheld: INR {sip_tier.unallocated_budget_inr:,.2f}"
     )
     if float(sip_tier.unallocated_budget_inr) > 0.0:
         check(
             f"{t_name} SIP Withheld When Direct Evidence Is Missing",
-            all(float(item.monthly_inr) == 0.0 for item in sip_tier.items),
+            all(item.monthly_inr == Decimal("0.00") for item in sip_tier.items),
             "No partial allocation or redistribution"
         )
     else:
         check(
             f"{t_name} Positive SIPs Have Verified Direct Status",
-            all(item.is_direct is True for item in sip_tier.items if float(item.monthly_inr) > 0),
+            all(item.is_direct is True for item in sip_tier.items if item.monthly_inr > 0),
         )
 
     # 7B: Lumpsum Dynamic Scaling (INR 10 Lakhs Big-Ticket Baseline SAA)
