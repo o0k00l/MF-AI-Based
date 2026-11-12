@@ -161,6 +161,11 @@ def test_issue_121_manifest_aware_snapshot_path_resolution(tmp_path):
     for f in (master_file, metrics_file, aliases_file):
         f.write_text(json.dumps({"dataset_id": actual_hash}), encoding="utf-8")
 
+    artifact_sha256 = {
+        "scheme_master": hashlib.sha256(master_file.read_bytes()).hexdigest(),
+        "fund_metrics": hashlib.sha256(metrics_file.read_bytes()).hexdigest(),
+        "fund_aliases": hashlib.sha256(aliases_file.read_bytes()).hexdigest(),
+    }
     manifest = {
         "schema": "mf_engine.public_fund_data.v1",
         "dataset_id": actual_hash,
@@ -174,6 +179,7 @@ def test_issue_121_manifest_aware_snapshot_path_resolution(tmp_path):
             "fund_metrics": str(metrics_file.relative_to(data_dir)),
             "fund_aliases": str(aliases_file.relative_to(data_dir)),
         },
+        "artifact_sha256": artifact_sha256,
         "promotion_eligible": False,
     }
     (data_dir / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")

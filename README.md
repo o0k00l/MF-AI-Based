@@ -93,7 +93,7 @@ python verify_tri_provenance.py
 
 Inspect the complete GitHub Actions run for the exact commit under review. A test result from a previous commit does not validate the current one. Skipped tests must be explained; they must not be counted as passing.
 
-For local reports, provide complete verified client data through `MF_CLIENT_DATA_DIR`. Missing data must remain missing; do not construct synthetic client portfolios to produce a report.
+The retired legacy report path is not a supported investor workflow. Do not use `MF_CLIENT_DATA_DIR` to supply fund metrics, aliases or other engine-owned market data. Missing public evidence remains unavailable; synthetic client portfolios are test-only.
 
 ## Allocation and thematic policy
 
