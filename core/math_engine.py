@@ -918,14 +918,14 @@ def load_holdings_from_cas_excel(
                 raise ValueError(
                     f"Invalid CAS workbook: positive current value requires positive units for scheme {str(s_name).strip()!r}."
                 )
-            nav_dec = (c_dec / u_dec).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
+            nav_dec = c_dec / u_dec  # Preserve derived NAV precision; it is not INR paise.
             amc_value = row[col_amc] if col_amc is not None and len(row) > col_amc else ""
             raw_items.append((
                 str(s_name).strip(),
                 str(f_no).strip() if f_no else "",
                 quantize_inr(i_dec),
                 quantize_inr(c_dec),
-                u_dec.quantize(Decimal("0.001"), rounding=ROUND_HALF_UP),
+                u_dec,
                 nav_dec,
                 str(amc_value or "").strip(),
             ))
