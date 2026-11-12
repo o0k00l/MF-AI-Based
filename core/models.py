@@ -187,11 +187,27 @@ def load_saa_policy_map(
         policy = json.loads(raw_bytes.decode("utf-8"))
         version = str(policy.get("as_of", policy.get("version", "UNKNOWN")))
         profiles = policy["behavioral_risk_profiles"]
-        profile_by_risk = {
-            RiskTier.CONSERVATIVE: "low_to_moderate",
-            RiskTier.MODERATE: "moderately_high",
-            RiskTier.AGGRESSIVE: "very_high",
-        }
+        public_mapping = policy.get("public_risk_profile_mapping")
+        if not isinstance(public_mapping, dict):
+            raise ValueError("Missing risk profile mapping in asset allocation policy")
+        profile_by_risk: Dict[RiskTier, str] = {}
+        for risk, public_label in (
+            (RiskTier.CONSERVATIVE, "Conservative"),
+            (RiskTier.MODERATE, "Moderate"),
+            (RiskTier.AGGRESSIVE, "Aggressive"),
+        ):
+            mapping = public_mapping.get(public_label)
+            if not isinstance(mapping, dict):
+                raise ValueError(f"Missing risk profile mapping for {public_label}")
+            profile_name = mapping.get("behavioral_profile")
+            ceiling = mapping.get("risk_ceiling")
+            if (
+                not isinstance(profile_name, str) or not profile_name.strip()
+                or isinstance(ceiling, bool) or not isinstance(ceiling, int)
+                or not 1 <= ceiling <= 6
+            ):
+                raise ValueError(f"Invalid risk profile mapping for {public_label}")
+            profile_by_risk[risk] = profile_name
         result: Dict[RiskTier, AssetAllocationTarget] = {}
         for risk, profile_name in profile_by_risk.items():
             if profile_name not in profiles:
