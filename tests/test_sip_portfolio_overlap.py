@@ -191,7 +191,7 @@ def test_ips_numeric_contract_rejects_missing_budget_and_nonfinite_values():
 
     with pytest.raises(ValueError, match="monthly_sip_budget"):
         _validated_ips_numeric_inputs({})
-    with pytest.raises(ValueError, match="finite"):
+    with pytest.raises(ValueError, match="binary float"):
         _validated_ips_numeric_inputs({"monthly_sip_budget": float("nan")})
     with pytest.raises(ValueError, match="finite"):
         _validated_ips_numeric_inputs({"monthly_sip_budget": Decimal("NaN")})
