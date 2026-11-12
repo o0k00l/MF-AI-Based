@@ -136,6 +136,7 @@ def test_engine_data_paths_resolves_snapshot_paths_from_manifest(tmp_path):
         "fund_metrics": hashlib.sha256(met_path.read_bytes()).hexdigest(),
         "fund_aliases": hashlib.sha256(a_path.read_bytes()).hexdigest(),
     }
+    manifest["promotion_eligible"] = False
 
     (store / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
 
