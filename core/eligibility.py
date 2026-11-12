@@ -336,13 +336,59 @@ def validate_fund_screening_policy(data: Any, policy_path: Optional[Path] = None
         raise ValueError("portfolio_lookthrough_policy.note must explain the governed parameter")
 
     import hashlib
-    if "_policy_digest" not in data or not data["_policy_digest"]:
-        if policy_path and Path(policy_path).is_file():
-            data["_policy_digest"] = hashlib.sha256(Path(policy_path).read_bytes()).hexdigest()
-        else:
-            canonical_bytes = json.dumps(data, sort_keys=True).encode("utf-8")
-            data["_policy_digest"] = hashlib.sha256(canonical_bytes).hexdigest()
+    import hmac
 
+    # A digest supplied by a caller is a claim, not evidence. When this object
+    # originated from a policy file, bind its contents back to those exact
+    # source bytes. The loader records _policy_path so repeated validation of
+    # the loaded object can perform the same check.
+    declared_digest = data.get("_policy_digest")
+    source_path = policy_path
+    if source_path is None and "_policy_path" in data:
+        recorded_path = data.get("_policy_path")
+        if not isinstance(recorded_path, (str, Path)) or not str(recorded_path).strip():
+            raise ValueError("Screening policy recorded source path is invalid")
+        source_path = Path(recorded_path)
+
+    runtime_fields = {"_policy_digest", "_policy_path"}
+    policy_content = {key: value for key, value in data.items() if key not in runtime_fields}
+    if source_path is not None:
+        source_path = Path(source_path)
+        if not source_path.is_file():
+            raise ValueError(f"Screening policy source file is unavailable: {source_path}")
+        try:
+            source_bytes = source_path.read_bytes()
+            source_policy = json.loads(source_bytes.decode("utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ValueError("Screening policy source file cannot be verified") from exc
+        if not isinstance(source_policy, dict):
+            raise ValueError("Screening policy source file root must be a JSON object")
+        source_content = {
+            key: value for key, value in source_policy.items()
+            if key not in runtime_fields
+        }
+        if policy_content != source_content:
+            raise ValueError(
+                "In-memory screening policy content does not match its authoritative source file"
+            )
+        expected_digest = hashlib.sha256(source_bytes).hexdigest()
+    else:
+        try:
+            canonical_bytes = json.dumps(policy_content, sort_keys=True).encode("utf-8")
+        except (TypeError, ValueError) as exc:
+            raise ValueError("Screening policy cannot be canonically serialized for digest verification") from exc
+        expected_digest = hashlib.sha256(canonical_bytes).hexdigest()
+
+    if declared_digest is not None:
+        if (
+            not isinstance(declared_digest, str)
+            or len(declared_digest) != 64
+            or any(char not in "0123456789abcdef" for char in declared_digest)
+            or not hmac.compare_digest(declared_digest, expected_digest)
+        ):
+            raise ValueError("Screening policy digest does not match its validated content")
+
+    data["_policy_digest"] = expected_digest
     return data
 
 
