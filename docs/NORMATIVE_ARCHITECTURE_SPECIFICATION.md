@@ -206,3 +206,8 @@ This document is subordinate to `docs/SIP_ENGINE_DECISION_REGISTER.md` for settl
 **Examples are non-operative:** numbers, scheme names, benchmark names, dates, file names and sample JSON are illustrative unless explicitly identified as a currently approved policy/source contract. Example values must never be promoted to runtime defaults. Any fixed numeric threshold or benchmark list in a legacy section is historical/example material pending explicit approval and migration into the effective policy/source registry; it is not authority to hardcode that value.
 
 **Conflict resolution:** apply the decision register, then the normative architecture, then the approved effective policy/IPS for investor-specific values, then authoritative source evidence for market facts. Policy cannot override source facts and source facts cannot invent policy. Record unresolved conflicts and HOLD; do not pick whichever value makes the workflow pass.
+
+
+## 6. Detailed calculation and interface contract
+
+The implementation-level formulas, input/output semantics, worked examples, acceptance scenarios and current code-conformance gaps are specified in [SIP_DECISION_CALCULATION_AND_DATA_CONTRACTS.md](SIP_DECISION_CALCULATION_AND_DATA_CONTRACTS.md). That document is subordinate to this specification and the Decision Register. If a detail conflicts with a frozen product decision, the frozen decision governs; unresolved policy parameters must not be replaced by constants.
