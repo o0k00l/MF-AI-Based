@@ -1,3 +1,4 @@
+import copy
 import json
 from pathlib import Path
 import pytest
@@ -5,6 +6,7 @@ from core.eligibility import (
     load_fund_screening_policy,
     _load_category_aum_caps,
     check_eligibility_gates,
+    validate_fund_screening_policy,
 )
 
 
@@ -115,3 +117,33 @@ def test_check_eligibility_gates_custom_policy_changes_behavior():
     
     res2 = check_eligibility_gates(fund_data, portfolio_holdings=holdings, client_risk_tier_num=5, policy=strict_policy)
     assert any("AUM Size Drag" in f for f in res2.failed_gates)
+
+
+def test_policy_digest_is_rechecked_against_authoritative_file_after_in_memory_mutation():
+    policy = load_fund_screening_policy()
+    original_digest = policy["_policy_digest"]
+    mutated = copy.deepcopy(policy)
+    mutated["gate_thresholds"]["min_aum_crore"] += 1
+
+    # Retaining the original, valid digest must not bless changed policy data.
+    assert mutated["_policy_digest"] == original_digest
+    with pytest.raises(ValueError, match="does not match its authoritative source file"):
+        validate_fund_screening_policy(mutated)
+
+
+def test_policy_digest_claim_without_source_path_is_recomputed_and_verified():
+    policy = load_fund_screening_policy()
+    policy.pop("_policy_path")
+    policy["_policy_digest"] = "0" * 64
+
+    with pytest.raises(ValueError, match="digest does not match"):
+        validate_fund_screening_policy(policy)
+
+
+def test_loaded_policy_can_be_revalidated_without_losing_source_digest():
+    policy = load_fund_screening_policy()
+    digest = policy["_policy_digest"]
+
+    validated = validate_fund_screening_policy(copy.deepcopy(policy))
+
+    assert validated["_policy_digest"] == digest
