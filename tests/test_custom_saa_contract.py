@@ -49,6 +49,7 @@ def test_select_autonomous_blueprint_funds_custom_with_target():
         mid_cap_pct=Decimal("20.0"),
         small_cap_pct=Decimal("15.0"),
         flexi_cap_pct=Decimal("10.0"),
+        risk_ceiling=4,
     )
     # Call with minimal candidate universe
     slots = select_autonomous_blueprint_funds(
@@ -81,6 +82,7 @@ def test_compute_deterministic_sip_blueprint_custom_executes_correctly():
         mid_cap_pct=Decimal("25.0"),
         small_cap_pct=Decimal("15.0"),
         flexi_cap_pct=Decimal("10.0"),
+        risk_ceiling=4,
     )
     plan = compute_deterministic_sip_blueprint(
         monthly_budget=10000,
@@ -123,6 +125,7 @@ def test_recommend_sip_custom_saa_e2e_with_approved_context(tmp_path, monkeypatc
         mid_cap_pct=Decimal("15.0"),
         small_cap_pct=Decimal("10.0"),
         flexi_cap_pct=Decimal("10.0"),
+        risk_ceiling=4,
     )
 
     candidates = [
