@@ -1235,8 +1235,9 @@ def recommend_sip(
     # denominator. External assets, cash, liabilities and valuation date have
     # not been reconciled, so it cannot authorize SIP routing.
     custom_risk_ceiling = getattr(custom_saa_target, "risk_ceiling", None)
-    if custom_risk_ceiling is None and isinstance(portfolio_context, dict):
-        custom_risk_ceiling = portfolio_context.get("ips", {}).get("risk_ceiling")
+    ips_contract = portfolio_context.get("ips") if isinstance(portfolio_context, dict) else None
+    if custom_risk_ceiling is None and isinstance(ips_contract, dict):
+        custom_risk_ceiling = ips_contract.get("risk_ceiling")
     portfolio_assessment = _build_cas_portfolio_assessment(
         holdings, risk_profile, custom_saa_target=custom_saa_target,
         risk_ceiling=custom_risk_ceiling,
