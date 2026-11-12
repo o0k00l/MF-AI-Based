@@ -3387,17 +3387,21 @@ def compute_candidate_portfolio_overlap(
     if candidate_weights is None:
         return None
 
-    total_equity_value = 0.0
-    portfolio_stock_weights: Dict[str, float] = {}
+    total_equity_value = Decimal("0")
+    portfolio_stock_weights: Dict[str, Decimal] = {}
     for holding in holdings:
         try:
-            value = float(holding.current_value_inr)
-            equity_pct = float(holding.equity_pct)
-        except (TypeError, ValueError, AttributeError):
+            value = Decimal(str(holding.current_value_inr))
+            equity_pct = Decimal(str(holding.equity_pct))
+        except (TypeError, ValueError, AttributeError, ArithmeticError):
             return None
-        if not math.isfinite(value) or value <= 0.0 or not math.isfinite(equity_pct) or not 0.0 <= equity_pct <= 100.0:
+        if (
+            not value.is_finite() or value <= 0
+            or not equity_pct.is_finite()
+            or not Decimal("0") <= equity_pct <= Decimal("100")
+        ):
             return None
-        if equity_pct == 0.0:
+        if equity_pct == 0:
             continue
         holding_weights = validated_weights(
             getattr(holding, "constituent_weights", None),
@@ -3406,28 +3410,32 @@ def compute_candidate_portfolio_overlap(
         )
         if holding_weights is None:
             return None
-        equity_value = value * equity_pct / 100.0
+        equity_value = value * equity_pct / Decimal("100")
         total_equity_value += equity_value
         for security_id, stock_weight_pct in holding_weights.items():
             portfolio_stock_weights[security_id] = (
-                portfolio_stock_weights.get(security_id, 0.0)
-                + equity_value * stock_weight_pct / 100.0
+                portfolio_stock_weights.get(security_id, Decimal("0"))
+                + equity_value * Decimal(str(stock_weight_pct)) / Decimal("100")
             )
 
     # Compare equity sleeves with equity sleeves. Including debt/cash in this
     # denominator artificially dilutes overlap and can make a duplicate fund
     # look diversified merely because the investor also holds debt.
-    if not math.isfinite(total_equity_value) or total_equity_value <= 0.0:
-        return 0.0
+    if not total_equity_value.is_finite() or total_equity_value <= 0:
+        return Decimal("0")
     portfolio_stock_weights = {
-        security_id: value / total_equity_value * 100.0
+        security_id: value / total_equity_value * Decimal("100")
         for security_id, value in portfolio_stock_weights.items()
     }
     overlap = sum(
-        min(candidate_weight, portfolio_stock_weights.get(security_id, 0.0))
-        for security_id, candidate_weight in candidate_weights.items()
+        (
+            min(Decimal(str(candidate_weight)),
+                portfolio_stock_weights.get(security_id, Decimal("0")))
+            for security_id, candidate_weight in candidate_weights.items()
+        ),
+        Decimal("0"),
     )
-    return round(overlap, 2)
+    return round(float(overlap), 2)
 
 
 def evaluate_candidate_portfolio_concentration_controls(
