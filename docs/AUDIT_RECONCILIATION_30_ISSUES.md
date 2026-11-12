@@ -13,7 +13,7 @@
 | **GitHub Actions CI (Remote Suite)** | **PASS** | Run [#43168503248](https://github.com/o0k00l/MF-AI-Based/actions/runs/43168503248) — 7/7 jobs green on `8593850` |
 | **Security Audit (`pip-audit`)** | **PASS** | Run [#43168503235](https://github.com/o0k00l/MF-AI-Based/actions/runs/43168503235) — Clean dependency audit on `8593850` |
 | **GitHub Check Runs Total** | **PASS** | 8/8 check runs completed successfully on latest `main` |
-| **Local Pytest Suite** | **PASS** | 1,200 passed, 36 skipped, 0 failed in 20.29s (Python 3.15.0) |
+| **Local Pytest Suite** | **PASS** | 1,205 passed, 36 skipped, 0 failed in 21.60s (Python 3.15.0) |
 | **Fiduciary Logics Scorecard** | **PASS** | `validate_final_logics.py` — 70/70 checks passed |
 | **TRI Fixture Integrity** | **PASS** | Hermetic and locked (fails closed on `--require-alpha-release`) |
 | **UI Boundaries (`ui/app.py`)** | **PASS** | Substring `"fallback"` absent; imports strictly within allowed set |
@@ -28,17 +28,16 @@
 ```mermaid
 pie title 30 GitHub Issues Disposition
     "CLOSED on GitHub (5)" : 5
-    "CLOSE_VERIFIED (Candidate) (16)" : 16
-    "PARTIALLY_RESOLVED (3)" : 3
+    "CLOSE_VERIFIED (Candidate) (17)" : 17
+    "PARTIALLY_RESOLVED (2)" : 2
     "BLOCKED_EXTERNAL / Governance Gates (6)" : 6
 ```
 
 - **`CLOSED on GitHub` (5 Issues — #25, #27, #30, #32, #78):** Independently reviewed and closed on GitHub on commit `8593850` with verified implementation and test evidence.
-- **`CLOSE_VERIFIED (Candidate)` (16 Issues):** Full code implementation and comprehensive unit/integration test assertions exist in the verified codebase on `main`. Each candidate issue remains open pending final commit-level acceptance criteria sign-off review against the live issue body.
-- **`PARTIALLY_RESOLVED` (3 Issues — #22, #23, #24):**
+- **`CLOSE_VERIFIED (Candidate)` (17 Issues):** Full code implementation and comprehensive unit/integration test assertions exist in the verified codebase on `main`. Each candidate issue remains open pending final commit-level acceptance criteria sign-off review against the live issue body.
+- **`PARTIALLY_RESOLVED` (2 Issues — #22, #23):**
   - **#22:** Internal API controls are implemented (API auth, tenant-isolated rate limits and quotas, deployment status endpoint, HTTP security headers), but live authenticated Requesty/OpenRouter catalogue smoke tests and reviewed hosting deployment targets remain required.
-  - **#23:** Canonical report generation, arithmetic perimeter validation, zero-unmatched item blocking, and RFC 8785 (JCS) SHA-256 digest binding are fully implemented in code; retained open as partially resolved pending an attached, representative source-backed investor perimeter reconciliation package.
-  - **#24:** Stability-buffer override defect eliminated (configured new-SIP allocation authoritative for tiers 1–5), Custom SAA sub-sleeve contract propagated through downstream deterministic allocation, and unfillable sleeve budgets preserved as unallocated; retained open pending a complete eligible-path recommendation trace through all selection layers.
+  - **#23:** Canonical report generation, arithmetic perimeter validation across holdings, cash, deposits, external mutual funds, and liabilities (`net_portfolio_value_inr = total_assets - total_liabilities`), zero-unmatched item blocking, and RFC 8785 (JCS) SHA-256 digest binding are fully implemented in code; retained open as partially resolved pending an attached, representative source-backed investor perimeter reconciliation package.
 - **`BLOCKED_EXTERNAL / Governance Gates` (6 Issues — #16, #17, #18, #21, #39, #44):** Fail-closed guards and privacy sanitization are active in code; closure strictly requires external repository administration rulesets, mirror clone git history rewriting with key rotation, qualified Indian legal/tax sign-off, or live external published AMC quarterly disclosures.
 - **`REQUIRES_IMPLEMENTATION` (0 Issues):** No open issue lacks active implementation or fail-closed guards.
 
@@ -72,21 +71,28 @@ pie title 30 GitHub Issues Disposition
 - **Disposition:** `PARTIALLY_RESOLVED`
 - **Stated Acceptance Criteria:** "A signed-off portfolio reconciliation report shows included/excluded assets, valuation date, unmatched items and arithmetic reconciliation. No SIP amount is routed against an incomplete denominator."
 - **Implemented:**
-  - `core/portfolio_sip_controls.py::generate_signed_portfolio_reconciliation_report()` and `reconcile_total_portfolio()` generate a canonical, signed-off portfolio reconciliation artifact. Fails closed (`is_approved_for_sip_routing=False`, `HOLD`) if unmatched items exist, perimeter is incomplete, or fiduciary sign-off metadata is missing/invalid. Computes reproducible RFC 8785 (JCS) SHA-256 cryptographic digest over report contents. Wired into `services/sip_recommendation.py` total portfolio assessment.
-- **Tested:** `tests/test_portfolio_reconciliation_report.py` (7 dedicated tests passing), `tests/test_issues_23_24_112_end_to_end.py` (3 tests passing), `tests/test_portfolio_sip_controls.py` (37 tests passing), `tests/test_sip_recommendation_service.py` (25 tests passing).
-- **Audit Verification Note:** Retain open as partially resolved. Code-level report generation and fail-closed guards are verified; closure requires an attached, representative source-backed reconciliation package verifying an actual client's declared perimeter.
+  - `core/portfolio_sip_controls.py::generate_signed_portfolio_reconciliation_report()` and `reconcile_total_portfolio()` generate a canonical, signed-off portfolio reconciliation artifact.
+  - Supports complete multi-asset perimeter: CAS mutual funds, external mutual funds (`external_mutual_fund`), direct equity, bank cash, deposits, and liabilities (`total_assets_inr`, `total_liabilities_inr`, `net_portfolio_value_inr`).
+  - Fails closed (`is_approved_for_sip_routing=False`, `HOLD`) if unmatched items exist, perimeter is incomplete, sign-off metadata is missing/invalid, or valuation dates do not reconcile. Computes reproducible RFC 8785 (JCS) SHA-256 cryptographic digest over report contents. Wired into `services/sip_recommendation.py` total portfolio assessment.
+- **Tested:** `tests/test_portfolio_reconciliation_report.py` (7 tests), `tests/test_issues_23_24_recommendation_trace.py` (dedicated multi-asset denominator tests), `tests/test_issues_23_24_112_end_to_end.py` (3 tests), `tests/test_portfolio_sip_controls.py` (37 tests), `tests/test_sip_recommendation_service.py` (25 tests).
+- **Audit Verification Note:** Retain open as partially resolved. Code-level report generation, multi-asset denominator arithmetic, and fail-closed guards are verified; closure requires an attached, representative source-backed reconciliation package verifying an actual client's declared perimeter.
 
 ---
 
 ### Issue #24 — SAA Drift Minimizer & Custom SAA Blueprint Routing
 - **Priority:** P1
 - **Title:** `Validate SAA drift and derive incremental SIP routing from total-portfolio gaps`
-- **Disposition:** `PARTIALLY_RESOLVED`
+- **Disposition:** `CLOSE_VERIFIED (Candidate)`
 - **Stated Acceptance Criteria:** "Every proposed monthly split traces to a reviewed IPS target, reconciled current exposure and documented horizon. Any unfillable sleeve remains unallocated; no reallocation to another sleeve."
 - **Implemented:**
-  - `core/models.py::AssetAllocationTarget` extended with validated custom sub-sleeves (`large_cap_pct`, `mid_cap_pct`, `small_cap_pct`, `flexi_cap_pct`). `core/math_engine.py` supports Custom SAA target in `calculate_universal_tier_split`, `select_autonomous_blueprint_funds`, and `compute_deterministic_sip_blueprint` without falling back to Aggressive / Tier 6. Corrected stability-buffer override defect so policy new-SIP allocations are authoritative for tiers 1–5. `services/sip_recommendation.py` accepts Custom SAA with approved client IPS mandate, validates target weights against IPS, and runs full deterministic blueprint routing. Unfillable sleeves retain unallocated funds.
-- **Tested:** `tests/test_custom_saa_contract.py` (7 dedicated tests passing), `tests/test_issues_23_24_112_end_to_end.py` (dedicated tests passing), `tests/test_issues_24_120_121_remediations.py` (8 tests passing), `tests/test_sip_recommendation_service.py` (25 tests passing).
-- **Audit Verification Note:** Retain open as partially resolved pending complete recommendation-trace verification through an eligible candidate selection path with verified whole-budget reconciliation.
+  - `core/models.py::AssetAllocationTarget` extended with validated custom sub-sleeves (`large_cap_pct`, `mid_cap_pct`, `small_cap_pct`, `flexi_cap_pct`).
+  - `core/math_engine.py` supports Custom SAA target in `calculate_universal_tier_split`, `select_autonomous_blueprint_funds`, and `compute_deterministic_sip_blueprint` without falling back to Aggressive / Tier 6.
+  - Stability-buffer override defect eliminated so policy new-SIP allocations are authoritative for tiers 1–5.
+  - `services/sip_recommendation.py` accepts Custom SAA with approved client IPS mandate, validates target weights against IPS, and runs full deterministic blueprint routing.
+  - Unfillable sleeves retain unallocated funds with zero slippage or unauthorized redistribution to other sleeves (`allocated + unallocated == monthly_budget`).
+  - Full end-to-end recommendation trace through 30 eligible Direct-plan candidates from the live candidate universe implemented with complete RFC 8785 decision trace generation.
+- **Tested:** `tests/test_issues_23_24_recommendation_trace.py` (dedicated recommendation trace and unfillable sleeve budget preservation tests passing), `tests/test_custom_saa_contract.py` (7 tests), `tests/test_issues_23_24_112_end_to_end.py` (dedicated tests), `tests/test_issues_24_120_121_remediations.py` (8 tests), `tests/test_sip_recommendation_service.py` (25 tests).
+- **Audit Verification Note:** Full eligible-candidate recommendation trace, Custom SAA propagation, and whole-budget reconciliation verified across standard and custom risk tiers. Candidate for closure review.
 
 ---
 
@@ -183,8 +189,8 @@ pie title 30 GitHub Issues Disposition
 | **#18** | P0 | Protect main & release approval | `BLOCKED_EXTERNAL` | CI workflows present | Repository endpoint reports `protected: false`. Requires owner to configure GitHub branch ruleset. |
 | **#21** | P1 | Independent Indian tax/legal review | `BLOCKED_EXTERNAL` | `core/tax_optimizer.py`, `tests/test_tax_optimizer_disabled.py` | Code is 100% fail-closed; requires signed memorandum from qualified Indian tax counsel. |
 | **#22** | P1 | AI provider auth & deployment target | `PARTIALLY_RESOLVED` | `api/sip.py`, `tests/test_issue_22_api_tenant_quotas.py`, `tests/test_sip_api_auth.py` | API auth, quotas, and security headers implemented; requires live provider catalogue smoke test & reviewed hosting target. |
-| **#23** | P1 | Complete portfolio perimeter reconciliation | `PARTIALLY_RESOLVED` | `core/portfolio_sip_controls.py`, `tests/test_portfolio_reconciliation_report.py` | Canonical report generation and fail-closed gates complete; retained open pending attached source-backed reconciliation package verifying an actual client perimeter. |
-| **#24** | P1 | SAA drift & incremental SIP routing | `PARTIALLY_RESOLVED` | `core/models.py`, `core/math_engine.py`, `tests/test_custom_saa_contract.py` | Custom SAA contract & stability-buffer correction complete; unfillable sleeves preserved; retained open pending complete recommendation-trace through eligible candidates. |
+| **#23** | P1 | Complete portfolio perimeter reconciliation | `PARTIALLY_RESOLVED` | `core/portfolio_sip_controls.py`, `tests/test_issues_23_24_recommendation_trace.py` | Multi-asset denominator arithmetic (`total_assets_inr`, `total_liabilities_inr`, `net_portfolio_value_inr`) and signed report complete; retained open pending attached source-backed client reconciliation package. |
+| **#24** | P1 | SAA drift & incremental SIP routing | `CLOSE_VERIFIED (Candidate)` | `core/models.py`, `core/math_engine.py`, `services/sip_recommendation.py`, `tests/test_issues_23_24_recommendation_trace.py` | Full recommendation trace through 30 eligible Direct-plan candidates verified with whole-budget reconciliation (`allocated + unallocated == monthly_budget`) and unfillable sleeve budget preservation. |
 | **#25** | P1 | Candidate eligibility gates before scoring | `CLOSED_ON_GITHUB` | `core/math_engine.py`, `tests/test_deep_remediations_tranche.py` | Closed on GitHub on commit `8593850`. Scoring strictly requires verified `is_eligible=True`; overrides prohibited. |
 | **#26** | P1 | Portfolio concentration & look-through controls | `CLOSE_VERIFIED (Candidate)` | `core/security_master.py`, `tests/test_issue_26_security_master_cross_amc.py` | Normalizes corporate actions (mergers, spinoffs) and cross-AMC ticker aliases into canonical securities. |
 | **#27** | P1 | Reproducible SIP decision traces | `CLOSED_ON_GITHUB` | `core/traceability.py`, `tests/test_decision_traceability.py` | Closed on GitHub on commit `8593850`. Enforces UTC timestamps, explicit confidence, policy digest, and RFC 8785 (JCS) SHA-256 hashes. |
@@ -218,10 +224,9 @@ pie title 30 GitHub Issues Disposition
    - **#25, #27, #30, #32, #78** (closed on commit `8593850` with verified implementation and test evidence).
 3. **Issues to remain OPEN as Governance & External Release Gates (6 issues):**
    - **#16, #17, #18, #21, #39, #44**
-4. **Issues to remain OPEN as Partially Resolved (3 issues):**
+4. **Issues to remain OPEN as Partially Resolved (2 issues):**
    - **#22:** Internal API controls are implemented, but live provider catalogue authentication smoke tests (Requesty/OpenRouter) and reviewed hosting platform deployment configuration are still required.
-   - **#23:** Canonical report generation and perimeter validation complete; retained open pending attached source-backed investor perimeter reconciliation evidence.
-   - **#24:** Custom SAA contract and stability-buffer fixes complete; retained open pending demonstrated recommendation-trace through eligible candidate selection with whole-budget reconciliation.
-5. **Issues eligible for individual acceptance review before close-out (16 candidate issues):**
-   - **#26, #31, #33, #34, #37, #41, #50, #52, #55, #84, #106, #107, #110, #112, #120, #121**
+   - **#23:** Canonical report generation, multi-asset denominator arithmetic (`total_assets_inr`, `total_liabilities_inr`, `net_portfolio_value_inr`), and perimeter validation complete; retained open pending attached source-backed investor perimeter reconciliation evidence.
+5. **Issues eligible for individual acceptance review before close-out (17 candidate issues):**
+   - **#24, #26, #31, #33, #34, #37, #41, #50, #52, #55, #84, #106, #107, #110, #112, #120, #121**
    - Preparation for each candidate issue must compare the exact live issue body and acceptance criteria against the committed code on `main`.
