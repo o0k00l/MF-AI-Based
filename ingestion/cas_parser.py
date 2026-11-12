@@ -960,42 +960,47 @@ def load_cache_csv(cache_path) -> list[dict]:
     return parse_cache_csv(p.read_text(encoding="utf-8"))
 
 
-def compute_holdings_canonical_digest(holdings: list[dict]) -> str:
-    """Compute deterministic SHA-256 digest over normalized holdings."""
-    import hashlib
-    import json
-    canonical_rows = []
-    for h in holdings:
-        if not isinstance(h, dict):
-            continue
-        scheme = str(h.get("scheme_name") or h.get("scheme", "")).strip()
-        folio = str(h.get("folio_no") or h.get("folio", "")).strip()
-        isin = str(h.get("isin", "")).strip().upper()
-        try:
-            units = f"{float(h.get('units', 0.0)):.4f}"
-        except (TypeError, ValueError):
-            units = "0.0000"
-        try:
-            curr_val = f"{float(h.get('current_value', 0.0)):.2f}"
-        except (TypeError, ValueError):
-            curr_val = "0.00"
-        try:
-            inv_val = f"{float(h.get('invested_value', 0.0)):.2f}"
-        except (TypeError, ValueError):
-            inv_val = "0.00"
-        canonical_rows.append({
-            "current_value": curr_val,
-            "folio": folio,
-            "invested_value": inv_val,
-            "isin": isin,
-            "scheme": scheme,
-            "units": units,
-        })
-    canonical_rows.sort(key=lambda r: (r["scheme"], r["folio"], r["isin"]))
-    payload = json.dumps(canonical_rows, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
-
-
+def compute_holdings_canonical_digest(holdings: list[dict]) -> str:
+    """Compute a strict deterministic digest without lossy zero substitution."""
+    import hashlib
+    import json
+
+    def canonical_decimal(row: dict, field: str, aliases: tuple[str, ...]) -> str:
+        raw = next((row[key] for key in aliases if key in row and row[key] is not None), None)
+        if raw is None or (isinstance(raw, str) and not raw.strip()):
+            raise ValueError(f"Holdings digest requires {field}; missing value is not zero")
+        if isinstance(raw, bool):
+            raise ValueError(f"Holdings digest rejects boolean {field}")
+        try:
+            value = Decimal(str(raw).strip().replace(",", ""))
+        except Exception as exc:
+            raise ValueError(f"Holdings digest rejects malformed {field}: {raw!r}") from exc
+        if not value.is_finite() or value < 0:
+            raise ValueError(f"Holdings digest requires finite non-negative {field}: {raw!r}")
+        return format(value.normalize(), "f") if value else "0"
+
+    if not isinstance(holdings, list) or not holdings:
+        raise ValueError("Holdings digest requires a non-empty holdings list")
+    canonical_rows = []
+    for index, holding in enumerate(holdings, start=1):
+        if not isinstance(holding, dict):
+            raise ValueError(f"Holdings digest row {index} must be a mapping")
+        scheme = str(holding.get("scheme_name") or holding.get("scheme") or "").strip()
+        if not scheme:
+            raise ValueError(f"Holdings digest row {index} requires scheme identity")
+        canonical_rows.append({
+            "current_value": canonical_decimal(holding, "current_value", ("current_value",)),
+            "folio": str(holding.get("folio_no") or holding.get("folio") or "").strip(),
+            "invested_value": canonical_decimal(holding, "invested_value", ("invested_value", "invested", "cost_value")),
+            "isin": str(holding.get("isin") or "").strip().upper(),
+            "scheme": scheme,
+            "units": canonical_decimal(holding, "units", ("units",)),
+        })
+    canonical_rows.sort(key=lambda row: (row["scheme"], row["folio"], row["isin"]))
+    payload = json.dumps(canonical_rows, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
 def validate_statement_reconciliation_envelope(
     parsed: dict,
     tolerance: float = 1.0,
@@ -1070,14 +1075,12 @@ def validate_statement_reconciliation_envelope(
     }
 
 
-def stage_portfolio(
-    parsed: dict,
-    root,
-    slug: str = "Upload_Portfolio",
-    require_validation: bool = True,
-    require_envelope: bool = True,
-    envelope: dict = None,
-    tolerance: float = 1.0,
+def stage_portfolio(
+    parsed: dict,
+    root,
+    slug: str = "Upload_Portfolio",
+    envelope: dict | None = None,
+    tolerance: float = 1.0,
 ) -> dict:
     """
     Materialise a portfolio workspace from an uploaded statement.
@@ -1095,56 +1098,38 @@ def stage_portfolio(
     import json
     import os
 
-    # 1. Row-level strict financial field validation
-    if require_validation:
-        try:
-            cache_content = to_cache_csv(parsed, enriched=True, strict=True)
-        except ValueError as e:
-            return {
-                "slug": slug,
-                "root": str(pdir),
-                "cache": str(cache_path) if prior_cache_existed else None,
-                "holdings": len(parsed.get("holdings", [])) if isinstance(parsed, dict) else 0,
-                "identity_written": False,
-                "staging_failed": True,
-                "error": str(e),
-                "last_known_good_preserved": prior_cache_existed,
-            }
-    else:
-        cache_content = to_cache_csv(parsed, enriched=True, strict=False)
-
-    # 2. Whole-statement reconciliation envelope validation
-    envelope_data = None
-    if require_envelope:
-        try:
-            expected_envelope = validate_statement_reconciliation_envelope(
-                parsed, tolerance=tolerance, require_source_digest=True
-            )
-            if envelope is not None:
-                if not isinstance(envelope, dict) or envelope.get("status") != "VERIFIED_RECONCILED":
-                    raise ValueError("Supplied reconciliation envelope is not VERIFIED_RECONCILED")
-                # Bind envelope strictly to the exact parsed statement date, source digest, holdings count, holdings digest and totals
-                for k in ("schema_version", "statement_date", "source_digest", "holdings_count", "parsed_total", "holdings_digest", "validation_token"):
-                    if envelope.get(k) != expected_envelope.get(k):
-                        raise ValueError(
-                            f"Supplied reconciliation envelope {k} mismatch: "
-                            f"envelope has {envelope.get(k)!r}, parsed statement has {expected_envelope.get(k)!r}"
-                        )
-                envelope_data = envelope
-            else:
-                envelope_data = expected_envelope
-        except ValueError as e:
-            return {
-                "slug": slug,
-                "root": str(pdir),
-                "cache": str(cache_path) if prior_cache_existed else None,
-                "holdings": len(parsed.get("holdings", [])) if isinstance(parsed, dict) else 0,
-                "identity_written": False,
-                "staging_failed": True,
-                "error": str(e),
-                "last_known_good_preserved": prior_cache_existed,
-            }
-
+    # Strict row validation and an explicit caller-produced reconciliation
+    # envelope are mandatory. There is intentionally no production opt-out.
+    try:
+        cache_content = to_cache_csv(parsed, enriched=True, strict=True)
+        if not isinstance(envelope, dict) or envelope.get("status") != "VERIFIED_RECONCILED":
+            raise ValueError("An explicit VERIFIED_RECONCILED statement envelope is required")
+        expected_envelope = validate_statement_reconciliation_envelope(
+            parsed, tolerance=tolerance, require_source_digest=True
+        )
+        for key in (
+            "schema_version", "statement_date", "stated_total", "parsed_total",
+            "reconciliation_difference", "tolerance", "source_digest",
+            "holdings_count", "holdings_digest", "validation_token",
+        ):
+            if envelope.get(key) != expected_envelope.get(key):
+                raise ValueError(
+                    f"Supplied reconciliation envelope {key} mismatch: "
+                    f"envelope has {envelope.get(key)!r}, parsed statement has {expected_envelope.get(key)!r}"
+                )
+        envelope_data = expected_envelope
+    except (TypeError, ValueError) as exc:
+        return {
+            "slug": slug,
+            "root": str(pdir),
+            "cache": str(cache_path) if prior_cache_existed else None,
+            "holdings": len(parsed.get("holdings", [])) if isinstance(parsed, dict) else 0,
+            "identity_written": False,
+            "staging_failed": True,
+            "error": str(exc),
+            "last_known_good_preserved": prior_cache_existed,
+        }
+
     # 3. Validation passed - create directory and write atomically
     (pdir / "data").mkdir(parents=True, exist_ok=True)
 
