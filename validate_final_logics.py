@@ -208,7 +208,7 @@ check(
 check(
     "100% Direct Plan Mandate",
     all(item.is_direct is True for item in established_plan.items if item.monthly_inr > 0)
-    and (established_plan.unallocated_budget_inr == 0 or sum_alloc == Decimal("0.00")),
+    and (established_plan.unallocated_budget_inr == Decimal("0.00") or sum_alloc == Decimal("0.00")),
     "Uses explicit selected-candidate metadata, not scheme-name substring inference"
  )
 check("Zero Standalone Debt Drag", established_plan.debt_sip_pct == 0.0 and established_plan.equity_sip_pct == 100.0)
