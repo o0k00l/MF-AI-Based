@@ -78,37 +78,26 @@ def _build_cas_portfolio_assessment(
             from core.models import AssetAllocationTarget
             if not isinstance(custom_saa_target, AssetAllocationTarget):
                 raise ValueError("custom_saa_target must be an AssetAllocationTarget instance")
-            custom_policy = policy.get("custom_saa_policy", {})
-            tolerance = float(custom_policy.get("default_tolerance_band_pct", 3.0))
-            eq = float(custom_saa_target.equity_pct)
-            if getattr(custom_saa_target, "large_cap_pct", None) is not None:
-                targets = {
-                    "large_cap": float(custom_saa_target.large_cap_pct),
-                    "mid_cap": float(custom_saa_target.mid_cap_pct),
-                    "small_cap": float(custom_saa_target.small_cap_pct),
-                    "flexi_multi_cap": float(custom_saa_target.flexi_cap_pct),
-                    "debt_liquid": float(custom_saa_target.debt_pct),
-                    "unclassified": 0.0,
-                }
-            elif eq > 0:
-                scale = eq / 100.0
-                dist = custom_policy.get("default_equity_distribution_pct", {
-                    "large_cap_pct": 35.0, "flexi_multi_cap_pct": 25.0, "mid_cap_pct": 20.0, "small_cap_pct": 20.0,
-                })
-                targets = {
-                    "large_cap": round(float(dist.get("large_cap_pct", 35.0)) * scale, 2),
-                    "flexi_multi_cap": round(float(dist.get("flexi_multi_cap_pct", 25.0)) * scale, 2),
-                    "mid_cap": round(float(dist.get("mid_cap_pct", 20.0)) * scale, 2),
-                    "small_cap": round(float(dist.get("small_cap_pct", 20.0)) * scale, 2),
-                    "debt_liquid": float(custom_saa_target.debt_pct),
-                    "unclassified": 0.0,
-                }
-                targets["large_cap"] = round(targets["large_cap"] + (eq - (targets["large_cap"] + targets["flexi_multi_cap"] + targets["mid_cap"] + targets["small_cap"])), 2)
-            else:
-                targets = {
-                    "large_cap": 0.0, "mid_cap": 0.0, "small_cap": 0.0, "flexi_multi_cap": 0.0,
-                    "debt_liquid": float(custom_saa_target.debt_pct), "unclassified": 0.0,
-                }
+            custom_policy = policy["custom_saa_policy"]
+            tolerance = custom_policy["default_tolerance_band_pct"]
+            sub_sleeves = (
+                custom_saa_target.large_cap_pct,
+                custom_saa_target.mid_cap_pct,
+                custom_saa_target.small_cap_pct,
+                custom_saa_target.flexi_cap_pct,
+            )
+            if any(value is None for value in sub_sleeves):
+                raise ValueError("Custom SAA requires explicit large, mid, small and flexi sleeve targets")
+            if custom_saa_target.risk_ceiling is None:
+                raise ValueError("Custom SAA requires an explicit independent risk ceiling")
+            targets = {
+                "large_cap": float(custom_saa_target.large_cap_pct),
+                "mid_cap": float(custom_saa_target.mid_cap_pct),
+                "small_cap": float(custom_saa_target.small_cap_pct),
+                "flexi_multi_cap": float(custom_saa_target.flexi_cap_pct),
+                "debt_liquid": float(custom_saa_target.debt_pct),
+                "unclassified": 0.0,
+            }
         else:
             profile_key = _SAA_POLICY_PROFILE_BY_RISK[risk_profile]
             profile = policy["behavioral_risk_profiles"][profile_key]
@@ -329,8 +318,7 @@ def _assess_complete_portfolio_context(
             if risk_ceiling_raw is None and "risk_ceiling" in ips:
                 risk_ceiling_raw = ips.get("risk_ceiling")
             if risk_ceiling_raw is None:
-                custom_policy = policy.get("custom_saa_policy", {})
-                risk_ceiling_raw = custom_policy.get("default_risk_ceiling", 6)
+                raise PortfolioInputError("Custom SAA requires an explicit independent risk ceiling")
             try:
                 c_val = int(risk_ceiling_raw)
                 if not 1 <= c_val <= 6 or isinstance(risk_ceiling_raw, bool):
@@ -351,11 +339,11 @@ def _assess_complete_portfolio_context(
                     raise PortfolioInputError("client IPS small cap target conflicts with custom SAA")
                 if abs(float(targets["flexi_multi_cap"]) - float(custom_saa_target.flexi_cap_pct)) > 0.01:
                     raise PortfolioInputError("client IPS flexi cap target conflicts with custom SAA")
-            if equity_target >= 99.9 and ips.get("tier6_equity_only_authorized") is not True:
+            if equity_target == 100.0 and debt_target == 0.0 and ips.get("tier6_equity_only_authorized") is not True:
                 raise PortfolioInputError("Tier 6 equity-only routing requires explicit IPS authorization")
         else:
             profile_ceiling_map = {"Conservative": 2, "Moderate": 4, "Aggressive": 6}
-            std_ceiling = profile_ceiling_map.get(risk_profile, 6)
+            std_ceiling = profile_ceiling_map[risk_profile]
             if "risk_ceiling" in ips:
                 try:
                     c_val = int(ips["risk_ceiling"])
