@@ -314,3 +314,27 @@ def test_portfolio_disclosure_rejects_boolean_string_and_duplicate_numeric_input
     assert result["status"] == "MISSING"
     assert result["constituent_weights"] is None
 
+
+
+def test_cas_preserves_full_units_and_derived_nav_precision(tmp_path):
+    workbook = openpyxl.Workbook()
+    sheet = workbook.active
+    sheet.title = "Portfolio Details"
+    sheet.append(["Scheme Name", "Folio No.", "Invested Value", "Current Value", "Units", "AMC Name"])
+    sheet.append([SCHEME_NAME, "FOLIO-PRECISION", 90000.01, 100000.01, 123.123456789, AMC_NAME])
+    path = tmp_path / "high-precision-units.xlsx"
+    workbook.save(path)
+
+    holdings = load_holdings_from_cas_excel(
+        path,
+        fund_metrics_path=_metrics_file(tmp_path),
+        scheme_master=_scheme_master()[0],
+        scheme_master_source_bytes=_scheme_master()[1],
+        disclosure_as_of_date=AS_OF,
+    )
+
+    assert len(holdings) == 1
+    assert holdings[0].current_value_inr == Decimal("100000.01")
+    assert holdings[0].invested_value_inr == Decimal("90000.01")
+    assert holdings[0].units == Decimal("123.123456789")
+    assert holdings[0].nav == Decimal("100000.01") / Decimal("123.123456789")
