@@ -1384,7 +1384,7 @@ def _validate_new_fund_limit(
             items.append(DeterministicSIPRecommendation(
                 category_role=rec.get("category_role", ""),
                 scheme_name=rec.get("scheme_name", ""),
-                monthly_inr=float(rec.get("monthly_inr", 0)),
+                monthly_inr=rec.get("monthly_inr", 0),
                 allocation_pct=float(rec.get("allocation_pct", 0)),
                 rational_code=rec.get("rational_code", ""),
                 fiduciary_rationale=rec.get("fiduciary_rationale", ""),
