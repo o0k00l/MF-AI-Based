@@ -1,0 +1,65 @@
+name: SIP acceptance regression
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "api/**"
+      - "core/**"
+      - "services/**"
+      - "tests/**"
+      - "data/policy/**"
+      - "scripts/**"
+      - ".github/workflows/sip-acceptance.yml"
+  push:
+    branches: [main]
+    paths:
+      - "api/**"
+      - "core/**"
+      - "services/**"
+      - "tests/**"
+      - "data/policy/**"
+      - "scripts/**"
+      - ".github/workflows/sip-acceptance.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sip-acceptance-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  regression:
+    name: SIP / full deterministic regression suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact commit
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements.lock
+      - name: Install reviewed hash-locked dependencies
+        run: python -m pip install --require-hashes -r requirements.lock
+      - name: Verify dependency consistency
+        run: python -m pip check
+      - name: Compile engine and API modules
+        run: python -m compileall -q api core services tax
+      - name: Run complete deterministic test suite
+        run: python -m pytest -q --tb=short -rs
+      - name: Record acceptance scope
+        if: always()
+        run: |
+          {
+            echo "## SIP acceptance regression"
+            echo "- Scope: deterministic repository tests only"
+            echo "- This workflow does not certify live-source coverage, authenticated TRI/calendar availability, reviewer approval, or production readiness."
+            echo "- End-to-end discovery-to-SIP acceptance is tracked in issue #145."
+          } >> "$GITHUB_STEP_SUMMARY"
