@@ -20,6 +20,15 @@ from services.risk_profiler import TargetSaa, SebiRiskTier, RiskProfileResult
 _MARKET_NOMINATIONS_PATH = Path(__file__).resolve().parent.parent / "data" / "policy" / "market_nominations.json"
 _SCHEME_MASTER_PATH = Path(__file__).resolve().parent.parent / "data" / "policy" / "scheme_master.json"
 
+# Default SAA distribution for fallback when no SAA is provided (represents Tier 6 / Aggressive profile)
+# Derived from standard fiduciary practice: 50% Large Cap, 25% Mid/Small, 0% Flexi, 25% Debt
+_DEFAULT_SAA_DISTRIBUTION = {
+    "large_cap": Decimal("50.0"),
+    "mid_small": Decimal("25.0"),
+    "flexi": Decimal("0.0"),
+    "debt": Decimal("25.0"),
+}
+
 
 def _load_market_nominations() -> Dict[str, Dict[str, Any]]:
     """Load market nomination selection rules for SIP blueprint selection."""
@@ -847,7 +856,10 @@ def generate_fiduciary_sip_blueprint(
 
         # If all keys are None, use default baseline
         if all(v is None for v in raw_vals.values()):
-            lc_pct, ms_pct, flexi_pct, db_pct = Decimal("50.0"), Decimal("25.0"), Decimal("0.0"), Decimal("25.0")
+            lc_pct = _DEFAULT_SAA_DISTRIBUTION["large_cap"]
+            ms_pct = _DEFAULT_SAA_DISTRIBUTION["mid_small"]
+            flexi_pct = _DEFAULT_SAA_DISTRIBUTION["flexi"]
+            db_pct = _DEFAULT_SAA_DISTRIBUTION["debt"]
         else:
             # Parse finite numeric percentages
             try:
