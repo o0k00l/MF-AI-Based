@@ -42,6 +42,7 @@ def _date(value: Any, field: str) -> date:
 
 SUPPORTED_PORTFOLIO_PERIMETER = frozenset({
     "cas_mutual_fund",
+    "external_mutual_fund",
     "bank_cash",
     "deposit",
     "epf_ppf_nps",
@@ -49,6 +50,7 @@ SUPPORTED_PORTFOLIO_PERIMETER = frozenset({
     "debt",
     "equity",
     "cash",
+    "liability",
     "excluded_asset",
 })
 
@@ -61,6 +63,7 @@ def reconcile_total_portfolio(
     excluded_assets: Iterable[Mapping[str, Any]] = (),
     unmatched_items: Iterable[Mapping[str, Any]] = (),
     sign_off: Mapping[str, Any] | None = None,
+    liabilities: Iterable[Mapping[str, Any]] = (),
 ) -> dict[str, Any]:
     """Reconcile a declared asset perimeter; absent assets are never assumed zero.
 
@@ -72,6 +75,7 @@ def reconcile_total_portfolio(
     rows = list(assets)
     excluded = list(excluded_assets)
     unmatched = list(unmatched_items)
+    liability_rows = list(liabilities)
 
     if perimeter_complete is not True:
         return {
@@ -81,6 +85,7 @@ def reconcile_total_portfolio(
             "included_count": len(rows),
             "excluded_count": len(excluded),
             "unmatched_count": len(unmatched),
+            "liabilities_count": len(liability_rows),
             "is_approved_for_sip_routing": False,
         }
     if not rows:
@@ -91,6 +96,7 @@ def reconcile_total_portfolio(
             "included_count": 0,
             "excluded_count": len(excluded),
             "unmatched_count": len(unmatched),
+            "liabilities_count": len(liability_rows),
             "is_approved_for_sip_routing": False,
         }
     if unmatched:
@@ -101,6 +107,7 @@ def reconcile_total_portfolio(
             "included_count": len(rows),
             "excluded_count": len(excluded),
             "unmatched_count": len(unmatched),
+            "liabilities_count": len(liability_rows),
             "unmatched_items": unmatched,
             "is_approved_for_sip_routing": False,
         }
@@ -113,6 +120,7 @@ def reconcile_total_portfolio(
                 "included_count": len(rows),
                 "excluded_count": len(excluded),
                 "unmatched_count": len(unmatched),
+                "liabilities_count": len(liability_rows),
                 "is_approved_for_sip_routing": False,
             }
         attested_by = sign_off.get("attested_by")
@@ -128,6 +136,7 @@ def reconcile_total_portfolio(
                 "included_count": len(rows),
                 "excluded_count": len(excluded),
                 "unmatched_count": len(unmatched),
+                "liabilities_count": len(liability_rows),
                 "is_approved_for_sip_routing": False,
             }
 
@@ -161,16 +170,50 @@ def reconcile_total_portfolio(
         total += value
         by_class[norm_class] = by_class.get(norm_class, Decimal("0")) + value
 
+    # Process and reconcile liabilities
+    total_liabilities = Decimal("0")
+    by_liability_type: dict[str, Decimal] = {}
+    liability_seen: set[str] = set()
+    for index, lrow in enumerate(liability_rows):
+        if not isinstance(lrow, Mapping):
+            raise PortfolioInputError(f"liability row {index} must be an object")
+        lid = lrow.get("liability_id")
+        ltype = lrow.get("liability_type") or lrow.get("asset_class") or "liability"
+        lsource = lrow.get("source_ref")
+        lowner = lrow.get("owner_scope") or "household"
+        if not all(isinstance(v, str) and v.strip() for v in (lid, ltype, lsource, lowner)):
+            raise PortfolioInputError(f"liability row {index} lacks identity/provenance")
+        if lid in liability_seen:
+            raise PortfolioInputError("duplicate liability_id")
+        liability_seen.add(lid)
+        row_date = _date(lrow.get("as_of_date"), f"liabilities[{index}].as_of_date")
+        if row_date != valuation_date:
+            raise PortfolioInputError("liability valuation dates do not match portfolio as_of_date")
+        lval = _decimal(lrow.get("value_inr"), f"liabilities[{index}].value_inr")
+        if lval < 0:
+            raise PortfolioInputError("liability value cannot be negative")
+        total_liabilities += lval
+        norm_ltype = str(ltype).strip().lower()
+        by_liability_type[norm_ltype] = by_liability_type.get(norm_ltype, Decimal("0")) + lval
+
+    net_portfolio_value = total - total_liabilities
+
     result: dict[str, Any] = {
         "status": "RECONCILED",
         "as_of_date": valuation_date.isoformat(),
         "total_value_inr": str(total),
+        "total_assets_inr": str(total),
+        "total_liabilities_inr": str(total_liabilities),
+        "net_portfolio_value_inr": str(net_portfolio_value),
         "included_count": len(rows),
         "excluded_count": len(excluded),
         "unmatched_count": len(unmatched),
+        "liabilities_count": len(liability_rows),
         "by_asset_class_inr": {k: str(v) for k, v in sorted(by_class.items())},
+        "by_liability_type_inr": {k: str(v) for k, v in sorted(by_liability_type.items())},
         "excluded_assets": excluded,
         "unmatched_items": unmatched,
+        "liabilities": liability_rows,
         "is_approved_for_sip_routing": True,
     }
     if sign_off is not None:
@@ -186,6 +229,7 @@ def generate_signed_portfolio_reconciliation_report(
     sign_off: Mapping[str, Any],
     excluded_assets: Iterable[Mapping[str, Any]] = (),
     unmatched_items: Iterable[Mapping[str, Any]] = (),
+    liabilities: Iterable[Mapping[str, Any]] = (),
     report_id: str | None = None,
 ) -> dict[str, Any]:
     """Generate an authoritative, signed-off portfolio reconciliation report artifact.
@@ -198,6 +242,7 @@ def generate_signed_portfolio_reconciliation_report(
     - RFC 8785 (JCS) SHA-256 cryptographic report digest.
     """
     valuation_date = _date(as_of_date, "as_of_date")
+    liability_list = [dict(r) for r in liabilities]
     if not isinstance(sign_off, Mapping) or not sign_off:
         recon = {
             "status": "HOLD",
@@ -207,6 +252,7 @@ def generate_signed_portfolio_reconciliation_report(
             "included_count": len(list(assets)),
             "excluded_count": len(list(excluded_assets)),
             "unmatched_count": len(list(unmatched_items)),
+            "liabilities_count": len(liability_list),
         }
     else:
         recon = reconcile_total_portfolio(
@@ -216,6 +262,7 @@ def generate_signed_portfolio_reconciliation_report(
             excluded_assets=excluded_assets,
             unmatched_items=unmatched_items,
             sign_off=sign_off,
+            liabilities=liability_list,
         )
 
     included_list = [dict(r) for r in assets]
@@ -229,13 +276,19 @@ def generate_signed_portfolio_reconciliation_report(
         "status": recon["status"],
         "is_approved_for_sip_routing": recon.get("is_approved_for_sip_routing", False),
         "total_value_inr": recon.get("total_value_inr"),
+        "total_assets_inr": recon.get("total_assets_inr", recon.get("total_value_inr")),
+        "total_liabilities_inr": recon.get("total_liabilities_inr", "0"),
+        "net_portfolio_value_inr": recon.get("net_portfolio_value_inr", recon.get("total_value_inr")),
         "included_count": recon.get("included_count", len(included_list)),
         "excluded_count": recon.get("excluded_count", len(excluded_list)),
         "unmatched_count": recon.get("unmatched_count", len(unmatched_list)),
+        "liabilities_count": recon.get("liabilities_count", len(liability_list)),
         "by_asset_class_inr": recon.get("by_asset_class_inr", {}),
+        "by_liability_type_inr": recon.get("by_liability_type_inr", {}),
         "included_assets": included_list,
         "excluded_assets": excluded_list,
         "unmatched_items": unmatched_list,
+        "liabilities": liability_list,
         "sign_off": dict(sign_off) if isinstance(sign_off, Mapping) else None,
     }
     if recon.get("reason"):

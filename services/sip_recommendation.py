@@ -249,6 +249,7 @@ def _assess_complete_portfolio_context(
         # Issue #23: When signed report is requested or sign_off is supplied, generate and enforce
         # the authoritative canonical signed reconciliation report with RFC 8785 (JCS) SHA-256 digest.
         sign_off_input = context.get("sign_off")
+        liabilities_input = context.get("liabilities", [])
         if isinstance(sign_off_input, dict) or context.get("require_signed_report") is True:
             reconciliation = generate_signed_portfolio_reconciliation_report(
                 assets,
@@ -257,6 +258,7 @@ def _assess_complete_portfolio_context(
                 sign_off=sign_off_input if isinstance(sign_off_input, dict) else {},
                 excluded_assets=context.get("excluded_assets", []),
                 unmatched_items=context.get("unmatched_items", []),
+                liabilities=liabilities_input,
             )
         else:
             reconciliation = reconcile_total_portfolio(
@@ -266,6 +268,7 @@ def _assess_complete_portfolio_context(
                 excluded_assets=context.get("excluded_assets", []),
                 unmatched_items=context.get("unmatched_items", []),
                 sign_off=context.get("sign_off"),
+                liabilities=liabilities_input,
             )
         if reconciliation["status"] != "RECONCILED" or not reconciliation.get("is_approved_for_sip_routing", True):
             return {"status": "HOLD", "portfolio_reconciliation": reconciliation,
