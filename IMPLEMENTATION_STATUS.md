@@ -9,6 +9,8 @@
 
 This is a verified progress index, not a production approval. "Open" means acceptance is not yet demonstrated; it does not mean no code exists. No module is complete merely because a unit test or a commit exists.
 
+**Status authority and semantics:** this file is the sole implementation-status index for the normative requirements. The architecture specification defines what must be true; the decision register defines which product decisions are fixed. Neither document's normative wording or a `Fixed` decision means the code is complete. Status entries below must be changed only when the corresponding acceptance evidence is verified on `main`; passing a component test or Action alone is insufficient. Where a requirement is only partly implemented, keep it `Partial/open` and state the remaining acceptance evidence.
+
 ## 1. Frozen product scope
 
 Current delivery is monthly Indian mutual-fund SIP recommendation only. Lumpsum/STP, tax/exit-load, redemption, switching, ETF recurring-purchase routing without verified operational support, and trade execution are excluded.
@@ -22,6 +24,8 @@ Public risk contract:
 Investor risk capacity and scheme Riskometer are distinct. Portfolio deficits, holdings-level overlap and marginal exposure determine incremental SIP routing. Numeric caps/minimums/increments/fund counts are effective only through the validated policy/IPS, not hardcoded universal rules.
 
 ## 2. Workstream status
+
+The statuses below describe acceptance, not whether files or partial code exist. `Open` / `Partial/open` means the stated acceptance criteria have not yet been fully demonstrated. Do not infer closure from the normative traceability matrix in the architecture specification.
 
 | Workstream | Issues | Status | Required evidence to close |
 |---|---|---|---|
@@ -72,6 +76,8 @@ The SIP workflow currently runs deterministic component regressions. It is **not
 - Do not close or mark done from a green unit-test suite alone.
 
 ## 5. Baseline and verification boundary
+
+The workflow run links below are historical evidence only. For a current green/red claim, inspect the latest run for the exact current `main` commit; never carry forward an earlier green result as proof for a later commit.
 
 Before the tracker/Actions corrections, the existing CI and Security workflows passed on commit `0cfbd00408a2ed012af4e1cc62ebbcaa96d98ac4` (CI run [43180628314](https://github.com/o0k00l/MF-AI-Based/actions/runs/43180628314), Security run [43180628283](https://github.com/o0k00l/MF-AI-Based/actions/runs/43180628283)). Those runs are historical baseline evidence and do not validate the later documentation/workflow commits.
 
