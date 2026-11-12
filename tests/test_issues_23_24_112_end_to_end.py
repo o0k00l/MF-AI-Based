@@ -287,6 +287,7 @@ def test_issue_24_custom_saa_propagates_downstream_and_preserves_unfillable(tmp_
         mid_cap_pct=Decimal("20.0"),
         small_cap_pct=Decimal("10.0"),
         flexi_cap_pct=Decimal("10.0"),
+        risk_ceiling=4,
     )
 
     context = {
