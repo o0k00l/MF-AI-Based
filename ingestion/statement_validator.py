@@ -507,7 +507,13 @@ def require_authenticated_statement(result: StatementValidationResult) -> None:
     """
     if not result.is_valid or not result.structural_validity:
         raise ValueError("Statement is structurally invalid.")
-    if not result.is_publisher_authenticated or result.authenticated_publisher is None:
+    if (
+        result.is_publisher_authenticated is not True
+        or result.publisher_authenticity_status != "AUTHENTICATED_SOURCE"
+        or result.authenticated_publisher not in ("CAMS", "KFintech", "MFCentral")
+        or result.rta_source != result.authenticated_publisher
+        or not result.provenance_source
+    ):
         raise ValueError(
             f"Statement publisher is unauthenticated (status: {result.publisher_authenticity_status}, "
             f"detected content: {result.detected_content_publisher}). "
