@@ -43,6 +43,19 @@ def _validated_sebi_tier_profile_mapping(policy: Dict[str, Any]) -> Dict[int, st
         resolved[int(raw_tier)] = profile_name
     return resolved
 
+def _validated_portfolio_lookthrough_policy() -> Dict[str, Any]:
+    """Load look-through coverage and reconciliation controls from screening policy."""
+    from core.eligibility import load_fund_screening_policy
+
+    policy = load_fund_screening_policy()
+    lookthrough = policy["portfolio_lookthrough_policy"]
+    return {
+        "required_coverage_pct": float(lookthrough["required_coverage_pct"]),
+        "weight_reconciliation_tolerance_pct": float(
+            lookthrough["constituent_weight_reconciliation_tolerance_pct"]
+        ),
+    }
+
 # ─────────────────────────────────────────────────────────────────────────────
 # DATE-AWARE STATUTORY TAX LAYER (1961 Act vs 2025 Act)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2650,14 +2663,26 @@ def weighted_lookthrough_overlap_status(holdings: List[HoldingItem]) -> str:
     """Return VERIFIED only when every active holding has complete weighted disclosure."""
     if not holdings:
         return "UNAVAILABLE"
+    try:
+        lookthrough_policy = _validated_portfolio_lookthrough_policy()
+    except (KeyError, TypeError, ValueError):
+        return "UNAVAILABLE"
+    required_coverage = lookthrough_policy["required_coverage_pct"]
+    weight_tolerance = lookthrough_policy["weight_reconciliation_tolerance_pct"]
     seen: Dict[str, Dict[str, float]] = {}
     for holding in holdings:
         try:
-            value = float(holding.current_value_inr)
-            equity_pct = float(getattr(holding, "equity_pct", 100.0))
-        except (TypeError, ValueError, AttributeError):
+            value = Decimal(str(holding.current_value_inr))
+            raw_equity_pct = getattr(holding, "equity_pct", None)
+            if raw_equity_pct is None:
+                return "UNAVAILABLE"
+            equity_pct = Decimal(str(raw_equity_pct))
+        except (TypeError, ValueError, AttributeError, ArithmeticError):
             return "UNAVAILABLE"
-        if not math.isfinite(value) or value <= 0.0 or not math.isfinite(equity_pct) or not 0.0 <= equity_pct <= 100.0:
+        if (
+            not value.is_finite() or value <= 0
+            or not equity_pct.is_finite() or not Decimal("0") <= equity_pct <= Decimal("100")
+        ):
             return "UNAVAILABLE"
         # Pure debt/cash holdings do not contribute to stock overlap and do
         # not require equity constituent disclosures.
@@ -2670,7 +2695,7 @@ def weighted_lookthrough_overlap_status(holdings: List[HoldingItem]) -> str:
             return "UNAVAILABLE"
         if (
             getattr(holding, "lookthrough_status", "MISSING") != "VERIFIED"
-            or not math.isfinite(coverage) or not 99.5 <= coverage <= 100.0
+            or not math.isfinite(coverage) or not required_coverage <= coverage <= 100.0
             or not isinstance(raw, dict) or not raw
         ):
             return "UNAVAILABLE"
@@ -2684,7 +2709,7 @@ def weighted_lookthrough_overlap_status(holdings: List[HoldingItem]) -> str:
         if (
             any(not stock or not math.isfinite(weight) or not 0.0 <= weight <= 100.0
                 for stock, weight in weights.items())
-            or not 99.5 <= sum(weights.values()) <= 100.5
+            or abs(sum(weights.values()) - 100.0) > weight_tolerance
         ):
             return "UNAVAILABLE"
         scheme_id = getattr(holding, "scheme_id", None)
@@ -3309,8 +3334,8 @@ def compute_candidate_portfolio_overlap(
     Calculate candidate-to-portfolio overlap from explicit constituent weights.
 
     Each constituent_weights map expresses stock weights as percentages of the
-    fund's equity sleeve and must be complete (>=99.5% coverage and weights
-    summing to 99.5..100.5%). Portfolio weights are value-weighted across the
+    fund's equity sleeve and must satisfy the validated screening-policy coverage
+    and weight-reconciliation controls. Portfolio weights are value-weighted across the
     supplied holdings. None means evidence is missing/incomplete; zero is
     returned only for a verified empty portfolio or genuinely disjoint holdings.
     """
@@ -3327,6 +3352,12 @@ def compute_candidate_portfolio_overlap(
             security_master = None
     if strict and security_master is None:
         return None
+    try:
+        lookthrough_policy = _validated_portfolio_lookthrough_policy()
+    except (KeyError, TypeError, ValueError):
+        return None
+    required_coverage = lookthrough_policy["required_coverage_pct"]
+    weight_tolerance = lookthrough_policy["weight_reconciliation_tolerance_pct"]
 
     def validated_weights(raw: Any, coverage_raw: Any, label: str) -> Optional[Dict[str, float]]:
         if not isinstance(raw, dict) or not raw:
@@ -3339,12 +3370,12 @@ def compute_candidate_portfolio_overlap(
             weights, _ = normalize_constituent_weights(raw, security_master=security_master, strict=strict)
         except (TypeError, ValueError):
             return None
-        if not math.isfinite(coverage) or coverage < 99.5 or coverage > 100.0:
+        if not math.isfinite(coverage) or coverage < required_coverage or coverage > 100.0:
             return None
         if any(not k or not math.isfinite(v) or v < 0.0 or v > 100.0 for k, v in weights.items()):
             return None
         total = sum(weights.values())
-        if not 99.5 <= total <= 100.5:
+        if abs(total - 100.0) > weight_tolerance:
             return None
         return weights
 
