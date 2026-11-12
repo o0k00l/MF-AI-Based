@@ -195,7 +195,9 @@ def test_issue_52_text_markers_do_not_upgrade_authenticity():
     assert res.is_valid is True
     # The detector marks text content as detected, but authenticity remains unauthenticated
     assert res.is_publisher_authenticated is False
-    assert res.publisher_authenticity_status in ("UNVERIFIED", "UNAUTHENTICATED_DOCUMENT_CONTENT")
+    assert res.rta_source == "Unknown"
+    assert res.detected_content_publisher == "CAMS"
+    assert res.publisher_authenticity_status == "UNAUTHENTICATED_DOCUMENT_CONTENT"
     assert res.authenticated_publisher is None
 
 
@@ -209,10 +211,20 @@ def test_issue_52_genuine_provenance_authenticates_publisher():
         "publisher": "CAMS",
         "source_digest": digest,
         "source_signature": "sig:ed25519:valid_cams_signature",
-        "reviewer_attestation": "Official CAMS digital statement delivery",
+        "verification_method": "TRUSTED_SIGNATURE",
+        "verified_at": "2026-11-12T10:00:00Z",
+        "evidence_reference": "test-signature:cas-cams-001",
     }
     raw_res = validate_cas_excel(file_bytes, "cas_cams.xlsx")
-    authenticated_res = authenticate_statement_provenance(raw_res, evidence=evidence)
+    authenticated_res = authenticate_statement_provenance(
+        raw_res,
+        evidence=evidence,
+        trusted_verifier=lambda digest, publisher, supplied: (
+            digest == hashlib.sha256(file_bytes).hexdigest()
+            and publisher == "CAMS"
+            and supplied.get("source_signature") == "sig:ed25519:valid_cams_signature"
+        ),
+    )
     assert authenticated_res.is_publisher_authenticated is True
     assert authenticated_res.publisher_authenticity_status == "AUTHENTICATED_SOURCE"
     assert authenticated_res.authenticated_publisher == "CAMS"
