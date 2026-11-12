@@ -306,10 +306,25 @@ class EvidenceBundleBuilder:
             if reviewer_envelope_manifest and reviewer_registry_manifest:
                 manifest["reviewer_approval_envelope_file"] = reviewer_envelope_manifest
                 manifest["reviewer_trust_registry_file"] = reviewer_registry_manifest
-            if expected_commit_sha is not None:
-                manifest["commit_sha"] = expected_commit_sha
-            if expected_policy_digest is not None:
-                manifest["policy_digest"] = expected_policy_digest
+
+            # Resolve and enforce mandatory non-empty commit_sha and policy_digest in manifest
+            commit_for_manifest = expected_commit_sha
+            if not commit_for_manifest and isinstance(reviewer_approval_envelope, dict):
+                commit_for_manifest = reviewer_approval_envelope.get("payload", {}).get("commit_sha")
+            if not commit_for_manifest or not str(commit_for_manifest).strip():
+                raise ValueError("Promotion requires a non-empty 'commit_sha' binding in the manifest.")
+
+            policy_for_manifest = expected_policy_digest
+            if not policy_for_manifest and isinstance(reviewer_approval_envelope, dict):
+                policy_for_manifest = (
+                    reviewer_approval_envelope.get("payload", {}).get("policy_digest")
+                    or reviewer_approval_envelope.get("payload", {}).get("policy_sha256")
+                )
+            if not policy_for_manifest or not str(policy_for_manifest).strip():
+                raise ValueError("Promotion requires a non-empty 'policy_digest' binding in the manifest.")
+
+            manifest["commit_sha"] = str(commit_for_manifest).strip()
+            manifest["policy_digest"] = str(policy_for_manifest).strip()
 
             self._write_json(staging_dir / "manifest.json", manifest)
 

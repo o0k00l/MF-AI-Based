@@ -566,37 +566,49 @@ class EngineBootstrapPipeline:
         if staging_manifest.get("schema_version") != 1:
             raise ValueError("Staging bundle manifest schema_version must be 1.")
 
-        # Verify co-bound manifest and envelope bindings
+        # Verify co-bound manifest and envelope bindings: require non-empty commit_sha and policy_digest
         manifest_commit = staging_manifest.get("commit_sha")
-        if manifest_commit is not None:
-            if expected_commit_sha is not None and manifest_commit.lower() != expected_commit_sha.lower():
-                raise ValueError(
-                    f"Staging manifest commit SHA ({manifest_commit}) does not match expected commit SHA ({expected_commit_sha})."
-                )
-            envelope_commit = (
-                reviewer_approval_envelope.get("payload", {}).get("commit_sha")
-                if isinstance(reviewer_approval_envelope, dict) else None
-            )
-            if envelope_commit and manifest_commit.lower() != envelope_commit.lower():
-                raise ValueError(
-                    f"Staging manifest commit SHA ({manifest_commit}) does not match envelope commit SHA ({envelope_commit})."
-                )
+        if not manifest_commit or not isinstance(manifest_commit, str) or not manifest_commit.strip():
+            raise ValueError("Staging bundle manifest is missing required non-empty 'commit_sha' binding field.")
+        manifest_commit = manifest_commit.strip()
 
         manifest_policy = staging_manifest.get("policy_digest")
-        if manifest_policy is not None:
-            if expected_policy_digest is not None and manifest_policy.lower() != expected_policy_digest.lower():
-                raise ValueError(
-                    f"Staging manifest policy digest ({manifest_policy}) does not match expected policy digest ({expected_policy_digest})."
-                )
-            envelope_policy = (
-                (reviewer_approval_envelope.get("payload", {}).get("policy_digest")
-                 or reviewer_approval_envelope.get("payload", {}).get("policy_sha256"))
-                if isinstance(reviewer_approval_envelope, dict) else None
+        if not manifest_policy or not isinstance(manifest_policy, str) or not manifest_policy.strip():
+            raise ValueError("Staging bundle manifest is missing required non-empty 'policy_digest' binding field.")
+        manifest_policy = manifest_policy.strip()
+
+        if expected_commit_sha is not None and manifest_commit.lower() != expected_commit_sha.lower():
+            raise ValueError(
+                f"Staging manifest commit SHA ({manifest_commit}) does not match expected commit SHA ({expected_commit_sha})."
             )
-            if envelope_policy and manifest_policy.lower() != envelope_policy.lower():
-                raise ValueError(
-                    f"Staging manifest policy digest ({manifest_policy}) does not match envelope policy digest ({envelope_policy})."
-                )
+
+        envelope_commit = (
+            reviewer_approval_envelope.get("payload", {}).get("commit_sha")
+            if isinstance(reviewer_approval_envelope, dict) else None
+        )
+        if not envelope_commit or not str(envelope_commit).strip():
+            raise ValueError("Reviewer approval envelope is missing required 'commit_sha' binding.")
+        if manifest_commit.lower() != str(envelope_commit).strip().lower():
+            raise ValueError(
+                f"Staging manifest commit SHA ({manifest_commit}) does not match envelope commit SHA ({envelope_commit})."
+            )
+
+        if expected_policy_digest is not None and manifest_policy.lower() != expected_policy_digest.lower():
+            raise ValueError(
+                f"Staging manifest policy digest ({manifest_policy}) does not match expected policy digest ({expected_policy_digest})."
+            )
+
+        envelope_policy = (
+            (reviewer_approval_envelope.get("payload", {}).get("policy_digest")
+             or reviewer_approval_envelope.get("payload", {}).get("policy_sha256"))
+            if isinstance(reviewer_approval_envelope, dict) else None
+        )
+        if not envelope_policy or not str(envelope_policy).strip():
+            raise ValueError("Reviewer approval envelope is missing required 'policy_digest' binding.")
+        if manifest_policy.lower() != str(envelope_policy).strip().lower():
+            raise ValueError(
+                f"Staging manifest policy digest ({manifest_policy}) does not match envelope policy digest ({envelope_policy})."
+            )
 
         staged_envelope_file = staging_path / "reviewer_approval_envelope.json"
         if staged_envelope_file.is_file():

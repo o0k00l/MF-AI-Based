@@ -530,9 +530,18 @@ def test_issue_112_engine_bootstrap_promote_mandatory_artifact_binding(tmp_path)
     artifact digest, commit SHA, and policy digest binding against computed staging bundle digest.
     All caller downgrade attempts are strictly rejected.
     """
+    priv, registry = _make_key_pair()
+    commit_sha = "a" * 40
+    policy_digest = "b" * 64
+
     staging_dir = tmp_path / "staging_bundle"
     staging_dir.mkdir(parents=True, exist_ok=True)
-    manifest = {"schema_version": 1, "created_at": date.today().isoformat()}
+    manifest = {
+        "schema_version": 1,
+        "created_at": date.today().isoformat(),
+        "commit_sha": commit_sha,
+        "policy_digest": policy_digest,
+    }
     (staging_dir / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
     (staging_dir / "data.txt").write_text("sample bundle content", encoding="utf-8")
 
@@ -542,10 +551,6 @@ def test_issue_112_engine_bootstrap_promote_mandatory_artifact_binding(tmp_path)
     lkg_file.write_text(json.dumps({"schema_version": 1, "lkg": "PRESERVED"}), encoding="utf-8")
 
     pipeline = EngineBootstrapPipeline()
-
-    priv, registry = _make_key_pair()
-    commit_sha = "a" * 40
-    policy_digest = "b" * 64
 
     # Compute actual bundle digest
     bundle_files = sorted([p for p in staging_dir.rglob("*") if p.is_file()])
@@ -645,7 +650,7 @@ def test_issue_112_engine_bootstrap_promote_mandatory_artifact_binding(tmp_path)
         policy_digest=policy_digest,
         artifact_digest=actual_bundle_digest,
     )
-    with pytest.raises(ValueError, match="missing required commit_sha binding"):
+    with pytest.raises(ValueError, match=r"missing required .*commit_sha.* binding"):
         pipeline.promote(
             staging_dir,
             target_dir,
@@ -653,6 +658,57 @@ def test_issue_112_engine_bootstrap_promote_mandatory_artifact_binding(tmp_path)
             reviewer_trust_registry=registry,
             expected_policy_digest=policy_digest,
         )
+
+    # 6b. Manifest missing commit_sha fails closed
+    (staging_dir / "manifest.json").write_text(
+        json.dumps({"schema_version": 1, "policy_digest": policy_digest}), encoding="utf-8"
+    )
+    with pytest.raises(ValueError, match="missing required non-empty 'commit_sha'"):
+        pipeline.promote(
+            staging_dir,
+            target_dir,
+            reviewer_approval_envelope=bad_envelope,
+            reviewer_trust_registry=registry,
+        )
+
+    # 6c. Manifest missing policy_digest fails closed
+    (staging_dir / "manifest.json").write_text(
+        json.dumps({"schema_version": 1, "commit_sha": commit_sha}), encoding="utf-8"
+    )
+    with pytest.raises(ValueError, match="missing required non-empty 'policy_digest'"):
+        pipeline.promote(
+            staging_dir,
+            target_dir,
+            reviewer_approval_envelope=bad_envelope,
+            reviewer_trust_registry=registry,
+        )
+
+    # 6d. Manifest with empty string commit_sha fails closed
+    (staging_dir / "manifest.json").write_text(
+        json.dumps({"schema_version": 1, "commit_sha": "   ", "policy_digest": policy_digest}), encoding="utf-8"
+    )
+    with pytest.raises(ValueError, match="missing required non-empty 'commit_sha'"):
+        pipeline.promote(
+            staging_dir,
+            target_dir,
+            reviewer_approval_envelope=bad_envelope,
+            reviewer_trust_registry=registry,
+        )
+
+    # 6e. Manifest with empty string policy_digest fails closed
+    (staging_dir / "manifest.json").write_text(
+        json.dumps({"schema_version": 1, "commit_sha": commit_sha, "policy_digest": ""}), encoding="utf-8"
+    )
+    with pytest.raises(ValueError, match="missing required non-empty 'policy_digest'"):
+        pipeline.promote(
+            staging_dir,
+            target_dir,
+            reviewer_approval_envelope=bad_envelope,
+            reviewer_trust_registry=registry,
+        )
+
+    # Restore valid manifest for good promotion
+    (staging_dir / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
 
     # 7. Envelope with MATCHING artifact digest, commit SHA, and policy digest succeeds
     good_envelope = create_sip_reviewer_approval_envelope(

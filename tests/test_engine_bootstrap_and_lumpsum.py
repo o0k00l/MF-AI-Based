@@ -223,7 +223,14 @@ def test_engine_bootstrap_pipeline_promotion_atomic_and_rollback(tmp_path):
     pipeline = EngineBootstrapPipeline()
     staging_dir = tmp_path / "staging"
     staging_dir.mkdir(parents=True)
-    (staging_dir / "manifest.json").write_text(json.dumps({"schema_version": 1, "test": "data"}), encoding="utf-8")
+    commit_sha = "1" * 40
+    policy_digest = "2" * 64
+    (staging_dir / "manifest.json").write_text(json.dumps({
+        "schema_version": 1,
+        "test": "data",
+        "commit_sha": commit_sha,
+        "policy_digest": policy_digest,
+    }), encoding="utf-8")
     (staging_dir / "scheme_master.json").write_text(json.dumps({"schemes": []}), encoding="utf-8")
 
     target_dir = tmp_path / "promoted_bundle"

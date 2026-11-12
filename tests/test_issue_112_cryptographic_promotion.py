@@ -152,6 +152,10 @@ def test_approval_fails_when_mandatory_bindings_are_missing():
 
 def test_engine_bootstrap_promote_enforces_commit_and_policy_binding(tmp_path):
     pipeline = EngineBootstrapPipeline()
+    priv, registry = _make_key_pair()
+    commit = "07cb506f8c35d4572cf58645e61d36f22302048a"
+    policy_hash = hashlib.sha256(b"screening_policy").hexdigest()
+
     staging = tmp_path / "staging"
     staging.mkdir(parents=True)
     manifest = {
@@ -159,16 +163,14 @@ def test_engine_bootstrap_promote_enforces_commit_and_policy_binding(tmp_path):
         "disclosure_as_of_date": "2026-11-05",
         "metrics_file": "metrics.json",
         "scheme_master_file": "scheme_master.json",
+        "commit_sha": commit,
+        "policy_digest": policy_hash,
     }
     (staging / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
     (staging / "metrics.json").write_text("{}", encoding="utf-8")
     (staging / "scheme_master.json").write_text("{}", encoding="utf-8")
 
     target = tmp_path / "target"
-
-    priv, registry = _make_key_pair()
-    commit = "07cb506f8c35d4572cf58645e61d36f22302048a"
-    policy_hash = hashlib.sha256(b"screening_policy").hexdigest()
 
     bundle_files = sorted([p for p in staging.rglob("*") if p.is_file()])
     hasher = hashlib.sha256()
@@ -191,7 +193,7 @@ def test_engine_bootstrap_promote_enforces_commit_and_policy_binding(tmp_path):
     )
 
     # 1. Promotion with wrong commit SHA fails closed
-    with pytest.raises(ValueError, match="Commit SHA mismatch"):
+    with pytest.raises(ValueError, match=r"(Commit SHA mismatch|commit SHA .* does not match)"):
         pipeline.promote(
             staging,
             target,
