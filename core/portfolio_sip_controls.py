@@ -814,11 +814,24 @@ def calculate_lookthrough_exposure(
     *,
     required_coverage_pct: Any,
     security_master: Optional[Mapping[str, Any]] = None,
+    weight_reconciliation_tolerance_pct: Any | None = None,
 ) -> dict[str, Any]:
-    """Aggregate constituent exposure from portfolio-weighted scheme look-through."""
+    """Aggregate constituent exposure from policy-bound portfolio-weighted look-through."""
     required = _decimal(required_coverage_pct, "required_coverage_pct")
     if required <= 0 or required > 100:
         raise PortfolioInputError("required coverage must be in (0, 100]")
+    if weight_reconciliation_tolerance_pct is None:
+        from core.eligibility import load_fund_screening_policy
+        screening_policy = load_fund_screening_policy()
+        weight_reconciliation_tolerance_pct = screening_policy[
+            "portfolio_lookthrough_policy"
+        ]["constituent_weight_reconciliation_tolerance_pct"]
+    weight_tolerance = _decimal(
+        weight_reconciliation_tolerance_pct,
+        "weight_reconciliation_tolerance_pct",
+    )
+    if weight_tolerance < 0 or weight_tolerance > 100:
+        raise PortfolioInputError("weight reconciliation tolerance must be between 0 and 100")
     rows = list(holdings)
     if not rows:
         return {"status": "HOLD", "reason": "NO_HOLDINGS"}
@@ -857,7 +870,7 @@ def calculate_lookthrough_exposure(
                 raise PortfolioInputError("constituent weight must be between 0 and 100")
             disclosed_weight_total += weight
             issuer_exposure[canon_issuer] = issuer_exposure.get(canon_issuer, Decimal("0")) + value * weight / 100
-        if coverage >= required and abs(disclosed_weight_total - Decimal("100")) > Decimal("0.5"):
+        if coverage >= required and abs(disclosed_weight_total - Decimal("100")) > weight_tolerance:
             raise PortfolioInputError("constituent weights do not reconcile to reported coverage")
     if total_value <= 0:
         raise PortfolioInputError("total holdings value must be positive")
