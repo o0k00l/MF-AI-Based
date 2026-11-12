@@ -41,6 +41,8 @@ def test_advisor_requires_explicit_external_client_data(monkeypatch, tmp_path):
         "fund_metrics": Path("/tmp/fake-data/fund_metrics.json"),
         "fund_aliases": Path("/tmp/fake-data/fund_aliases.json"),
         "is_acquired": True,
+        "is_decision_eligible": True,
+        "promotion_eligible": True,
     }
     with patch("advisor.get_engine_data_paths", return_value=mock_paths):
         monkeypatch.delenv("MF_CLIENT_DATA_DIR", raising=False)

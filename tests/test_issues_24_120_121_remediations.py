@@ -109,6 +109,8 @@ def test_engine_data_paths_resolves_snapshot_paths_from_manifest(tmp_path):
         "status": "ACQUIRED_UNVERIFIED",
         "dataset_id": "abc123hash",
         "retrieved_at": "2026-11-05T00:00:00Z",
+        "source_url": "https://www.amfiindia.com/spages/NAVAll.txt",
+        "source_sha256": "abc123hash",
         "source_file": "snapshots/abc123hash/sources/amfi-nav.txt",
         "artifacts": {
             "scheme_master": "snapshots/abc123hash/scheme_master.json",
@@ -125,9 +127,15 @@ def test_engine_data_paths_resolves_snapshot_paths_from_manifest(tmp_path):
     # update artifacts with actual dataset_id
     (src_dir / "amfi-nav.txt").write_bytes(src_bytes)
 
-    # Put matching dataset_id in artifacts
+    # Put matching dataset_id in artifacts and bind each exact artifact byte sequence.
     for p in (m_path, met_path, a_path):
         p.write_text(json.dumps({"dataset_id": manifest["dataset_id"]}), encoding="utf-8")
+    manifest["source_sha256"] = manifest["dataset_id"]
+    manifest["artifact_sha256"] = {
+        "scheme_master": hashlib.sha256(m_path.read_bytes()).hexdigest(),
+        "fund_metrics": hashlib.sha256(met_path.read_bytes()).hexdigest(),
+        "fund_aliases": hashlib.sha256(a_path.read_bytes()).hexdigest(),
+    }
 
     (store / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
 
