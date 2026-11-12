@@ -259,7 +259,7 @@ def test_issue_24_complete_eligible_candidate_recommendation_trace(tmp_path, mon
 
     as_of = date.today().isoformat()
     candidates = _build_30_candidates(as_of)
-    monthly_budget = 20000.0
+    monthly_budget = Decimal("20000.00")
 
     sign_off = {
         "attested_by": "chief-compliance-officer@fiduciary.org",
@@ -513,7 +513,7 @@ def test_issue_24_custom_saa_unfillable_sleeve_budget_strictly_preserved(tmp_pat
     candidates = _build_30_candidates(as_of)
     candidate_sleeves = {c["fund_id"]: "large_cap" for c in candidates}
 
-    monthly_budget = 10000.0
+    monthly_budget = Decimal("10000.00")
     custom_target = AssetAllocationTarget(
         equity_pct=Decimal("80.0"),
         debt_pct=Decimal("20.0"),
