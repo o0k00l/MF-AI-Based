@@ -13,8 +13,16 @@ INR_PAISE = Decimal("0.01")
 
 
 def quantize_inr(value: Union[Decimal, float, int, str]) -> Decimal:
-    """Quantize monetary amount to exact 2 decimal places (paise) using ROUND_HALF_UP."""
+    """Convert an explicit numeric input to paise-quantized Decimal using ROUND_HALF_UP.
+
+    Float inputs are accepted only as a compatibility boundary and are converted
+    through their shortest decimal string; active SIP ingress uses Decimal strings.
+    """
+    if isinstance(value, bool):
+        raise ValueError("Boolean values are not valid INR amounts")
     d = Decimal(str(value)) if not isinstance(value, Decimal) else value
+    if not d.is_finite():
+        raise ValueError("INR amount must be finite")
     return d.quantize(INR_PAISE, rounding=ROUND_HALF_UP)
 
 
@@ -292,8 +300,12 @@ class HoldingItem(BaseModel):
                     data[f] = quantize_inr(data[f])
             for f in ("units", "nav"):
                 if f in data and data[f] is not None:
-                    if not isinstance(data[f], Decimal):
-                        data[f] = Decimal(str(data[f]))
+                    if isinstance(data[f], bool):
+                        raise ValueError(f"{f} must be a finite non-negative Decimal")
+                    value = data[f] if isinstance(data[f], Decimal) else Decimal(str(data[f]))
+                    if not value.is_finite() or value < 0:
+                        raise ValueError(f"{f} must be a finite non-negative Decimal")
+                    data[f] = value
         return data
     top_holdings: List[str] = Field(default_factory=list)
     # Full, source-verified constituent weights as percentages of the fund equity sleeve.
