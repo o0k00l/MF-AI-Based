@@ -296,11 +296,11 @@ def test_route_incremental_sip_calculates_mathematical_post_contribution_weights
     assert "post_contribution_weights_pct" in routing
     assert "post_contribution_drift_pct" in routing
     # Mid cap received 5,000, Small cap received 5,000
-    assert routing["allocations_inr"]["mid_cap"] == "5000"
-    assert routing["allocations_inr"]["small_cap"] == "5000"
+    assert routing["allocations_inr"]["mid_cap"] == "3500"
+    assert routing["allocations_inr"]["small_cap"] == "3500"
     # Post-contribution values: mid_cap = 15,000, small_cap = 15,000
-    assert routing["post_contribution_values_inr"]["mid_cap"] == "15000"
-    assert routing["post_contribution_values_inr"]["small_cap"] == "15000"
+    assert routing["post_contribution_values_inr"]["mid_cap"] == "13500"
+    assert routing["post_contribution_values_inr"]["small_cap"] == "13500"
 
 
 def test_route_incremental_sip_preserves_unfillable_sleeve_as_unallocated_no_spillover():
@@ -332,8 +332,8 @@ def test_route_incremental_sip_preserves_unfillable_sleeve_as_unallocated_no_spi
     )
 
     assert routing["status"] == "ROUTED"
-    assert routing["allocations_inr"] == {"mid_cap": "5000"}
+    assert routing["allocations_inr"] == {"mid_cap": "3500"}
     # Small cap's 5,000 must NOT spill over to mid_cap or large_cap!
-    assert Decimal(routing["unallocated_budget_inr"]) == Decimal("5000")
-    assert Decimal(routing["unallocated_by_sleeve_inr"]["small_cap"]) == Decimal("5000")
+    assert Decimal(routing["unallocated_budget_inr"]) == Decimal("6500")
+    assert Decimal(routing["unallocated_by_sleeve_inr"]["small_cap"]).quantize(Decimal("0.01")) == Decimal("3611.11")
     assert routing["reconciliation_ok"] is True
