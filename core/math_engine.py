@@ -3436,12 +3436,12 @@ def evaluate_candidate_portfolio_concentration_controls(
     *,
     security_master: Optional[Dict[str, Any]] = None,
     classifications: Optional[Dict[str, Any]] = None,
-    max_overlap_pct: float = 30.0,
-    max_issuer_pct: float = 10.0,
-    max_sector_pct: float = 35.0,
-    max_theme_pct: float = 15.0,
-    max_market_cap_pct: float = 50.0,
-    max_scheme_pct: float = 25.0,
+    max_overlap_pct: Optional[float] = None,
+    max_issuer_pct: Optional[float] = None,
+    max_sector_pct: Optional[float] = None,
+    max_theme_pct: Optional[float] = None,
+    max_market_cap_pct: Optional[float] = None,
+    max_scheme_pct: Optional[float] = None,
     is_starter: bool = False,
     as_of_date: Optional[str] = None,
     require_security_master: bool = False,
@@ -3449,19 +3449,42 @@ def evaluate_candidate_portfolio_concentration_controls(
     """
     Issue #26: Comprehensive multi-dimensional concentration and overlap controls.
     Measures:
-    1. Look-through completeness (>=99.5% required; missing returns HOLD)
-    2. Pairwise candidate overlap ceiling (<= max_overlap_pct, default 30%)
-    3. Total-portfolio issuer concentration cap (<= max_issuer_pct, default 10%)
-    4. Total-portfolio sector concentration cap (<= max_sector_pct, default 35%)
-    5. Thematic satellite cap (<= 15% for established, 0% for starter)
-    6. Market-cap concentration cap (<= max_market_cap_pct, default 50%)
-    7. Single-scheme concentration cap (<= max_scheme_pct, default 25%)
+    1. Look-through completeness from the validated screening policy.
+    2. Pairwise candidate overlap ceiling from the validated screening policy.
+    3. Issuer, sector, theme, market-cap and scheme caps only when supplied by
+       an effective, approved concentration policy; otherwise HOLD.
     """
     if holdings is None:
         return {"status": "HOLD", "passed": False, "reason": "HOLDINGS_DATA_MISSING", "overlap_pct": None}
 
     if require_security_master and security_master is None:
         return {"status": "HOLD", "passed": False, "reason": "SECURITY_MASTER_REQUIRED", "overlap_pct": None}
+
+    try:
+        from core.eligibility import load_fund_screening_policy
+        screening_policy = load_fund_screening_policy()
+        if max_overlap_pct is None:
+            max_overlap_pct = float(screening_policy["gate_thresholds"]["max_overlap_candidate_pct"])
+    except (OSError, ValueError, TypeError, KeyError):
+        return {
+            "status": "HOLD", "passed": False,
+            "reason": "APPROVED_OVERLAP_POLICY_MISSING_OR_INVALID", "overlap_pct": None,
+        }
+    if not math.isfinite(float(max_overlap_pct)) or not 0.0 <= float(max_overlap_pct) <= 100.0:
+        return {
+            "status": "HOLD", "passed": False,
+            "reason": "APPROVED_OVERLAP_POLICY_INVALID", "overlap_pct": None,
+        }
+    if classifications is not None and security_master is not None and holdings:
+        supplied_limits = (
+            max_issuer_pct, max_sector_pct, max_theme_pct,
+            max_market_cap_pct, max_scheme_pct,
+        )
+        if any(value is None for value in supplied_limits):
+            return {
+                "status": "HOLD", "passed": False,
+                "reason": "CLASSIFIED_CONCENTRATION_POLICY_LIMITS_MISSING", "overlap_pct": None,
+            }
 
     overlap = compute_candidate_portfolio_overlap(
         candidate, holdings=holdings, security_master=security_master, strict=(security_master is not None)
@@ -4893,7 +4916,7 @@ def select_autonomous_blueprint_funds(
                 candidate,
                 holdings=holdings,
                 security_master=security_master,
-                max_overlap_pct=40.0,
+                max_overlap_pct=float(screening_policy["gate_thresholds"]["max_overlap_candidate_pct"]),
                 is_starter=is_starter,
                 as_of_date=str(disclosure_as_of_date) if disclosure_as_of_date else None,
             )
