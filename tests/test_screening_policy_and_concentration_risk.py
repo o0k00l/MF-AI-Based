@@ -1,3 +1,4 @@
+import hashlib
 import json
 import pytest
 from datetime import date
@@ -107,6 +108,13 @@ def test_changing_policy_threshold_changes_effective_gate_behavior():
     # Policy B: min_sharpe modified to 0.70 -> fails Gate 4 (Sharpe below threshold)
     policy_strict = dict(policy)
     policy_strict["gate_thresholds"] = dict(policy["gate_thresholds"], min_sharpe=0.70)
+    # This is a new immutable policy snapshot, not a mutation of the
+    # file-backed policy that retains its original source digest.
+    policy_strict.pop("_policy_path", None)
+    policy_strict.pop("_policy_digest", None)
+    policy_strict["_policy_digest"] = hashlib.sha256(
+        json.dumps(policy_strict, sort_keys=True).encode("utf-8")
+    ).hexdigest()
     res_b = check_eligibility_gates(
         fund, portfolio_holdings=holdings, policy=policy_strict, client_risk_tier_num=6
     )
