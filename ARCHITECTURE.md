@@ -5,6 +5,8 @@
 **Release Status:** NOT APPROVED FOR PRODUCTION (Read-only decision support and synthetic testing only).  
 **Execution Authority:** NONE (Strictly non-executable; no broker, exchange, or payment integration).
 
+> **Superseded notice (2026-11-12):** This v1.0.0 document is retained for historical compatibility with existing references/tests. The current normative product and engineering baseline is [docs/NORMATIVE_ARCHITECTURE_SPECIFICATION.md](docs/NORMATIVE_ARCHITECTURE_SPECIFICATION.md) v2.1.0, with decisions recorded in [docs/SIP_ENGINE_DECISION_REGISTER.md](docs/SIP_ENGINE_DECISION_REGISTER.md). In particular, current delivery is SIP-only; this file's older references to broader capabilities or earlier risk interfaces do not override v2.1.0.
+
 ---
 
 ## 1. Scope, Purpose, and Authority Boundaries
