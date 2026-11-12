@@ -85,7 +85,7 @@ def test_api_without_evidence_provider_returns_hold_and_full_budget():
     body = response.json()
     assert body["status"] == "HOLD"
     assert body["decision"] == "NO_ACTION"
-    assert body["unallocated_budget_inr"] == 25000
+    assert body["unallocated_budget_inr"] == "25000.00"
 
 
 def test_api_passes_temporary_cas_to_evidence_provider_and_removes_it(monkeypatch):
@@ -195,7 +195,7 @@ def test_api_passes_temporary_cas_to_evidence_provider_and_removes_it(monkeypatc
 
     assert response.status_code == 200
     assert response.json()["status"] == "HOLD"
-    assert response.json()["unallocated_budget_inr"] == 15000
+    assert response.json()["unallocated_budget_inr"] == "15000.00"
     assert seen == {}  # Unauthenticated evidence must not reach the engine.
     assert "Independent reviewer trust registry" in response.json()["reasons"][0]
 
@@ -368,7 +368,7 @@ def test_api_real_service_ingests_cas_and_holds_on_missing_portfolio_disclosure(
     body = response.json()
     assert body["status"] == "HOLD"
     assert body["decision"] == "NO_ACTION"
-    assert body["unallocated_budget_inr"] == 25000.0
+    assert body["unallocated_budget_inr"] == "25000.00"
     assert "Independent reviewer trust registry" in body["reasons"][0]
 
 
@@ -535,7 +535,7 @@ def test_api_runs_portfolio_saa_diagnostic_end_to_end_and_keeps_budget_on_hold(m
     body = response.json()
     assert body["status"] == "HOLD"
     assert body["decision"] == "NO_ACTION"
-    assert body["unallocated_budget_inr"] == 10000
+    assert body["unallocated_budget_inr"] == "10000.00"
     assert "Independent reviewer trust registry" in body["reasons"][0]
 
 
