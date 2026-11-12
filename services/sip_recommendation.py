@@ -1124,9 +1124,9 @@ def recommend_sip(
     Custom SAA is supported when accompanied by an approved investor IPS mandate
     contract with validated AssetAllocationTarget sub-sleeve targets.
     """
+    if isinstance(monthly_budget_inr, (bool, float)):
+        raise ValueError("Binary float is not an accepted SIP budget input; provide Decimal or decimal text.")
     try:
-        if isinstance(monthly_budget_inr, (bool, float)):
-            raise ValueError("Binary float is not an accepted SIP budget input; provide Decimal or decimal text.")
         budget = quantize_inr(monthly_budget_inr)
     except (TypeError, ValueError, ArithmeticError) as exc:
         raise ValueError("Monthly SIP budget must be a valid exact INR decimal amount") from exc
