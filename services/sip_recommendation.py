@@ -1097,7 +1097,7 @@ def recommend_sip(
     cas_path: Path,
     metrics_path: Path | None,
     aliases_path: Path | None,
-    monthly_budget_inr: Any,
+    monthly_budget_inr: Decimal | str | int,
     risk_profile: str,
     scheme_master: dict[str, Any] | None,
     scheme_master_source_bytes: bytes | None,
@@ -1125,9 +1125,11 @@ def recommend_sip(
     contract with validated AssetAllocationTarget sub-sleeve targets.
     """
     try:
+        if isinstance(monthly_budget_inr, (bool, float)):
+            raise ValueError("Binary float is not an accepted SIP budget input; provide Decimal or decimal text.")
         budget = quantize_inr(monthly_budget_inr)
     except (TypeError, ValueError, ArithmeticError) as exc:
-        raise ValueError("Monthly SIP budget must be a valid INR decimal amount") from exc
+        raise ValueError("Monthly SIP budget must be a valid exact INR decimal amount") from exc
     if not budget.is_finite() or budget <= 0:
         raise ValueError("Monthly SIP budget must be finite and greater than zero")
 
