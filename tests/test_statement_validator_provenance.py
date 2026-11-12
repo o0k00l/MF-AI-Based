@@ -326,3 +326,115 @@ def test_structural_validity_false_cannot_be_overridden_by_is_valid_flag():
         require_authenticated_statement(result)
     with pytest.raises(ValueError, match="structurally invalid"):
         authenticate_statement_provenance(result, {}, trusted_verifier=lambda *_: True)
+
+
+def _make_valid_cgs_claim_workbook(*claims):
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Summary"
+    ws.append(["Capital Gains Statement Summary", " ".join(claims)])
+    ws.append(["Short Term Capital Gain/Loss", 1000])
+    ws.append(["Section 112A Long Term Capital Gain/Loss", 2000])
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+@pytest.mark.parametrize("claims", [
+    ("CAMS", "KFintech"),
+    ("CAMS", "MFCentral"),
+    ("KFintech", "MFCentral"),
+    ("CAMS", "KFintech", "MFCentral"),
+])
+def test_cgs_mixed_registrar_claims_remain_ambiguous_and_unauthenticated(claims):
+    result = validate_cgs_excel(_make_valid_cgs_claim_workbook(*claims), "spoofed_cgs.xlsx")
+    assert result.is_valid is True
+    assert result.structural_validity is True
+    assert result.rta_source == "Unknown"
+    assert result.detected_content_publisher == "Ambiguous"
+    assert result.publisher_authenticity_status == "AMBIGUOUS_DOCUMENT_CONTENT"
+    assert result.is_publisher_authenticated is False
+    with pytest.raises(ValueError, match="unauthenticated"):
+        require_authenticated_statement(result)
+
+
+def test_cgs_single_spoofed_label_is_only_a_claim_not_an_authenticated_source():
+    result = validate_cgs_excel(
+        _make_valid_cgs_claim_workbook("CAMS Capital Gains Statement"),
+        "claimed_cams_cgs.xlsx",
+    )
+    assert result.is_valid is True  # Structural validity only.
+    assert result.rta_source == "Unknown"
+    assert result.detected_content_publisher == "CAMS"
+    assert result.authenticated_publisher is None
+    assert result.is_publisher_authenticated is False
+
+
+def test_reviewer_string_and_source_url_without_trusted_verifier_cannot_authenticate():
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Portfolio Details"
+    _make_valid_cas_fund_rows(ws)
+    buf = io.BytesIO()
+    wb.save(buf)
+    result = validate_cas_excel(buf.getvalue(), "generic.xlsx")
+    weak_evidence = {
+        "source_digest": result.provenance_digest,
+        "publisher": "CAMS",
+        "reviewer_attestation": "I reviewed this; trust me",
+        "source_url": "https://www.camsonline.com/",
+        "verified_at": "2026-11-12T10:00:00Z",
+        "verification_method": "INDEPENDENT_REVIEW",
+        "evidence_reference": "free-text-reference",
+    }
+    with pytest.raises(ValueError, match="No trusted publisher provenance verifier"):
+        authenticate_statement_provenance(result, weak_evidence)
+    assert result.rta_source == "Unknown"
+    assert result.is_publisher_authenticated is False
+
+
+def test_trusted_verifier_rejection_does_not_promote_source():
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Portfolio Details"
+    _make_valid_cas_fund_rows(ws)
+    buf = io.BytesIO()
+    wb.save(buf)
+    result = validate_cas_excel(buf.getvalue(), "generic.xlsx")
+    evidence = {
+        "source_digest": result.provenance_digest,
+        "publisher": "CAMS",
+        "verification_method": "TRUSTED_SIGNATURE",
+        "verified_at": "2026-11-12T10:00:00Z",
+        "evidence_reference": "signature:receipt-123",
+    }
+    with pytest.raises(ValueError, match="rejected the evidence"):
+        authenticate_statement_provenance(result, evidence, trusted_verifier=lambda *_: False)
+    assert result.rta_source == "Unknown"
+    assert result.authenticated_publisher is None
+    assert result.is_publisher_authenticated is False
+
+
+def test_structural_flag_and_authentication_flags_cannot_be_forged_independently():
+    structurally_invalid = StatementValidationResult(
+        is_valid=True,
+        document_type="CAS_EXCEL",
+        rta_source="Unknown",
+        structural_validity=False,
+    )
+    with pytest.raises(ValueError, match="structurally invalid"):
+        require_authenticated_statement(structurally_invalid)
+    with pytest.raises(ValueError, match="structurally invalid"):
+        authenticate_statement_provenance(structurally_invalid, {}, trusted_verifier=lambda *_: True)
+
+    forged_auth = StatementValidationResult(
+        is_valid=True,
+        document_type="CAS_EXCEL",
+        rta_source="CAMS",
+        structural_validity=True,
+        is_publisher_authenticated=True,
+        authenticated_publisher="CAMS",
+        publisher_authenticity_status="AUTHENTICATED_SOURCE",
+    )
+    with pytest.raises(ValueError, match="unauthenticated"):
+        require_authenticated_statement(forged_auth)
