@@ -6,6 +6,7 @@ from ingestion.cas_parser import (
     validate_statement_reconciliation_envelope,
     parse_cache_csv,
     load_cache_csv,
+    compute_holdings_canonical_digest,
 )
 
 
@@ -73,18 +74,19 @@ def test_stage_portfolio_writes_valid_cache_atomically(tmp_path):
     holdings = [
         {"scheme": "Scheme A", "current_value": 1200.0, "units": 10.0, "invested_value": 1000.0, "folio": "F1", "isin": "INF1", "nav": 120.0}
     ]
-    res = stage_portfolio({
+    parsed = {
         "holdings": holdings,
         "as_of": "2026-10-15",
         "stated_total": 1200.0,
         "source_digest": "a" * 64,
-    }, tmp_path, slug="Test_Staged")
+    }
+    envelope = validate_statement_reconciliation_envelope(parsed)
+    res = stage_portfolio(parsed, tmp_path, slug="Test_Staged", envelope=envelope)
     cache_path = tmp_path / "Test_Staged" / "data" / "_active_funds_cache.csv"
     assert cache_path.is_file()
     assert "Scheme A" in cache_path.read_text(encoding="utf-8")
     assert res.get("staging_failed") is False
     assert res.get("reconciliation_envelope") is not None
-
 
 def test_stage_portfolio_cleans_up_on_validation_failure(tmp_path):
     corrupt_holdings = [
@@ -112,30 +114,31 @@ def test_stage_portfolio_rejects_reconciliation_mismatch(tmp_path):
     holdings = [
         {"scheme": "Scheme A", "current_value": 1000.0, "units": 10.0, "invested_value": 900.0, "folio": "F1", "isin": "INF1", "nav": 100.0}
     ]
-    # stated_total (5000.0) disagrees with holdings sum (1000.0)
-    res = stage_portfolio({
+    parsed = {
         "holdings": holdings,
         "as_of": "2026-10-15",
         "stated_total": 5000.0,
         "source_digest": "b" * 64,
-    }, tmp_path, slug="Test_Mismatch", require_envelope=True)
+    }
+    # A status-only envelope cannot bypass recomputation of reconciliation.
+    res = stage_portfolio(parsed, tmp_path, slug="Test_Mismatch", envelope={"status": "VERIFIED_RECONCILED"})
     assert res.get("staging_failed") is True
     assert "reconciliation failed" in res.get("error", "").lower()
     cache_path = tmp_path / "Test_Mismatch" / "data" / "_active_funds_cache.csv"
     assert not cache_path.exists()
 
-
 def test_stage_portfolio_preserves_existing_cache_on_failed_replacement(tmp_path):
-    # Step 1: Stage valid portfolio
     valid_holdings = [
         {"scheme": "Scheme Good", "current_value": 2500.0, "units": 25.0, "invested_value": 2000.0, "folio": "F1", "isin": "INF1", "nav": 100.0}
     ]
-    res1 = stage_portfolio({
+    valid_parsed = {
         "holdings": valid_holdings,
         "as_of": "2026-10-01",
         "stated_total": 2500.0,
         "source_digest": "c" * 64,
-    }, tmp_path, slug="Test_Preserve")
+    }
+    valid_envelope = validate_statement_reconciliation_envelope(valid_parsed)
+    res1 = stage_portfolio(valid_parsed, tmp_path, slug="Test_Preserve", envelope=valid_envelope)
     assert res1.get("staging_failed") is False
 
     cache_path = tmp_path / "Test_Preserve" / "data" / "_active_funds_cache.csv"
@@ -143,22 +146,19 @@ def test_stage_portfolio_preserves_existing_cache_on_failed_replacement(tmp_path
     original_cache_content = cache_path.read_text(encoding="utf-8")
     assert "Scheme Good" in original_cache_content
 
-    # Step 2: Attempt replacement with corrupt/mismatched data
     corrupt_parsed = {
         "holdings": [
             {"scheme": "Scheme Corrupt", "current_value": -100.0, "units": 10.0, "invested_value": 100.0}
         ],
         "as_of": "2026-10-15",
         "stated_total": 500.0,
+        "source_digest": "d" * 64,
     }
     res2 = stage_portfolio(corrupt_parsed, tmp_path, slug="Test_Preserve")
     assert res2.get("staging_failed") is True
     assert res2.get("last_known_good_preserved") is True
-
-    # Step 3: Verify existing active cache was NOT deleted and is preserved
     assert cache_path.is_file()
     assert cache_path.read_text(encoding="utf-8") == original_cache_content
-
 
 def test_validate_reconciliation_envelope_requires_source_digest_by_default():
     holdings = [
