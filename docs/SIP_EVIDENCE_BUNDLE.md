@@ -77,8 +77,8 @@ are rejected.
   carrying a score must have:
   `rank_score_source_ref`, `rank_score_as_of_date`,
   `rank_score_methodology_version`, and `rank_score_scope=PORTFOLIO_AWARE`;
-  verified portfolio-overlap status, percentage and at least 99.5% look-through
-  coverage; an overlap source reference; and the matching category-anchor
+  verified portfolio-overlap status, percentage and look-through
+  coverage meeting the effective, approved policy threshold; an overlap source reference; and the matching category-anchor
   source reference, policy version and benchmark identity. The score metadata
   must declare `score_scope=PORTFOLIO_AWARE` and
   `missing_overlap_policy=BLOCK_SCORE`. Missing overlap cannot be represented
