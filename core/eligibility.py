@@ -434,6 +434,7 @@ def check_eligibility_gates(
     min_manager_tenure_years: Optional[float] = None,
     min_confidence_score: Optional[float] = None,
     allow_threshold_overrides: bool = False,
+    risk_ceiling: Optional[int] = None,
 ) -> EligibilityGateResult:
     """
     Evaluates all 10 Hard Binary Selection Gates for a candidate fund:
@@ -770,21 +771,62 @@ def check_eligibility_gates(
         mandate_ok = False
     elif not mandate_suitable_raw:
         mandate_ok = False
-    # Investor suitability is mandatory and distinct from scheme Riskometer.
+    # Investor suitability is mandatory and distinct from scheme Riskometer (D-013, D-014).
+    # Investor risk capacity (profile) and scheme Riskometer are separate dimensions.
+    # Candidate Riskometer must be within the investor's approved ceiling.
+    effective_ceiling = None
+    is_custom_tier = (
+        client_risk_tier_num == RiskTier.CUSTOM
+        or (isinstance(client_risk_tier_num, str) and client_risk_tier_num.strip().lower() == "custom")
+        or client_risk_tier_num == 0
+    )
     if client_risk_tier_num is None:
         client_tier_int = 0
+        mandate_ok = False
         failed.append("Gate 6 [Investor Suitability]: explicit validated investor risk profile missing — fail-closed")
+    elif is_custom_tier:
+        if risk_ceiling is None:
+            client_tier_int = 0
+            mandate_ok = False
+            failed.append("Gate 6 [Investor Suitability]: Custom risk profile requires an explicit risk ceiling (1 to 6) — fail-closed")
+        else:
+            try:
+                if isinstance(risk_ceiling, bool):
+                    raise ValueError("risk_ceiling must not be boolean")
+                c_num = int(risk_ceiling)
+                if not 1 <= c_num <= 6:
+                    raise ValueError("risk_ceiling must be an integer from 1 to 6")
+                client_tier_int = c_num
+                effective_ceiling = c_num
+            except (ValueError, TypeError) as exc:
+                client_tier_int = 0
+                mandate_ok = False
+                failed.append(f"Gate 6 [Investor Suitability]: invalid risk ceiling {risk_ceiling!r} — fail-closed")
     else:
         try:
             client_tier_int = _risk_tier_to_int(client_risk_tier_num)
+            if risk_ceiling is not None:
+                if isinstance(risk_ceiling, bool):
+                    raise ValueError("risk_ceiling must not be boolean")
+                c_num = int(risk_ceiling)
+                if not 1 <= c_num <= 6:
+                    raise ValueError("risk_ceiling must be an integer from 1 to 6")
+                effective_ceiling = min(client_tier_int, c_num)
+            else:
+                effective_ceiling = client_tier_int
         except ValueError as exc:
             client_tier_int = 0
+            mandate_ok = False
             failed.append(f"Gate 6 [Investor Suitability]: {exc} — fail-closed")
     
     # Passive/index funds are exempt from riskometer breach (broad market tracking = diversified risk)
-    if not is_passive_cand and riskometer_score > client_tier_int:
+    if effective_ceiling is not None and not is_passive_cand and riskometer_score > effective_ceiling:
         mandate_ok = False
-        failed.append(f"Gate 6 [Riskometer Breach]: Fund riskometer score {riskometer_score} exceeds client risk tier {client_tier_int}")
+        failed.append(f"Gate 6 [Riskometer Breach]: Fund riskometer score {riskometer_score} exceeds client risk ceiling {effective_ceiling}")
+    elif effective_ceiling is None and not is_passive_cand:
+        mandate_ok = False
+
+    details["effective_risk_ceiling"] = effective_ceiling
 
     is_thematic = any(kw in category.lower() or kw in fund_name.lower() for kw in ("thematic", "sectoral", "defence", "energy", "pharma", "tech"))
     if is_starter and is_thematic:
@@ -1071,6 +1113,7 @@ def filter_candidates(
     is_starter: bool = False,
     policy: Optional[Dict[str, Any]] = None,
     allow_threshold_overrides: bool = False,
+    risk_ceiling: Optional[int] = None,
 ) -> List[str]:
     """
     Apply the binary eligibility gates and a portfolio-weighted look-through
@@ -1121,6 +1164,7 @@ def filter_candidates(
             client_risk_tier_num=client_risk_tier_num,
             is_starter=is_starter,
             policy=policy,
+            risk_ceiling=risk_ceiling,
         )
         if not gate_result.passed:
             continue
@@ -1140,6 +1184,7 @@ def evaluate_no_action(
     min_improvement_threshold: float = 5.0,
     client_risk_tier_num: Optional[int] = None,
     policy: Optional[Dict[str, Any]] = None,
+    risk_ceiling: Optional[int] = None,
 ) -> NOActionResult:
     """
     Mandatory Fiduciary NO ACTION decision branch:
@@ -1155,15 +1200,30 @@ def evaluate_no_action(
             hold_recommendation="HOLD — obtain and validate the investor risk profile before eligibility review.",
             sip_deployment_pause=True,
         )
-    try:
-        _risk_tier_to_int(client_risk_tier_num)
-    except ValueError as exc:
+    is_custom = (
+        client_risk_tier_num == RiskTier.CUSTOM
+        or (isinstance(client_risk_tier_num, str) and client_risk_tier_num.strip().lower() == "custom")
+        or client_risk_tier_num == 0
+    )
+    if not is_custom:
+        try:
+            _risk_tier_to_int(client_risk_tier_num)
+        except ValueError as exc:
+            return NOActionResult(
+                action="NO_ACTION",
+                reason=f"Investor suitability profile is invalid: {exc}",
+                current_portfolio_adequate=False,
+                no_improvement_found=True,
+                hold_recommendation="HOLD — obtain a valid investor risk profile before eligibility review.",
+                sip_deployment_pause=True,
+            )
+    elif risk_ceiling is None:
         return NOActionResult(
             action="NO_ACTION",
-            reason=f"Investor suitability profile is invalid: {exc}",
+            reason="Custom risk profile requires an explicit risk ceiling (1 to 6).",
             current_portfolio_adequate=False,
             no_improvement_found=True,
-            hold_recommendation="HOLD — obtain a valid investor risk profile before eligibility review.",
+            hold_recommendation="HOLD — obtain a valid risk ceiling for custom SAA before review.",
             sip_deployment_pause=True,
         )
     best_improvement = 0.0
@@ -1173,7 +1233,9 @@ def evaluate_no_action(
         is_passed = fund.get("eligibility", {}).get("passed", False)
         if not is_passed and "eligibility" not in fund:
             # Evaluate on the fly if not pre-evaluated
-            gate_res = check_eligibility_gates(fund, client_risk_tier_num=client_risk_tier_num, policy=policy)
+            gate_res = check_eligibility_gates(
+                fund, client_risk_tier_num=client_risk_tier_num, policy=policy, risk_ceiling=risk_ceiling
+            )
             is_passed = gate_res.passed
 
         if not is_passed:

@@ -78,7 +78,8 @@ def _build_cas_portfolio_assessment(
             from core.models import AssetAllocationTarget
             if not isinstance(custom_saa_target, AssetAllocationTarget):
                 raise ValueError("custom_saa_target must be an AssetAllocationTarget instance")
-            tolerance = 3.0
+            custom_policy = policy.get("custom_saa_policy", {})
+            tolerance = float(custom_policy.get("default_tolerance_band_pct", 3.0))
             eq = float(custom_saa_target.equity_pct)
             if getattr(custom_saa_target, "large_cap_pct", None) is not None:
                 targets = {
@@ -91,11 +92,14 @@ def _build_cas_portfolio_assessment(
                 }
             elif eq > 0:
                 scale = eq / 100.0
+                dist = custom_policy.get("default_equity_distribution_pct", {
+                    "large_cap_pct": 35.0, "flexi_multi_cap_pct": 25.0, "mid_cap_pct": 20.0, "small_cap_pct": 20.0,
+                })
                 targets = {
-                    "large_cap": round(35.0 * scale, 2),
-                    "flexi_multi_cap": round(25.0 * scale, 2),
-                    "mid_cap": round(20.0 * scale, 2),
-                    "small_cap": round(20.0 * scale, 2),
+                    "large_cap": round(float(dist.get("large_cap_pct", 35.0)) * scale, 2),
+                    "flexi_multi_cap": round(float(dist.get("flexi_multi_cap_pct", 25.0)) * scale, 2),
+                    "mid_cap": round(float(dist.get("mid_cap_pct", 20.0)) * scale, 2),
+                    "small_cap": round(float(dist.get("small_cap_pct", 20.0)) * scale, 2),
                     "debt_liquid": float(custom_saa_target.debt_pct),
                     "unclassified": 0.0,
                 }
@@ -321,6 +325,19 @@ def _assess_complete_portfolio_context(
         debt_target = float(targets["debt_liquid"])
 
         if risk_profile == "Custom":
+            risk_ceiling_raw = getattr(custom_saa_target, "risk_ceiling", None)
+            if risk_ceiling_raw is None and "risk_ceiling" in ips:
+                risk_ceiling_raw = ips.get("risk_ceiling")
+            if risk_ceiling_raw is None:
+                custom_policy = policy.get("custom_saa_policy", {})
+                risk_ceiling_raw = custom_policy.get("default_risk_ceiling", 6)
+            try:
+                c_val = int(risk_ceiling_raw)
+                if not 1 <= c_val <= 6 or isinstance(risk_ceiling_raw, bool):
+                    raise ValueError()
+                effective_risk_ceiling = c_val
+            except (ValueError, TypeError):
+                raise PortfolioInputError(f"risk_ceiling must be an integer between 1 and 6; got {risk_ceiling_raw!r}")
             if abs(equity_target - float(custom_saa_target.equity_pct)) > 0.01:
                 raise PortfolioInputError("client IPS equity target conflicts with approved custom SAA mandate")
             if abs(debt_target - float(custom_saa_target.debt_pct)) > 0.01:
@@ -337,6 +354,18 @@ def _assess_complete_portfolio_context(
             if equity_target >= 99.9 and ips.get("tier6_equity_only_authorized") is not True:
                 raise PortfolioInputError("Tier 6 equity-only routing requires explicit IPS authorization")
         else:
+            profile_ceiling_map = {"Conservative": 2, "Moderate": 4, "Aggressive": 6}
+            std_ceiling = profile_ceiling_map.get(risk_profile, 6)
+            if "risk_ceiling" in ips:
+                try:
+                    c_val = int(ips["risk_ceiling"])
+                    if not 1 <= c_val <= 6 or isinstance(ips["risk_ceiling"], bool):
+                        raise ValueError()
+                    effective_risk_ceiling = min(std_ceiling, c_val)
+                except (ValueError, TypeError):
+                    raise PortfolioInputError(f"risk_ceiling must be an integer between 1 and 6; got {ips['risk_ceiling']!r}")
+            else:
+                effective_risk_ceiling = std_ceiling
             profile_key = _SAA_POLICY_PROFILE_BY_RISK[risk_profile]
             profile = policy["behavioral_risk_profiles"][profile_key]
             if risk_profile == "Aggressive" and profile_key == "very_high" and ips.get("tier6_equity_only_authorized") is not True:
@@ -414,12 +443,20 @@ def _assess_complete_portfolio_context(
                 "category": candidate.get("category"),
                 "benchmark": candidate.get("benchmark") or direct.get("benchmark"),
             }
+            c_gates = dict(gate_results.get(candidate_id, {}))
+            cand_riskometer = candidate.get("riskometer_score")
+            if cand_riskometer is not None:
+                try:
+                    if int(cand_riskometer) > effective_risk_ceiling:
+                        c_gates["risk"] = "FAIL"
+                except (ValueError, TypeError):
+                    c_gates["risk"] = "FAIL"
             prepared_candidates.append({
                 "candidate_id": candidate_id,
                 "scheme_identity": identity,
                 "evidence_as_of_date": direct.get("reviewed_at") or direct.get("effective_date"),
                 "evidence_ref": direct.get("source_document_sha256"),
-                "gates": gate_results.get(candidate_id, {}),
+                "gates": c_gates,
             })
             operational = operational_evidence.get(candidate_id)
             if isinstance(operational, dict):
@@ -888,10 +925,19 @@ def _build_sip_decision_trace(
             "rank_score_methodology_version": candidate.get("rank_score_methodology_version"),
         }
     policy_path = Path(__file__).resolve().parents[1] / "data" / "policy" / "asset_allocation.json"
+    screening_policy_path = Path(__file__).resolve().parents[1] / "data" / "policy" / "fund_screening.json"
     try:
         policy_source_sha256 = hashlib.sha256(policy_path.read_bytes()).hexdigest()
     except OSError:
         policy_source_sha256 = None
+    try:
+        screening_source_sha256 = hashlib.sha256(screening_policy_path.read_bytes()).hexdigest()
+    except OSError:
+        screening_source_sha256 = None
+    effective_policy_digest = (
+        hashlib.sha256(f"{policy_source_sha256}:{screening_source_sha256}".encode("utf-8")).hexdigest()
+        if policy_source_sha256 and screening_source_sha256 else policy_source_sha256
+    )
     record = {
         "schema_version": 1,
         "source_digests": {
@@ -909,6 +955,8 @@ def _build_sip_decision_trace(
             "candidate_score_source_sha256": hashlib.sha256(candidate_score_source_bytes).hexdigest() if candidate_score_source_bytes else None,
             "category_anchor_source_sha256": hashlib.sha256(category_anchor_source_bytes).hexdigest() if category_anchor_source_bytes else None,
             "portfolio_context_source_sha256": hashlib.sha256(portfolio_context_source_bytes).hexdigest() if portfolio_context_source_bytes else None,
+            "screening_policy_sha256": screening_source_sha256,
+            "effective_policy_digest": effective_policy_digest,
             "portfolio_context_bundle_sha256": (
                 context_assessment.get("source_bundle_sha256")
                 if isinstance(context_assessment, dict) else None
@@ -924,6 +972,8 @@ def _build_sip_decision_trace(
         },
         "policy_version": f"asset_allocation.json@{portfolio_assessment.get('policy_as_of')}",
         "policy_source_sha256": policy_source_sha256,
+        "screening_policy_sha256": screening_source_sha256,
+        "effective_policy_digest": effective_policy_digest,
         "engine_version": "core.math_engine.compute_deterministic_sip_blueprint",
         "eligibility": {
             "current_holding_evidence": "PASS",

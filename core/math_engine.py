@@ -4472,6 +4472,7 @@ def select_autonomous_blueprint_funds(
     disclosure_as_of_date: Optional[date] = None,
     disclosure_max_age_days: int = 45,
     custom_saa_target: Optional[Any] = None,
+    risk_ceiling: Optional[int] = None,
 ) -> Dict[str, Dict[str, Any]]:
     """
     Select candidates only from the supplied, source-backed universe.
@@ -4528,6 +4529,10 @@ def select_autonomous_blueprint_funds(
             raise ValueError("client_risk_tier must be an integer from 1 through 6") from exc
         if tier_int not in range(1, 7) and not (tier_int == 0 and custom_saa_target is not None):
             raise ValueError("client_risk_tier must be an integer from 1 through 6")
+
+    effective_risk_ceiling = risk_ceiling
+    if effective_risk_ceiling is None and custom_saa_target is not None:
+        effective_risk_ceiling = getattr(custom_saa_target, "risk_ceiling", None)
 
     if not isinstance(thematic_satellite_authorized, bool):
         raise ValueError("thematic_satellite_authorized must be a boolean")
@@ -4622,12 +4627,16 @@ def select_autonomous_blueprint_funds(
                     "large": float(custom_saa_target.large_cap_pct),
                 }
             elif equity_total > 0:
+                custom_policy = allocation_policy.get("custom_saa_policy", {})
+                dist = custom_policy.get("default_equity_distribution_pct", {
+                    "large_cap_pct": 35.0, "flexi_multi_cap_pct": 25.0, "mid_cap_pct": 20.0, "small_cap_pct": 20.0,
+                })
                 scale = equity_total / 100.0
                 equity_parts = {
-                    "large": round(35.0 * scale, 2),
-                    "flexi": round(25.0 * scale, 2),
-                    "mid": round(20.0 * scale, 2),
-                    "small": round(20.0 * scale, 2),
+                    "large": round(float(dist.get("large_cap_pct", 35.0)) * scale, 2),
+                    "flexi": round(float(dist.get("flexi_multi_cap_pct", 25.0)) * scale, 2),
+                    "mid": round(float(dist.get("mid_cap_pct", 20.0)) * scale, 2),
+                    "small": round(float(dist.get("small_cap_pct", 20.0)) * scale, 2),
                 }
                 diff = equity_total - sum(equity_parts.values())
                 equity_parts["large"] = round(equity_parts["large"] + diff, 2)
@@ -4787,6 +4796,7 @@ def select_autonomous_blueprint_funds(
                 client_risk_tier_num=tier_int,
                 as_of_date=disclosure_as_of_date,
                 policy=screening_policy,
+                risk_ceiling=effective_risk_ceiling,
             )
             if getattr(gate_result, "passed", False) is not True:
                 continue
@@ -5354,6 +5364,7 @@ def compute_deterministic_sip_blueprint(
     policy_path: Optional[Path] = None,
     portfolio_introduction_history: Optional[Dict[str, Any]] = None,
     custom_saa_target: Optional[Any] = None,
+    risk_ceiling: Optional[int] = None,
 ) -> DeterministicSIPPlan:
     """
     Computes deterministic SIP blueprint dynamically tailored across all SEBI risk tiers
@@ -5511,6 +5522,7 @@ def compute_deterministic_sip_blueprint(
         disclosure_as_of_date=disclosure_as_of_date,
         disclosure_max_age_days=disclosure_max_age_days,
         custom_saa_target=custom_saa_target,
+        risk_ceiling=risk_ceiling,
     )
     flexi_info = slots["Slot 1: Core Flexi-Cap Compounder"]
     mid_info = slots["Slot 2: Mid-Cap Alpha Engine"]

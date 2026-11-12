@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from decimal import Decimal, ROUND_HALF_UP
 from typing import List, Dict, Optional, Any, Tuple, Union
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from datetime import date
 from enum import Enum
 
@@ -86,6 +86,14 @@ class AssetAllocationTarget(BaseModel):
     mid_cap_pct: Optional[float] = None
     small_cap_pct: Optional[float] = None
     flexi_cap_pct: Optional[float] = None
+    risk_ceiling: Optional[int] = Field(default=None, ge=1, le=6)
+
+    @field_validator("risk_ceiling", mode="before")
+    @classmethod
+    def validate_risk_ceiling_raw(cls, v: Any) -> Any:
+        if isinstance(v, bool):
+            raise ValueError("risk_ceiling must not be a boolean")
+        return v
 
     @model_validator(mode="after")
     def validate_total_allocation(self) -> "AssetAllocationTarget":
@@ -102,6 +110,9 @@ class AssetAllocationTarget(BaseModel):
                 raise ValueError("When custom equity sub-sleeves are provided, all four (large, mid, small, flexi) must be non-negative finite numbers")
             if abs(sum(sub_sleeves) - self.equity_pct) > 0.01:
                 raise ValueError("Custom equity sub-sleeves must sum exactly to total equity_pct")
+        if self.risk_ceiling is not None:
+            if isinstance(self.risk_ceiling, bool) or not isinstance(self.risk_ceiling, int) or not (1 <= self.risk_ceiling <= 6):
+                raise ValueError("risk_ceiling must be an integer between 1 and 6")
         return self
 
 # The deterministic 3+1 Policy Map
@@ -132,7 +143,16 @@ def get_saa_policy_metadata(policy_path: Optional[Path] = None, force_reload: bo
         digest = hashlib.sha256(raw_bytes).hexdigest()
         policy = json.loads(raw_bytes.decode("utf-8"))
         version = str(policy.get("as_of", policy.get("version", "UNKNOWN")))
-        meta = {"policy_version": version, "policy_digest": digest, "policy_path": str(path)}
+        screening_path = Path(__file__).resolve().parents[1] / "data" / "policy" / "fund_screening.json"
+        screening_digest = hashlib.sha256(screening_path.read_bytes()).hexdigest() if screening_path.is_file() else digest
+        effective_digest = hashlib.sha256(f"{digest}:{screening_digest}".encode("utf-8")).hexdigest()
+        meta = {
+            "policy_version": version,
+            "policy_digest": digest,
+            "screening_policy_digest": screening_digest,
+            "effective_policy_digest": effective_digest,
+            "policy_path": str(path),
+        }
         _SAA_POLICY_META_CACHE[cache_key] = meta
         return meta
     except Exception as exc:

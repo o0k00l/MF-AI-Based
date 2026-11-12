@@ -176,7 +176,9 @@ def parse_amfi_nav_feed(content: bytes) -> list[dict[str, Any]]:
             nav = Decimal(nav_raw)
         except (InvalidOperation, ValueError) as exc:
             raise FundDataAcquisitionError(f"Invalid NAV value at line {line_number}") from exc
-        if not nav.is_finite() or nav <= 0:
+        if not nav.is_finite() or nav < 0:
+            raise FundDataAcquisitionError(f"NAV must be finite and positive at line {line_number}")
+        if nav == 0:
             # Skip closed/wind-up funds with zero NAV (they are no longer active)
             continue
 
@@ -272,6 +274,86 @@ def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
                 pass
         raise
 
+
+
+# SCHEME CLASSIFICATION AND CANDIDATE UNIVERSE GENERATION
+
+_SCHEME_CATEGORY_PATTERNS = [
+    ("index fund", "Index", {"is_passive": True, "sub_category": "Index"}),
+    ("etf", "ETF", {"is_passive": True, "sub_category": "ETF"}),
+    ("fifty", "Large Cap", {"is_passive": False, "sub_category": "Large Cap"}),
+    ("nifty 50", "Large Cap", {"is_passive": False, "sub_category": "Large Cap"}),
+    ("flexi cap", "Flexi Cap", {"is_passive": False, "sub_category": "Flexi Cap"}),
+    ("multi cap", "Multi Cap", {"is_passive": False, "sub_category": "Multi Cap"}),
+    ("focused", "Focused", {"is_passive": False, "sub_category": "Focused"}),
+    ("elss", "ELSS", {"is_passive": False, "sub_category": "ELSS", "lock_in_years": 3}),
+    ("balanced advantage", "Hybrid: Dynamic Asset Allocation", {"is_passive": False, "sub_category": "BAF"}),
+    ("baf", "Hybrid: Dynamic Asset Allocation", {"is_passive": False, "sub_category": "BAF"}),
+    ("liquid fund", "Liquid", {"is_passive": False, "sub_category": "Liquid", "risk_tier": 1}),
+    ("liquid", "Liquid", {"is_passive": False, "sub_category": "Liquid", "risk_tier": 1}),
+    ("gilt", "Gilt", {"is_passive": False, "sub_category": "Gilt"}),
+    ("gold", "Gold", {"is_passive": False, "sub_category": "Gold", "gold": True}),
+]
+
+
+def _classify_scheme_from_name(scheme_name: str) -> dict[str, Any]:
+    """Classify Indian mutual fund scheme from its name using keyword patterns."""
+    if not scheme_name:
+        return {"sebi_category": "UNCLASSIFIED", "sub_category": "UNCLASSIFIED",
+                "is_passive": False, "classification_status": "UNCLASSIFIED_NO_NAME"}
+    name_lower = scheme_name.lower()
+    name_lower = re.sub(r"\b(direct|regular|plan|growth|idcw|dividend|payout|reinvestment|option)\b", "", name_lower)
+    name_lower = re.sub(r"[^a-z0-9\s]", " ", name_lower)
+    name_lower = " ".join(name_lower.split())
+    for pattern, category, extra in _SCHEME_CATEGORY_PATTERNS:
+        if pattern in name_lower:
+            return {"sebi_category": category, "sub_category": category,
+                    "is_passive": extra.get("is_passive", False),
+                    "classification_status": "PROVISIONAL_NAME_BASED",
+                    "requires_validation": True, **{k: v for k, v in extra.items() if k not in ("sub_category", "is_passive")}}
+    return {"sebi_category": "Equity Diversified", "sub_category": "Equity Diversified",
+            "is_passive": False, "classification_status": "PROVISIONAL_DEFAULT_EQUITY",
+            "requires_validation": True}
+
+
+
+def _infer_asset_class_from_category(sebi_category: str) -> str:
+    """Infer broad asset class from SEBI category."""
+    equity = {'Large Cap', 'Mid Cap', 'Small Cap', 'Flexi Cap', 'Multi Cap', 'Focused', 'Value', 'Contra', 'ELSS', 'Equity Diversified', 'Sectoral', 'Thematic', 'Dividend Yield', 'International'}
+    hybrid = {'Hybrid: Dynamic Asset Allocation', 'Hybrid: Aggressive', 'Hybrid: Conservative', 'Arbitrage', 'Multi Asset Allocation'}
+    debt = {'Liquid', 'Overnight', 'Money Market', 'Ultra Short Duration', 'Low Duration', 'Short Duration', 'Medium Duration', 'Corporate Bond', 'Banking and PSU', 'Gilt', 'Floater', 'Credit Risk', 'Dynamic Bond', 'Medium to Long Duration'}
+    if sebi_category in equity: return 'Equity'
+    if sebi_category in hybrid: return 'Hybrid'
+    if sebi_category in debt: return 'Debt'
+    if 'Gold' in sebi_category: return 'Commodity'
+    return 'Unknown'
+
+
+def build_candidate_universe(feed: "AcquiredFeed", *, min_aum_crore: float = 0.0,
+    categories_filter: list[str] | None = None) -> dict[str, Any]:
+    """Build category-wise candidate universe from AMFI NAV feed."""
+    rows = parse_amfi_nav_feed(feed.content)
+    classified, all_schemes = {}, []
+    for row in rows:
+        code, name = row["amfi_scheme_code"], row["scheme_name_raw"]
+        cls = _classify_scheme_from_name(name)
+        if categories_filter and cls["sebi_category"] not in categories_filter:
+            continue
+        candidate = {"amfi_scheme_code": code, "scheme_name": name,
+                     "isin_values": row["isin_values"], "nav": row["nav"], "nav_date": row["nav_date"],
+                     "sebi_category": cls["sebi_category"], "sub_category": cls.get("sub_category", cls["sebi_category"]),
+                     "is_passive": cls.get("is_passive", False), "classification_status": cls["classification_status"],
+                     "requires_validation": cls.get("requires_validation", True)}
+        for k in ("lock_in_years", "risk_tier", "gold", "international"):
+            if k in cls: candidate[k] = cls[k]
+        all_schemes.append(candidate)
+        classified.setdefault(cls["sebi_category"], []).append(candidate)
+    for cat in classified: classified[cat].sort(key=lambda x: x["scheme_name"])
+    all_schemes.sort(key=lambda x: x["scheme_name"])
+    return {"metadata": {"schema": "mf_engine.candidate_universe.v1", "dataset_id": feed.sha256,
+                "status": "ACQUIRED_UNVERIFIED", "total_schemes": len(all_schemes)},
+            "category_wise": {c: {"count": len(s), "schemes": s} for c, s in classified.items()},
+            "all_schemes": all_schemes}
 
 def refresh_engine_fund_data(
     config: EngineRuntimeConfig,

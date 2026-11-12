@@ -328,6 +328,17 @@
     "funding_rule": "Carve the satellite percentage out of the equity SIP budget before allocating the remainder across core sleeves. Never add it on top of core weights.",
     "no_candidate_rule": "If no separately verified thematic candidate passes, keep satellite at zero; do not automatically redirect its budget."
   },
+  "custom_saa_policy": {
+    "default_tolerance_band_pct": 3.0,
+    "default_equity_distribution_pct": {
+      "large_cap_pct": 35.0,
+      "flexi_multi_cap_pct": 25.0,
+      "mid_cap_pct": 20.0,
+      "small_cap_pct": 20.0
+    },
+    "default_risk_ceiling": 6,
+    "note": "When custom SAA specifies total equity without explicit sub-sleeves, this policy distribution is used."
+  },
   "starter_portfolio_routing": {
     "classification": "RESEARCH_HEURISTIC",
     "status": "PROVISIONAL",

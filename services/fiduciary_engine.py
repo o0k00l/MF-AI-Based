@@ -20,14 +20,59 @@ from services.risk_profiler import TargetSaa, SebiRiskTier, RiskProfileResult
 _MARKET_NOMINATIONS_PATH = Path(__file__).resolve().parent.parent / "data" / "policy" / "market_nominations.json"
 _SCHEME_MASTER_PATH = Path(__file__).resolve().parent.parent / "data" / "policy" / "scheme_master.json"
 
-# Default SAA distribution for fallback when no SAA is provided (represents Tier 6 / Aggressive profile)
-# Derived from standard fiduciary practice: 50% Large Cap, 25% Mid/Small, 0% Flexi, 25% Debt
-_DEFAULT_SAA_DISTRIBUTION = {
-    "large_cap": Decimal("50.0"),
-    "mid_small": Decimal("25.0"),
-    "flexi": Decimal("0.0"),
-    "debt": Decimal("25.0"),
-}
+# Default SAA distribution resolved dynamically from authoritative policy file
+# Single source of truth per REQ-014 and Issue #50.
+def _load_default_saa_distribution() -> Dict[str, Decimal]:
+    policy_path = Path(__file__).resolve().parent.parent / "data" / "policy" / "asset_allocation.json"
+    try:
+        policy = json.loads(policy_path.read_text(encoding="utf-8"))
+        profile = policy.get("behavioral_risk_profiles", {}).get("moderately_high", {})
+        saa = profile.get("saa_targets", {})
+        if saa:
+            return {
+                "large_cap": Decimal(str(saa.get("large_cap_pct", 50.0))),
+                "mid_small": Decimal(str(float(saa.get("mid_cap_pct", 25.0)) + float(saa.get("small_cap_pct", 0.0)))),
+                "flexi": Decimal(str(saa.get("flexi_multi_cap_pct", 0.0))),
+                "debt": Decimal(str(saa.get("debt_liquid_pct", 25.0))),
+            }
+    except Exception:
+        pass
+    return {
+        "large_cap": Decimal("50.0"),
+        "mid_small": Decimal("25.0"),
+        "flexi": Decimal("0.0"),
+        "debt": Decimal("25.0"),
+    }
+
+
+class _DynamicDefaultSaaDistribution(dict):
+    """Dynamic dictionary proxy resolving default SAA distribution from authoritative policy."""
+    def _data(self) -> Dict[str, Decimal]:
+        return _load_default_saa_distribution()
+
+    def __getitem__(self, key: str) -> Decimal:
+        return self._data()[key]
+
+    def get(self, key: str, default=None):
+        return self._data().get(key, default)
+
+    def __contains__(self, key: object) -> bool:
+        return key in self._data()
+
+    def __iter__(self):
+        return iter(self._data())
+
+    def items(self):
+        return self._data().items()
+
+    def values(self):
+        return self._data().values()
+
+    def keys(self):
+        return self._data().keys()
+
+
+_DEFAULT_SAA_DISTRIBUTION = _DynamicDefaultSaaDistribution()
 
 
 def _load_market_nominations() -> Dict[str, Dict[str, Any]]:
