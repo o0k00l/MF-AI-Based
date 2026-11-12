@@ -8,6 +8,8 @@
 
 This register is the decision source of truth. Older audit notes and issue descriptions remain useful evidence of defects, but they do not override the decisions below. If code or another document conflicts, record the conflict as an implementation defect; do not silently reinterpret this register.
 
+**Status semantics:** `Fixed` means the product/policy decision is settled and must be followed. It does **not** mean the corresponding code, data pipeline, test coverage or production workflow is implemented or accepted. Implementation status is tracked separately in `IMPLEMENTATION_STATUS.md`; issues remain open until their own acceptance evidence is demonstrated on the relevant `main` commit. A green Action or the existence of a regression test is not, by itself, acceptance.
+
 ## A. Product scope and authority
 
 | ID | Decision | Status |
