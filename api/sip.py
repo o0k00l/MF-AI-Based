@@ -6,8 +6,8 @@ implicit repository-data fallback and no network source scraping in this API.
 from __future__ import annotations
 
 import json
-import math
 import tempfile
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any, Callable
 
@@ -19,6 +19,7 @@ from fastapi.responses import JSONResponse
 from services.sip_evidence_contract import validate_evidence_provider_payload
 from services.sip_evidence_bundle import build_sip_evidence_provider
 from services.sip_recommendation import recommend_sip
+from core.models import quantize_inr
 
 MAX_CAS_BYTES = 20 * 1024 * 1024
 
@@ -125,7 +126,7 @@ def create_sip_app(
     @app.post("/v1/sip/recommendations")
     async def create_recommendation(
         cas_file: UploadFile = File(...),
-        monthly_budget_inr: float = Form(...),
+        monthly_budget_inr: Decimal = Form(...),
         risk_profile: str = Form(...),
         portfolio_context_json: str | None = Form(None),
         x_api_key: str | None = Header(None, alias="X-API-Key"),
@@ -176,12 +177,21 @@ def create_sip_app(
                         "retry_after_seconds": int(window - (now_ts - tenant_request_counts[tenant_id][0])) + 1,
                     })
                 tenant_request_counts[tenant_id].append(now_ts)
-        if not math.isfinite(monthly_budget_inr) or monthly_budget_inr <= 0:
+        try:
+            monthly_budget_inr = quantize_inr(monthly_budget_inr)
+        except (TypeError, ValueError, ArithmeticError):
+            return JSONResponse(status_code=422, content={
+                "status": "HOLD",
+                "decision": "NO_ACTION",
+                "reasons": ["Monthly SIP budget must be a valid INR decimal amount."],
+                "unallocated_budget_inr": None,
+            })
+        if not monthly_budget_inr.is_finite() or monthly_budget_inr <= 0:
             return JSONResponse(status_code=422, content={
                 "status": "HOLD",
                 "decision": "NO_ACTION",
                 "reasons": ["Monthly SIP budget must be finite and greater than zero."],
-                "unallocated_budget_inr": monthly_budget_inr if math.isfinite(monthly_budget_inr) else None,
+                "unallocated_budget_inr": str(monthly_budget_inr) if monthly_budget_inr.is_finite() else None,
             })
         if risk_profile not in {"Conservative", "Moderate", "Aggressive", "Custom"}:
             return JSONResponse(status_code=422, content={
@@ -190,14 +200,14 @@ def create_sip_app(
                 "reasons": [
                     "This SIP endpoint currently supports Conservative, Moderate, Aggressive and Custom profiles only.",
                 ],
-                "unallocated_budget_inr": monthly_budget_inr,
+                "unallocated_budget_inr": str(monthly_budget_inr),
             })
         if not (cas_file.filename or "").lower().endswith(".xlsx"):
             return JSONResponse(status_code=415, content={
                 "status": "HOLD",
                 "decision": "NO_ACTION",
                 "reasons": ["Only an XLSX CAS statement is supported."],
-                "unallocated_budget_inr": monthly_budget_inr,
+                "unallocated_budget_inr": str(monthly_budget_inr),
             })
 
         portfolio_context = None
@@ -206,7 +216,7 @@ def create_sip_app(
                 return JSONResponse(status_code=413, content={
                     "status": "HOLD", "decision": "NO_ACTION",
                     "reasons": ["Portfolio context exceeds the 256 KiB limit."],
-                    "unallocated_budget_inr": monthly_budget_inr,
+                    "unallocated_budget_inr": str(monthly_budget_inr),
                 })
             try:
                 portfolio_context = json.loads(portfolio_context_json)
@@ -216,7 +226,7 @@ def create_sip_app(
                 return JSONResponse(status_code=422, content={
                     "status": "HOLD", "decision": "NO_ACTION",
                     "reasons": ["Portfolio context must be a valid JSON object."],
-                    "unallocated_budget_inr": monthly_budget_inr,
+                    "unallocated_budget_inr": str(monthly_budget_inr),
                 })
 
         custom_saa_target_obj = None
@@ -231,7 +241,7 @@ def create_sip_app(
                     "reasons": [
                         "Custom SAA is not implemented without a reviewed client IPS mandate; valid custom_saa_target is required in portfolio context.",
                     ],
-                    "unallocated_budget_inr": monthly_budget_inr,
+                    "unallocated_budget_inr": str(monthly_budget_inr),
                 })
             from core.models import AssetAllocationTarget
             try:
@@ -243,7 +253,7 @@ def create_sip_app(
                     "reasons": [
                         f"Invalid custom_saa_target schema: {exc}",
                     ],
-                    "unallocated_budget_inr": monthly_budget_inr,
+                    "unallocated_budget_inr": str(monthly_budget_inr),
                 })
 
         payload = await cas_file.read(MAX_CAS_BYTES + 1)
@@ -252,14 +262,14 @@ def create_sip_app(
                 "status": "HOLD",
                 "decision": "NO_ACTION",
                 "reasons": ["CAS upload exceeds the 20 MiB limit."],
-                "unallocated_budget_inr": monthly_budget_inr,
+                "unallocated_budget_inr": str(monthly_budget_inr),
             })
         if not payload:
             return JSONResponse(status_code=422, content={
                 "status": "HOLD",
                 "decision": "NO_ACTION",
                 "reasons": ["CAS upload is empty."],
-                "unallocated_budget_inr": monthly_budget_inr,
+                "unallocated_budget_inr": str(monthly_budget_inr),
             })
 
         if evidence_provider is None:
@@ -270,7 +280,7 @@ def create_sip_app(
                     "No reviewed evidence provider is configured for this deployment.",
                     "The uploaded CAS was not persisted; the full budget remains unallocated.",
                 ],
-                "unallocated_budget_inr": monthly_budget_inr,
+                "unallocated_budget_inr": str(monthly_budget_inr),
             })
 
         if reviewer_trust_registry is None:
@@ -281,7 +291,7 @@ def create_sip_app(
                     "Independent reviewer trust registry is missing or invalid; signed SIP evidence cannot be authenticated.",
                     "The full budget remains unallocated.",
                 ],
-                "unallocated_budget_inr": monthly_budget_inr,
+                "unallocated_budget_inr": str(monthly_budget_inr),
             })
 
         # Temporary storage is isolated and removed automatically after the
@@ -356,7 +366,7 @@ def create_sip_app(
                     "status": "HOLD",
                     "decision": "NO_ACTION",
                     "reasons": [f"Evidence preparation failed closed ({type(exc).__name__})."],
-                    "unallocated_budget_inr": monthly_budget_inr,
+                    "unallocated_budget_inr": str(monthly_budget_inr),
                 })
 
         return JSONResponse(content=result)
