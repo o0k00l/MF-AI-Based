@@ -6,21 +6,27 @@ on:
     paths:
       - "api/**"
       - "core/**"
+      - "ingestion/**"
       - "services/**"
       - "tests/**"
       - "data/policy/**"
       - "scripts/**"
-      - ".github/workflows/sip-acceptance.yml"
+      - "docs/NORMATIVE_ARCHITECTURE_SPECIFICATION.md"
+      - "docs/SIP_ENGINE_DECISION_REGISTER.md"
+      - ".github/workflows/**"
   push:
     branches: [main]
     paths:
       - "api/**"
       - "core/**"
+      - "ingestion/**"
       - "services/**"
       - "tests/**"
       - "data/policy/**"
       - "scripts/**"
-      - ".github/workflows/sip-acceptance.yml"
+      - "docs/NORMATIVE_ARCHITECTURE_SPECIFICATION.md"
+      - "docs/SIP_ENGINE_DECISION_REGISTER.md"
+      - ".github/workflows/**"
   workflow_dispatch:
 
 permissions:
@@ -31,10 +37,10 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  regression:
-    name: SIP / full deterministic regression suite
+  sip-regression:
+    name: SIP / deterministic service regression
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 25
     steps:
       - name: Checkout exact commit
         uses: actions/checkout@v7
@@ -50,16 +56,50 @@ jobs:
         run: python -m pip install --require-hashes -r requirements.lock
       - name: Verify dependency consistency
         run: python -m pip check
-      - name: Compile engine and API modules
-        run: python -m compileall -q api core services tax
-      - name: Run complete deterministic test suite
-        run: python -m pytest -q --tb=short -rs
-      - name: Record acceptance scope
+      - name: Compile SIP backend and ingestion modules
+        run: python -m compileall -q api core ingestion services
+      - name: Run SIP, portfolio, policy and evidence regressions
+        run: |
+          python -m pytest -q --tb=short -rs \
+            tests/test_active_sip_detection.py \
+            tests/test_candidate_direct_plan_binding.py \
+            tests/test_candidate_scoring_defaults.py \
+            tests/test_candidate_scoring_portfolio_gates.py \
+            tests/test_decimal_money_precision.py \
+            tests/test_engine_fund_data.py \
+            tests/test_exact_scheme_category_routing.py \
+            tests/test_financial_data_acquisition.py \
+            tests/test_fund_screening_policy_binding.py \
+            tests/test_operational_sip_feasibility.py \
+            tests/test_portfolio_reconciliation_report.py \
+            tests/test_portfolio_sip_controls.py \
+            tests/test_privacy_prompt_minimization.py \
+            tests/test_risk_tier_normalization.py \
+            tests/test_saa_policy_authoritative.py \
+            tests/test_scheme_riskometer_identity.py \
+            tests/test_screening_policy_binding.py \
+            tests/test_sip_api.py \
+            tests/test_sip_api_auth.py \
+            tests/test_sip_cas_transaction_reconciliation.py \
+            tests/test_sip_cas_valuation_date.py \
+            tests/test_sip_cas_workbook_integration.py \
+            tests/test_sip_evidence_bundle.py \
+            tests/test_sip_evidence_contract.py \
+            tests/test_sip_lifecycle_store.py \
+            tests/test_sip_metrics_provenance.py \
+            tests/test_sip_portfolio_overlap.py \
+            tests/test_sip_production_app.py \
+            tests/test_sip_recommendation_service.py \
+            tests/test_sip_reviewer_approval.py \
+            tests/test_tri_benchmark_requirements.py \
+            tests/test_tri_reviewer_approval.py
+      - name: Publish scope and limitations
         if: always()
         run: |
           {
-            echo "## SIP acceptance regression"
-            echo "- Scope: deterministic repository tests only"
-            echo "- This workflow does not certify live-source coverage, authenticated TRI/calendar availability, reviewer approval, or production readiness."
-            echo "- End-to-end discovery-to-SIP acceptance is tracked in issue #145."
+            echo "## SIP deterministic regression"
+            echo "- Commit: \`${GITHUB_SHA}\`"
+            echo "- This job runs existing SIP/data/policy/privacy regressions on the exact commit."
+            echo "- It is not the end-to-end acceptance test in issue #145 until that test is implemented and added here."
+            echo "- It does not certify live market coverage, authenticated daily TRI, independent NSE calendar, reviewer approval, API deployment controls, or production readiness."
           } >> "$GITHUB_STEP_SUMMARY"
