@@ -131,10 +131,12 @@ pie title 30 Open GitHub Issues Disposition
 - **Disposition:** `CLOSE_VERIFIED (Candidate)`
 - **Stated Acceptance Criteria:** "Require valid detached reviewer approval for every promotion path; remove caller boolean as approval; bind approval to exact artifact digest, scope, policy and commit; run all gates on exact SHA."
 - **Implemented:**
-  - `services/sip_reviewer_approval.py::verify_sip_reviewer_approval()` enforces detached Ed25519 signatures, verifying scope, exact artifact digest, policy digest, and commit SHA (`^[0-9a-f]{40}$`).
-  - `services/acquisition/bundle_builder.py` and `services/engine_bootstrap.py::promote()` verify detached reviewer approvals with commit SHA, policy digest, and bundle artifact binding. Boolean caller attestation alone without cryptographic envelope is rejected.
-- **Tested:** `tests/test_issue_112_cryptographic_promotion.py` (5 dedicated tests passing), `tests/test_sip_reviewer_approval.py` (13 tests passing), `tests/test_engine_bootstrap_and_lumpsum.py` (10 tests passing).
-- **Audit Verification Note:** Candidate closure pending verification that every live promotion path requires this cryptographic binding.
+  - `services/sip_reviewer_approval.py::verify_sip_reviewer_approval()` enforces detached Ed25519 signatures, verifying scope, exact artifact digest, policy digest, and commit SHA (`^[0-9a-f]{40}$`). Missing artifact digest when expected or required strictly fails closed.
+  - `services/engine_bootstrap.py::promote()` strictly mandates artifact binding by default (`require_artifact_binding: bool = True`); explicitly passing `require_artifact_binding=False` raises `ValueError("Promotion requires mandatory cryptographic artifact digest binding; caller cannot disable it.")`. `expected_artifact_digest=bundle_digest` is unconditionally verified.
+  - `services/acquisition/bundle_builder.py` excludes reviewer envelope metadata files from payload hashing, guaranteeing exact, non-circular cryptographic verification.
+  - Boolean caller attestation alone without cryptographic envelope is rejected.
+- **Tested:** `tests/test_issue_112_cryptographic_promotion.py` (5 tests), `tests/test_issues_23_24_112_end_to_end.py` (6 tests including negative bypass attempts, missing digest, and mismatched digest), `tests/test_engine_bootstrap_and_lumpsum.py` (10 tests), `tests/test_sip_reviewer_approval.py` (13 tests).
+- **Audit Verification Note:** Mandatory cryptographic binding across every promotion path verified and proved with fail-closed negative test assertions.
 
 ---
 
@@ -193,7 +195,7 @@ pie title 30 Open GitHub Issues Disposition
 | **#106** | P1 | Prevent ordinary purchases from active SIP mandates | `CLOSE_VERIFIED (Candidate)` | `ingestion/cas_parser.py`, `tests/test_active_sip_detection.py` | Rejects ordinary purchases, future dates, paused mandates; enforces `require_authenticated_mandates=True`. |
 | **#107** | P1 | Reject missing/malformed CAS values | `CLOSE_VERIFIED (Candidate)` | `ingestion/cas_parser.py`, `services/cas_parser.py`, `tests/test_cas_cache_integrity.py` | Rejects missing/malformed CAS numeric fields rather than coercing to 0.0; validates Decimal representation. |
 | **#110** | P1 | Auditable financial-data refresh pipeline | `CLOSE_VERIFIED (Candidate)` | `services/acquisition/pipeline.py`, `tests/test_financial_data_acquisition.py` | Online acquisition orchestration, atomic promotion, rollback on failure, and schema v1 compliance complete. |
-| **#112** | P0 | Block synthetic evidence in refresh pipeline | `CLOSE_VERIFIED (Candidate)` | `services/sip_reviewer_approval.py`, `services/acquisition/bundle_builder.py`, `services/engine_bootstrap.py` | Detached Ed25519 reviewer approval strictly bound to artifact digest, scope, policy digest, and commit SHA; candidate closure pending verification of all promotion paths. |
+| **#112** | P0 | Block synthetic evidence in refresh pipeline | `CLOSE_VERIFIED (Candidate)` | `services/sip_reviewer_approval.py`, `services/acquisition/bundle_builder.py`, `services/engine_bootstrap.py`, `tests/test_issues_23_24_112_end_to_end.py` | Mandatory detached Ed25519 reviewer approval strictly bound to artifact digest, scope, policy digest, and commit SHA; un-bypassable across all promotion routes. |
 | **#120** | P1 | Portfolio-aware lump-sum decisions | `CLOSE_VERIFIED (Candidate)` | `services/lumpsum_recommendation.py`, `tests/test_issue_120_lumpsum_multi_slot.py` | Full multi-slot live-universe candidate ranking for STP deployment; fail-closed human review gate preserved. |
 | **#121** | P1 | Engine bootstrap configuration & evidence | `CLOSE_VERIFIED (Candidate)` | `services/engine_bootstrap.py`, `tests/test_engine_bootstrap_and_lumpsum.py` | Autonomous bootstrap orchestration without caller dictionary staging; manifest snapshot resolution complete. |
 
