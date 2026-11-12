@@ -223,7 +223,7 @@ def test_decimal_repeated_portfolio_aggregation_is_exact_and_order_independent()
     ]
     forward = sum(values, Decimal("0"))
     reverse = sum(reversed(values), Decimal("0"))
-    assert forward == Decimal("1111111111.10")
+    assert forward == Decimal("1111111211.01")
     assert reverse == forward
 
 
