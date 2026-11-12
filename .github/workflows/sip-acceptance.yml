@@ -66,7 +66,8 @@ jobs:
             tests/test_active_sip_detection.py \
             tests/test_candidate_direct_plan_binding.py \
             tests/test_candidate_scoring_defaults.py \
-            tests/test_candidate_scoring_portfolio_gates.py \
+            tests/test_candidate_scoring_portfolio_gates.py
+            tests/test_cas_cache_integrity.py \
             tests/test_decimal_money_precision.py \
             tests/test_engine_fund_data.py \
             tests/test_exact_scheme_category_routing.py \
