@@ -2202,16 +2202,21 @@ def _validated_ips_numeric_inputs(ips: Dict[str, Any]) -> Tuple[Decimal, Decimal
     keys = ("monthly_sip_budget", "lumpsum_budget", "emergency_months")
     if any(isinstance(ips.get(key), bool) for key in keys if key in ips):
         raise ValueError("IPS monetary and emergency-month inputs must not be booleans")
+    if isinstance(ips["monthly_sip_budget"], float):
+        raise ValueError("IPS monthly_sip_budget must use Decimal, integer, or decimal text; binary float is rejected")
     try:
         monthly_sip = quantize_inr(ips["monthly_sip_budget"])
     except (TypeError, ValueError, decimal.InvalidOperation) as exc:
-        raise ValueError("IPS monthly_sip_budget must be numeric") from exc
+        raise ValueError("IPS monthly_sip_budget must be numeric and finite") from exc
     if not monthly_sip.is_finite() or monthly_sip <= Decimal("0.00"):
         raise ValueError("IPS monthly_sip_budget must be finite and greater than zero")
     if "emergency_months" not in ips:
         raise ValueError("Explicit ips.emergency_months is required; no hardcoded default reserve horizon (e.g. 6.0 months) is permitted")
+    raw_lumpsum = ips.get("lumpsum_budget", "0.00")
+    if isinstance(raw_lumpsum, float):
+        raise ValueError("IPS lumpsum_budget must use Decimal, integer, or decimal text; binary float is rejected")
     try:
-        lumpsum_budget = quantize_inr(ips.get("lumpsum_budget", "0.00"))
+        lumpsum_budget = quantize_inr(raw_lumpsum)
         emergency_months = float(ips["emergency_months"])
     except (TypeError, ValueError, decimal.InvalidOperation) as exc:
         raise ValueError("IPS SIP, lumpsum and emergency-month inputs must be numeric") from exc
