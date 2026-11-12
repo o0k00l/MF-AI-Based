@@ -1203,14 +1203,15 @@ def recommend_sip(
                 f"{scheme_label}: constituent disclosure is {holding.lookthrough_status}."
             )
         try:
-            coverage = float(holding.constituent_weights_coverage_pct)
-            current_value = float(holding.current_value_inr)
-        except (TypeError, ValueError, AttributeError):
+            coverage = Decimal(str(holding.constituent_weights_coverage_pct))
+            current_value = quantize_inr(holding.current_value_inr)
+            required_coverage = Decimal(str(_required_lookthrough_coverage_pct()))
+        except (TypeError, ValueError, AttributeError, ArithmeticError):
             evidence_gaps.append(f"{scheme_label}: coverage or current valuation is missing or malformed.")
             continue
-        if not math.isfinite(coverage) or not 99.5 <= coverage <= 100.0:
+        if not coverage.is_finite() or not required_coverage <= coverage <= Decimal("100"):
             evidence_gaps.append(f"{scheme_label}: constituent-weight coverage is incomplete or invalid.")
-        if not math.isfinite(current_value) or current_value <= 0:
+        if not current_value.is_finite() or current_value <= 0:
             evidence_gaps.append(f"{scheme_label}: current holding valuation is missing or invalid.")
     if evidence_gaps:
         return _hold_plan(budget, evidence_gaps)
@@ -1231,7 +1232,10 @@ def recommend_sip(
             monthly_budget=budget,
             risk_tier=_ALLOWED_RISK_PROFILES.get(risk_profile, "Custom"),
             holdings=holdings,
-            client_aum=sum(float(h.current_value_inr) for h in holdings),
+            client_aum=sum(
+                (quantize_inr(h.current_value_inr) for h in holdings),
+                Decimal("0"),
+            ),
             candidate_universe=candidate_universe,
             thematic_satellite_authorized=thematic_satellite_authorized,
             thematic_satellite_pct_of_equity=thematic_satellite_pct_of_equity,
