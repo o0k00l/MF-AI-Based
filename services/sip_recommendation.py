@@ -75,24 +75,51 @@ def _build_cas_portfolio_assessment(
                 raise ValueError("custom_saa_target must be an AssetAllocationTarget instance")
             custom_policy = policy["custom_saa_policy"]
             tolerance = custom_policy["default_tolerance_band_pct"]
-            sub_sleeves = (
-                custom_saa_target.large_cap_pct,
-                custom_saa_target.mid_cap_pct,
-                custom_saa_target.small_cap_pct,
-                custom_saa_target.flexi_cap_pct,
-            )
-            if any(value is None for value in sub_sleeves):
-                raise ValueError("Custom SAA requires explicit large, mid, small and flexi sleeve targets")
             if custom_saa_target.risk_ceiling is None:
                 raise ValueError("Custom SAA requires an explicit independent risk ceiling")
-            targets = {
-                "large_cap": float(custom_saa_target.large_cap_pct),
-                "mid_cap": float(custom_saa_target.mid_cap_pct),
-                "small_cap": float(custom_saa_target.small_cap_pct),
-                "flexi_multi_cap": float(custom_saa_target.flexi_cap_pct),
-                "debt_liquid": float(custom_saa_target.debt_pct),
-                "unclassified": 0.0,
-            }
+            if custom_saa_target.large_cap_pct is not None:
+                targets = {
+                    "large_cap": float(custom_saa_target.large_cap_pct),
+                    "mid_cap": float(custom_saa_target.mid_cap_pct),
+                    "small_cap": float(custom_saa_target.small_cap_pct),
+                    "flexi_multi_cap": float(custom_saa_target.flexi_cap_pct),
+                    "debt_liquid": float(custom_saa_target.debt_pct),
+                    "unclassified": 0.0,
+                }
+            elif float(custom_saa_target.equity_pct) > 0:
+                distribution = custom_policy["default_equity_distribution_pct"]
+                distribution_keys = (
+                    "large_cap_pct", "flexi_multi_cap_pct",
+                    "mid_cap_pct", "small_cap_pct",
+                )
+                if (
+                    not isinstance(distribution, dict)
+                    or set(distribution) != set(distribution_keys)
+                    or sum(float(distribution[key]) for key in distribution_keys) != 100.0
+                ):
+                    raise ValueError("Custom SAA equity distribution policy is missing or invalid")
+                scale = float(custom_saa_target.equity_pct) / 100.0
+                targets = {
+                    "large_cap": round(float(distribution["large_cap_pct"]) * scale, 2),
+                    "flexi_multi_cap": round(float(distribution["flexi_multi_cap_pct"]) * scale, 2),
+                    "mid_cap": round(float(distribution["mid_cap_pct"]) * scale, 2),
+                    "small_cap": round(float(distribution["small_cap_pct"]) * scale, 2),
+                    "debt_liquid": float(custom_saa_target.debt_pct),
+                    "unclassified": 0.0,
+                }
+                equity_sum = sum(targets[key] for key in (
+                    "large_cap", "flexi_multi_cap", "mid_cap", "small_cap"
+                ))
+                targets["large_cap"] = round(
+                    targets["large_cap"] + float(custom_saa_target.equity_pct) - equity_sum, 2
+                )
+            else:
+                targets = {
+                    "large_cap": 0.0, "mid_cap": 0.0, "small_cap": 0.0,
+                    "flexi_multi_cap": 0.0,
+                    "debt_liquid": float(custom_saa_target.debt_pct),
+                    "unclassified": 0.0,
+                }
         else:
             public_mapping = policy["public_risk_profile_mapping"][risk_profile]
             profile_key = public_mapping["behavioral_profile"]
