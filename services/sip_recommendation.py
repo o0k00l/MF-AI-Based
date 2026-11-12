@@ -61,6 +61,14 @@ _ASSET_CLASS_TO_SAA_BUCKET = {
 }
 
 
+def _required_lookthrough_coverage_pct() -> Any:
+    """Resolve the look-through coverage requirement from the validated screening policy."""
+    from core.eligibility import load_fund_screening_policy
+
+    policy = load_fund_screening_policy()
+    return policy["portfolio_lookthrough_policy"]["required_coverage_pct"]
+
+
 def _build_cas_portfolio_assessment(
     holdings: list[Any], risk_profile: str, custom_saa_target: Any | None = None
 ) -> dict[str, Any]:
@@ -173,7 +181,7 @@ def _build_cas_portfolio_assessment(
             })
         if equity_rows:
             lookthrough = calculate_lookthrough_exposure(
-                equity_rows, required_coverage_pct="99.5"
+                equity_rows, required_coverage_pct=_required_lookthrough_coverage_pct()
             )
         else:
             lookthrough = {
@@ -589,7 +597,7 @@ def _assess_complete_portfolio_context(
             }
         elif external_equity_rows:
             external_lookthrough = calculate_lookthrough_exposure(
-                external_equity_rows, required_coverage_pct="99.5"
+                external_equity_rows, required_coverage_pct=_required_lookthrough_coverage_pct()
             )
         else:
             external_lookthrough = {
@@ -648,7 +656,7 @@ def _assess_complete_portfolio_context(
             candidate_exposure = calculate_lookthrough_exposure(
                 [{"holding_value_inr": str(ticket_budget),
                   "coverage_pct": coverage, "constituents": constituents}],
-                required_coverage_pct="99.5",
+                required_coverage_pct=_required_lookthrough_coverage_pct(),
             )
             if candidate_exposure.get("status") != "CALCULATED":
                 overlap_results[candidate_id] = candidate_exposure
@@ -744,7 +752,7 @@ def _assess_complete_portfolio_context(
             })
         if candidate_allocation.get("status") == "ALLOCATED" and selected_candidate_rows:
             selected_lookthrough = calculate_lookthrough_exposure(
-                selected_candidate_rows, required_coverage_pct="99.5"
+                selected_candidate_rows, required_coverage_pct=_required_lookthrough_coverage_pct()
             )
             if selected_lookthrough.get("status") == "CALCULATED":
                 proposed_issuer_values = dict(existing_issuer_values)
