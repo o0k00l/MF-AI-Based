@@ -1119,6 +1119,7 @@ def recommend_sip(
     metrics_normalized_sha256: str | None = None,
     candidate_universe_normalized_sha256: str | None = None,
     custom_saa_target: Any | None = None,
+    statement_provenance: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build a fail-closed portfolio-aware SIP decision from explicit evidence.
 
