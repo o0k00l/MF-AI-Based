@@ -262,7 +262,7 @@ def _assess_complete_portfolio_context(
     monthly_budget_inr: Decimal,
     risk_profile: str,
     existing_lookthrough: dict[str, Any],
-    cas_holdings_total_inr: float,
+    cas_holdings_total_inr: Decimal,
     evidence_as_of_date: date,
     custom_saa_target: Any | None = None,
 ) -> dict[str, Any]:
