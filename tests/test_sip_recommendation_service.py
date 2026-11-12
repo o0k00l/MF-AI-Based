@@ -204,7 +204,7 @@ def test_verified_cas_holdings_return_policy_saa_diagnostic_but_never_route_budg
     assert assessment["scope"] == "CAS_MUTUAL_FUND_HOLDINGS_ONLY"
     assert assessment["portfolio_perimeter_complete"] is False
     assert assessment["total_value_inr"] == "125000.00"
-    assert assessment["current_sleeve_values_inr"]["large_cap"] == 125000.0
+    assert assessment["current_sleeve_values_inr"]["large_cap"] == "125000.00"
     assert assessment["target_sleeve_weights_pct"]["large_cap"] == 20
     assert assessment["policy_profile"] == "very_high"
     assert assessment["saa_drift"]["current_weights_pct"]["large_cap"] == "100"
