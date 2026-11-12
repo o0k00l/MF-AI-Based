@@ -371,5 +371,13 @@
       "behavioral_profile": "very_high",
       "risk_ceiling": 6
     }
+  },
+  "sebi_tier_profile_mapping": {
+    "1": "low",
+    "2": "low_to_moderate",
+    "3": "moderate",
+    "4": "moderately_high",
+    "5": "high",
+    "6": "very_high"
   }
 }
