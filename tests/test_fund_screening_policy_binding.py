@@ -1,4 +1,5 @@
 import copy
+import hashlib
 import json
 from pathlib import Path
 import pytest
@@ -114,7 +115,14 @@ def test_check_eligibility_gates_custom_policy_changes_behavior():
         if r.get("id") == "AUM_OUT_OF_BAND":
             r["limits_crore"]["Small Cap"] = 10000.0
             break
-    
+    # A derived policy is a distinct policy snapshot: detach the base-file
+    # binding and bind its digest to the exact modified content.
+    strict_policy.pop("_policy_path", None)
+    strict_policy.pop("_policy_digest", None)
+    strict_policy["_policy_digest"] = hashlib.sha256(
+        json.dumps(strict_policy, sort_keys=True).encode("utf-8")
+    ).hexdigest()
+
     res2 = check_eligibility_gates(fund_data, portfolio_holdings=holdings, client_risk_tier_num=5, policy=strict_policy)
     assert any("AUM Size Drag" in f for f in res2.failed_gates)
 
