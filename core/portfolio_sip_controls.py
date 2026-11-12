@@ -493,7 +493,7 @@ def route_incremental_sip(
         "allocated_budget_inr": str(allocated),
         "unallocated_budget_inr": str(unallocated),
         "unallocated_by_sleeve_inr": {k: str(v) for k, v in sorted(unallocated_by_sleeve.items())},
-        "post_contribution_total_inr": str(post_contribution_invested_total),
+        "post_contribution_total_inr": str(post_contribution_perimeter_total),
         "post_contribution_invested_total_inr": str(post_contribution_invested_total),
         "post_contribution_perimeter_total_inr": str(post_contribution_perimeter_total),
         "unallocated_cash_inr": str(unallocated),
