@@ -358,15 +358,24 @@ def route_incremental_sip(
     portfolio_total_inr: Any,
     tolerance_band_pct: Any,
     eligible_sleeves: Iterable[str],
-    rounding_increment_inr: Any = "1",
+    rounding_increment_inr: Any | None = None,
 ) -> dict[str, Any]:
     """Route only each eligible sleeve's pro-rata share of total SAA gaps.
 
     An ineligible or unfillable underweight sleeve retains its own share of the
     requested contribution as unallocated. Its budget is never redistributed
-    to a different sleeve.
+    to a different sleeve. The increment is resolved from the authoritative
+    allocation policy when a validated value is not supplied explicitly.
     """
     budget = _decimal(monthly_budget_inr, "monthly_budget_inr")
+    if rounding_increment_inr is None:
+        from pathlib import Path
+        policy_path = Path(__file__).resolve().parents[1] / "data" / "policy" / "asset_allocation.json"
+        try:
+            allocation_policy = json.loads(policy_path.read_text(encoding="utf-8"))
+            rounding_increment_inr = allocation_policy["sip_allocation_policy"]["sip_increment_inr"]
+        except (OSError, json.JSONDecodeError, KeyError, TypeError) as exc:
+            raise PortfolioInputError("validated SIP increment is missing from the allocation policy") from exc
     increment = _decimal(rounding_increment_inr, "rounding_increment_inr")
     if budget <= 0 or increment <= 0:
         raise PortfolioInputError("budget and rounding increment must be positive")
