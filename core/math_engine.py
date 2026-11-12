@@ -4533,6 +4533,13 @@ def select_autonomous_blueprint_funds(
     effective_risk_ceiling = risk_ceiling
     if effective_risk_ceiling is None and custom_saa_target is not None:
         effective_risk_ceiling = getattr(custom_saa_target, "risk_ceiling", None)
+    if tier_int == 0:
+        if (
+            isinstance(effective_risk_ceiling, bool)
+            or not isinstance(effective_risk_ceiling, int)
+            or not 1 <= effective_risk_ceiling <= 6
+        ):
+            raise ValueError("Custom SAA requires an explicit independent risk ceiling from 1 through 6")
 
     if not isinstance(thematic_satellite_authorized, bool):
         raise ValueError("thematic_satellite_authorized must be a boolean")
@@ -4627,16 +4634,25 @@ def select_autonomous_blueprint_funds(
                     "large": float(custom_saa_target.large_cap_pct),
                 }
             elif equity_total > 0:
-                custom_policy = allocation_policy.get("custom_saa_policy", {})
-                dist = custom_policy.get("default_equity_distribution_pct", {
-                    "large_cap_pct": 35.0, "flexi_multi_cap_pct": 25.0, "mid_cap_pct": 20.0, "small_cap_pct": 20.0,
-                })
+                custom_policy = allocation_policy["custom_saa_policy"]
+                dist = custom_policy["default_equity_distribution_pct"]
+                distribution_keys = (
+                    "large_cap_pct", "flexi_multi_cap_pct",
+                    "mid_cap_pct", "small_cap_pct",
+                )
+                if (
+                    not isinstance(dist, dict)
+                    or set(dist) != set(distribution_keys)
+                    or any(not math.isfinite(float(dist[key])) or float(dist[key]) < 0.0 for key in distribution_keys)
+                    or sum(float(dist[key]) for key in distribution_keys) != 100.0
+                ):
+                    raise ValueError("Custom SAA equity distribution policy is missing or invalid")
                 scale = equity_total / 100.0
                 equity_parts = {
-                    "large": round(float(dist.get("large_cap_pct", 35.0)) * scale, 2),
-                    "flexi": round(float(dist.get("flexi_multi_cap_pct", 25.0)) * scale, 2),
-                    "mid": round(float(dist.get("mid_cap_pct", 20.0)) * scale, 2),
-                    "small": round(float(dist.get("small_cap_pct", 20.0)) * scale, 2),
+                    "large": round(float(dist["large_cap_pct"]) * scale, 2),
+                    "flexi": round(float(dist["flexi_multi_cap_pct"]) * scale, 2),
+                    "mid": round(float(dist["mid_cap_pct"]) * scale, 2),
+                    "small": round(float(dist["small_cap_pct"]) * scale, 2),
                 }
                 diff = equity_total - sum(equity_parts.values())
                 equity_parts["large"] = round(equity_parts["large"] + diff, 2)
