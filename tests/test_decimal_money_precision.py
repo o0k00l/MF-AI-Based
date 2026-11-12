@@ -212,3 +212,25 @@ def test_holding_item_rejects_invalid_unit_and_nav_values(field, value):
     data[field] = value
     with pytest.raises((ValueError, TypeError)):
         HoldingItem(**data)
+
+
+def test_decimal_repeated_portfolio_aggregation_is_exact_and_order_independent():
+    values = [Decimal("0.01")] * 10000 + [
+        Decimal("123456789.99"),
+        Decimal("987654321.01"),
+        Decimal("0.005"),
+        Decimal("0.005"),
+    ]
+    forward = sum(values, Decimal("0"))
+    reverse = sum(reversed(values), Decimal("0"))
+    assert forward == Decimal("1111111111.10")
+    assert reverse == forward
+
+
+def test_decimal_large_budget_split_and_residual_reconcile_exactly():
+    budget = Decimal("100000000000000.01")
+    first_sleeve = quantize_inr(budget * Decimal("0.3333"))
+    second_sleeve = quantize_inr(budget * Decimal("0.6666"))
+    residual = budget - first_sleeve - second_sleeve
+    assert first_sleeve + second_sleeve + residual == budget
+    assert residual >= 0
