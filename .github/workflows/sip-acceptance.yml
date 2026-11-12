@@ -80,8 +80,10 @@ jobs:
             tests/test_saa_policy_authoritative.py \
             tests/test_scheme_riskometer_identity.py \
             tests/test_screening_policy_binding.py \
+            tests/test_issue_22_api_tenant_quotas.py \
             tests/test_sip_api.py \
             tests/test_sip_api_auth.py \
+            tests/test_sip_api_client.py \
             tests/test_sip_cas_transaction_reconciliation.py \
             tests/test_sip_cas_valuation_date.py \
             tests/test_sip_cas_workbook_integration.py \
