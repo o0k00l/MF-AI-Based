@@ -26,13 +26,15 @@
 ## 2. Issue Disposition Summary
 
 ```mermaid
-pie title 30 Open GitHub Issues Disposition
-    "CLOSE_VERIFIED (Candidate) (21)" : 21
+pie title 30 GitHub Issues Disposition
+    "CLOSED on GitHub (5)" : 5
+    "CLOSE_VERIFIED (Candidate) (16)" : 16
     "PARTIALLY_RESOLVED (3)" : 3
     "BLOCKED_EXTERNAL / Governance Gates (6)" : 6
 ```
 
-- **`CLOSE_VERIFIED (Candidate)` (21 Issues):** Full code implementation and comprehensive unit/integration test assertions exist in the verified codebase on `main`. Each candidate issue remains open pending final commit-level acceptance criteria sign-off review against the live issue body.
+- **`CLOSED on GitHub` (5 Issues — #25, #27, #30, #32, #78):** Independently reviewed and closed on GitHub on commit `8593850` with verified implementation and test evidence.
+- **`CLOSE_VERIFIED (Candidate)` (16 Issues):** Full code implementation and comprehensive unit/integration test assertions exist in the verified codebase on `main`. Each candidate issue remains open pending final commit-level acceptance criteria sign-off review against the live issue body.
 - **`PARTIALLY_RESOLVED` (3 Issues — #22, #23, #24):**
   - **#22:** Internal API controls are implemented (API auth, tenant-isolated rate limits and quotas, deployment status endpoint, HTTP security headers), but live authenticated Requesty/OpenRouter catalogue smoke tests and reviewed hosting deployment targets remain required.
   - **#23:** Canonical report generation, arithmetic perimeter validation, zero-unmatched item blocking, and RFC 8785 (JCS) SHA-256 digest binding are fully implemented in code; retained open as partially resolved pending an attached, representative source-backed investor perimeter reconciliation package.
@@ -136,8 +138,9 @@ pie title 30 Open GitHub Issues Disposition
 - **Implemented:**
   - `services/sip_reviewer_approval.py::verify_sip_reviewer_approval()` enforces detached Ed25519 signatures, verifying scope, exact artifact digest, policy digest, and commit SHA (`^[0-9a-f]{40}$`). Missing artifact digest when expected or required strictly fails closed.
   - Mandatory cryptographic binding across the entire promotion surface:
-    - `services/engine_bootstrap.py::promote()`, `build_staging_bundle()`, and `bootstrap_staging_bundle()` default to `require_artifact_binding=True`, `require_commit_binding=True`, `require_policy_binding=True`; explicit `False` arguments raise `ValueError` anti-downgrade exceptions.
-    - `services/acquisition/bundle_builder.py::build_and_promote()` defaults to `require_commit_binding=True`, `require_policy_binding=True`, `require_artifact_binding=True`; explicit `False` arguments raise `ValueError` anti-downgrade exceptions. Performs upfront Gate 1 validation and post-staging Gate 8 artifact digest verification.
+    - `services/engine_bootstrap.py::promote()`, `build_staging_bundle()`, and `bootstrap_staging_bundle()` strictly require non-empty `commit_sha` and `policy_digest` fields in `manifest.json`, validating both fields against expected parameters and the signed reviewer approval envelope. Empty or missing fields fail closed with `ValueError`.
+    - All promotion interfaces default to `require_artifact_binding=True`, `require_commit_binding=True`, `require_policy_binding=True`; explicit `False` arguments raise `ValueError` anti-downgrade exceptions.
+    - `services/acquisition/bundle_builder.py::build_and_promote()` enforces non-empty `commit_sha` and `policy_digest` in the manifest and defaults to mandatory bindings; explicit `False` arguments raise `ValueError` anti-downgrade exceptions. Performs upfront Gate 1 validation and post-staging Gate 8 artifact digest verification.
     - `services/acquisition/pipeline.py::FinancialDataRefreshPipeline.refresh()` defaults to `require_commit_binding=True`, `require_policy_binding=True`, `require_artifact_binding=True`; explicit `False` arguments fail closed with atomic rollback.
   - Reviewer approval envelopes and trust registries are detached and excluded from artifact digest computation, ensuring non-circular deterministic hashing.
   - Dynamic signing ceremonies (`CallableEnvelope`) supported alongside pre-signed envelopes.
@@ -182,12 +185,12 @@ pie title 30 Open GitHub Issues Disposition
 | **#22** | P1 | AI provider auth & deployment target | `PARTIALLY_RESOLVED` | `api/sip.py`, `tests/test_issue_22_api_tenant_quotas.py`, `tests/test_sip_api_auth.py` | API auth, quotas, and security headers implemented; requires live provider catalogue smoke test & reviewed hosting target. |
 | **#23** | P1 | Complete portfolio perimeter reconciliation | `PARTIALLY_RESOLVED` | `core/portfolio_sip_controls.py`, `tests/test_portfolio_reconciliation_report.py` | Canonical report generation and fail-closed gates complete; retained open pending attached source-backed reconciliation package verifying an actual client perimeter. |
 | **#24** | P1 | SAA drift & incremental SIP routing | `PARTIALLY_RESOLVED` | `core/models.py`, `core/math_engine.py`, `tests/test_custom_saa_contract.py` | Custom SAA contract & stability-buffer correction complete; unfillable sleeves preserved; retained open pending complete recommendation-trace through eligible candidates. |
-| **#25** | P1 | Candidate eligibility gates before scoring | `CLOSE_VERIFIED (Candidate)` | `core/math_engine.py`, `tests/test_deep_remediations_tranche.py` | Scoring strictly requires verified `is_eligible=True`; overrides prohibited. |
+| **#25** | P1 | Candidate eligibility gates before scoring | `CLOSED_ON_GITHUB` | `core/math_engine.py`, `tests/test_deep_remediations_tranche.py` | Closed on GitHub on commit `8593850`. Scoring strictly requires verified `is_eligible=True`; overrides prohibited. |
 | **#26** | P1 | Portfolio concentration & look-through controls | `CLOSE_VERIFIED (Candidate)` | `core/security_master.py`, `tests/test_issue_26_security_master_cross_amc.py` | Normalizes corporate actions (mergers, spinoffs) and cross-AMC ticker aliases into canonical securities. |
-| **#27** | P1 | Reproducible SIP decision traces | `CLOSE_VERIFIED (Candidate)` | `core/traceability.py`, `tests/test_decision_traceability.py` | Enforces UTC timestamps, explicit confidence, policy digest, and RFC 8785 (JCS) SHA-256 hashes. |
-| **#30** | P1 | Goal-level suitability & horizon constraints | `CLOSE_VERIFIED (Candidate)` | `services/goal_planner.py`, `core/portfolio_sip_controls.py`, `tests/test_goal_planner.py` | Earmarking ledger prevents double-counting; monthly rate formula synchronized ($r_{\text{mo}} = (1+R)^{1/12}-1$). |
+| **#27** | P1 | Reproducible SIP decision traces | `CLOSED_ON_GITHUB` | `core/traceability.py`, `tests/test_decision_traceability.py` | Closed on GitHub on commit `8593850`. Enforces UTC timestamps, explicit confidence, policy digest, and RFC 8785 (JCS) SHA-256 hashes. |
+| **#30** | P1 | Goal-level suitability & horizon constraints | `CLOSED_ON_GITHUB` | `services/goal_planner.py`, `core/portfolio_sip_controls.py`, `tests/test_goal_planner.py` | Closed on GitHub on commit `8593850`. Earmarking ledger prevents double-counting; monthly rate formula synchronized ($r_{\text{mo}} = (1+R)^{1/12}-1$). |
 | **#31** | P1 | Emergency reserve & liquidity runway | `CLOSE_VERIFIED (Candidate)` | `core/portfolio_sip_controls.py`, `tests/test_emergency_reserve_and_liquidity.py` | Liquidity waterfall enforces policy reserve months; fails closed if runway is unverified or insufficient. |
-| **#32** | P1 | Affordability & SIP stress tests | `CLOSE_VERIFIED (Candidate)` | `core/portfolio_sip_controls.py`, `tests/test_deep_remediations_tranche.py` | Stress tests disposable surplus under 20%/40% shocks; no speculative salary growth assumed. |
+| **#32** | P1 | Affordability & SIP stress tests | `CLOSED_ON_GITHUB` | `core/portfolio_sip_controls.py`, `tests/test_deep_remediations_tranche.py` | Closed on GitHub on commit `8593850`. Stress tests disposable surplus under 20%/40% shocks; no speculative salary growth assumed. |
 | **#33** | P1 | Post-recommendation monitoring & review lifecycle | `CLOSE_VERIFIED (Candidate)` | `core/lifecycle_store.py`, `tests/test_sip_lifecycle_store.py` | Idempotent, append-only store outside project directory; monotonic state progression. |
 | **#34** | P1 | Scheme lifecycle & operational feasibility | `CLOSE_VERIFIED (Candidate)` | `core/portfolio_sip_controls.py`, `tests/test_operational_sip_feasibility.py` | Checks active status, minimum tickets, 12-month new fund caps, and Regular-to-Direct migration exemptions. |
 | **#37** | Architecture | Clarify app.py entry points & startup contract | `CLOSE_VERIFIED (Candidate)` | `app.py`, `ui/app.py`, `ARCHITECTURE.md`, `tests/test_architecture_spec.py` | Root `app.py` is launcher; `ui/app.py` requires genuine CAS upload; zero demo/fallback data; AST boundaries verified. |
@@ -197,7 +200,7 @@ pie title 30 Open GitHub Issues Disposition
 | **#50** | P0 | Bind runtime eligibility to screening policy | `CLOSE_VERIFIED (Candidate)` | `core/math_engine.py`, `tests/test_issues_50_26_84_55_remediations.py` | Eligibility binds strictly to loaded policy file with cryptographic digest; caller overrides prohibited. |
 | **#52** | P1 | Stop attributing registrar without evidence | `CLOSE_VERIFIED (Candidate)` | `ingestion/statement_validator.py`, `tests/test_statement_validator_provenance.py` | Reports `UNKNOWN` when registrar evidence is missing; structural validity does not upgrade source authenticity. |
 | **#55** | P1 | Enforce Decimal money contract | `CLOSE_VERIFIED (Candidate)` | `core/models.py`, `services/cas_parser.py`, `tests/test_decimal_money_precision.py` | `quantize_inr()` enforces exact Decimal representation across `HoldingItem`, SIP/lumpsum plans, and budget reconciliation. |
-| **#78** | P0 | Tier 6 equity-only authorization requirement | `CLOSE_VERIFIED (Candidate)` | `core/math_engine.py`, `tests/test_saa_policy_authoritative.py`, `validate_final_logics.py` | Tier 6 100/0 split strictly requires `equity_only_authorized is True` literal boolean; non-true fails closed to 95/5. |
+| **#78** | P0 | Tier 6 equity-only authorization requirement | `CLOSED_ON_GITHUB` | `core/math_engine.py`, `tests/test_saa_policy_authoritative.py`, `validate_final_logics.py` | Closed on GitHub on commit `8593850`. Tier 6 100/0 split strictly requires `equity_only_authorized is True` literal boolean; non-true fails closed to 95/5. |
 | **#84** | P0 | Provenance & exact scheme binding for metrics | `CLOSE_VERIFIED (Candidate)` | `services/cas_holdings_identity.py`, `tests/test_exact_metrics_identity_binding.py` | Metrics bound to exact `(isin, amc, category, plan_type)` tuples; fuzzy or name-based matching prohibited. |
 | **#106** | P1 | Prevent ordinary purchases from active SIP mandates | `CLOSE_VERIFIED (Candidate)` | `ingestion/cas_parser.py`, `tests/test_active_sip_detection.py` | Rejects ordinary purchases, future dates, paused mandates; enforces `require_authenticated_mandates=True`. |
 | **#107** | P1 | Reject missing/malformed CAS values | `CLOSE_VERIFIED (Candidate)` | `ingestion/cas_parser.py`, `services/cas_parser.py`, `tests/test_cas_cache_integrity.py` | Rejects missing/malformed CAS numeric fields rather than coercing to 0.0; validates Decimal representation. |
@@ -211,12 +214,14 @@ pie title 30 Open GitHub Issues Disposition
 ## 5. Summary of Recommended Next Steps
 
 1. **Do NOT close any issue in bulk.**
-2. **Issues to remain OPEN as Governance & External Release Gates (6 issues):**
+2. **Issues CLOSED on GitHub (5 issues):**
+   - **#25, #27, #30, #32, #78** (closed on commit `8593850` with verified implementation and test evidence).
+3. **Issues to remain OPEN as Governance & External Release Gates (6 issues):**
    - **#16, #17, #18, #21, #39, #44**
-3. **Issues to remain OPEN as Partially Resolved (3 issues):**
+4. **Issues to remain OPEN as Partially Resolved (3 issues):**
    - **#22:** Internal API controls are implemented, but live provider catalogue authentication smoke tests (Requesty/OpenRouter) and reviewed hosting platform deployment configuration are still required.
    - **#23:** Canonical report generation and perimeter validation complete; retained open pending attached source-backed investor perimeter reconciliation evidence.
    - **#24:** Custom SAA contract and stability-buffer fixes complete; retained open pending demonstrated recommendation-trace through eligible candidate selection with whole-budget reconciliation.
-4. **Issues eligible for individual acceptance review before close-out (21 issues):**
-   - **#25, #26, #27, #30, #31, #32, #33, #34, #37, #41, #50, #52, #55, #78, #84, #106, #107, #110, #112, #120, #121**
+5. **Issues eligible for individual acceptance review before close-out (16 candidate issues):**
+   - **#26, #31, #33, #34, #37, #41, #50, #52, #55, #84, #106, #107, #110, #112, #120, #121**
    - Preparation for each candidate issue must compare the exact live issue body and acceptance criteria against the committed code on `main`.
