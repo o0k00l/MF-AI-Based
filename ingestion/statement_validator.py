@@ -33,7 +33,7 @@ _CGS_KEYWORDS = {
 
 @dataclass
 class StatementValidationResult:
-    is_valid: bool
+    is_valid: bool  # Structural validity only; never publisher authenticity.
     document_type: str                  # "CAS_EXCEL" | "CAS_PDF" | "CGS_EXCEL" | "INVALID"
     rta_source: str                     # Authenticated publisher only; "Unknown" until independent verification.
     structural_validity: bool = False
