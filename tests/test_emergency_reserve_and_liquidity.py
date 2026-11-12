@@ -5,6 +5,7 @@ Addresses Issue #31: Verify emergency reserve, liquidity runway and near-term ca
 from __future__ import annotations
 
 import math
+from decimal import Decimal
 import pytest
 from types import SimpleNamespace
 
@@ -18,27 +19,27 @@ from core.models import AssetClass, HoldingItem, PlanType
 
 
 def test_validated_ips_numeric_inputs_rejects_missing_emergency_months():
-    ips = {"monthly_sip_budget": 10000.0}
+    ips = {"monthly_sip_budget": Decimal("10000.00")}
     with pytest.raises(ValueError, match="Explicit ips.emergency_months is required"):
         _validated_ips_numeric_inputs(ips)
 
 
 def test_validated_ips_numeric_inputs_rejects_invalid_emergency_months():
-    ips_bool = {"monthly_sip_budget": 10000.0, "emergency_months": True}
+    ips_bool = {"monthly_sip_budget": Decimal("10000.00"), "emergency_months": True}
     with pytest.raises(ValueError, match="must not be booleans"):
         _validated_ips_numeric_inputs(ips_bool)
 
-    ips_negative = {"monthly_sip_budget": 10000.0, "emergency_months": -1.0}
+    ips_negative = {"monthly_sip_budget": Decimal("10000.00"), "emergency_months": -1.0}
     with pytest.raises(ValueError, match="finite and non-negative"):
         _validated_ips_numeric_inputs(ips_negative)
 
-    ips_nan = {"monthly_sip_budget": 10000.0, "emergency_months": float("nan")}
+    ips_nan = {"monthly_sip_budget": Decimal("10000.00"), "emergency_months": float("nan")}
     with pytest.raises(ValueError, match="finite and non-negative"):
         _validated_ips_numeric_inputs(ips_nan)
 
 
 def test_validated_ips_numeric_inputs_accepts_explicit_policy_months():
-    ips = {"monthly_sip_budget": 15000.0, "emergency_months": 12.0, "lumpsum_budget": 50000.0}
+    ips = {"monthly_sip_budget": Decimal("15000.00"), "emergency_months": 12.0, "lumpsum_budget": Decimal("50000.00")}
     sip, lumpsum, months = _validated_ips_numeric_inputs(ips)
     assert sip == 15000.0
     assert lumpsum == 50000.0
