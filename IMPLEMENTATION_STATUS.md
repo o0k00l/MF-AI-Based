@@ -109,7 +109,7 @@ The detailed normative calculation/data/API contract is [SIP_DECISION_CALCULATIO
 
 ## 8. Code corrections — 2026-11-12
 
-The following corrections are now present on main (latest source revision at this update: c69e626f6f6a6d533573ad4086346f76e21c3955). These are implementation changes, not a declaration of workstream closure:
+The following corrections are now present on main (verified source revision: 8ec155d7ad49c5ccbf80a38e8932c9e29fb9904f). These are implementation changes, not a declaration of workstream closure:
 
 - SIP routing now derives post-contribution INR gaps from the P+B perimeter and applies the tolerance on that same base. Unfillable sleeve shares and rounding residue remain unallocated.
 - The production routing increment comes from the validated allocation policy. The primitive no longer embeds a numeric increment default.
@@ -119,6 +119,6 @@ The following corrections are now present on main (latest source revision at thi
 - Public 3+1 risk mapping and SEBI Tier 1–6 profile mapping are policy-owned and consumed by the service/model/math engine. Custom risk ceiling is explicit; the implicit Tier 6 default was removed.
 - Legacy candidate concentration controls no longer provide implicit numeric caps; classified caps require explicit policy limits.
 
-**Verification boundary:** GitHub Actions for exact HEAD c69e626 were still running at the time of this update. A preceding SIP regression run passed 397 tests before the API Decimal serialization changes; the next run identified five assertions expecting numeric JSON INR values. Those tests were corrected to assert the new Decimal-string contract. Do not mark #24, #50 or #55 closed until exact-HEAD CI/SIP/Security are green and the remaining end-to-end acceptance in #145 is demonstrated.
+**Verification boundary:** Exact HEAD 8ec155d has green GitHub Actions: full repository CI passed (**1,275 passed, 34 skipped**), SIP acceptance regression passed, and Security passed. The skipped tests include explicitly gated private-CAS integration, tax/exit-load (intentionally disabled), and thematic issuer-taxonomy validation (not yet implemented). These results validate the current automated suite only; they do not certify live data coverage, positive-path research/TRI release, independent NSE calendar, reviewer approval, or production readiness. Do not mark #24, #50 or #55 closed until their remaining acceptance and end-to-end issue #145 are demonstrated.
 
 **Still open:** source-specific disclosure/evidence freshness (the current disclosure-age default still needs a policy-bound source-specific contract); complete external-asset/liability perimeter and liquidity evidence; full holdings-level issuer/sector/market-cap/theme before/after controls and trace binding; candidate-universe autonomous discovery; research/TRI/NSE calendar independent release gates; reviewer approval; and the production UI/API acceptance workflow.
