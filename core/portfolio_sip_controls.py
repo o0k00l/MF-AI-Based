@@ -647,7 +647,7 @@ def allocate_candidate_sip(
 
         try:
             scheme_minimum = _decimal(
-                row.get("minimum_monthly_sip_inr", policy_minimum),
+                row.get("minimum_monthly_sip_inr"),
                 "candidate.minimum_monthly_sip_inr",
             )
             if scheme_minimum <= 0:
