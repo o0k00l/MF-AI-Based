@@ -8,11 +8,13 @@ from __future__ import annotations
 
 import io
 import os
+from decimal import Decimal
 from typing import Any, BinaryIO
 
 from fastapi.testclient import TestClient
 
 from api.sip import app as fastapi_app
+from core.models import quantize_inr
 
 
 def get_api_health() -> dict[str, Any]:
@@ -41,12 +43,17 @@ def get_api_readiness() -> dict[str, Any]:
 
 def request_sip_recommendations(
     cas_bytes: bytes,
-    monthly_budget_inr: float,
+    monthly_budget_inr: Decimal | str | int,
     risk_profile: str,
     filename: str = "portfolio.xlsx",
 ) -> dict[str, Any]:
     """Send uploaded CAS bytes to the SIP recommendations API endpoint."""
     try:
+        if isinstance(monthly_budget_inr, (bool, float)):
+            raise ValueError("Monthly SIP budget must be supplied as Decimal, integer, or decimal string; binary float is not accepted.")
+        budget = quantize_inr(monthly_budget_inr)
+        if not budget.is_finite() or budget <= 0:
+            raise ValueError("Monthly SIP budget must be finite and greater than zero.")
         client = TestClient(fastapi_app)
         res = client.post(
             "/v1/sip/recommendations",
@@ -58,7 +65,7 @@ def request_sip_recommendations(
                 )
             },
             data={
-                "monthly_budget_inr": str(monthly_budget_inr),
+                "monthly_budget_inr": str(budget),
                 "risk_profile": risk_profile,
             },
         )
@@ -68,7 +75,7 @@ def request_sip_recommendations(
             "status": "ERROR",
             "decision": "NO_ACTION",
             "reasons": [f"API returned status {res.status_code}: {res.text}"],
-            "unallocated_budget_inr": monthly_budget_inr,
+            "unallocated_budget_inr": str(budget) if "budget" in locals() else None,
         }
     except Exception as exc:
         return {
