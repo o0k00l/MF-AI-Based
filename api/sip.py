@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import json
 import tempfile
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 from pathlib import Path
 from typing import Any, Callable
 
