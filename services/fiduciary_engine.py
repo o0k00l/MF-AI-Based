@@ -802,11 +802,21 @@ def generate_fiduciary_sip_blueprint(
                 "debt": getattr(target_saa, "debt_pct", None),
             }
         elif isinstance(target_saa, dict):
+            # Try new format first, then fall back to legacy format for backward compatibility
+            def _get_saa_val(key_new: str, key_old: str | None = None, default: str | None = None) -> Any:
+                """Get SAA value preferring new format, falling back to legacy format."""
+                val = target_saa.get(key_new)
+                if val is None and key_old:
+                    val = target_saa.get(key_old)
+                if val is None and default:
+                    val = target_saa.get(default)
+                return val
+            
             raw_vals = {
-                "large_cap": target_saa.get("large_cap_pct"),
-                "mid_small": target_saa.get("mid_small_cap_pct"),
-                "flexi": target_saa.get("flexi_multi_cap_pct"),
-                "debt": target_saa.get("debt_pct"),
+                "large_cap": _get_saa_val("large_cap_pct", "large_cap"),
+                "mid_small": _get_saa_val("mid_small_cap_pct", "mid_small_cap"),
+                "flexi": _get_saa_val("flexi_multi_cap_pct", "flexi_multi_cap"),
+                "debt": _get_saa_val("debt_pct", "debt"),
             }
         else:
             return {

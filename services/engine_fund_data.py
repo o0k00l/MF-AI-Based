@@ -128,7 +128,7 @@ def acquire_amfi_nav_feed(
 
 
 def parse_amfi_nav_feed(content: bytes) -> list[dict[str, Any]]:
-    """Parse AMFI NAVAll pipe-delimited rows without guessing missing fields."""
+    """Parse AMFI NAVAll feed - supports both legacy pipe-delimited and current semicolon-delimited formats."""
     if not isinstance(content, bytes) or not content.strip():
         raise FundDataAcquisitionError("AMFI NAV feed is empty")
     try:
@@ -140,9 +140,19 @@ def parse_amfi_nav_feed(content: bytes) -> list[dict[str, Any]]:
     seen_codes: set[str] = set()
     for line_number, raw_line in enumerate(text.splitlines(), start=1):
         line = raw_line.strip()
-        if not line or line.startswith("Scheme Code") or "|" not in line:
+        if not line or line.startswith("Scheme Code"):
             continue
-        fields = [part.strip() for part in line.split("|")]
+        
+        # Detect delimiter: semicolon (current AMFI format) or pipe (legacy)
+        if ";" in line and not line.startswith("|"):
+            # Current AMFI format uses semicolon delimiter
+            fields = [part.strip() for part in line.split(";")]
+        elif "|" in line:
+            # Legacy AMFI format uses pipe delimiter
+            fields = [part.strip() for part in line.split("|")]
+        else:
+            continue
+        
         if len(fields) < 6:
             # AMFI also publishes category/AMC headings; ignore non-record lines,
             # but reject malformed rows that begin with a numeric scheme code.
@@ -167,7 +177,8 @@ def parse_amfi_nav_feed(content: bytes) -> list[dict[str, Any]]:
         except (InvalidOperation, ValueError) as exc:
             raise FundDataAcquisitionError(f"Invalid NAV value at line {line_number}") from exc
         if not nav.is_finite() or nav <= 0:
-            raise FundDataAcquisitionError(f"NAV must be finite and positive at line {line_number}")
+            # Skip closed/wind-up funds with zero NAV (they are no longer active)
+            continue
 
         isins = {
             value for value in (isin_growth, isin_reinvestment)
