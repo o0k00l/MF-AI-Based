@@ -649,24 +649,27 @@ def test_incremental_sip_post_contribution_weights_reconcile_when_partially_unal
         rounding_increment_inr="100",
     )
     assert routing["status"] == "ROUTED"
-    # large_cap receives 5/20 of 10,000 = 2,500
-    assert routing["allocations_inr"] == {"large_cap": "2500"}
-    # Remaining 7,500 remains unallocated
-    assert routing["allocated_budget_inr"] == "2500"
-    assert routing["unallocated_budget_inr"] == "7500"
-    assert routing["unallocated_cash_inr"] == "7500"
+    # Post-contribution target gaps use P+B = 110,000:
+    # large_cap gap = 35% * 110,000 - 30,000 = 8,500
+    # mid_cap gap = 25% * 110,000 - 10,000 = 17,500
+    # large_cap receives 8,500 / 26,000 of 10,000, rounded down to 100.
+    assert routing["allocations_inr"] == {"large_cap": "3200"}
+    # The ineligible mid_cap share and rounding residue remain unallocated.
+    assert routing["allocated_budget_inr"] == "3200"
+    assert routing["unallocated_budget_inr"] == "6800"
+    assert routing["unallocated_cash_inr"] == "6800"
 
-    # Post-contribution invested total = 100,000 + 2,500 = 102,500
-    assert routing["post_contribution_invested_total_inr"] == "102500"
-    assert routing["post_contribution_total_inr"] == "102500"
+    # Post-contribution invested total = 100,000 + 3,200 = 103,200
+    assert routing["post_contribution_invested_total_inr"] == "103200"
+    assert routing["post_contribution_total_inr"] == "103200"
     assert routing["post_contribution_perimeter_total_inr"] == "110000"
 
-    # Values: large_cap=32,500, mid_cap=10,000, debt=60,000. Sum = 102,500
+    # Values: large_cap=33,200, mid_cap=10,000, debt=60,000. Sum = 103,200
     vals = routing["post_contribution_values_inr"]
-    assert vals["large_cap"] == "32500"
+    assert vals["large_cap"] == "33200"
     assert vals["mid_cap"] == "10000"
     assert vals["debt"] == "60000"
-    assert sum(Decimal(v) for v in vals.values()) == Decimal("102500")
+    assert sum(Decimal(v) for v in vals.values()) == Decimal("103200")
 
     # Weights reconcile to 100% of invested portfolio
     w = routing["post_contribution_weights_pct"]
