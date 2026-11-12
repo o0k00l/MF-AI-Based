@@ -226,7 +226,7 @@ def _build_cas_portfolio_assessment(
                 "unallocated_budget_pct": 100.0,
             },
         }
-    except (OSError, ValueError, TypeError, KeyError, PortfolioInputError) as exc:
+    except (OSError, ValueError, TypeError, KeyError, ArithmeticError, PortfolioInputError) as exc:
         return {
             "status": "HOLD",
             "scope": "CAS_MUTUAL_FUND_HOLDINGS_ONLY",
@@ -561,7 +561,8 @@ def _assess_complete_portfolio_context(
         max_issuer_pct = Decimal(str(concentration_policy.get("max_issuer_pct_of_portfolio", 0)))
         concentration_date = date.fromisoformat(concentration_policy.get("effective_date", ""))
         if (
-            not 0 < max_issuer_pct <= 100
+            not max_issuer_pct.is_finite()
+            or not 0 < max_issuer_pct <= 100
             or not isinstance(concentration_policy.get("source_ref"), str)
             or not concentration_policy["source_ref"].strip()
             or concentration_date > valuation_date
