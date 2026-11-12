@@ -32,7 +32,12 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives import serialization
 import base64
 
-def _make_test_approval(scope="SIP_EVIDENCE_RELEASE", artifact_digest: Optional[str] = None):
+def _make_test_approval(
+    scope="SIP_EVIDENCE_RELEASE",
+    artifact_digest: Optional[str] = None,
+    commit_sha: str = "1" * 40,
+    policy_digest: str = "2" * 64,
+):
     priv = Ed25519PrivateKey.generate()
     pub_bytes = priv.public_key().public_bytes(
         serialization.Encoding.Raw, serialization.PublicFormat.Raw
@@ -54,7 +59,9 @@ def _make_test_approval(scope="SIP_EVIDENCE_RELEASE", artifact_digest: Optional[
         scope=scope,
         source_bytes=b"test_source_bytes",
         structured_records={"verified": True},
-        artifact_digest=artifact_digest,
+        commit_sha=commit_sha,
+        policy_digest=policy_digest,
+        artifact_digest=artifact_digest or "0" * 64,
     )
     return envelope, registry
 

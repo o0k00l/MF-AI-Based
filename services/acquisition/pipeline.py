@@ -9,7 +9,7 @@ import hashlib
 import json
 from datetime import date, datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Union
 
 from services.acquisition.adapters.amfi_nav import AmfiNavAdapter
 from services.acquisition.adapters.amfi_scheme_master import AmfiSchemeMasterAdapter
@@ -49,7 +49,7 @@ class FinancialDataRefreshPipeline:
         *,
         hermetic_inputs: Optional[Dict[str, bytes]] = None,
         reviewer_attested: bool = False,
-        reviewer_approval_envelope: Optional[Dict[str, Any]] = None,
+        reviewer_approval_envelope: Optional[Union[Dict[str, Any], Callable[[str], Dict[str, Any]]]] = None,
         reviewer_trust_registry: Optional[Dict[str, Any]] = None,
         master_source_url: Optional[str] = None,
         metrics_source_url: Optional[str] = None,
@@ -57,9 +57,9 @@ class FinancialDataRefreshPipeline:
         require_reviewer_signature: bool = True,
         expected_commit_sha: Optional[str] = None,
         expected_policy_digest: Optional[str] = None,
-        require_commit_binding: bool = False,
-        require_policy_binding: bool = False,
-        require_artifact_binding: bool = False,
+        require_commit_binding: bool = True,
+        require_policy_binding: bool = True,
+        require_artifact_binding: bool = True,
     ) -> RefreshResult:
         """
         Execute an end-to-end financial data acquisition and bundle refresh.
@@ -77,6 +77,42 @@ class FinancialDataRefreshPipeline:
         counts_by_source: Dict[str, int] = {}
         errors: List[str] = []
         bundle_target = Path(target_bundle_dir).expanduser().resolve()
+
+        # Issue #112: In every production promotion path, cryptographic artifact digest,
+        # commit SHA, and policy digest binding are strictly mandatory and cannot be disabled.
+        if require_artifact_binding is False:
+            errors.append("Promotion requires mandatory cryptographic artifact digest binding; caller cannot disable it.")
+            return RefreshResult(
+                status="FAILED",
+                bundle_dir=None,
+                sources_acquired=[],
+                records_count_by_source={},
+                errors=errors,
+                completed_at=start_time,
+                is_atomic_rollback=True,
+            )
+        if require_commit_binding is False:
+            errors.append("Promotion requires mandatory cryptographic commit SHA binding; caller cannot disable it.")
+            return RefreshResult(
+                status="FAILED",
+                bundle_dir=None,
+                sources_acquired=[],
+                records_count_by_source={},
+                errors=errors,
+                completed_at=start_time,
+                is_atomic_rollback=True,
+            )
+        if require_policy_binding is False:
+            errors.append("Promotion requires mandatory cryptographic policy digest binding; caller cannot disable it.")
+            return RefreshResult(
+                status="FAILED",
+                bundle_dir=None,
+                sources_acquired=[],
+                records_count_by_source={},
+                errors=errors,
+                completed_at=start_time,
+                is_atomic_rollback=True,
+            )
 
         # 1. Freshness Policy: Ensure as_of is not future-dated
         today = date.today()
@@ -112,27 +148,28 @@ class FinancialDataRefreshPipeline:
             )
 
         from services.sip_reviewer_approval import verify_sip_reviewer_approval
-        v_res = verify_sip_reviewer_approval(
-            envelope=reviewer_approval_envelope,
-            trust_registry=reviewer_trust_registry,
-            expected_scope="SIP_EVIDENCE_RELEASE",
-            expected_commit_sha=expected_commit_sha,
-            expected_policy_digest=expected_policy_digest,
-            require_commit_binding=require_commit_binding,
-            require_policy_binding=require_policy_binding,
-            require_artifact_binding=require_artifact_binding,
-        )
-        if not v_res.ok:
-            errors.extend(v_res.errors)
-            return RefreshResult(
-                status="FAILED",
-                bundle_dir=None,
-                sources_acquired=[],
-                records_count_by_source={},
-                errors=errors,
-                completed_at=start_time,
-                is_atomic_rollback=True,
+        if isinstance(reviewer_approval_envelope, dict):
+            v_res = verify_sip_reviewer_approval(
+                envelope=reviewer_approval_envelope,
+                trust_registry=reviewer_trust_registry,
+                expected_scope="SIP_EVIDENCE_RELEASE",
+                expected_commit_sha=expected_commit_sha,
+                expected_policy_digest=expected_policy_digest,
+                require_commit_binding=True,
+                require_policy_binding=True,
+                require_artifact_binding=False,
             )
+            if not v_res.ok:
+                errors.extend(v_res.errors)
+                return RefreshResult(
+                    status="FAILED",
+                    bundle_dir=None,
+                    sources_acquired=[],
+                    records_count_by_source={},
+                    errors=errors,
+                    completed_at=start_time,
+                    is_atomic_rollback=True,
+                )
 
         # Online retrieval orchestration if hermetic inputs omitted
         if not inputs.get("metrics") and metrics_source_url:
@@ -387,9 +424,9 @@ class FinancialDataRefreshPipeline:
                 reviewer_trust_registry=reviewer_trust_registry,
                 expected_commit_sha=expected_commit_sha,
                 expected_policy_digest=expected_policy_digest,
-                require_commit_binding=require_commit_binding,
-                require_policy_binding=require_policy_binding,
-                require_artifact_binding=require_artifact_binding,
+                require_commit_binding=True,
+                require_policy_binding=True,
+                require_artifact_binding=True,
             )
         except Exception as exc:
             errors.append(f"Atomic bundle build/promotion failed: {exc}")

@@ -136,16 +136,25 @@ class EngineBootstrapPipeline:
         reviewer_trust_registry: Optional[Dict[str, Any]] = None,
         expected_commit_sha: Optional[str] = None,
         expected_policy_digest: Optional[str] = None,
-        require_commit_binding: bool = False,
-        require_policy_binding: bool = False,
-        require_artifact_binding: bool = False,
+        require_commit_binding: bool = True,
+        require_policy_binding: bool = True,
+        require_artifact_binding: bool = True,
     ) -> ValidationReport:
         """
         Builds and validates an unpromoted staging bundle.
         Returns a deterministic ValidationReport describing gate outcomes.
         Requires detached Ed25519 reviewer approval envelope and trust registry.
         Caller boolean flags without cryptographic signature cannot satisfy promotion gates.
+        Issue #112: Cryptographic artifact digest, commit SHA, and policy digest binding
+        are strictly mandatory and cannot be disabled.
         """
+        if require_artifact_binding is False:
+            raise ValueError("Staging bundle validation requires mandatory cryptographic artifact digest binding; caller cannot disable it.")
+        if require_commit_binding is False:
+            raise ValueError("Staging bundle validation requires mandatory cryptographic commit SHA binding; caller cannot disable it.")
+        if require_policy_binding is False:
+            raise ValueError("Staging bundle validation requires mandatory cryptographic policy digest binding; caller cannot disable it.")
+
         gates: List[GateReport] = []
         now_str = datetime.now(timezone.utc).isoformat()
 
@@ -160,14 +169,31 @@ class EngineBootstrapPipeline:
                     remediation="Provide an authoritative reviewer trust registry root.",
                 ))
             else:
+                expected_artifact = None
+                staging_p = Path(staging_dir).expanduser().resolve()
+                if staging_p.is_dir():
+                    staged_files = sorted([
+                        p for p in staging_p.rglob("*")
+                        if p.is_file() and p.name not in ("reviewer_approval_envelope.json", "reviewer_trust_registry.json")
+                    ])
+                    if staged_files:
+                        hasher = hashlib.sha256()
+                        for bf in staged_files:
+                            rel = str(bf.relative_to(staging_p)).replace("\\", "/")
+                            hasher.update(rel.encode("utf-8"))
+                            hasher.update(bf.read_bytes())
+                        expected_artifact = hasher.hexdigest()
+
                 verification = verify_sip_reviewer_approval(
                     envelope=reviewer_approval_envelope,
                     trust_registry=reviewer_trust_registry,
                     expected_scope="SIP_EVIDENCE_RELEASE",
                     expected_commit_sha=expected_commit_sha,
                     expected_policy_digest=expected_policy_digest,
-                    require_commit_binding=require_commit_binding,
-                    require_policy_binding=require_policy_binding,
+                    expected_artifact_digest=expected_artifact,
+                    require_commit_binding=True,
+                    require_policy_binding=True,
+                    require_artifact_binding=True,
                 )
                 if verification.ok:
                     gates.append(GateReport(
@@ -422,9 +448,9 @@ class EngineBootstrapPipeline:
         reviewer_trust_registry: Optional[Dict[str, Any]] = None,
         expected_commit_sha: Optional[str] = None,
         expected_policy_digest: Optional[str] = None,
-        require_commit_binding: bool = False,
-        require_policy_binding: bool = False,
-        require_artifact_binding: bool = False,
+        require_commit_binding: bool = True,
+        require_policy_binding: bool = True,
+        require_artifact_binding: bool = True,
         metrics_source_url: Optional[str] = None,
         universe_source_url: Optional[str] = None,
         master_source_url: Optional[str] = None,
@@ -435,6 +461,13 @@ class EngineBootstrapPipeline:
         Autonomously orchestrates data acquisition, validates quality gates,
         and constructs a staging bundle without requiring caller manual staging.
         """
+        if require_artifact_binding is False:
+            raise ValueError("Staging bundle bootstrap requires mandatory cryptographic artifact digest binding; caller cannot disable it.")
+        if require_commit_binding is False:
+            raise ValueError("Staging bundle bootstrap requires mandatory cryptographic commit SHA binding; caller cannot disable it.")
+        if require_policy_binding is False:
+            raise ValueError("Staging bundle bootstrap requires mandatory cryptographic policy digest binding; caller cannot disable it.")
+
         inputs = dict(hermetic_inputs or {})
 
         # Acquire Scheme Master if not supplied
@@ -471,8 +504,8 @@ class EngineBootstrapPipeline:
             reviewer_trust_registry=reviewer_trust_registry,
             expected_commit_sha=expected_commit_sha,
             expected_policy_digest=expected_policy_digest,
-            require_commit_binding=require_commit_binding,
-            require_policy_binding=require_policy_binding,
+            require_commit_binding=True,
+            require_policy_binding=True,
             require_artifact_binding=require_artifact_binding,
         )
 
@@ -485,19 +518,29 @@ class EngineBootstrapPipeline:
         reviewer_trust_registry: Dict[str, Any],
         expected_commit_sha: Optional[str] = None,
         expected_policy_digest: Optional[str] = None,
-        require_commit_binding: bool = False,
-        require_policy_binding: bool = False,
+        require_commit_binding: bool = True,
+        require_policy_binding: bool = True,
         require_artifact_binding: bool = True,
     ) -> Dict[str, Any]:
         """
         Executes atomic promotion of verified bundle after verifying detached Ed25519 reviewer approval.
         Performs real filesystem atomic copy/swap with rollback to preserve last-known-good state on failure.
-        Issue #112: In every production promotion path, cryptographic artifact digest binding
-        against the staging bundle is strictly mandatory and cannot be disabled.
+        Issue #112: In every production promotion path, cryptographic artifact digest,
+        commit SHA, and policy digest binding are strictly mandatory and cannot be disabled.
         """
         if require_artifact_binding is False:
             raise ValueError(
                 "Promotion requires mandatory cryptographic artifact digest binding; "
+                "caller cannot disable it."
+            )
+        if require_commit_binding is False:
+            raise ValueError(
+                "Promotion requires mandatory cryptographic commit SHA binding; "
+                "caller cannot disable it."
+            )
+        if require_policy_binding is False:
+            raise ValueError(
+                "Promotion requires mandatory cryptographic policy digest binding; "
                 "caller cannot disable it."
             )
 
@@ -523,8 +566,56 @@ class EngineBootstrapPipeline:
         if staging_manifest.get("schema_version") != 1:
             raise ValueError("Staging bundle manifest schema_version must be 1.")
 
-        # Compute staging bundle digest for audit lineage and cryptographic approval verification
-        bundle_files = sorted([p for p in staging_path.rglob("*") if p.is_file()])
+        # Verify co-bound manifest and envelope bindings
+        manifest_commit = staging_manifest.get("commit_sha")
+        if manifest_commit is not None:
+            if expected_commit_sha is not None and manifest_commit.lower() != expected_commit_sha.lower():
+                raise ValueError(
+                    f"Staging manifest commit SHA ({manifest_commit}) does not match expected commit SHA ({expected_commit_sha})."
+                )
+            envelope_commit = (
+                reviewer_approval_envelope.get("payload", {}).get("commit_sha")
+                if isinstance(reviewer_approval_envelope, dict) else None
+            )
+            if envelope_commit and manifest_commit.lower() != envelope_commit.lower():
+                raise ValueError(
+                    f"Staging manifest commit SHA ({manifest_commit}) does not match envelope commit SHA ({envelope_commit})."
+                )
+
+        manifest_policy = staging_manifest.get("policy_digest")
+        if manifest_policy is not None:
+            if expected_policy_digest is not None and manifest_policy.lower() != expected_policy_digest.lower():
+                raise ValueError(
+                    f"Staging manifest policy digest ({manifest_policy}) does not match expected policy digest ({expected_policy_digest})."
+                )
+            envelope_policy = (
+                (reviewer_approval_envelope.get("payload", {}).get("policy_digest")
+                 or reviewer_approval_envelope.get("payload", {}).get("policy_sha256"))
+                if isinstance(reviewer_approval_envelope, dict) else None
+            )
+            if envelope_policy and manifest_policy.lower() != envelope_policy.lower():
+                raise ValueError(
+                    f"Staging manifest policy digest ({manifest_policy}) does not match envelope policy digest ({envelope_policy})."
+                )
+
+        staged_envelope_file = staging_path / "reviewer_approval_envelope.json"
+        if staged_envelope_file.is_file():
+            try:
+                staged_envelope = json.loads(staged_envelope_file.read_text(encoding="utf-8"))
+                if staged_envelope != reviewer_approval_envelope:
+                    raise ValueError(
+                        "Promotion blocked: reviewer approval envelope does not match the staged envelope; "
+                        "envelope substitution is prohibited."
+                    )
+            except (OSError, json.JSONDecodeError) as exc:
+                raise ValueError(f"Staged reviewer approval envelope is corrupted: {exc}") from exc
+
+        # Compute staging bundle digest for audit lineage and cryptographic approval verification.
+        # Exclude detached reviewer envelopes to ensure non-circular deterministic hashing.
+        bundle_files = sorted([
+            p for p in staging_path.rglob("*")
+            if p.is_file() and p.name not in ("reviewer_approval_envelope.json", "reviewer_trust_registry.json")
+        ])
         hasher = hashlib.sha256()
         for bf in bundle_files:
             rel = str(bf.relative_to(staging_path)).replace("\\", "/")
@@ -541,8 +632,8 @@ class EngineBootstrapPipeline:
             expected_commit_sha=expected_commit_sha,
             expected_policy_digest=expected_policy_digest,
             expected_artifact_digest=bundle_digest,
-            require_commit_binding=require_commit_binding,
-            require_policy_binding=require_policy_binding,
+            require_commit_binding=True,
+            require_policy_binding=True,
             require_artifact_binding=True,
         )
         if not verification.ok:
@@ -565,7 +656,10 @@ class EngineBootstrapPipeline:
                 raise IOError("Target manifest missing after promotion copy.")
             # Verify promoted bytes match staging
             promoted_digest = hashlib.sha256()
-            for tf in sorted([p for p in target_path.rglob("*") if p.is_file()]):
+            for tf in sorted([
+                p for p in target_path.rglob("*")
+                if p.is_file() and p.name not in ("reviewer_approval_envelope.json", "reviewer_trust_registry.json")
+            ]):
                 rel = str(tf.relative_to(target_path)).replace("\\", "/")
                 promoted_digest.update(rel.encode("utf-8"))
                 promoted_digest.update(tf.read_bytes())

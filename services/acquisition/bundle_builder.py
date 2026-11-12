@@ -12,7 +12,7 @@ import time
 import uuid
 from datetime import date
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Union
 
 from services.sip_evidence_bundle import build_sip_evidence_provider
 
@@ -45,6 +45,20 @@ class EvidenceBundleBuilder:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(raw_bytes)
 
+    @staticmethod
+    def compute_bundle_digest(staging_dir: Path) -> str:
+        """Compute SHA-256 digest of bundle payload files excluding detached reviewer envelopes."""
+        bundle_files = sorted([
+            p for p in staging_dir.rglob("*")
+            if p.is_file() and p.name not in ("reviewer_approval_envelope.json", "reviewer_trust_registry.json")
+        ])
+        hasher = hashlib.sha256()
+        for bf in bundle_files:
+            rel = str(bf.relative_to(staging_dir)).replace("\\", "/")
+            hasher.update(rel.encode("utf-8"))
+            hasher.update(bf.read_bytes())
+        return hasher.hexdigest()
+
     def build_and_promote(
         self,
         as_of: date,
@@ -64,36 +78,56 @@ class EvidenceBundleBuilder:
         aliases_payload: Optional[Dict[str, Any]] = None,
         aliases_source_bytes: Optional[bytes] = None,
         reviewer_attested: bool = False,
-        reviewer_approval_envelope: Optional[Dict[str, Any]] = None,
+        reviewer_approval_envelope: Optional[Union[Dict[str, Any], Callable[[str], Dict[str, Any]]]] = None,
         reviewer_trust_registry: Optional[Dict[str, Any]] = None,
         expected_commit_sha: Optional[str] = None,
         expected_policy_digest: Optional[str] = None,
-        require_commit_binding: bool = False,
-        require_policy_binding: bool = False,
-        require_artifact_binding: bool = False,
+        require_commit_binding: bool = True,
+        require_policy_binding: bool = True,
+        require_artifact_binding: bool = True,
     ) -> Path:
         """
         Build an evidence bundle in a staging directory, verify its integrity,
         and atomically promote it to target_dir. Fails closed on any synthetic
         or missing evidence.
+        Issue #112: In every production promotion path, cryptographic artifact digest,
+        commit SHA, and policy digest binding are strictly mandatory and cannot be disabled.
         """
+        if require_artifact_binding is False:
+            raise ValueError(
+                "Promotion requires mandatory cryptographic artifact digest binding; "
+                "caller cannot disable it."
+            )
+        if require_commit_binding is False:
+            raise ValueError(
+                "Promotion requires mandatory cryptographic commit SHA binding; "
+                "caller cannot disable it."
+            )
+        if require_policy_binding is False:
+            raise ValueError(
+                "Promotion requires mandatory cryptographic policy digest binding; "
+                "caller cannot disable it."
+            )
+
         if reviewer_approval_envelope is None or reviewer_trust_registry is None:
             raise ValueError(
                 "Promotion blocked: independent reviewer approval envelope and trust registry are required; "
                 "caller-asserted boolean flags without cryptographic signature cannot promote an evidence bundle."
             )
         from services.sip_reviewer_approval import verify_sip_reviewer_approval
-        approval_res = verify_sip_reviewer_approval(
-            envelope=reviewer_approval_envelope,
-            trust_registry=reviewer_trust_registry,
-            expected_scope="SIP_EVIDENCE_RELEASE",
-            expected_commit_sha=expected_commit_sha,
-            expected_policy_digest=expected_policy_digest,
-            require_commit_binding=require_commit_binding,
-            require_policy_binding=require_policy_binding,
-        )
-        if not approval_res.ok:
-            raise ValueError(f"Independent reviewer approval verification failed: {'; '.join(approval_res.errors)}")
+        if isinstance(reviewer_approval_envelope, dict):
+            approval_res = verify_sip_reviewer_approval(
+                envelope=reviewer_approval_envelope,
+                trust_registry=reviewer_trust_registry,
+                expected_scope="SIP_EVIDENCE_RELEASE",
+                expected_commit_sha=expected_commit_sha,
+                expected_policy_digest=expected_policy_digest,
+                require_commit_binding=True,
+                require_policy_binding=True,
+                require_artifact_binding=False,
+            )
+            if not approval_res.ok:
+                raise ValueError(f"Independent reviewer approval verification failed: {'; '.join(approval_res.errors)}")
 
         self.target_dir.parent.mkdir(parents=True, exist_ok=True)
         staging_dir = self.target_dir.parent / f".staging_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
@@ -284,31 +318,40 @@ class EvidenceBundleBuilder:
             if provider is None:
                 raise ValueError("Pre-promotion validation failed: provider could not be built from staging bundle.")
 
-            payload_env = reviewer_approval_envelope.get("payload", {}) if isinstance(reviewer_approval_envelope, dict) else {}
-            if require_artifact_binding or payload_env.get("artifact_digest") or payload_env.get("bundle_sha256"):
-                bundle_files = sorted([
-                    p for p in staging_dir.rglob("*")
-                    if p.is_file() and p.name not in ("reviewer_approval_envelope.json", "reviewer_trust_registry.json")
-                ])
-                hasher = hashlib.sha256()
-                for bf in bundle_files:
-                    rel = str(bf.relative_to(staging_dir)).replace("\\", "/")
-                    hasher.update(rel.encode("utf-8"))
-                    hasher.update(bf.read_bytes())
-                staging_bundle_digest = hasher.hexdigest()
-                post_res = verify_sip_reviewer_approval(
-                    envelope=reviewer_approval_envelope,
-                    trust_registry=reviewer_trust_registry,
-                    expected_scope="SIP_EVIDENCE_RELEASE",
-                    expected_commit_sha=expected_commit_sha,
-                    expected_policy_digest=expected_policy_digest,
-                    expected_artifact_digest=staging_bundle_digest,
-                    require_commit_binding=require_commit_binding,
-                    require_policy_binding=require_policy_binding,
-                    require_artifact_binding=require_artifact_binding,
-                )
-                if not post_res.ok:
-                    raise ValueError(f"Staging artifact digest verification failed before promotion: {'; '.join(post_res.errors)}")
+            bundle_files = sorted([
+                p for p in staging_dir.rglob("*")
+                if p.is_file() and p.name not in ("reviewer_approval_envelope.json", "reviewer_trust_registry.json")
+            ])
+            hasher = hashlib.sha256()
+            for bf in bundle_files:
+                rel = str(bf.relative_to(staging_dir)).replace("\\", "/")
+                hasher.update(rel.encode("utf-8"))
+                hasher.update(bf.read_bytes())
+            staging_bundle_digest = hasher.hexdigest()
+
+            actual_envelope = (
+                reviewer_approval_envelope(staging_bundle_digest)
+                if callable(reviewer_approval_envelope)
+                else reviewer_approval_envelope
+            )
+
+            # Ensure envelope and registry are written into staging
+            self._write_json(staging_dir / "reviewer_approval_envelope.json", actual_envelope)
+            self._write_json(staging_dir / "reviewer_trust_registry.json", reviewer_trust_registry)
+
+            post_res = verify_sip_reviewer_approval(
+                envelope=actual_envelope,
+                trust_registry=reviewer_trust_registry,
+                expected_scope="SIP_EVIDENCE_RELEASE",
+                expected_commit_sha=expected_commit_sha,
+                expected_policy_digest=expected_policy_digest,
+                expected_artifact_digest=staging_bundle_digest,
+                require_commit_binding=True,
+                require_policy_binding=True,
+                require_artifact_binding=True,
+            )
+            if not post_res.ok:
+                raise ValueError(f"Staging artifact digest verification failed before promotion: {'; '.join(post_res.errors)}")
 
         except Exception as exc:
             # Staging failure: clean up staging directory and raise

@@ -101,7 +101,7 @@ def build_sip_evidence_provider(
     candidate_score_fields = {"candidate_score_metadata_file", "candidate_score_source_file"}
     category_anchor_fields = {"category_anchor_metadata_file", "category_anchor_source_file"}
     reviewer_fields = {"reviewer_approval_envelope_file", "reviewer_trust_registry_file"}
-    unexpected = set(manifest) - (required_manifest_fields | {"aliases_file"} | portfolio_context_fields | candidate_score_fields | category_anchor_fields | reviewer_fields)
+    unexpected = set(manifest) - (required_manifest_fields | {"aliases_file", "commit_sha", "policy_digest"} | portfolio_context_fields | candidate_score_fields | category_anchor_fields | reviewer_fields)
     supplied_portfolio_context_fields = set(manifest) & portfolio_context_fields
     if supplied_portfolio_context_fields and supplied_portfolio_context_fields != portfolio_context_fields:
         raise ValueError("Portfolio context file, metadata and original source file must be configured together.")

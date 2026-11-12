@@ -30,7 +30,21 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives import serialization
 import base64
 
-def _make_test_approval(scope="SIP_EVIDENCE_RELEASE"):
+class CallableEnvelope(dict):
+    def __init__(self, d, signer):
+        super().__init__(d)
+        self._signer = signer
+
+    def __call__(self, digest: str) -> dict:
+        return self._signer(digest)
+
+
+def _make_test_approval(
+    scope="SIP_EVIDENCE_RELEASE",
+    commit_sha: str = "1" * 40,
+    policy_digest: str = "2" * 64,
+    artifact_digest: Optional[str] = None,
+):
     priv = Ed25519PrivateKey.generate()
     pub_bytes = priv.public_key().public_bytes(
         serialization.Encoding.Raw, serialization.PublicFormat.Raw
@@ -45,15 +59,24 @@ def _make_test_approval(scope="SIP_EVIDENCE_RELEASE"):
         "valid_until": "2027-01-01T00:00:00Z",
     }
     registry = create_sip_trust_registry([key_dict])
-    envelope = create_sip_reviewer_approval_envelope(
-        priv,
-        key_id="test-key-1",
-        reviewer_id="test-reviewer-1",
-        scope=scope,
-        source_bytes=b"test_source_bytes",
-        structured_records={"verified": True},
-    )
-    return envelope, registry
+
+    def sign(art_dig: str) -> dict:
+        return create_sip_reviewer_approval_envelope(
+            priv,
+            key_id="test-key-1",
+            reviewer_id="test-reviewer-1",
+            scope=scope,
+            source_bytes=b"test_source_bytes",
+            structured_records={"verified": True},
+            commit_sha=commit_sha,
+            policy_digest=policy_digest,
+            artifact_digest=art_dig,
+        )
+
+    base_env = sign(artifact_digest or "0" * 64)
+    if artifact_digest is not None:
+        return base_env, registry
+    return CallableEnvelope(base_env, sign), registry
 
 
 def _sample_amfi_nav_bytes(as_of: date) -> bytes:

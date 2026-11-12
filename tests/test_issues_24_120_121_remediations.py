@@ -45,7 +45,12 @@ from services.sip_reviewer_approval import (
 )
 
 
-def _make_key_and_envelope(scope="SIP_EVIDENCE_RELEASE"):
+def _make_key_and_envelope(
+    scope="SIP_EVIDENCE_RELEASE",
+    commit_sha: str = "1" * 40,
+    policy_digest: str = "2" * 64,
+    artifact_digest: str = "3" * 64,
+):
     priv = Ed25519PrivateKey.generate()
     pub_bytes = priv.public_key().public_bytes(
         serialization.Encoding.Raw, serialization.PublicFormat.Raw
@@ -67,6 +72,9 @@ def _make_key_and_envelope(scope="SIP_EVIDENCE_RELEASE"):
         scope=scope,
         source_bytes=b"raw_bytes_here",
         structured_records={"verified": True},
+        commit_sha=commit_sha,
+        policy_digest=policy_digest,
+        artifact_digest=artifact_digest,
     )
     return envelope, registry
 
