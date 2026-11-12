@@ -336,7 +336,6 @@
       "mid_cap_pct": 20,
       "small_cap_pct": 20
     },
-    "default_risk_ceiling": 6,
     "note": "When custom SAA specifies total equity without explicit sub-sleeves, this policy distribution is used."
   },
   "starter_portfolio_routing": {
