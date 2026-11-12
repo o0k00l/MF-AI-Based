@@ -265,6 +265,7 @@ def _assess_complete_portfolio_context(
     cas_holdings_total_inr: Decimal,
     evidence_as_of_date: date,
     custom_saa_target: Any | None = None,
+    statement_provenance: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Orchestrate portfolio, suitability, affordability and candidate gates.
 
@@ -948,6 +949,7 @@ def _build_sip_decision_trace(
     category_anchor_source_bytes: bytes | None = None,
     metrics_normalized_sha256: str | None = None,
     candidate_universe_normalized_sha256: str | None = None,
+    statement_provenance: dict[str, Any] | None = None,
 ) -> dict[str, str]:
     """Hash the source and diagnostic inputs that led to a fail-closed SIP result."""
     candidate_source_hashes = {}
@@ -983,6 +985,7 @@ def _build_sip_decision_trace(
         "schema_version": 1,
         "source_digests": {
             "cas_upload_sha256": hashlib.sha256(cas_path.read_bytes()).hexdigest(),
+            "statement_publisher_provenance": statement_provenance or {"publisher_authenticity_status": "UNVERIFIED", "is_publisher_authenticated": False},
             "scheme_master_sha256": hashlib.sha256(scheme_master_source_bytes).hexdigest(),
             "portfolio_disclosures_sha256": {
                 key: hashlib.sha256(value).hexdigest()
@@ -1297,6 +1300,10 @@ def recommend_sip(
                 custom_saa_target=custom_saa_target,
             )
         portfolio_assessment["total_portfolio_context"] = context_assessment
+    portfolio_assessment["statement_provenance"] = statement_provenance or {
+        "publisher_authenticity_status": "UNVERIFIED",
+        "is_publisher_authenticated": False,
+    }
     portfolio_assessment["recommendation_lifecycle"] = {
         "state": "DRAFT",
         "state_persisted": False,
@@ -1319,6 +1326,7 @@ def recommend_sip(
         category_anchor_source_bytes=category_anchor_source_bytes,
         metrics_normalized_sha256=metrics_normalized_sha256,
         candidate_universe_normalized_sha256=candidate_universe_normalized_sha256,
+        statement_provenance=statement_provenance,
     )
     portfolio_assessment["recommendation_lifecycle"]["decision_trace_sha256"] = (
         portfolio_assessment["decision_trace"]["sha256"]

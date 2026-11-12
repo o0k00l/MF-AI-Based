@@ -12,6 +12,12 @@ from pathlib import Path
 from typing import Any, Callable
 
 from services.sip_reviewer_approval import load_sip_reviewer_trust_registry
+from ingestion.statement_validator import validate_cas_excel
+from ingestion.statement_publisher_review import (
+    authenticate_statement_with_reviewer_approval,
+    load_statement_publisher_trust_registry,
+    public_statement_provenance,
+)
 
 from fastapi import FastAPI, File, Form, Header, UploadFile
 from fastapi.responses import JSONResponse
@@ -40,6 +46,10 @@ def create_sip_app(
         reviewer_trust_registry = load_sip_reviewer_trust_registry() if evidence_provider is not None else None
     except (OSError, ValueError):
         reviewer_trust_registry = None
+    try:
+        statement_publisher_trust_registry = load_statement_publisher_trust_registry()
+    except (OSError, ValueError, json.JSONDecodeError):
+        statement_publisher_trust_registry = None
 
     import os
     if require_auth is None:
@@ -73,6 +83,7 @@ def create_sip_app(
             "quota_management_active": api_key_registry is not None,
             "evidence_configured": evidence_provider is not None,
             "reviewer_registry_configured": reviewer_trust_registry is not None,
+            "statement_publisher_review_configured": statement_publisher_trust_registry is not None,
         }
 
     @app.get("/health")
@@ -129,6 +140,7 @@ def create_sip_app(
         monthly_budget_inr: Decimal = Form(...),
         risk_profile: str = Form(...),
         portfolio_context_json: str | None = Form(None),
+        statement_publisher_approval_json: str | None = Form(None),
         x_api_key: str | None = Header(None, alias="X-API-Key"),
         authorization: str | None = Header(None, alias="Authorization"),
         x_client_id: str | None = Header(None, alias="X-Client-Id"),
@@ -294,6 +306,44 @@ def create_sip_app(
                 "unallocated_budget_inr": str(monthly_budget_inr),
             })
 
+        # Structural validity is checked on the exact uploaded bytes. It does
+        # not authenticate the publisher; that requires a separate signed review.
+        statement_validation = validate_cas_excel(payload, cas_file.filename or "uploaded-cas.xlsx")
+        if not statement_validation.is_valid or not statement_validation.structural_validity:
+            return JSONResponse(status_code=422, content={
+                "status": "HOLD", "decision": "NO_ACTION",
+                "reasons": ["Uploaded CAS failed structural validation; no portfolio data was passed to the SIP engine."],
+                "statement_provenance": public_statement_provenance(statement_validation),
+                "unallocated_budget_inr": str(monthly_budget_inr),
+            })
+        if statement_publisher_approval_json is not None:
+            if len(statement_publisher_approval_json.encode("utf-8")) > 1024 * 1024:
+                return JSONResponse(status_code=413, content={
+                    "status": "HOLD", "decision": "NO_ACTION",
+                    "reasons": ["Statement publisher approval exceeds the 1 MiB limit."],
+                    "unallocated_budget_inr": str(monthly_budget_inr),
+                })
+            if statement_publisher_trust_registry is None:
+                return JSONResponse(content={
+                    "status": "HOLD", "decision": "NO_ACTION",
+                    "reasons": ["Independent statement publisher trust registry is not configured; signed publisher review cannot be authenticated."],
+                    "statement_provenance": public_statement_provenance(statement_validation),
+                    "unallocated_budget_inr": str(monthly_budget_inr),
+                })
+            try:
+                authenticate_statement_with_reviewer_approval(
+                    statement_validation, statement_publisher_approval_json,
+                    statement_publisher_trust_registry,
+                )
+            except (TypeError, ValueError, json.JSONDecodeError):
+                return JSONResponse(content={
+                    "status": "HOLD", "decision": "NO_ACTION",
+                    "reasons": ["Independent statement publisher approval is invalid or not bound to this exact upload."],
+                    "statement_provenance": public_statement_provenance(statement_validation),
+                    "unallocated_budget_inr": str(monthly_budget_inr),
+                })
+        statement_provenance = public_statement_provenance(statement_validation)
+
         # Temporary storage is isolated and removed automatically after the
         # request. Never write investor statements into the repository or logs.
         with tempfile.TemporaryDirectory(prefix="sip-cas-") as temp_dir:
@@ -324,6 +374,7 @@ def create_sip_app(
                     "portfolio_disclosure_source_bytes_by_scheme_id": evidence["portfolio_disclosure_source_bytes_by_scheme_id"],
                     "disclosure_as_of_date": evidence["disclosure_as_of_date"],
                     "candidate_universe": evidence["candidate_universe"],
+                    "statement_provenance": statement_provenance,
                 }
                 for provenance_field in (
                     "metrics_source_bytes",
@@ -369,6 +420,8 @@ def create_sip_app(
                     "unallocated_budget_inr": str(monthly_budget_inr),
                 })
 
+        if isinstance(result, dict):
+            result["statement_provenance"] = statement_provenance
         return JSONResponse(content=result)
 
     return app
