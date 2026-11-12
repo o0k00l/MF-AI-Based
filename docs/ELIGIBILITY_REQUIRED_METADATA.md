@@ -2,6 +2,10 @@
 
 The active-fund eligibility engine uses fail-closed controls. This metadata catalogue does not itself define universal eligibility thresholds, score weights, AUM floors, tenure requirements, concentration limits or freshness windows; those are resolved from the effective approved policy and exact source records. A missing field must not be interpreted as zero exposure, zero concentration, a Direct plan, or a successful gate.
 
+
+
+**Policy boundary:** this field catalogue defines evidence inputs, not fixed investment policy. Gate count/order labels are descriptive identifiers only. Eligibility thresholds, score weights, AUM limits, concentration limits, manager/scheme history requirements, freshness windows and category-specific hurdles must be loaded from the effective approved policy. A field being present does not imply it passes a threshold. Missing policy values block the affected gate; there are no numeric fallback values.
+
 ## Required candidate fields
 
 | Field | Purpose | Behaviour when missing/invalid |
