@@ -107,14 +107,14 @@ def _get_portfolio_paths_or_skip():
 
 def test_p0_1_universal_4_slot_sizing_invariant():
     """Verifies that equity allocations across all risk tiers strictly adhere to policy-driven SAA targets."""
-    budget = 100000.0
+    budget = Decimal("100000.00")
 
     # Tier 6: 100% Equity (Established >= 5L) — policy-driven from very_high saa_targets
     plan_t6 = compute_deterministic_sip_blueprint(
         monthly_budget=budget,
         risk_tier="Tier 6 (Very High)",
         stability_buffer_pct=7.54,
-        client_aum=5000000.0,
+        client_aum=Decimal("5000000.00"),
         client_aum_verified=True,
         equity_sip_routing_override=True,
     )
@@ -157,10 +157,10 @@ def test_p0_1_universal_4_slot_sizing_invariant():
 
     # Starter Portfolio (< 5L AUM): 60% Flexi / 40% mid-small, split by SAA proportions.
     plan_starter = compute_deterministic_sip_blueprint(
-        monthly_budget=20000.0,
+        monthly_budget=Decimal("20000.00"),
         risk_tier="Tier 6 (Very High)",
         stability_buffer_pct=7.54,
-        client_aum=200000.0,  # Starter
+        client_aum=Decimal("200000.00"),  # Starter
         client_aum_verified=True,
         equity_sip_routing_override=True,
     )
@@ -171,7 +171,7 @@ def test_p0_1_universal_4_slot_sizing_invariant():
     assert roles_starter["Small-Cap Growth Engine"].allocation_pct == 20.0
     assert "Large-Cap Bluechip Anchor" not in roles_starter
     assert "Tactical Thematic Satellite" not in roles_starter
-    assert sum(it.monthly_inr for it in plan_starter.items) + plan_starter.unallocated_budget_inr == 20000.0
+    assert sum((it.monthly_inr for it in plan_starter.items), Decimal("0.00")) + plan_starter.unallocated_budget_inr == Decimal("20000.00")
     if plan_starter.unallocated_budget_inr > 0:
         assert all(it.monthly_inr == 0 for it in plan_starter.items)
     print("[PASS] P0.1 Universal SIP Sleeve Sizing Invariant Verified")
@@ -1170,7 +1170,7 @@ def test_p0_19_tri_release_gate_rejects_malformed_calendar(
 
 def test_unverified_cas_only_aum_holds_the_entire_sip_budget():
     plan = compute_deterministic_sip_blueprint(
-        monthly_budget=25000.0,
+        monthly_budget=Decimal("25000.00"),
         risk_tier="Tier 4 (Moderately High)",
         stability_buffer_pct=0.0,
         client_aum=200000.0,
@@ -1180,7 +1180,7 @@ def test_unverified_cas_only_aum_holds_the_entire_sip_budget():
     assert plan.items == []
     assert plan.equity_sip_pct == 0.0
     assert plan.debt_sip_pct == 0.0
-    assert plan.unallocated_budget_inr == 25000.0
+    assert plan.unallocated_budget_inr == Decimal("25000.00")
 def test_saa_loader_rejects_boolean_values():
     """Boolean values must be rejected as invalid percentage types.
     
@@ -1226,3 +1226,12 @@ def test_saa_loader_sum_to_100_boundary():
         total = saa.large_cap_pct + saa.mid_small_cap_pct + saa.flexi_multi_cap_pct + saa.debt_pct
         # Must be within 0.1 percentage point tolerance for rounding
         assert abs(total - 100.0) < 0.1, f"Tier {tier.name}: allocations sum to {total}%, should be 100%"
+
+
+def test_deterministic_sip_blueprint_rejects_binary_float_money_inputs():
+    with pytest.raises(ValueError, match="Binary float is not accepted"):
+        compute_deterministic_sip_blueprint(
+            monthly_budget=10000.01,
+            risk_tier="Tier 4 (Moderately High)",
+            client_aum=Decimal("200000.00"),
+        )
