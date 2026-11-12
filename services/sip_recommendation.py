@@ -70,7 +70,11 @@ def _required_lookthrough_coverage_pct() -> Any:
 
 
 def _build_cas_portfolio_assessment(
-    holdings: list[Any], risk_profile: str, custom_saa_target: Any | None = None
+    holdings: list[Any],
+    risk_profile: str,
+    custom_saa_target: Any | None = None,
+    *,
+    risk_ceiling: Any | None = None,
 ) -> dict[str, Any]:
     """Return a CAS-only SAA diagnostic; never imply total-portfolio completeness."""
     policy_path = Path(__file__).resolve().parents[1] / "data" / "policy" / "asset_allocation.json"
@@ -83,7 +87,16 @@ def _build_cas_portfolio_assessment(
                 raise ValueError("custom_saa_target must be an AssetAllocationTarget instance")
             custom_policy = policy["custom_saa_policy"]
             tolerance = custom_policy["default_tolerance_band_pct"]
-            if custom_saa_target.risk_ceiling is None:
+            effective_custom_ceiling = (
+                custom_saa_target.risk_ceiling
+                if custom_saa_target.risk_ceiling is not None
+                else risk_ceiling
+            )
+            if (
+                isinstance(effective_custom_ceiling, bool)
+                or not isinstance(effective_custom_ceiling, int)
+                or not 1 <= effective_custom_ceiling <= 6
+            ):
                 raise ValueError("Custom SAA requires an explicit independent risk ceiling")
             if custom_saa_target.large_cap_pct is not None:
                 targets = {
@@ -1221,8 +1234,12 @@ def recommend_sip(
     # This is a CAS-only diagnostic, deliberately not a total-portfolio
     # denominator. External assets, cash, liabilities and valuation date have
     # not been reconciled, so it cannot authorize SIP routing.
+    custom_risk_ceiling = getattr(custom_saa_target, "risk_ceiling", None)
+    if custom_risk_ceiling is None and isinstance(portfolio_context, dict):
+        custom_risk_ceiling = portfolio_context.get("ips", {}).get("risk_ceiling")
     portfolio_assessment = _build_cas_portfolio_assessment(
-        holdings, risk_profile, custom_saa_target=custom_saa_target
+        holdings, risk_profile, custom_saa_target=custom_saa_target,
+        risk_ceiling=custom_risk_ceiling,
     )
 
     # Run the deterministic engine with the exact evidence bundle. Its output is
@@ -1246,6 +1263,7 @@ def recommend_sip(
             disclosure_as_of_date=disclosure_as_of_date,
             disclosure_max_age_days=disclosure_max_age_days,
             custom_saa_target=custom_saa_target,
+            risk_ceiling=custom_risk_ceiling,
         )
     except (ValueError, TypeError, KeyError) as exc:
         return _hold_plan(
