@@ -522,6 +522,7 @@ def test_issue_24_custom_saa_unfillable_sleeve_budget_strictly_preserved(tmp_pat
         mid_cap_pct=Decimal("20.0"),
         small_cap_pct=Decimal("10.0"),
         flexi_cap_pct=Decimal("10.0"),
+        risk_ceiling=4,
     )
 
     candidate_gate_results = {
