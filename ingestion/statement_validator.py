@@ -1,7 +1,7 @@
 """
 ingestion/statement_validator.py — Institutional Statement Pre-Flight Validation Gate.
-Strictly verifies that uploaded files are genuine CAMS / KFintech / MFCentral CAS or CGS statements,
-rejecting random, corrupt, or irrelevant files (e.g. utility bills, invoices, blank sheets).
+Performs structural document checks and records untrusted publisher claims.
+Structural validity does not establish publisher identity or document authenticity.
 """
 from __future__ import annotations
 
@@ -35,7 +35,7 @@ _CGS_KEYWORDS = {
 class StatementValidationResult:
     is_valid: bool
     document_type: str                  # "CAS_EXCEL" | "CAS_PDF" | "CGS_EXCEL" | "INVALID"
-    rta_source: str                     # "CAMS" | "KFintech" | "MFCentral" | "Generic Mutual Fund" | "Unknown"
+    rta_source: str                     # Authenticated publisher only; "Unknown" until independent verification.
     structural_validity: bool = False
     detected_content_publisher: str = "Unknown"
     publisher_authenticity_status: str = "UNVERIFIED"
@@ -505,7 +505,7 @@ def require_authenticated_statement(result: StatementValidationResult) -> None:
     Enforces that downstream workflows requiring authenticated source evidence
     cannot proceed on structural validity or embedded document text markers alone.
     """
-    if not result.is_valid:
+    if not result.is_valid or not result.structural_validity:
         raise ValueError("Statement is structurally invalid.")
     if not result.is_publisher_authenticated or result.authenticated_publisher is None:
         raise ValueError(
