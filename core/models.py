@@ -470,29 +470,32 @@ class DeterministicSIPPlan(BaseModel):
     def validate_budget_and_allocation_reconciliation(self):
         import math
 
-        amounts = (
+        # INR values are already Decimal/paise-quantized at model ingress.
+        # Never pass monetary values through math.isfinite(), which converts
+        # numeric inputs to binary float on some Python implementations.
+        money_values = (
             self.total_monthly_budget_inr,
             self.unallocated_budget_inr,
-            self.equity_sip_pct,
-            self.debt_sip_pct,
+            *(item.monthly_inr for item in self.items),
         )
-        item_amounts = [item.monthly_inr for item in self.items]
+        if any(not value.is_finite() for value in money_values):
+            raise ValueError("SIP plan monetary amounts must be finite Decimals")
         item_pcts = [item.allocation_pct for item in self.items]
-        if any(not math.isfinite(value) for value in (*amounts, *item_amounts, *item_pcts)):
-            raise ValueError("SIP plan amounts and percentages must be finite")
+        if any(not math.isfinite(value) for value in (self.equity_sip_pct, self.debt_sip_pct, *item_pcts)):
+            raise ValueError("SIP plan percentages must be finite")
         if self.total_monthly_budget_inr < 0 or self.unallocated_budget_inr < 0:
             raise ValueError("SIP budget and unallocated amount cannot be negative")
-        if any(value < 0 for value in (*item_amounts, *item_pcts)):
+        if any(value < 0 for value in money_values[2:]) or any(value < 0 for value in item_pcts):
             raise ValueError("SIP item amounts and percentages cannot be negative")
         if any(not 0.0 <= value <= 100.0 for value in (self.equity_sip_pct, self.debt_sip_pct, *item_pcts)):
             raise ValueError("SIP allocation percentages must be between 0 and 100")
-        total_dec = Decimal(str(self.total_monthly_budget_inr))
-        unallocated_dec = Decimal(str(self.unallocated_budget_inr))
-        allocated_dec = sum(Decimal(str(item.monthly_inr)) for item in self.items)
-        if abs((allocated_dec + unallocated_dec) - total_dec) > Decimal("0.01"):
+        total_dec = self.total_monthly_budget_inr
+        unallocated_dec = self.unallocated_budget_inr
+        allocated_dec = sum((item.monthly_inr for item in self.items), Decimal("0.00"))
+        if allocated_dec + unallocated_dec != total_dec:
             raise ValueError(
                 f"Allocated SIP amounts ({allocated_dec}) plus unallocated budget ({unallocated_dec}) "
-                f"must equal the monthly budget ({total_dec})"
+                f"must equal the monthly budget exactly ({total_dec})"
             )
         if abs(sum(item_pcts) - (self.equity_sip_pct + self.debt_sip_pct)) > 0.11:
             raise ValueError("SIP item percentages must reconcile to the equity and debt SIP percentages")
