@@ -293,27 +293,6 @@ def validate_fund_screening_policy(data: Any, policy_path: Optional[Path] = None
         if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(float(v)) or float(v) < 0:
             raise ValueError(f"Screening policy gate_thresholds[{k!r}] must be a finite non-negative number")
 
-    lookthrough_policy = data.get("portfolio_lookthrough_policy")
-    if not isinstance(lookthrough_policy, dict) or set(lookthrough_policy) != {
-        "required_coverage_pct", "constituent_weight_reconciliation_tolerance_pct", "note"
-    }:
-        raise ValueError("Screening policy portfolio_lookthrough_policy is missing or has an invalid schema")
-    coverage = lookthrough_policy["required_coverage_pct"]
-    weight_tolerance = lookthrough_policy["constituent_weight_reconciliation_tolerance_pct"]
-    for key, value in (
-        ("required_coverage_pct", coverage),
-        ("constituent_weight_reconciliation_tolerance_pct", weight_tolerance),
-    ):
-        if (
-            isinstance(value, bool) or not isinstance(value, (int, float))
-            or not math.isfinite(float(value)) or float(value) < 0 or float(value) > 100
-        ):
-            raise ValueError(f"portfolio_lookthrough_policy[{key!r}] must be finite and between 0 and 100")
-    if float(coverage) <= 0:
-        raise ValueError("portfolio_lookthrough_policy.required_coverage_pct must be greater than zero")
-    if not isinstance(lookthrough_policy["note"], str) or not lookthrough_policy["note"].strip():
-        raise ValueError("portfolio_lookthrough_policy.note must explain the governed parameter")
-
     seen_rule_ids = set()
     for rule_set_key in ("quarantine_rules", "reject_rules", "flag_rules"):
         rules = data.get(rule_set_key, [])
@@ -334,6 +313,27 @@ def validate_fund_screening_policy(data: Any, policy_path: Optional[Path] = None
                 f"Contradictory action {thematic.get('action')!r} in category_rules.thematic_sectoral_liquidation; "
                 "must be REVIEW_REQUIRED per fiduciary non-automatic liquidation policy"
             )
+
+    lookthrough_policy = data.get("portfolio_lookthrough_policy")
+    if not isinstance(lookthrough_policy, dict) or set(lookthrough_policy) != {
+        "required_coverage_pct", "constituent_weight_reconciliation_tolerance_pct", "note"
+    }:
+        raise ValueError("Screening policy portfolio_lookthrough_policy is missing or has an invalid schema")
+    coverage = lookthrough_policy["required_coverage_pct"]
+    weight_tolerance = lookthrough_policy["constituent_weight_reconciliation_tolerance_pct"]
+    for key, value in (
+        ("required_coverage_pct", coverage),
+        ("constituent_weight_reconciliation_tolerance_pct", weight_tolerance),
+    ):
+        if (
+            isinstance(value, bool) or not isinstance(value, (int, float))
+            or not math.isfinite(float(value)) or float(value) < 0 or float(value) > 100
+        ):
+            raise ValueError(f"portfolio_lookthrough_policy[{key!r}] must be finite and between 0 and 100")
+    if float(coverage) <= 0:
+        raise ValueError("portfolio_lookthrough_policy.required_coverage_pct must be greater than zero")
+    if not isinstance(lookthrough_policy["note"], str) or not lookthrough_policy["note"].strip():
+        raise ValueError("portfolio_lookthrough_policy.note must explain the governed parameter")
 
     import hashlib
     if "_policy_digest" not in data or not data["_policy_digest"]:
@@ -1036,7 +1036,7 @@ def _portfolio_weighted_constituent_overlap_pct(
     candidate: Dict[str, Any],
     portfolio_holdings: List[Any],
     *,
-    minimum_coverage_pct: float,
+    minimum_coverage_pct: Optional[float] = None,
 ) -> Optional[float]:
     """
     Return weighted constituent overlap (0-100) between a candidate and the
@@ -1046,6 +1046,12 @@ def _portfolio_weighted_constituent_overlap_pct(
     Both sides require source-verified constituent weights and adequate
     disclosure coverage. Missing look-through is never treated as zero overlap.
     """
+    if minimum_coverage_pct is None:
+        policy = load_fund_screening_policy()
+        minimum_coverage_pct = float(
+            policy["portfolio_lookthrough_policy"]["required_coverage_pct"]
+        )
+
     def field(item: Any, name: str, default=None):
         return item.get(name, default) if isinstance(item, dict) else getattr(item, name, default)
 
