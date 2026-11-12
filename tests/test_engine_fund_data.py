@@ -117,7 +117,7 @@ def test_manifest_rejects_tampered_or_mixed_snapshot(tmp_path):
     metrics = json.loads(paths["fund_metrics"].read_text())
     metrics["dataset_id"] = "0" * 64
     paths["fund_metrics"].write_text(json.dumps(metrics))
-    with pytest.raises(FundDataAcquisitionError, match="inconsistent"):
+    with pytest.raises(FundDataAcquisitionError, match="digest mismatch|inconsistent"):
         load_engine_manifest(tmp_path)
 
 

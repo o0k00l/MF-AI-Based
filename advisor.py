@@ -38,6 +38,9 @@ def get_engine_data_paths(data_dir: Path | None = None) -> dict[str, Any]:
             "fund_metrics": None,
             "fund_aliases": None,
             "is_acquired": False,
+            "is_decision_eligible": False,
+            "promotion_eligible": False,
+            "promotion_blockers": ["Engine-managed public fund data has not yet been acquired"],
             "error": "Engine-managed public fund data has not yet been acquired",
         }
 
@@ -52,6 +55,9 @@ def get_engine_data_paths(data_dir: Path | None = None) -> dict[str, Any]:
             "fund_metrics": None,
             "fund_aliases": None,
             "is_acquired": False,
+            "is_decision_eligible": False,
+            "promotion_eligible": False,
+            "promotion_blockers": [str(exc)],
             "error": str(exc),
         }
 
