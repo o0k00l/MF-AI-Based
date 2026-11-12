@@ -41,6 +41,6 @@ def test_request_sip_recommendations_fail_closed_contract():
     )
     assert resp.get("status") == "HOLD"
     assert resp.get("decision") == "NO_ACTION"
-    assert resp.get("unallocated_budget_inr") == 20000.0
+    assert resp.get("unallocated_budget_inr") == "20000.00"
     assert len(resp.get("reasons", [])) > 0
 
