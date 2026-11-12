@@ -6,6 +6,8 @@ Regression tests for Remediations:
 - Issue #55: End-to-end Decimal money contract across ingestion, plans, and serialization
 """
 from decimal import Decimal
+import hashlib
+import json
 from datetime import date
 from pathlib import Path
 import pytest
@@ -485,7 +487,14 @@ def test_check_eligibility_gates_authorizes_overrides_via_validated_policy():
     import copy
     strict_policy = copy.deepcopy(std_policy)
     strict_policy["gate_thresholds"]["min_sharpe"] = 0.55  # Stricter sharpe
-    
+    # A policy override is a separately digest-bound snapshot. The base policy's
+    # source path and digest cannot authorize modified policy contents.
+    strict_policy.pop("_policy_path", None)
+    strict_policy.pop("_policy_digest", None)
+    strict_policy["_policy_digest"] = hashlib.sha256(
+        json.dumps(strict_policy, sort_keys=True).encode("utf-8")
+    ).hexdigest()
+
     res2 = check_eligibility_gates(fund_data=fund, portfolio_holdings=holdings, policy=strict_policy)
     # Now fails Gate 4 under the stricter policy
     assert res2.sharpe_alpha_gate is False
