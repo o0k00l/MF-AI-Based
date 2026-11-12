@@ -556,16 +556,6 @@ def check_eligibility_gates(
         if "min_confidence_score" not in gt:
             raise ValueError("Screening policy missing 'min_confidence_score' gate threshold")
         min_confidence_score = float(gt["min_confidence_score"])
-    if client_risk_tier_num is None:
-        return EligibilityGateResult(
-            fund_id=str(fund_id),
-            fund_name=str(fund_name),
-            passed=False,
-            failed_gates=["Gate 6 [Mandate Suitability]: explicit investor risk profile is missing — fail-closed"],
-            details={"risk_profile": "MISSING"},
-            policy_version=policy.get("version"),
-            policy_digest=policy.get("_policy_digest"),
-        )
 
     # --- Gate 1: AMC Concentration Gate ---
     # Never infer an AMC from the first token of a scheme name: many AMCs have
