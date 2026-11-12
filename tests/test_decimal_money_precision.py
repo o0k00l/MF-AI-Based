@@ -162,3 +162,22 @@ def test_deterministic_lumpsum_plan_exact_decimal_budget_reconciliation():
             parking_vehicle="Arbitrage Direct",
             tranches=[tranche1],
         )
+
+
+def test_sip_plan_rejects_one_paise_budget_mismatch():
+    item = DeterministicSIPRecommendation(
+        category_role="Core",
+        scheme_name="Core Direct Growth",
+        monthly_inr=Decimal("9999.99"),
+        allocation_pct=100.0,
+        rational_code="CORE",
+        fiduciary_rationale="Exact Decimal reconciliation",
+    )
+    with pytest.raises(ValueError, match="must equal the monthly budget exactly"):
+        DeterministicSIPPlan(
+            total_monthly_budget_inr=Decimal("10000.00"),
+            unallocated_budget_inr=Decimal("0.00"),
+            equity_sip_pct=100.0,
+            debt_sip_pct=0.0,
+            items=[item],
+        )
