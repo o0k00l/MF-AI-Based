@@ -106,3 +106,19 @@ This document is subordinate to `docs/SIP_ENGINE_DECISION_REGISTER.md` for settl
 ## 6. Detailed specification and observed conformance gaps
 
 The detailed normative calculation/data/API contract is [SIP_DECISION_CALCULATION_AND_DATA_CONTRACTS.md](docs/SIP_DECISION_CALCULATION_AND_DATA_CONTRACTS.md). It documents the calculation contracts, illustrative arithmetic, acceptance scenarios and source-inspected implementation gaps. Its existence does not close any workstream. In particular, the documented gaps around post-contribution routing, default parameters, look-through tolerances, candidate minimums, local risk/sleeve maps, fund-discovery inference/fallbacks, policy fallback values, float budget ingress, engine-owned research acquisition and external evidence-bundle dependence remain OPEN until fixed in code and independently verified on the current main commit. No test changes are authorized by this documentation work.
+
+## 8. Code corrections — 2026-11-12
+
+The following corrections are now present on main (latest source revision at this update: c69e626f6f6a6d533573ad4086346f76e21c3955). These are implementation changes, not a declaration of workstream closure:
+
+- SIP routing now derives post-contribution INR gaps from the P+B perimeter and applies the tolerance on that same base. Unfillable sleeve shares and rounding residue remain unallocated.
+- The production routing increment comes from the validated allocation policy. The primitive no longer embeds a numeric increment default.
+- Candidate allocation rejects missing or invalid source-backed scheme minimums instead of substituting the general policy minimum.
+- SIP API budget input, CAS portfolio totals/sleeves, routing and candidate/issuer overlap value-weighting use Decimal INR arithmetic; API INR amounts serialize as decimal strings.
+- Screening policy now governs look-through coverage and constituent-weight reconciliation. Missing investor risk profile fails closed without suppressing diagnostics for the other eligibility gates.
+- Public 3+1 risk mapping and SEBI Tier 1–6 profile mapping are policy-owned and consumed by the service/model/math engine. Custom risk ceiling is explicit; the implicit Tier 6 default was removed.
+- Legacy candidate concentration controls no longer provide implicit numeric caps; classified caps require explicit policy limits.
+
+**Verification boundary:** GitHub Actions for exact HEAD c69e626 were still running at the time of this update. A preceding SIP regression run passed 397 tests before the API Decimal serialization changes; the next run identified five assertions expecting numeric JSON INR values. Those tests were corrected to assert the new Decimal-string contract. Do not mark #24, #50 or #55 closed until exact-HEAD CI/SIP/Security are green and the remaining end-to-end acceptance in #145 is demonstrated.
+
+**Still open:** source-specific disclosure/evidence freshness (the current disclosure-age default still needs a policy-bound source-specific contract); complete external-asset/liability perimeter and liquidity evidence; full holdings-level issuer/sector/market-cap/theme before/after controls and trace binding; candidate-universe autonomous discovery; research/TRI/NSE calendar independent release gates; reviewer approval; and the production UI/API acceptance workflow.
