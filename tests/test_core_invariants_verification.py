@@ -52,9 +52,9 @@ class TestDecimalPrecisionInvariants:
     def test_sip_plan_budget_reconciliation(self):
         """Validates SIP plan budget reconciliation: total == allocated + unallocated."""
         plan = compute_deterministic_sip_blueprint(
-            monthly_budget=15000.0,
+            monthly_budget=Decimal("15000.00"),
             risk_tier="Tier 3 (Moderate)",
-            client_aum=5000000.0,
+            client_aum=Decimal("5000000.00"),
             client_aum_verified=True,
             candidate_universe=[],
         )
@@ -106,9 +106,9 @@ class TestFailClosedBehavior:
     def test_empty_candidate_universe_returns_hold_no_action(self):
         """Tests empty candidate universe returns HOLD/NO_ACTION."""
         plan = compute_deterministic_sip_blueprint(
-            monthly_budget=10000.0,
+            monthly_budget=Decimal("10000.00"),
             risk_tier="Tier 3 (Moderate)",
-            client_aum=5000000.0,
+            client_aum=Decimal("5000000.00"),
             client_aum_verified=True,
             candidate_universe=[],
         )
@@ -127,9 +127,9 @@ class TestFailClosedBehavior:
             "is_direct": True,
         }
         plan = compute_deterministic_sip_blueprint(
-            monthly_budget=10000.0,
+            monthly_budget=Decimal("10000.00"),
             risk_tier="Tier 3 (Moderate)",
-            client_aum=5000000.0,
+            client_aum=Decimal("5000000.00"),
             client_aum_verified=True,
             candidate_universe=[unverified_candidate],
         )
@@ -206,9 +206,9 @@ class TestSaaBoundsEnforcement:
     def test_tier_6_95_percent_equity_sip_routing_without_ips_override(self):
         """Validates 95% equity SIP routing without IPS override."""
         plan = compute_deterministic_sip_blueprint(
-            monthly_budget=50000.0,
+            monthly_budget=Decimal("50000.00"),
             risk_tier="Tier 6 (Very High)",
-            client_aum=5000000.0,
+            client_aum=Decimal("5000000.00"),
             client_aum_verified=True,
             equity_sip_routing_override=False,
             candidate_universe=[],
@@ -220,9 +220,9 @@ class TestSaaBoundsEnforcement:
     def test_tier_6_100_percent_equity_sip_routing_with_ips_override(self):
         """Validates 100% equity SIP routing with explicit IPS override."""
         plan = compute_deterministic_sip_blueprint(
-            monthly_budget=50000.0,
+            monthly_budget=Decimal("50000.00"),
             risk_tier="Tier 6 (Very High)",
-            client_aum=5000000.0,
+            client_aum=Decimal("5000000.00"),
             client_aum_verified=True,
             equity_sip_routing_override=True,
             candidate_universe=[],
