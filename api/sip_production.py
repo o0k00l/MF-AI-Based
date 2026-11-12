@@ -20,7 +20,5 @@ def create_production_sip_app() -> FastAPI:
         raise RuntimeError(
             "MF_SIP_EVIDENCE_BUNDLE_DIR must point to a reviewed external SIP evidence bundle."
         )
-    return create_sip_app(evidence_provider=provider)
-
-
-app = create_sip_app(evidence_provider=build_sip_evidence_provider())
+    # Issue #22: Production deployments always require authentication
+    return create_sip_app(evidence_provider=provider, require_auth=True)

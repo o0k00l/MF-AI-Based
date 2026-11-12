@@ -1,6 +1,11 @@
 import json
+import os
 from datetime import date
 from pathlib import Path
+
+# Set test environment before importing api.sip
+# This ensures auth is not enforced by default in tests
+os.environ.setdefault("MF_DEPLOYMENT_ENVIRONMENT", "test")
 
 from fastapi.testclient import TestClient
 
