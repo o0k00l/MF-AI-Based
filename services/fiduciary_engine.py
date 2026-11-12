@@ -22,26 +22,33 @@ _SCHEME_MASTER_PATH = Path(__file__).resolve().parent.parent / "data" / "policy"
 
 # Default SAA distribution resolved dynamically from authoritative policy file
 # Single source of truth per REQ-014 and Issue #50.
+# Fails closed: missing or invalid policy must halt execution, not silently default.
 def _load_default_saa_distribution() -> Dict[str, Decimal]:
     policy_path = Path(__file__).resolve().parent.parent / "data" / "policy" / "asset_allocation.json"
-    try:
-        policy = json.loads(policy_path.read_text(encoding="utf-8"))
-        profile = policy.get("behavioral_risk_profiles", {}).get("moderately_high", {})
-        saa = profile.get("saa_targets", {})
-        if saa:
-            return {
-                "large_cap": Decimal(str(saa.get("large_cap_pct", 50.0))),
-                "mid_small": Decimal(str(float(saa.get("mid_cap_pct", 25.0)) + float(saa.get("small_cap_pct", 0.0)))),
-                "flexi": Decimal(str(saa.get("flexi_multi_cap_pct", 0.0))),
-                "debt": Decimal(str(saa.get("debt_liquid_pct", 25.0))),
-            }
-    except Exception:
-        pass
+    
+    if not policy_path.exists():
+        raise FileNotFoundError(
+            f"SAA policy file not found at {policy_path}. "
+            "Cannot compute default asset allocation without authoritative policy. "
+            "This is a fiduciary compliance failure requiring immediate attention."
+        )
+    
+    policy = json.loads(policy_path.read_text(encoding="utf-8"))
+    profile = policy.get("behavioral_risk_profiles", {}).get("moderately_high", {})
+    saa = profile.get("saa_targets", {})
+    
+    if not saa:
+        raise ValueError(
+            f"Policy file at {policy_path} is missing 'saa_targets' section. "
+            "Cannot compute default SAA distribution without valid policy. "
+            "This is a fiduciary compliance failure."
+        )
+    
     return {
-        "large_cap": Decimal("50.0"),
-        "mid_small": Decimal("25.0"),
-        "flexi": Decimal("0.0"),
-        "debt": Decimal("25.0"),
+        "large_cap": Decimal(str(saa.get("large_cap_pct", 50.0))),
+        "mid_small": Decimal(str(float(saa.get("mid_cap_pct", 25.0)) + float(saa.get("small_cap_pct", 0.0)))),
+        "flexi": Decimal(str(saa.get("flexi_multi_cap_pct", 0.0))),
+        "debt": Decimal(str(saa.get("debt_liquid_pct", 25.0))),
     }
 
 
