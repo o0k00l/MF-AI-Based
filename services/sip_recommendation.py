@@ -54,11 +54,6 @@ _ALLOWED_RISK_PROFILES = {
 
 
 
-_SAA_POLICY_PROFILE_BY_RISK = {
-    "Conservative": "low_to_moderate",
-    "Moderate": "moderately_high",
-    "Aggressive": "very_high",
-}
 _ASSET_CLASS_TO_SAA_BUCKET = {
     "LARGE_CAP": "large_cap", "MID_CAP": "mid_cap",
     "SMALL_CAP": "small_cap", "FLEXI_CAP": "flexi_multi_cap",
@@ -99,7 +94,8 @@ def _build_cas_portfolio_assessment(
                 "unclassified": 0.0,
             }
         else:
-            profile_key = _SAA_POLICY_PROFILE_BY_RISK[risk_profile]
+            public_mapping = policy["public_risk_profile_mapping"][risk_profile]
+            profile_key = public_mapping["behavioral_profile"]
             profile = policy["behavioral_risk_profiles"][profile_key]
             raw_targets = profile["saa_targets"]
             tolerance = profile["tolerance_band_pct"]
@@ -288,7 +284,7 @@ def _assess_complete_portfolio_context(
             from core.models import AssetAllocationTarget
             if not isinstance(custom_saa_target, AssetAllocationTarget):
                 raise PortfolioInputError("custom_saa_target must be a validated AssetAllocationTarget instance")
-        elif risk_profile not in _SAA_POLICY_PROFILE_BY_RISK:
+        elif risk_profile not in policy["public_risk_profile_mapping"]:
             raise PortfolioInputError(f"Unsupported risk profile '{risk_profile}'; custom SAA requires an approved custom policy contract.")
 
         ips = context["ips"]
@@ -342,8 +338,15 @@ def _assess_complete_portfolio_context(
             if equity_target == 100.0 and debt_target == 0.0 and ips.get("tier6_equity_only_authorized") is not True:
                 raise PortfolioInputError("Tier 6 equity-only routing requires explicit IPS authorization")
         else:
-            profile_ceiling_map = {"Conservative": 2, "Moderate": 4, "Aggressive": 6}
-            std_ceiling = profile_ceiling_map[risk_profile]
+            public_mapping = policy["public_risk_profile_mapping"][risk_profile]
+            profile_key = public_mapping["behavioral_profile"]
+            std_ceiling = public_mapping["risk_ceiling"]
+            if (
+                not isinstance(profile_key, str) or not profile_key
+                or isinstance(std_ceiling, bool) or not isinstance(std_ceiling, int)
+                or not 1 <= std_ceiling <= 6
+            ):
+                raise PortfolioInputError("public risk-profile mapping is invalid")
             if "risk_ceiling" in ips:
                 try:
                     c_val = int(ips["risk_ceiling"])
@@ -354,9 +357,8 @@ def _assess_complete_portfolio_context(
                     raise PortfolioInputError(f"risk_ceiling must be an integer between 1 and 6; got {ips['risk_ceiling']!r}")
             else:
                 effective_risk_ceiling = std_ceiling
-            profile_key = _SAA_POLICY_PROFILE_BY_RISK[risk_profile]
             profile = policy["behavioral_risk_profiles"][profile_key]
-            if risk_profile == "Aggressive" and profile_key == "very_high" and ips.get("tier6_equity_only_authorized") is not True:
+            if std_ceiling == 6 and profile_key == "very_high" and ips.get("tier6_equity_only_authorized") is not True:
                 raise PortfolioInputError("Tier 6 equity-only routing requires explicit IPS authorization")
             if (
                 equity_target > float(profile["max_equity_pct"])
