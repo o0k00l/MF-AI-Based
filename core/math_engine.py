@@ -5470,9 +5470,9 @@ def compute_deterministic_sip_blueprint(
         raise ValueError("Verified reconciled client AUM is required; missing AUM is not zero")
     if not isinstance(client_aum_verified, bool):
         raise ValueError("client_aum_verified must be an explicit boolean")
+    if isinstance(monthly_budget, (bool, float)) or isinstance(client_aum, (bool, float)):
+        raise ValueError("Binary float is not accepted for SIP budget or client AUM; provide Decimal or decimal text.")
     try:
-        if isinstance(monthly_budget, (bool, float)) or isinstance(client_aum, (bool, float)):
-            raise ValueError("Binary float is not accepted for SIP budget or client AUM; provide Decimal or decimal text.")
         b = quantize_inr(monthly_budget)
         aum_value = quantize_inr(client_aum)
         stability_value = None if stability_buffer_pct is None else float(stability_buffer_pct)
