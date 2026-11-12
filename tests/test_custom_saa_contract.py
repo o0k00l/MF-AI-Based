@@ -231,6 +231,11 @@ def test_recommend_sip_custom_saa_e2e_with_approved_context(tmp_path, monkeypatc
                 "income": "BANK-001",
                 "expenses": "BANK-001",
                 "debt_service": "BANK-001",
+                "as_of_dates": {
+                    key: as_of for key in (
+                        "cash", "reserve", "obligations", "income", "expenses", "debt_service"
+                    )
+                },
             },
             "max_evidence_age_days": 45,
         },
