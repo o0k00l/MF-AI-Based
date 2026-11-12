@@ -24,7 +24,7 @@ from core.math_engine import (
     load_holdings_from_cas_excel,
     _parse_cas_valuation_date,
 )
-from core.models import DeterministicSIPPlan, MandateExecutionState
+from core.models import DeterministicSIPPlan, MandateExecutionState, quantize_inr
 from services.sip_lifecycle_store import persist_draft_snapshot
 
 from core.portfolio_sip_controls import (
@@ -246,7 +246,7 @@ def _assess_complete_portfolio_context(
     context: dict[str, Any],
     *,
     candidate_universe: list[dict[str, Any]],
-    monthly_budget_inr: float,
+    monthly_budget_inr: Decimal,
     risk_profile: str,
     existing_lookthrough: dict[str, Any],
     cas_holdings_total_inr: float,
@@ -305,12 +305,12 @@ def _assess_complete_portfolio_context(
             for row in context.get("excluded_assets", [])
             if isinstance(row, dict)
         ]
-        total = float(reconciliation["total_value_inr"])
-        current = {sleeve: 0.0 for sleeve in _TOTAL_PORTFOLIO_SLEEVES}
+        total = Decimal(str(reconciliation["total_value_inr"]))
+        current = {sleeve: Decimal("0") for sleeve in _TOTAL_PORTFOLIO_SLEEVES}
         for row in assets:
-            current[row["saa_bucket"]] += float(row["value_inr"])
-        if abs(sum(current.values()) - total) > 0.01:
-            raise PortfolioInputError("SAA sleeve values do not reconcile to total portfolio")
+            current[row["saa_bucket"]] += quantize_inr(row["value_inr"])
+        if sum(current.values(), Decimal("0")) != total:
+            raise PortfolioInputError("SAA sleeve values do not reconcile exactly to total portfolio")
         policy_path = Path(__file__).resolve().parents[1] / "data" / "policy" / "asset_allocation.json"
         policy = json.loads(policy_path.read_text(encoding="utf-8"))
         if risk_profile == "Custom":
@@ -403,10 +403,11 @@ def _assess_complete_portfolio_context(
             ):
                 raise PortfolioInputError("client IPS targets conflict with approved risk-profile limits")
         cas_value_in_perimeter = sum(
-            float(row["value_inr"]) for row in assets if row.get("asset_class") == "cas_mutual_fund"
+            (quantize_inr(row["value_inr"]) for row in assets if row.get("asset_class") == "cas_mutual_fund"),
+            Decimal("0"),
         )
-        if abs(cas_value_in_perimeter - cas_holdings_total_inr) > 0.01:
-            raise PortfolioInputError("CAS holdings do not reconcile to declared CAS asset perimeter")
+        if cas_value_in_perimeter != quantize_inr(cas_holdings_total_inr):
+            raise PortfolioInputError("CAS holdings do not reconcile exactly to declared CAS asset perimeter")
         drift = calculate_saa_drift(
             current, targets, tolerance_band_pct=tolerance,
             portfolio_total_inr=total,
@@ -922,7 +923,7 @@ def _build_sip_decision_trace(
     portfolio_disclosure_source_bytes_by_scheme_id: dict[str, bytes],
     disclosure_as_of_date: date,
     candidate_universe: list[dict[str, Any]],
-    monthly_budget_inr: float,
+    monthly_budget_inr: Decimal,
     portfolio_assessment: dict[str, Any],
     context_assessment: dict[str, Any] | None = None,
     metrics_source_bytes: bytes | None = None,
@@ -1038,7 +1039,7 @@ def _build_sip_decision_trace(
     return build_decision_trace(record)
 
 
-def _hold_plan(monthly_budget_inr: float, reasons: list[str], portfolio_assessment: dict[str, Any] | None = None) -> dict[str, Any]:
+def _hold_plan(monthly_budget_inr: Decimal, reasons: list[str], portfolio_assessment: dict[str, Any] | None = None) -> dict[str, Any]:
     """Create a valid, zero-allocation response; never leak a provisional split."""
     plan = DeterministicSIPPlan(
         total_monthly_budget_inr=monthly_budget_inr,
@@ -1081,7 +1082,7 @@ def recommend_sip(
     cas_path: Path,
     metrics_path: Path | None,
     aliases_path: Path | None,
-    monthly_budget_inr: float,
+    monthly_budget_inr: Any,
     risk_profile: str,
     scheme_master: dict[str, Any] | None,
     scheme_master_source_bytes: bytes | None,
@@ -1108,13 +1109,11 @@ def recommend_sip(
     Custom SAA is supported when accompanied by an approved investor IPS mandate
     contract with validated AssetAllocationTarget sub-sleeve targets.
     """
-    import math
-
     try:
-        budget = float(monthly_budget_inr)
-    except (TypeError, ValueError) as exc:
-        raise ValueError("Monthly SIP budget must be numeric") from exc
-    if not math.isfinite(budget) or budget <= 0:
+        budget = quantize_inr(monthly_budget_inr)
+    except (TypeError, ValueError, ArithmeticError) as exc:
+        raise ValueError("Monthly SIP budget must be a valid INR decimal amount") from exc
+    if not budget.is_finite() or budget <= 0:
         raise ValueError("Monthly SIP budget must be finite and greater than zero")
 
     if risk_profile not in _ALLOWED_RISK_PROFILES and risk_profile != "Custom":
@@ -1263,7 +1262,10 @@ def recommend_sip(
                 monthly_budget_inr=budget,
                 risk_profile=risk_profile,
                 existing_lookthrough=portfolio_assessment.get("lookthrough", {}),
-                cas_holdings_total_inr=sum(float(holding.current_value_inr) for holding in holdings),
+                cas_holdings_total_inr=sum(
+                    (quantize_inr(holding.current_value_inr) for holding in holdings),
+                    Decimal("0"),
+                ),
                 evidence_as_of_date=disclosure_as_of_date,
                 custom_saa_target=custom_saa_target,
             )
