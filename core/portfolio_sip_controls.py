@@ -198,7 +198,7 @@ def generate_signed_portfolio_reconciliation_report(
     - RFC 8785 (JCS) SHA-256 cryptographic report digest.
     """
     valuation_date = _date(as_of_date, "as_of_date")
-    if not isinstance(sign_off, Mapping):
+    if not isinstance(sign_off, Mapping) or not sign_off:
         recon = {
             "status": "HOLD",
             "reason": "SIGN_OFF_ATTESTATION_REQUIRED",

@@ -34,6 +34,7 @@ from core.portfolio_sip_controls import (
     evaluate_classified_concentration,
     calculate_saa_drift,
     reconcile_total_portfolio,
+    generate_signed_portfolio_reconciliation_report,
     route_incremental_sip,
     allocate_candidate_sip,
     screen_candidates_before_scoring,
@@ -245,14 +246,27 @@ def _assess_complete_portfolio_context(
         for row in assets:
             if not isinstance(row, dict) or row.get("saa_bucket") not in _TOTAL_PORTFOLIO_SLEEVES:
                 raise PortfolioInputError("every asset requires an explicit approved SAA sleeve mapping")
-        reconciliation = reconcile_total_portfolio(
-            assets,
-            perimeter_complete=context.get("perimeter_complete") is True,
-            as_of_date=as_of,
-            excluded_assets=context.get("excluded_assets", []),
-            unmatched_items=context.get("unmatched_items", []),
-            sign_off=context.get("sign_off"),
-        )
+        # Issue #23: When signed report is requested or sign_off is supplied, generate and enforce
+        # the authoritative canonical signed reconciliation report with RFC 8785 (JCS) SHA-256 digest.
+        sign_off_input = context.get("sign_off")
+        if isinstance(sign_off_input, dict) or context.get("require_signed_report") is True:
+            reconciliation = generate_signed_portfolio_reconciliation_report(
+                assets,
+                perimeter_complete=context.get("perimeter_complete") is True,
+                as_of_date=as_of,
+                sign_off=sign_off_input if isinstance(sign_off_input, dict) else {},
+                excluded_assets=context.get("excluded_assets", []),
+                unmatched_items=context.get("unmatched_items", []),
+            )
+        else:
+            reconciliation = reconcile_total_portfolio(
+                assets,
+                perimeter_complete=context.get("perimeter_complete") is True,
+                as_of_date=as_of,
+                excluded_assets=context.get("excluded_assets", []),
+                unmatched_items=context.get("unmatched_items", []),
+                sign_off=context.get("sign_off"),
+            )
         if reconciliation["status"] != "RECONCILED" or not reconciliation.get("is_approved_for_sip_routing", True):
             return {"status": "HOLD", "portfolio_reconciliation": reconciliation,
                     "reason": reconciliation.get("reason", "TOTAL_PORTFOLIO_RECONCILIATION_FAILED")}
@@ -804,6 +818,8 @@ def _assess_complete_portfolio_context(
             "source_bundle_sha256": context.get("_source_bundle_sha256"),
             "trust_level": "UNVERIFIED_CLIENT_DECLARATIONS" if client_supplied_unverified else ("PROVIDER_ATTESTED" if provider_attested else "UNVERIFIED_CONTEXT"),
             "portfolio_reconciliation": reconciliation,
+            "signed_portfolio_reconciliation_report": reconciliation if reconciliation.get("report_sha256") else None,
+            "signed_reconciliation_report_sha256": reconciliation.get("report_sha256"),
             "cas_valuation_date_verified": True,
             "cas_valuation_date": as_of,
             "saa": {"current_sleeve_values_inr": current, "target_weights_pct": targets,
@@ -1011,7 +1027,8 @@ def recommend_sip(
     """Build a fail-closed portfolio-aware SIP decision from explicit evidence.
 
     The caller must supply the original scheme-master and disclosure bytes.
-    Custom SAA is intentionally rejected until its IPS contract is implemented.
+    Custom SAA is supported when accompanied by an approved investor IPS mandate
+    contract with validated AssetAllocationTarget sub-sleeve targets.
     """
     import math
 

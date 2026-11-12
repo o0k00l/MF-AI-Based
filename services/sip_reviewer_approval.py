@@ -150,6 +150,7 @@ def verify_sip_reviewer_approval(
     expected_artifact_digest: Optional[str] = None,
     require_commit_binding: bool = False,
     require_policy_binding: bool = False,
+    require_artifact_binding: bool = False,
     repository: str = "o0k00l/MF-AI-Based",
     now: Optional[datetime] = None,
 ) -> ApprovalResult:
@@ -353,6 +354,8 @@ def verify_sip_reviewer_approval(
         elif expected_artifact_digest is not None:
             if art_digest.lower() != expected_artifact_digest.lower():
                 errors.append(f"Artifact digest mismatch: expected {expected_artifact_digest}, got {art_digest}")
+    elif require_artifact_binding:
+        errors.append("Approval payload is missing required artifact_digest binding")
 
     # 7. Cryptographic Ed25519 signature verification
     try:

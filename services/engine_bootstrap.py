@@ -138,6 +138,7 @@ class EngineBootstrapPipeline:
         expected_policy_digest: Optional[str] = None,
         require_commit_binding: bool = False,
         require_policy_binding: bool = False,
+        require_artifact_binding: bool = False,
     ) -> ValidationReport:
         """
         Builds and validates an unpromoted staging bundle.
@@ -423,6 +424,7 @@ class EngineBootstrapPipeline:
         expected_policy_digest: Optional[str] = None,
         require_commit_binding: bool = False,
         require_policy_binding: bool = False,
+        require_artifact_binding: bool = False,
         metrics_source_url: Optional[str] = None,
         universe_source_url: Optional[str] = None,
         master_source_url: Optional[str] = None,
@@ -471,6 +473,7 @@ class EngineBootstrapPipeline:
             expected_policy_digest=expected_policy_digest,
             require_commit_binding=require_commit_binding,
             require_policy_binding=require_policy_binding,
+            require_artifact_binding=require_artifact_binding,
         )
 
     def promote(
@@ -484,6 +487,7 @@ class EngineBootstrapPipeline:
         expected_policy_digest: Optional[str] = None,
         require_commit_binding: bool = False,
         require_policy_binding: bool = False,
+        require_artifact_binding: bool = False,
     ) -> Dict[str, Any]:
         """
         Executes atomic promotion of verified bundle after verifying detached Ed25519 reviewer approval.
@@ -499,27 +503,6 @@ class EngineBootstrapPipeline:
         if not staging_path.is_dir():
             raise ValueError(f"Staging bundle directory does not exist: {staging_path}")
 
-        # bundle_digest already computed above
-
-        # Cryptographic verification of detached reviewer approval
-        payload_env = reviewer_approval_envelope.get("payload", {}) if isinstance(reviewer_approval_envelope, dict) else {}
-        expected_art = bundle_digest if payload_env.get("artifact_digest") or payload_env.get("bundle_sha256") else None
-        verification = verify_sip_reviewer_approval(
-            envelope=reviewer_approval_envelope,
-            trust_registry=reviewer_trust_registry,
-            expected_scope="SIP_EVIDENCE_RELEASE",
-            expected_commit_sha=expected_commit_sha,
-            expected_policy_digest=expected_policy_digest,
-            expected_artifact_digest=expected_art,
-            require_commit_binding=require_commit_binding,
-            require_policy_binding=require_policy_binding,
-        )
-        if not verification.ok:
-            raise ValueError(
-                f"Promotion blocked: independent reviewer signature verification failed: "
-                f"{'; '.join(verification.errors)}"
-            )
-
         manifest_path = staging_path / "manifest.json"
         if not manifest_path.is_file():
             raise ValueError("Staging bundle is missing manifest.json.")
@@ -532,7 +515,7 @@ class EngineBootstrapPipeline:
         if staging_manifest.get("schema_version") != 1:
             raise ValueError("Staging bundle manifest schema_version must be 1.")
 
-        # Compute staging bundle digest for audit lineage
+        # Compute staging bundle digest for audit lineage and cryptographic approval verification
         bundle_files = sorted([p for p in staging_path.rglob("*") if p.is_file()])
         hasher = hashlib.sha256()
         for bf in bundle_files:
@@ -540,6 +523,26 @@ class EngineBootstrapPipeline:
             hasher.update(rel.encode("utf-8"))
             hasher.update(bf.read_bytes())
         bundle_digest = hasher.hexdigest()
+
+        # Cryptographic verification of detached reviewer approval
+        payload_env = reviewer_approval_envelope.get("payload", {}) if isinstance(reviewer_approval_envelope, dict) else {}
+        expected_art = bundle_digest if (payload_env.get("artifact_digest") or payload_env.get("bundle_sha256") or require_artifact_binding) else None
+        verification = verify_sip_reviewer_approval(
+            envelope=reviewer_approval_envelope,
+            trust_registry=reviewer_trust_registry,
+            expected_scope="SIP_EVIDENCE_RELEASE",
+            expected_commit_sha=expected_commit_sha,
+            expected_policy_digest=expected_policy_digest,
+            expected_artifact_digest=expected_art,
+            require_commit_binding=require_commit_binding,
+            require_policy_binding=require_policy_binding,
+            require_artifact_binding=require_artifact_binding,
+        )
+        if not verification.ok:
+            raise ValueError(
+                f"Promotion blocked: independent reviewer signature verification failed: "
+                f"{'; '.join(verification.errors)}"
+            )
 
         # Atomic promotion with rollback preserving last-known-good
         target_path.parent.mkdir(parents=True, exist_ok=True)

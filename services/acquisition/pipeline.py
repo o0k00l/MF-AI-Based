@@ -59,6 +59,7 @@ class FinancialDataRefreshPipeline:
         expected_policy_digest: Optional[str] = None,
         require_commit_binding: bool = False,
         require_policy_binding: bool = False,
+        require_artifact_binding: bool = False,
     ) -> RefreshResult:
         """
         Execute an end-to-end financial data acquisition and bundle refresh.
@@ -119,6 +120,7 @@ class FinancialDataRefreshPipeline:
             expected_policy_digest=expected_policy_digest,
             require_commit_binding=require_commit_binding,
             require_policy_binding=require_policy_binding,
+            require_artifact_binding=require_artifact_binding,
         )
         if not v_res.ok:
             errors.extend(v_res.errors)
@@ -387,6 +389,7 @@ class FinancialDataRefreshPipeline:
                 expected_policy_digest=expected_policy_digest,
                 require_commit_binding=require_commit_binding,
                 require_policy_binding=require_policy_binding,
+                require_artifact_binding=require_artifact_binding,
             )
         except Exception as exc:
             errors.append(f"Atomic bundle build/promotion failed: {exc}")

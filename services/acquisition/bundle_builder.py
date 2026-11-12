@@ -70,6 +70,7 @@ class EvidenceBundleBuilder:
         expected_policy_digest: Optional[str] = None,
         require_commit_binding: bool = False,
         require_policy_binding: bool = False,
+        require_artifact_binding: bool = False,
     ) -> Path:
         """
         Build an evidence bundle in a staging directory, verify its integrity,
@@ -282,6 +283,29 @@ class EvidenceBundleBuilder:
             provider = build_sip_evidence_provider(staging_dir)
             if provider is None:
                 raise ValueError("Pre-promotion validation failed: provider could not be built from staging bundle.")
+
+            payload_env = reviewer_approval_envelope.get("payload", {}) if isinstance(reviewer_approval_envelope, dict) else {}
+            if require_artifact_binding or payload_env.get("artifact_digest") or payload_env.get("bundle_sha256"):
+                bundle_files = sorted([p for p in staging_dir.rglob("*") if p.is_file()])
+                hasher = hashlib.sha256()
+                for bf in bundle_files:
+                    rel = str(bf.relative_to(staging_dir)).replace("\\", "/")
+                    hasher.update(rel.encode("utf-8"))
+                    hasher.update(bf.read_bytes())
+                staging_bundle_digest = hasher.hexdigest()
+                post_res = verify_sip_reviewer_approval(
+                    envelope=reviewer_approval_envelope,
+                    trust_registry=reviewer_trust_registry,
+                    expected_scope="SIP_EVIDENCE_RELEASE",
+                    expected_commit_sha=expected_commit_sha,
+                    expected_policy_digest=expected_policy_digest,
+                    expected_artifact_digest=staging_bundle_digest,
+                    require_commit_binding=require_commit_binding,
+                    require_policy_binding=require_policy_binding,
+                    require_artifact_binding=require_artifact_binding,
+                )
+                if not post_res.ok:
+                    raise ValueError(f"Staging artifact digest verification failed before promotion: {'; '.join(post_res.errors)}")
 
         except Exception as exc:
             # Staging failure: clean up staging directory and raise
