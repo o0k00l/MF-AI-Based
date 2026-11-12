@@ -566,6 +566,6 @@ def test_api_rejects_custom_until_custom_saa_contract_is_implemented():
     body = response.json()
     assert body["status"] == "HOLD"
     assert body["decision"] == "NO_ACTION"
-    assert body["unallocated_budget_inr"] == 25000
+    assert body["unallocated_budget_inr"] == "25000.00"
     assert any("Custom SAA is not implemented" in reason for reason in body["reasons"])
     assert called == []
