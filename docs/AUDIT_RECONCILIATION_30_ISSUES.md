@@ -13,7 +13,7 @@
 | **GitHub Actions CI (Remote Suite)** | **PASS** | Run [#43149587895](https://github.com/o0k00l/MF-AI-Based/actions/runs/43149587895) — 7/7 jobs green on `3af7587` |
 | **Security Audit (`pip-audit`)** | **PASS** | Run [#43149587873](https://github.com/o0k00l/MF-AI-Based/actions/runs/43149587873) — Clean dependency audit on `3af7587` |
 | **GitHub Check Runs Total** | **PASS** | 8/8 check runs completed successfully on latest `main` |
-| **Local Pytest Suite** | **PASS** | 1,190 passed, 36 skipped, 0 failed in 25.27s (Python 3.15.0) |
+| **Local Pytest Suite** | **PASS** | 1,196 passed, 36 skipped, 0 failed in 13.05s (Python 3.15.0) |
 | **Fiduciary Logics Scorecard** | **PASS** | `validate_final_logics.py` — 70/70 checks passed |
 | **TRI Fixture Integrity** | **PASS** | Hermetic and locked (fails closed on `--require-alpha-release`) |
 | **UI Boundaries (`ui/app.py`)** | **PASS** | Substring `"fallback"` absent; imports strictly within allowed set |
