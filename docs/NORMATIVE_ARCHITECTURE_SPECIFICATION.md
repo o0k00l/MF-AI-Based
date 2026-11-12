@@ -1,6 +1,6 @@
 # Normative Architecture Specification
 
-**Status**: Normative Architecture Baseline  
+**Status**: Normative Architecture Baseline (requirements authority; not an implementation-completion certificate)  
 **Authority Boundary**: Read-Only Mutual Fund Decision Support  
 **Version**: 2.1.0 (SIP-only product baseline; 2026-11-12)  
 **Supersedes**: Version 2.0.0 and conflicting informal design notes for the current SIP product scope. Historical audit findings remain evidence, not authority.
@@ -20,7 +20,9 @@
 
 ---
 
-## 2. Core Subsystems & Invariants
+## 2. Normative Subsystem Requirements (Not Implementation Claims)
+
+The clauses in this section define required behaviour. Their presence here does **not** assert that the current code satisfies them. Implementation and acceptance status is recorded only in `IMPLEMENTATION_STATUS.md` and the linked GitHub issues, based on evidence from the current `main` commit.
 
 ### 2.1 Ingestion & Statement Selection (`ingestion/`)
 - **Statement Selection (`ingestion/statement_selection.py`)**: Selects CAS/CGS statements based strictly on embedded statement dates (`To Date`, `As On Date`), never by filesystem timestamps or lexical order.
@@ -56,26 +58,28 @@
 
 ## 3. Normative Traceability Matrix
 
+**Interpretation:** this matrix maps requirements to likely implementation areas and regression-test entry points. It is not a completion report. A test file existing or passing does not prove the full requirement is accepted. The status column deliberately records the requirement's normative nature only; implementation status must be read from `IMPLEMENTATION_STATUS.md` and the relevant issue's acceptance evidence.
+
 | Requirement Clause | Normative Standard | Implementation Module | Primary Regression Tests | Status |
 | :--- | :--- | :--- | :--- | :--- |
-| **REQ-001**: CAS Cache Staging Envelope | Require source digest & statement binding | `ingestion/cas_parser.py` | `tests/test_cas_cache_integrity.py` | **Implemented** |
-| **REQ-002**: Active SIP Mandate vs Text | Distinguish text pattern from mandate | `ingestion/cas_parser.py` | `tests/test_active_sip_detection.py` | **Implemented** |
-| **REQ-003**: Screening Policy Binding | Single validated screening policy | `core/eligibility.py` | `tests/test_issues_50_26_84_55_remediations.py` | **Implemented** |
-| **REQ-004**: Multi-Dimensional Concentration | Overlap, issuer, sector, thematic limits | `core/math_engine.py` | `tests/test_issues_50_26_84_55_remediations.py` | **Implemented** |
-| **REQ-005**: Exact Metrics & Alias Binding | 4-tuple scheme identity & provenance | `core/math_engine.py` | `tests/test_sip_metrics_provenance.py` | **Implemented** |
-| **REQ-006**: Decimal Money Contract | Exact Decimal for all INR & units | `core/models.py`, `core/math_engine.py` | `tests/test_financial_model_defaults.py` | **Implemented** |
-| **REQ-007**: Decision Trace RFC 8785 Hash | Deterministic JCS SHA-256 lineage | `core/traceability.py` | `tests/test_decision_traceability.py` | **Implemented** |
-| **REQ-008**: Manifest Path Resolution | Resolve snapshots from manifest | `advisor.py` | `tests/test_issues_24_120_121_remediations.py` | **Implemented** |
-| **REQ-009**: Atomic Promotion & Rollback | Directory swap preserving last-known-good | `services/engine_bootstrap.py` | `tests/test_issues_24_120_121_remediations.py` | **Implemented** |
-| **REQ-010**: Anti-Synthetic Refresh Pipeline | Require detached Ed25519 signature by default | `services/acquisition/pipeline.py` | `tests/test_financial_data_acquisition.py` | **Implemented** |
-| **REQ-011**: SIP-only scope boundary | Keep lump-sum/STP outside the current SIP product path | SIP API/service boundary | SIP scope regression tests | **Required** |
-| **REQ-012**: SAA Drift Mathematical Routing | Post-contribution denominator & unallocated | `core/portfolio_sip_controls.py` | `tests/test_issues_24_120_121_remediations.py` | **Implemented** |
-| **REQ-013**: Tier 6 Equity-Only Guard | Fail closed without explicit authorization | `core/math_engine.py` | `tests/test_tier6_authorization_invariants.py` | **Implemented** |
-| **REQ-014**: SAA Single Source of Truth | Dynamic policy map from asset_allocation.json | `core/models.py` | `tests/test_saa_policy_authoritative.py` | **Implemented** |
-| **REQ-015**: Canonical UI Startup Contract | Root launcher delegates to read-only notice | `app.py`, `ui/app.py` | `tests/test_ui_retirement.py` | **Implemented** |
-| **REQ-016**: Tax & Legal Release Gate | Keep tax/exit-load APIs disabled pending review | `core/redemption_engine.py` | `tests/test_import_safety.py` | **Enforced (Disabled)** |
-| **REQ-017**: AI Provider Key Access & Scope | Zero cost / quota verified before provider call | `providers/` | External provider account / secret setup | **Pending Provider Access** |
-| **REQ-018**: Main Branch Protection Ruleset | Enforce required PR approvals & CI checks | `.github/workflows/` | GitHub Repository Ruleset Settings | **Repository Admin Gate** |
+| **REQ-001**: CAS Cache Staging Envelope | Require source digest & statement binding | `ingestion/cas_parser.py` | `tests/test_cas_cache_integrity.py` | Normative requirement; implementation not implied |
+| **REQ-002**: Active SIP Mandate vs Text | Distinguish text pattern from mandate | `ingestion/cas_parser.py` | `tests/test_active_sip_detection.py` | Normative requirement; implementation not implied |
+| **REQ-003**: Screening Policy Binding | Single validated screening policy | `core/eligibility.py` | `tests/test_issues_50_26_84_55_remediations.py` | Normative requirement; implementation not implied |
+| **REQ-004**: Multi-Dimensional Concentration | Overlap, issuer, sector, thematic limits | `core/math_engine.py` | `tests/test_issues_50_26_84_55_remediations.py` | Normative requirement; implementation not implied |
+| **REQ-005**: Exact Metrics & Alias Binding | 4-tuple scheme identity & provenance | `core/math_engine.py` | `tests/test_sip_metrics_provenance.py` | Normative requirement; implementation not implied |
+| **REQ-006**: Decimal Money Contract | Exact Decimal for all INR & units | `core/models.py`, `core/math_engine.py` | `tests/test_financial_model_defaults.py` | Normative requirement; implementation not implied |
+| **REQ-007**: Decision Trace RFC 8785 Hash | Deterministic JCS SHA-256 lineage | `core/traceability.py` | `tests/test_decision_traceability.py` | Normative requirement; implementation not implied |
+| **REQ-008**: Manifest Path Resolution | Resolve snapshots from manifest | `advisor.py` | `tests/test_issues_24_120_121_remediations.py` | Normative requirement; implementation not implied |
+| **REQ-009**: Atomic Promotion & Rollback | Directory swap preserving last-known-good | `services/engine_bootstrap.py` | `tests/test_issues_24_120_121_remediations.py` | Normative requirement; implementation not implied |
+| **REQ-010**: Anti-Synthetic Refresh Pipeline | Require detached Ed25519 signature by default | `services/acquisition/pipeline.py` | `tests/test_financial_data_acquisition.py` | Normative requirement; implementation not implied |
+| **REQ-011**: SIP-only scope boundary | Keep lump-sum/STP outside the current SIP product path | SIP API/service boundary | SIP scope regression tests | Normative requirement; acceptance tracked separately |
+| **REQ-012**: SAA Drift Mathematical Routing | Post-contribution denominator & unallocated | `core/portfolio_sip_controls.py` | `tests/test_issues_24_120_121_remediations.py` | Normative requirement; implementation not implied |
+| **REQ-013**: Tier 6 Equity-Only Guard | Fail closed without explicit authorization | `core/math_engine.py` | `tests/test_tier6_authorization_invariants.py` | Normative requirement; implementation not implied |
+| **REQ-014**: SAA Single Source of Truth | Dynamic policy map from asset_allocation.json | `core/models.py` | `tests/test_saa_policy_authoritative.py` | Normative requirement; implementation not implied |
+| **REQ-015**: Canonical UI Startup Contract | Root launcher delegates to read-only notice | `app.py`, `ui/app.py` | `tests/test_ui_retirement.py` | Normative requirement; implementation not implied |
+| **REQ-016**: Tax & Legal Release Gate | Keep tax/exit-load APIs disabled pending review | `core/redemption_engine.py` | `tests/test_import_safety.py` | Normative release boundary; enforcement evidence tracked separately |
+| **REQ-017**: AI Provider Key Access & Scope | Zero cost / quota verified before provider call | `providers/` | External provider account / secret setup | Normative requirement; owner/provider evidence pending |
+| **REQ-018**: Main Branch Protection Ruleset | Enforce required PR approvals & CI checks | `.github/workflows/` | GitHub Repository Ruleset Settings | Normative requirement; owner configuration evidence pending |
 
 ---
 
