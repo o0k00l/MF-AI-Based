@@ -662,3 +662,16 @@ def test_canonical_sip_upload_verifies_signed_independent_statement_review(monke
     assert provenance["publisher_authenticity_status"] == "AUTHENTICATED_SOURCE"
     assert captured["statement_provenance"] == provenance
     assert hashlib.sha256(raw).hexdigest() == provenance["source_sha256"]
+
+    # A structurally valid upload without a signed reviewer envelope must not
+    # inherit the publisher claim from workbook text or the configured trust root.
+    unverified = client.post(
+        "/v1/sip/recommendations",
+        files={"cas_file": ("portfolio.xlsx", raw, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+        data={"monthly_budget_inr": "25000", "risk_profile": "Aggressive"},
+    )
+    unverified_provenance = unverified.json()["statement_provenance"]
+    assert unverified_provenance["is_publisher_authenticated"] is False
+    assert unverified_provenance["authenticated_publisher"] is None
+    assert unverified_provenance["rta_source"] == "Unknown"
+    assert unverified_provenance["publisher_authenticity_status"] == "UNVERIFIED"

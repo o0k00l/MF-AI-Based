@@ -1,6 +1,6 @@
 # Statement structure and publisher provenance contract
 
-**Status:** canonical SIP CAS upload is structurally validated and supports independent Ed25519 reviewer approval bound to exact uploaded bytes. Publisher authentication is available only when a separately administered `STATEMENT_PUBLISHER_TRUST_REGISTRY_JSON` trust root is configured and a valid signed review envelope is submitted. Without both, the source remains `UNVERIFIED`.
+**Status:** CAS and CGS validators separate structural validity from document-claimed publisher text. The canonical SIP CAS upload is structurally validated and supports independent Ed25519 reviewer approval bound to exact uploaded bytes. Publisher authentication is available only when a separately administered `STATEMENT_PUBLISHER_TRUST_REGISTRY_JSON` trust root is configured and a valid signed review envelope is submitted. Without both, the source remains `UNVERIFIED`.
 
 ## Three independent facts
 
@@ -38,7 +38,7 @@ The verifier must validate source URL/host and retrieval-session evidence where 
 
 Configure `STATEMENT_PUBLISHER_TRUST_REGISTRY_JSON` with an independently administered schema-v1 Ed25519 reviewer registry. The reviewer key must have `reviewer_role: independent`, be valid and unrevoked, and must not be supplied by the evidence bundle or upload client. A reviewer signs a detached approval envelope using scope `STATEMENT_PUBLISHER_AUTHENTICATION`. The API verifies the signature, reviewer trust key, expiry, source digest and structured review claims before setting `AUTHENTICATED_SOURCE`.
 
-Without a signed approval, the canonical SIP route may process a structurally valid user-provided CAS only as `UNVERIFIED`; it never upgrades `rta_source`, `authenticated_publisher` or `is_publisher_authenticated`. This status is included in the SIP response and decision-trace digest. If a signed approval is submitted but the trust root is missing, invalid, expired, revoked or mismatched, the route returns HOLD and leaves the full budget unallocated. A workflow whose policy requires authenticated registrar evidence must call `require_authenticated_statement` before using the statement as authenticated evidence.
+Without a signed approval, the canonical SIP route may process a structurally valid user-provided CAS only as `UNVERIFIED`; it never upgrades `rta_source`, `authenticated_publisher` or `is_publisher_authenticated`. This status is included in the SIP response and decision-trace digest. If a signed approval is submitted but the trust root is missing, invalid, expired, revoked or mismatched, the route returns HOLD and leaves the full budget unallocated. A workflow whose policy requires authenticated registrar evidence must call `require_authenticated_statement` before using the statement as authenticated evidence. The same signed-review verifier accepts `CAS_EXCEL`, `CAS_PDF` and `CGS_EXCEL` validation results; any future CGS upload or tax-evidence workflow must use this boundary before labelling CGS source figures as registrar-authenticated. The current canonical SIP endpoint accepts CAS XLSX only.
 
 ## Required adversarial coverage
 
