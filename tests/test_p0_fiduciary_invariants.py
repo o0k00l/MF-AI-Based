@@ -137,7 +137,7 @@ def test_p0_1_universal_4_slot_sizing_invariant():
         monthly_budget=budget,
         risk_tier="Tier 5 (High)",
         stability_buffer_pct=3.0,
-        client_aum=5000000.0,
+        client_aum=Decimal("5000000.00"),
         client_aum_verified=True,
     )
     assert plan_t5.equity_sip_pct == 95.0
