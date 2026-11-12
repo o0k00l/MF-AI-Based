@@ -1366,19 +1366,19 @@ def test_thematic_satellite_requires_explicit_authorization_and_is_carved_out():
 
     with pytest.raises(ValueError, match="explicit IPS authorization"):
         compute_deterministic_sip_blueprint(
-            monthly_budget=100000.0,
+            monthly_budget=Decimal("100000.00"),
             risk_tier="Tier 6 (Very High)",
             stability_buffer_pct=7.54,
-            client_aum=5000000.0,
+            client_aum=Decimal("5000000.00"),
             client_aum_verified=True,
             thematic_satellite_pct_of_equity=5.0,
         )
 
     plan = compute_deterministic_sip_blueprint(
-        monthly_budget=100000.0,
+        monthly_budget=Decimal("100000.00"),
         risk_tier="Tier 6 (Very High)",
         stability_buffer_pct=7.54,
-        client_aum=5000000.0,
+        client_aum=Decimal("5000000.00"),
         client_aum_verified=True,
         thematic_satellite_pct_of_equity=5.0,
         thematic_satellite_authorized=True,
