@@ -36,7 +36,8 @@ def _result(raw, document_type="CAS_EXCEL"):
 
 
 def _envelope(key, raw, document_type="CAS_EXCEL"):
-    verified_at = "2026-11-13T00:00:00Z"
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    verified_at = now.strftime("%Y-%m-%dT%H:%M:%SZ")
     records = {
         "document_type": document_type, "publisher": "CAMS",
         "verification_method": "INDEPENDENT_REVIEW", "verified_at": verified_at,
@@ -45,8 +46,8 @@ def _envelope(key, raw, document_type="CAS_EXCEL"):
     return create_sip_reviewer_approval_envelope(
         key, key_id="review-key", reviewer_id="reviewer-1", scope=APPROVAL_SCOPE,
         source_bytes=raw, structured_records=records,
-        issued_at=datetime(2026, 11, 13, tzinfo=timezone.utc),
-        expires_at=datetime(2026, 12, 13, tzinfo=timezone.utc),
+        issued_at=now,
+        expires_at=now + __import__("datetime").timedelta(days=30),
         publisher="CAMS", verification_method="INDEPENDENT_REVIEW",
         verified_at=verified_at, evidence_reference="review-ticket:CAS-001",
         source_url="https://www.camsonline.com/",
