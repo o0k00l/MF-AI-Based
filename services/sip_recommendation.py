@@ -527,7 +527,7 @@ def _assess_complete_portfolio_context(
                 monthly_budget_inr, current, targets, portfolio_total_inr=total,
                 tolerance_band_pct=tolerance,
                 eligible_sleeves=eligible_sleeves,
-                rounding_increment_inr=candidate_policy.get("rounding_increment_inr", "500"),
+                rounding_increment_inr=policy["sip_allocation_policy"]["sip_increment_inr"],
             )
         # Candidate incremental exposure is compared with existing CAS look-through.
         # Concentration is measured against the reconciled total portfolio.
