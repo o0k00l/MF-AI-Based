@@ -1173,7 +1173,7 @@ def test_unverified_cas_only_aum_holds_the_entire_sip_budget():
         monthly_budget=Decimal("25000.00"),
         risk_tier="Tier 4 (Moderately High)",
         stability_buffer_pct=0.0,
-        client_aum=200000.0,
+        client_aum=Decimal("200000.00"),
         # Deliberately omit client_aum_verified: CAS-only value is not total AUM.
     )
     assert plan.execution_status == "HOLD_PORTFOLIO_AUM_UNVERIFIED"
