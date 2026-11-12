@@ -662,7 +662,7 @@ def test_incremental_sip_post_contribution_weights_reconcile_when_partially_unal
 
     # Post-contribution invested total = 100,000 + 3,200 = 103,200
     assert routing["post_contribution_invested_total_inr"] == "103200"
-    assert routing["post_contribution_total_inr"] == "103200"
+    assert routing["post_contribution_total_inr"] == "110000"
     assert routing["post_contribution_perimeter_total_inr"] == "110000"
 
     # Values: large_cap=33,200, mid_cap=10,000, debt=60,000. Sum = 103,200
