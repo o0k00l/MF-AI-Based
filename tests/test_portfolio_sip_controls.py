@@ -609,10 +609,11 @@ def test_incremental_sip_routing_respects_saa_tolerance_deadband():
         tolerance_band_pct="5",
         eligible_sleeves={"equity"},
     )
-    assert within_band["status"] == "HOLD"
-    assert within_band["allocations_inr"] == {}
-    assert within_band["unallocated_budget_inr"] == "10000"
-    assert within_band["reason"] == "NO_ELIGIBLE_UNDERWEIGHT_SLEEVE"
+    # Pre-SIP drift is within five points, but after adding the requested
+    # budget to the perimeter the equity shortfall exceeds the same tolerance.
+    assert within_band["status"] == "ROUTED"
+    assert within_band["allocations_inr"] == {"equity": "10000"}
+    assert within_band["unallocated_budget_inr"] == "0"
 
     beyond_band = route_incremental_sip(
         "10000",
