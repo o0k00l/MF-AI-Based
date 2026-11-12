@@ -26,6 +26,23 @@ from core.models import (
     quantize_inr, _is_finite_numeric
 )
 
+
+def _validated_sebi_tier_profile_mapping(policy: Dict[str, Any]) -> Dict[int, str]:
+    """Resolve all six SEBI tiers from the versioned allocation policy."""
+    mapping = policy.get("sebi_tier_profile_mapping")
+    profiles = policy.get("behavioral_risk_profiles")
+    expected_keys = {str(value) for value in range(1, 7)}
+    if not isinstance(mapping, dict) or set(mapping) != expected_keys:
+        raise ValueError("Allocation policy must define the complete SEBI tier profile mapping")
+    if not isinstance(profiles, dict):
+        raise ValueError("Allocation policy behavioral risk profiles are missing")
+    resolved: Dict[int, str] = {}
+    for raw_tier, profile_name in mapping.items():
+        if not isinstance(profile_name, str) or not profile_name.strip() or profile_name not in profiles:
+            raise ValueError(f"Invalid behavioral profile mapping for SEBI tier {raw_tier}")
+        resolved[int(raw_tier)] = profile_name
+    return resolved
+
 # ─────────────────────────────────────────────────────────────────────────────
 # DATE-AWARE STATUTORY TAX LAYER (1961 Act vs 2025 Act)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -4463,7 +4480,7 @@ def classify_specified_mutual_fund(
 def select_autonomous_blueprint_funds(
     holdings: Optional[List[HoldingItem]] = None,
     candidate_universe: Optional[List[Dict[str, Any]]] = None,
-    client_risk_tier: Any = 6,
+    client_risk_tier: Any = None,
     thematic_deficit_theme: str = "",
     thematic_satellite_authorized: bool = False,
     thematic_satellite_pct_of_equity: float = 0.0,
@@ -4499,36 +4516,36 @@ def select_autonomous_blueprint_funds(
     import os
     from pathlib import Path
 
-    if hasattr(client_risk_tier, "value"):
-        tier_map = {"Conservative": 2, "Moderate": 4, "Aggressive": 6}
-        risk_label = str(client_risk_tier.value)
-        if risk_label == "Custom":
-            if custom_saa_target is None:
-                raise ValueError(
-                    "Custom risk profile requires an explicitly approved custom SAA; "
-                    "it must not inherit the Aggressive/SEBI Tier 6 allocation."
-                )
-            tier_int = 0
-        else:
-            tier_int = tier_map.get(risk_label)
-            if tier_int is None:
-                raise ValueError(f"Unsupported investor risk profile: {risk_label!r}")
-    elif str(client_risk_tier).strip() == "Custom":
+    if client_risk_tier is None:
+        raise ValueError("An explicit validated investor risk profile is required; Tier 6 is never inferred")
+    risk_label = str(getattr(client_risk_tier, "value", client_risk_tier)).strip()
+    if risk_label == "Custom":
         if custom_saa_target is None:
             raise ValueError(
                 "Custom risk profile requires an explicitly approved custom SAA; "
                 "it must not inherit the Aggressive/SEBI Tier 6 allocation."
             )
         tier_int = 0
+    elif risk_label in {"Conservative", "Moderate", "Aggressive"}:
+        allocation_policy_path = Path(__file__).resolve().parents[1] / "data" / "policy" / "asset_allocation.json"
+        try:
+            public_mapping = json.loads(allocation_policy_path.read_text(encoding="utf-8"))[
+                "public_risk_profile_mapping"
+            ][risk_label]
+            tier_int = public_mapping["risk_ceiling"]
+        except (OSError, json.JSONDecodeError, KeyError, TypeError) as exc:
+            raise ValueError("Public investor risk profile mapping is missing or invalid") from exc
+        if isinstance(tier_int, bool) or not isinstance(tier_int, int) or not 1 <= tier_int <= 6:
+            raise ValueError("Public investor risk profile mapping has an invalid risk ceiling")
     elif isinstance(client_risk_tier, bool):
         raise ValueError("client_risk_tier must be an integer from 1 through 6")
     else:
         try:
             tier_int = int(client_risk_tier)
         except (TypeError, ValueError) as exc:
-            raise ValueError("client_risk_tier must be an integer from 1 through 6") from exc
+            raise ValueError("client_risk_tier must be an explicit integer from 1 through 6") from exc
         if tier_int not in range(1, 7) and not (tier_int == 0 and custom_saa_target is not None):
-            raise ValueError("client_risk_tier must be an integer from 1 through 6")
+            raise ValueError("client_risk_tier must be an explicit integer from 1 through 6")
 
     effective_risk_ceiling = risk_ceiling
     if effective_risk_ceiling is None and custom_saa_target is not None:
@@ -4616,10 +4633,7 @@ def select_autonomous_blueprint_funds(
         raise FileNotFoundError(f"Required allocation policy is missing: {policy_path}")
     try:
         allocation_policy = json.loads(policy_path.read_text(encoding="utf-8"))
-        profile_keys = {
-            1: "low", 2: "low_to_moderate", 3: "moderate",
-            4: "moderately_high", 5: "high", 6: "very_high",
-        }
+        profile_keys = _validated_sebi_tier_profile_mapping(allocation_policy)
         if tier_int == 0 or custom_saa_target is not None:
             from core.models import AssetAllocationTarget
             if not isinstance(custom_saa_target, AssetAllocationTarget):
@@ -4994,15 +5008,12 @@ def calculate_universal_tier_split(
     else:
         stability = None
 
-    profile_keys = {
-        1: "low", 2: "low_to_moderate", 3: "moderate",
-        4: "moderately_high", 5: "high", 6: "very_high",
-    }
     policy_path = Path(__file__).resolve().parents[1] / "data" / "policy" / "asset_allocation.json"
     if not policy_path.is_file():
         raise ValueError(f"Required allocation policy file is missing: {policy_path}")
     try:
         policy = json.loads(policy_path.read_text(encoding="utf-8"))
+        profile_keys = _validated_sebi_tier_profile_mapping(policy)
         profile = policy["behavioral_risk_profiles"][profile_keys[tier_num]]
         saa = profile["saa_targets"]
         sip = profile["new_sip_allocation"]
