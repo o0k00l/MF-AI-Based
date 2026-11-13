@@ -875,3 +875,33 @@ def test_active_sip_mandate_rejects_unverified_authentication_method():
     result = _validate_active_sip_commitments(context, date(2026, 11, 13))
     assert result["status"] == "HOLD"
     assert result["reason"] == "SIP_MANDATE_RECORD_1_AUTHENTICATION_UNVERIFIED"
+
+
+def test_screening_policy_snapshot_is_shared_with_engine_and_decision_trace(tmp_path, monkeypatch):
+    from core import eligibility
+
+    args = _inputs(tmp_path)
+    monkeypatch.setattr(service, "load_holdings_from_cas_excel", lambda *a, **k: [_holding()])
+    snapshot = eligibility.load_fund_screening_policy()
+    calls = {"count": 0}
+
+    def load_snapshot_once():
+        calls["count"] += 1
+        return snapshot
+
+    captured = {}
+
+    def fake_engine(**kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(items=[])
+
+    monkeypatch.setattr(eligibility, "load_fund_screening_policy", load_snapshot_once)
+    monkeypatch.setattr(service, "compute_deterministic_sip_blueprint", fake_engine)
+
+    result = service.recommend_sip(**args)
+
+    assert calls["count"] == 1
+    assert captured["screening_policy"] is snapshot
+    trace = result["portfolio_assessment"]["decision_trace"]
+    assert trace["screening_policy_sha256"] == snapshot["_policy_digest"]
+    assert trace["screening_policy_version"] == snapshot["version"]
