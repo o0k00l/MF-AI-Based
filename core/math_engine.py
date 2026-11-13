@@ -4563,6 +4563,7 @@ def select_autonomous_blueprint_funds(
     custom_saa_target: Optional[Any] = None,
     risk_ceiling: Optional[int] = None,
     screening_policy: Optional[Dict[str, Any]] = None,
+    allocation_policy: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Dict[str, Any]]:
     """
     Select candidates only from the supplied, source-backed universe.
@@ -4602,9 +4603,10 @@ def select_autonomous_blueprint_funds(
     elif risk_label in {"Conservative", "Moderate", "Aggressive"}:
         allocation_policy_path = Path(__file__).resolve().parents[1] / "data" / "policy" / "asset_allocation.json"
         try:
-            public_mapping = json.loads(allocation_policy_path.read_text(encoding="utf-8"))[
-                "public_risk_profile_mapping"
-            ][risk_label]
+            active_allocation_policy = allocation_policy
+            if active_allocation_policy is None:
+                active_allocation_policy = json.loads(allocation_policy_path.read_text(encoding="utf-8"))
+            public_mapping = active_allocation_policy["public_risk_profile_mapping"][risk_label]
             tier_int = public_mapping["risk_ceiling"]
         except (OSError, json.JSONDecodeError, KeyError, TypeError) as exc:
             raise ValueError("Public investor risk profile mapping is missing or invalid") from exc
@@ -4702,10 +4704,14 @@ def select_autonomous_blueprint_funds(
         candidate_universe = enriched_candidates
 
     policy_path = Path(__file__).resolve().parents[1] / "data" / "policy" / "asset_allocation.json"
-    if not policy_path.is_file():
-        raise FileNotFoundError(f"Required allocation policy is missing: {policy_path}")
+    if allocation_policy is None:
+        if not policy_path.is_file():
+            raise FileNotFoundError(f"Required allocation policy is missing: {policy_path}")
+        try:
+            allocation_policy = json.loads(policy_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise ValueError("Required allocation policy is invalid") from exc
     try:
-        allocation_policy = json.loads(policy_path.read_text(encoding="utf-8"))
         profile_keys = _validated_sebi_tier_profile_mapping(allocation_policy)
         if tier_int == 0 or custom_saa_target is not None:
             from core.models import AssetAllocationTarget
@@ -5056,6 +5062,7 @@ def calculate_universal_tier_split(
     stability_buffer_pct: Optional[float] = None,
     equity_sip_routing_override: bool = False,
     custom_saa_target: Optional[Any] = None,
+    allocation_policy: Optional[Dict[str, Any]] = None,
 ) -> Tuple[float, float]:
     """
     Return the policy-defined new-SIP equity/debt split for a risk tier.
@@ -5088,10 +5095,15 @@ def calculate_universal_tier_split(
         stability = None
 
     policy_path = Path(__file__).resolve().parents[1] / "data" / "policy" / "asset_allocation.json"
-    if not policy_path.is_file():
-        raise ValueError(f"Required allocation policy file is missing: {policy_path}")
+    if allocation_policy is None:
+        if not policy_path.is_file():
+            raise ValueError(f"Required allocation policy file is missing: {policy_path}")
+        try:
+            allocation_policy = json.loads(policy_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise ValueError("Required allocation policy file is invalid") from exc
     try:
-        policy = json.loads(policy_path.read_text(encoding="utf-8"))
+        policy = allocation_policy
         profile_keys = _validated_sebi_tier_profile_mapping(policy)
         profile = policy["behavioral_risk_profiles"][profile_keys[tier_num]]
         saa = profile["saa_targets"]
@@ -5472,6 +5484,7 @@ def compute_deterministic_sip_blueprint(
     custom_saa_target: Optional[Any] = None,
     risk_ceiling: Optional[int] = None,
     screening_policy: Optional[Dict[str, Any]] = None,
+    allocation_policy: Optional[Dict[str, Any]] = None,
 ) -> DeterministicSIPPlan:
     """
     Computes deterministic SIP blueprint dynamically tailored across all SEBI risk tiers
@@ -5579,7 +5592,9 @@ def compute_deterministic_sip_blueprint(
     else:
         tier_num = _parse_sebi_risk_tier(risk_tier)
         target_eq, target_debt = calculate_universal_tier_split(
-            tier_num, stability_buffer_pct, equity_sip_routing_override=equity_sip_routing_override
+            tier_num, stability_buffer_pct,
+            equity_sip_routing_override=equity_sip_routing_override,
+            allocation_policy=allocation_policy,
         )
 
     # Re-validate holding disclosures at the public SIP boundary when evidence
@@ -5633,6 +5648,7 @@ def compute_deterministic_sip_blueprint(
         custom_saa_target=custom_saa_target,
         risk_ceiling=risk_ceiling,
         screening_policy=screening_policy,
+        allocation_policy=allocation_policy,
     )
     flexi_info = slots["Slot 1: Core Flexi-Cap Compounder"]
     mid_info = slots["Slot 2: Mid-Cap Alpha Engine"]
