@@ -67,10 +67,10 @@ def _sensitive_identifiers_from_facts(facts: Any) -> list[str]:
     if isinstance(client_name, str) and client_name.strip():
         identifiers.append(client_name.strip())
     for holding in getattr(facts, "holdings", None) or []:
-        for field in ("fund_name", "scheme_name", "folio", "folio_no", "account_id", "scheme_id", "isin"):
-            value = getattr(holding, field, None)
-            if isinstance(value, str) and value.strip():
-                identifiers.append(value.strip())
+        for field in ("fund_name", "scheme_name", "scheme", "folio", "folio_no", "account_id", "scheme_id", "isin"):
+            value = holding.get(field) if isinstance(holding, dict) else getattr(holding, field, None)
+            if value is not None and str(value).strip():
+                identifiers.append(str(value).strip())
     return sorted(set(identifiers), key=len, reverse=True)
 
 
@@ -91,6 +91,11 @@ def sanitize_prompt_for_privacy(
     s = re.sub(r"(?i)\b(?:account|acct|a/c|bank account)\s*[:#-]?\s*(\d{9,18})\b", "[REDACTED_ACCOUNT]", s)
     s = re.sub(r"(?i)\b(?:folio|acct|account|acc)\s*[:#-]?\s*[A-Z0-9/-]{4,24}\b", "[REDACTED_FOLIO]", s)
     s = re.sub(r"(?i)(?:₹|INR|Rs\.?)\s*[-+]?\s*\d[\d,]*(?:\.\d{1,2})?", "[REDACTED_FINANCIAL_AMOUNT]", s)
+    s = re.sub(
+        r"(?i)\b(?:portfolio value|invested value|current value|monthly sip|lumpsum budget|annual bleed|commission leakage|unrealized gain|investment amount)\b\s*[:=-]?\s*[-+]?\d[\d,]*(?:\.\d{1,2})?",
+        "[REDACTED_FINANCIAL_AMOUNT]",
+        s,
+    )
     identifiers = list(sensitive_identifiers or [])
     if client_name:
         identifiers.append(client_name)
