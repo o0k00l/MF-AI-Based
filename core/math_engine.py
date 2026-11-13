@@ -4557,6 +4557,7 @@ def select_autonomous_blueprint_funds(
     disclosure_max_age_days: int = 45,
     custom_saa_target: Optional[Any] = None,
     risk_ceiling: Optional[int] = None,
+    screening_policy: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Dict[str, Any]]:
     """
     Select candidates only from the supplied, source-backed universe.
@@ -4845,8 +4846,13 @@ def select_autonomous_blueprint_funds(
             "rationale": f"NO_ACTION: {reason}",
         }
 
-    from core.eligibility import load_fund_screening_policy
-    screening_policy = load_fund_screening_policy()
+    from core.eligibility import load_fund_screening_policy, validate_fund_screening_policy
+    if screening_policy is None:
+        screening_policy = load_fund_screening_policy()
+    else:
+        # The caller owns the decision-scoped snapshot. Revalidate its source/content
+        # binding, but never replace it with a second independently loaded policy.
+        screening_policy = validate_fund_screening_policy(screening_policy)
     try:
         from core.security_master import load_security_master
         security_master = load_security_master()
@@ -5459,6 +5465,7 @@ def compute_deterministic_sip_blueprint(
     portfolio_introduction_history: Optional[Dict[str, Any]] = None,
     custom_saa_target: Optional[Any] = None,
     risk_ceiling: Optional[int] = None,
+    screening_policy: Optional[Dict[str, Any]] = None,
 ) -> DeterministicSIPPlan:
     """
     Computes deterministic SIP blueprint dynamically tailored across all SEBI risk tiers
@@ -5619,6 +5626,7 @@ def compute_deterministic_sip_blueprint(
         disclosure_max_age_days=disclosure_max_age_days,
         custom_saa_target=custom_saa_target,
         risk_ceiling=risk_ceiling,
+        screening_policy=screening_policy,
     )
     flexi_info = slots["Slot 1: Core Flexi-Cap Compounder"]
     mid_info = slots["Slot 2: Mid-Cap Alpha Engine"]
