@@ -238,3 +238,45 @@ def test_aliases_reject_malformed_or_empty_mappings(tmp_path, alias_payload):
     with pytest.raises(EvidenceProviderContractError, match="Fund aliases"):
         validate_evidence_provider_payload(payload, require_reviewer_signature=False)
 
+def test_alias_source_receives_production_reviewer_signature_gate(tmp_path, monkeypatch):
+    import services.sip_evidence_contract as contract
+
+    payload = _base_payload(tmp_path)
+    aliases_file = tmp_path / "aliases.json"
+    aliases_file.write_text(json.dumps({"aliases": {"SCHEME_DIRECT_1": ["Scheme A Direct"]}}))
+    raw_source = b"source bytes for signed aliases"
+    payload["aliases_path"] = aliases_file
+    payload["aliases_source_metadata"] = {
+        "status": "VERIFIED",
+        "source_url": "https://amfiindia.com/aliases",
+        "source_document_sha256": hashlib.sha256(raw_source).hexdigest(),
+        "reviewer_attested": True,
+        "effective_date": "2026-11-04",
+        "source_type": "AMFI_ALIASES",
+        "normalized_aliases_sha256": hashlib.sha256(aliases_file.read_bytes()).hexdigest(),
+    }
+    payload["aliases_source_bytes"] = raw_source
+
+    original = contract._validate_source_document
+    alias_calls = []
+    trust_registry = {"reviewers": {}}
+
+    def capture_source_gate(metadata, source_bytes, **kwargs):
+        if kwargs.get("label") == "Fund aliases":
+            alias_calls.append(dict(kwargs))
+        # Keep this unit test focused on argument propagation; other evidence
+        # sources in this fixture intentionally use unsigned test attestations.
+        kwargs["require_reviewer_signature"] = False
+        return original(metadata, source_bytes, **kwargs)
+
+    monkeypatch.setattr(contract, "_validate_source_document", capture_source_gate)
+    validate_evidence_provider_payload(
+        payload,
+        trust_registry=trust_registry,
+        require_reviewer_signature=True,
+    )
+    assert len(alias_calls) == 1
+    assert alias_calls[0]["require_reviewer_signature"] is True
+    assert alias_calls[0]["trust_registry"] is trust_registry
+    assert alias_calls[0]["scope"] == "SIP_EVIDENCE_RELEASE"
+
