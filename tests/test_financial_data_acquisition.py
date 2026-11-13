@@ -822,8 +822,9 @@ def test_builder_fails_closed_on_missing_direct_plan_evidence_source_url(tmp_pat
             as_of,
             scheme_master=master,
             scheme_master_source_bytes=json.dumps(master).encode("utf-8"),
-            metrics_payload={"funds": [{"fund_id": "fund-1", "nav": "82.45"}]},
-            metrics_source_bytes=b"metrics_1",
+            metrics_payload=metrics_payload,
+            metrics_source_bytes=metrics_source_bytes,
+            metrics_source_metadata=metrics_source_metadata,
             candidate_universe=[{
                 "fund_id": "fund-1",
                 "fund_name": "Fund 1",
