@@ -22,7 +22,42 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 _AI_QUERY_EXECUTOR = concurrent.futures.ThreadPoolExecutor(max_workers=2, thread_name_prefix="fiduciary_ai_worker")
-_FIDUCIARY_QA_CACHE: Dict[str, Dict[str, str]] = {}
+
+
+def _call_privacy_safe_fiduciary_llm(
+    prompt: str,
+    portfolio_metrics: Dict[str, Any],
+    funds: List[Dict[str, Any]],
+    *,
+    external_processing_consent: bool,
+) -> str:
+    """Send only minimized narrative context; never persist investor-specific answers."""
+    from core.ai_engine import call_llm
+    from core.prompt_advisor import sanitize_prompt_for_privacy
+
+    identifiers: list[str] = []
+    identity_fields = {
+        "client_name", "investor_name", "account_holder", "holder_name",
+        "fund_name", "scheme_name", "scheme", "fund_id", "scheme_id",
+        "folio", "folio_no", "account_id", "isin", "pan",
+    }
+    for record in [portfolio_metrics, *(funds or [])]:
+        if not isinstance(record, dict):
+            continue
+        for key in identity_fields:
+            value = record.get(key)
+            if isinstance(value, str) and value.strip():
+                identifiers.append(value.strip())
+
+    minimized_prompt = sanitize_prompt_for_privacy(
+        prompt,
+        sensitive_identifiers=identifiers,
+    )
+    return call_llm(
+        minimized_prompt,
+        external_processing_consent=external_processing_consent,
+        use_cache=False,
+    )
 
 _CACHE_DIR = Path(__file__).resolve().parent.parent / "data" / "cache"
 _CACHE_FILE = _CACHE_DIR / "online_fund_lookthrough.json"
@@ -1666,7 +1701,10 @@ Tone: Professional, institutional, objective, fiduciary, strictly non-promotiona
 Format: Clear markdown bullet points."""
 
             def _call_narrative():
-                return call_llm(prompt, external_processing_consent=external_processing_consent)
+                return _call_privacy_safe_fiduciary_llm(
+                    prompt, portfolio_metrics, funds,
+                    external_processing_consent=external_processing_consent,
+                )
 
             future = _AI_QUERY_EXECUTOR.submit(_call_narrative)
             raw_res = future.result(timeout=4.0)
@@ -2047,11 +2085,6 @@ def answer_fiduciary_query(
     if target_saa and isinstance(target_saa, dict):
         target_eq = float(target_saa.get("total_equity_pct", 75.0) or 75.0)
 
-    # 0. Check Fast Fiduciary Response Cache (Instant 0 ms return)
-    cache_key = f"{q_clean.lower()}::{round(tot_val, 2)}::{round(eq_pct, 1)}::{round(reg_val, 2)}"
-    if cache_key in _FIDUCIARY_QA_CACHE:
-        return dict(_FIDUCIARY_QA_CACHE[cache_key])
-
     # 1. Attempt Live LLM synthesis if requested and consented (with strict 4.0s timeout worker)
     if use_live_ai and external_processing_consent is True:
         try:
@@ -2072,7 +2105,10 @@ Portfolio Facts:
 Provide a concise, direct, institutional fiduciary answer in 2-4 bullet points. Strictly objective and non-promotional."""
 
             def _fetch_live():
-                return call_llm(prompt, external_processing_consent=external_processing_consent)
+                return _call_privacy_safe_fiduciary_llm(
+                    prompt, portfolio_metrics, funds,
+                    external_processing_consent=external_processing_consent,
+                )
 
             future = _AI_QUERY_EXECUTOR.submit(_fetch_live)
             raw_res = future.result(timeout=4.0)
@@ -2081,7 +2117,6 @@ Provide a concise, direct, institutional fiduciary answer in 2-4 bullet points. 
                     "source": "Live AI Assistant (Fiduciary Intelligence)",
                     "response": raw_res.strip(),
                 }
-                _FIDUCIARY_QA_CACHE[cache_key] = out
                 return out
         except Exception:
             pass
@@ -2155,5 +2190,4 @@ Provide a concise, direct, institutional fiduciary answer in 2-4 bullet points. 
         "source": "Statutory Fiduciary Assessment (SEBI Mandate)",
         "response": resp,
     }
-    _FIDUCIARY_QA_CACHE[cache_key] = out
     return out
