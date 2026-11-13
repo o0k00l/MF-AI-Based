@@ -414,3 +414,65 @@ def test_detect_active_sips_enforces_authenticated_mandate_source_under_strict_c
     res_strict = detect_active_sips_from_cas(unauthenticated_caller_txs, as_of="2026-10-15", require_authenticated_mandates=True)
     assert res_strict["active_sip_count"] == 0
     assert res_strict["total_monthly_sip"] == 0.0
+
+
+def test_strict_mandate_detection_rejects_text_labels_and_caller_auth_flags():
+    transactions = [
+        {"folio": "F1", "scheme": "Scheme A", "date": "2026-09-05",
+         "type": "SIP", "description": "SIP debit UMRN: NACH00000000012345 STATUS ACTIVE",
+         "amount": 5000.0, "mandate_authenticated": True,
+         "mandate_source": "REGISTRAR_CAS_UMRN"},
+        {"folio": "F1", "scheme": "Scheme A", "date": "2026-10-05",
+         "type": "SIP", "description": "SIP debit UMRN: NACH00000000012345 STATUS ACTIVE",
+         "amount": 5000.0, "mandate_authenticated": True,
+         "mandate_source": "REGISTRAR_CAS_UMRN"},
+    ]
+    result = detect_active_sips_from_cas(
+        transactions, as_of="2026-10-15", require_authenticated_mandates=True
+    )
+    assert result["active_sip_count"] == 0
+    assert result["total_monthly_sip"] == 0.0
+
+
+def test_strict_mandate_detection_requires_exact_folio_and_scheme_binding():
+    transactions = [
+        {"folio": "F1", "scheme": "Scheme A", "date": "2026-09-05",
+         "type": "SIP", "description": "SIP debit", "amount": 5000.0},
+        {"folio": "F1", "scheme": "Scheme A", "date": "2026-10-05",
+         "type": "SIP", "description": "SIP debit", "amount": 5000.0},
+    ]
+    attested_record = {
+        "folio_no": "F2", "scheme": "Scheme A", "mandate_id": "MND-1",
+        "status": "ACTIVE", "provider_attested": True,
+        "authentication_method": "REGISTRAR_SIGNED",
+        "owner_ref": "investor:opaque-reference", "scheme_id": "scheme:opaque-id",
+        "source_ref": "sha256:" + "a" * 64, "evidence_ref": "sha256:" + "b" * 64,
+    }
+    result = detect_active_sips_from_cas(
+        transactions, as_of="2026-10-15", active_mandates=[attested_record],
+        require_authenticated_mandates=True,
+    )
+    assert result["active_sip_count"] == 0
+    assert result["total_monthly_sip"] == 0.0
+
+
+def test_strict_mandate_detection_accepts_unique_source_bound_attested_schedule():
+    transactions = [
+        {"folio": "F1", "scheme": "Scheme A", "date": "2026-09-05",
+         "type": "SIP", "description": "SIP debit", "amount": 5000.0},
+        {"folio": "F1", "scheme": "Scheme A", "date": "2026-10-05",
+         "type": "SIP", "description": "SIP debit", "amount": 5000.0},
+    ]
+    attested_record = {
+        "folio_no": "F1", "scheme": "Scheme A", "mandate_id": "MND-1",
+        "status": "ACTIVE", "provider_attested": True,
+        "authentication_method": "REGISTRAR_SIGNED",
+        "owner_ref": "investor:opaque-reference", "scheme_id": "scheme:opaque-id",
+        "source_ref": "sha256:" + "a" * 64, "evidence_ref": "sha256:" + "b" * 64,
+    }
+    result = detect_active_sips_from_cas(
+        transactions, as_of="2026-10-15", active_mandates=[attested_record],
+        require_authenticated_mandates=True,
+    )
+    assert result["active_sip_count"] == 1
+    assert result["active_sips"][0]["confidence"] == "ACTIVE_MANDATE_VERIFIED"
