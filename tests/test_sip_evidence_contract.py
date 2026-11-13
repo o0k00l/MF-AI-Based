@@ -674,7 +674,8 @@ def test_reviewer_signature_contract_receives_full_normalized_metrics_records(tm
 
     monkeypatch.setattr(contract, "_validate_source_document", capture)
     validate_evidence_provider_payload(payload, require_reviewer_signature=False)
-    assert captured["records"] == json.loads(payload["metrics_path"].read_text())["funds"]
+    assert captured["records"]["funds"] == json.loads(payload["metrics_path"].read_text())["funds"]
+    assert captured["records"]["metadata"]["policy_version"] == "holdings-metrics-v1"
 
 
 def test_alias_reviewer_signature_contract_receives_full_normalized_alias_records(tmp_path, monkeypatch):
@@ -708,7 +709,8 @@ def test_alias_reviewer_signature_contract_receives_full_normalized_alias_record
 
     monkeypatch.setattr(contract, "_validate_source_document", capture)
     validate_evidence_provider_payload(payload, require_reviewer_signature=False)
-    assert captured["records"] == alias_data
+    assert captured["records"]["aliases"] == alias_data
+    assert captured["records"]["metadata"]["policy_version"] == "alias-resolution-v1"
 
 
 def test_contract_rejects_stale_current_holdings_metrics_source(tmp_path):
