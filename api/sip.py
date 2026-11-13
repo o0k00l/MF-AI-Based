@@ -51,6 +51,11 @@ def create_sip_app(
         statement_publisher_trust_registry = load_statement_publisher_trust_registry()
     except (OSError, ValueError, json.JSONDecodeError):
         statement_publisher_trust_registry = None
+    try:
+        from services.sip_mandate_auth import load_mandate_trust_registry
+        mandate_signer_trust_registry = load_mandate_trust_registry()
+    except (OSError, ValueError, json.JSONDecodeError):
+        mandate_signer_trust_registry = None
 
     import os
     if require_auth is None:
@@ -99,6 +104,7 @@ def create_sip_app(
             "evidence_configured": evidence_provider is not None,
             "reviewer_registry_configured": reviewer_trust_registry is not None,
             "statement_publisher_review_configured": statement_publisher_trust_registry is not None,
+            "mandate_signer_registry_configured": mandate_signer_trust_registry is not None,
             "authenticated_cas_required": authenticated_cas_required,
         }
 
@@ -121,7 +127,8 @@ def create_sip_app(
                     "authenticated_daily_tri_unavailable",
                     "independent_nse_calendar_unavailable",
                     "research_release_approval_missing",
-                ] + (["statement_publisher_trust_registry_unavailable"] if authenticated_cas_required and statement_publisher_trust_registry is None else []),
+                ] + (["statement_publisher_trust_registry_unavailable"] if authenticated_cas_required and statement_publisher_trust_registry is None else [])
+                  + (["mandate_signer_trust_registry_unavailable"] if mandate_signer_trust_registry is None else []),
             }
         if reviewer_trust_registry is None:
             return {
@@ -135,7 +142,7 @@ def create_sip_app(
                     "authenticated_daily_tri_unavailable",
                     "independent_nse_calendar_unavailable",
                     "research_release_approval_missing",
-                ],
+                ] + (["mandate_signer_trust_registry_unavailable"] if mandate_signer_trust_registry is None else []),
             }
         return {
             "status": "ready_for_evidence_validation",
@@ -147,7 +154,8 @@ def create_sip_app(
                 "authenticated_daily_tri_unavailable",
                 "independent_nse_calendar_unavailable",
                 "research_release_approval_missing",
-            ] + (["statement_publisher_trust_registry_unavailable"] if authenticated_cas_required and statement_publisher_trust_registry is None else []),
+            ] + (["statement_publisher_trust_registry_unavailable"] if authenticated_cas_required and statement_publisher_trust_registry is None else [])
+              + (["mandate_signer_trust_registry_unavailable"] if mandate_signer_trust_registry is None else []),
         }
 
     @app.post("/v1/sip/recommendations")
