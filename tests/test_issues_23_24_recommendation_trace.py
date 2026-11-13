@@ -440,9 +440,9 @@ def test_issue_24_complete_eligible_candidate_recommendation_trace(tmp_path, mon
 
     from mandate_test_utils import make_signed_mandate_schedule, install_mandate_trust_registry
     mandate_evidence, mandate_trust_registry = make_signed_mandate_schedule(
-        as_of, context["investor_owner_ref"]
+        as_of, portfolio_context["investor_owner_ref"]
     )
-    context["sip_mandate_evidence"] = mandate_evidence
+    portfolio_context["sip_mandate_evidence"] = mandate_evidence
     install_mandate_trust_registry(monkeypatch, mandate_trust_registry)
 
     result = service.recommend_sip(
@@ -684,9 +684,9 @@ def test_issue_24_custom_saa_unfillable_sleeve_budget_strictly_preserved(tmp_pat
 
     from mandate_test_utils import make_signed_mandate_schedule, install_mandate_trust_registry
     mandate_evidence, mandate_trust_registry = make_signed_mandate_schedule(
-        as_of, context["investor_owner_ref"]
+        as_of, portfolio_context["investor_owner_ref"]
     )
-    context["sip_mandate_evidence"] = mandate_evidence
+    portfolio_context["sip_mandate_evidence"] = mandate_evidence
     install_mandate_trust_registry(monkeypatch, mandate_trust_registry)
 
     result = service.recommend_sip(
