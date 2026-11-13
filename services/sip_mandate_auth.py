@@ -7,6 +7,7 @@ source bytes, the complete normalized schedule, and the investor owner reference
 from __future__ import annotations
 
 import base64
+import binascii
 from datetime import date, datetime, timezone
 import hashlib
 import json
@@ -48,7 +49,10 @@ def _strict_json(raw: str) -> Any:
 def _decode_b64url(value: Any, expected_length: int) -> bytes:
     if not isinstance(value, str) or not re.fullmatch(r"[A-Za-z0-9_-]+", value):
         raise MandateAuthenticationError("Cryptographic value must be canonical base64url")
-    decoded = base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
+    try:
+        decoded = base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
+    except (ValueError, binascii.Error) as exc:
+        raise MandateAuthenticationError("Cryptographic value has invalid encoding") from exc
     if len(decoded) != expected_length or base64.urlsafe_b64encode(decoded).decode("ascii").rstrip("=") != value:
         raise MandateAuthenticationError("Cryptographic value has invalid encoding or length")
     return decoded
@@ -74,7 +78,7 @@ def load_mandate_trust_registry() -> dict[str, Any]:
         registry = _strict_json(raw)
     except (ValueError, json.JSONDecodeError) as exc:
         raise MandateAuthenticationError("Mandate trust registry JSON is invalid") from exc
-    if not isinstance(registry, dict) or registry.get("schema_version") != 1:
+    if not isinstance(registry, dict) or type(registry.get("schema_version")) is not int or registry.get("schema_version") != 1:
         raise MandateAuthenticationError("Mandate trust registry schema is unsupported")
     keys = registry.get("keys")
     if not isinstance(keys, list) or not keys:
@@ -120,7 +124,12 @@ def verify_mandate_schedule(
         "schema_version", "signer_id", "signer_key_id", "signer_type",
         "owner_ref", "source_sha256", "schedule_sha256", "issued_at", "expires_at",
     }
-    if not isinstance(payload, dict) or set(payload) != required or payload.get("schema_version") != 1:
+    if (
+        not isinstance(payload, dict)
+        or set(payload) != required
+        or type(payload.get("schema_version")) is not int
+        or payload.get("schema_version") != 1
+    ):
         raise MandateAuthenticationError("Mandate signature payload schema is invalid")
     if payload["owner_ref"] != owner_ref:
         raise MandateAuthenticationError("Signed mandate schedule owner does not match investor")
@@ -128,17 +137,21 @@ def verify_mandate_schedule(
         raise MandateAuthenticationError("Signed mandate schedule does not bind the exact source and normalized records")
 
     signer_type = payload.get("signer_type")
-    if signer_type not in set(_AUTH_METHOD_TO_SIGNER_TYPE.values()):
+    if not isinstance(signer_type, str) or signer_type not in set(_AUTH_METHOD_TO_SIGNER_TYPE.values()):
         raise MandateAuthenticationError("Mandate signer type is not an authorized issuer class")
-    methods = {record.get("authentication_method") for record in mandates if isinstance(record, dict)}
+    methods = set()
+    for record in mandates:
+        if not isinstance(record, dict):
+            raise MandateAuthenticationError("Mandate schedule contains malformed records")
+        method = record.get("authentication_method")
+        if not isinstance(method, str):
+            raise MandateAuthenticationError("Mandate schedule authentication method is malformed")
+        methods.add(method)
     if mandates and (
         len(methods) != 1
-        or not methods
         or _AUTH_METHOD_TO_SIGNER_TYPE.get(next(iter(methods))) != signer_type
     ):
         raise MandateAuthenticationError("Mandate signer authority does not match schedule authentication method")
-    if any(not isinstance(record, dict) for record in mandates):
-        raise MandateAuthenticationError("Mandate schedule contains malformed records")
 
     issued_at = _utc(payload["issued_at"], "Mandate signature issued_at")
     expires_at = _utc(payload["expires_at"], "Mandate signature expires_at")
@@ -147,7 +160,11 @@ def verify_mandate_schedule(
         raise MandateAuthenticationError("Mandate signature is not valid for the decision as-of date")
 
     registry = trust_registry if trust_registry is not None else load_mandate_trust_registry()
-    if not isinstance(registry, dict) or registry.get("schema_version") != 1:
+    if (
+        not isinstance(registry, dict)
+        or type(registry.get("schema_version")) is not int
+        or registry.get("schema_version") != 1
+    ):
         raise MandateAuthenticationError("Mandate trust registry schema is invalid")
     keys = registry.get("keys")
     if not isinstance(keys, list) or not keys:
@@ -160,8 +177,8 @@ def verify_mandate_schedule(
     key = matches[0]
     if key.get("signer_id") != signer_id or key.get("signer_type") != signer_type:
         raise MandateAuthenticationError("Mandate signer identity or authority does not match trust registry")
-    if key.get("revoked") is True:
-        raise MandateAuthenticationError("Mandate signer key is revoked")
+    if key.get("revoked") is not False or key.get("revoked_at") is not None:
+        raise MandateAuthenticationError("Mandate signer key is revoked or lacks an explicit active state")
     key_from = _utc(key.get("valid_from"), "Signer key valid_from")
     key_until = _utc(key.get("valid_until"), "Signer key valid_until")
     if not (key_from <= issued_at <= key_until and as_of_end <= key_until):
