@@ -676,7 +676,16 @@ Analyze the investor's revealed portfolio behavior from their uploaded CAS data:
 - Predicted SEBI Risk Tier: {_TIER_LABELS[predicted_tier]}
 
 Provide a concise 2-3 sentence behavioral diagnostic explaining why their actual investment pattern reflects this risk tier and what it implies for their market correction tolerance."""
-            res = call_llm(prompt, external_processing_consent=external_processing_consent)
+            from core.prompt_advisor import collect_sensitive_identifiers, sanitize_prompt_for_privacy
+            minimized_prompt = sanitize_prompt_for_privacy(
+                prompt,
+                sensitive_identifiers=collect_sensitive_identifiers(portfolio),
+            )
+            res = call_llm(
+                minimized_prompt,
+                external_processing_consent=external_processing_consent,
+                use_cache=False,
+            )
             if res and len(res.strip()) > 40:
                 ai_narrative = res.strip()
         except Exception:
