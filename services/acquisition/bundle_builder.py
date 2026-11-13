@@ -179,6 +179,8 @@ class EvidenceBundleBuilder:
             ]
             if missing_metrics_metadata:
                 raise ValueError(f"Metrics source metadata missing required provenance fields: {missing_metrics_metadata}")
+            if metrics_source_metadata["source_url"] != str(m_url).strip():
+                raise ValueError("Metrics source URL conflicts with signed source metadata.")
             metrics_metadata = {
                 "source_url": str(m_url).strip(),
                 "source_document_sha256": metrics_source_sha256,
@@ -193,8 +195,6 @@ class EvidenceBundleBuilder:
                 "reviewer_id": metrics_source_metadata["reviewer_id"],
                 "reviewer_approval_envelope": metrics_source_metadata["reviewer_approval_envelope"],
             }
-            if metrics_metadata["source_url"] != str(m_url).strip():
-                raise ValueError("Metrics source URL conflicts with signed source metadata.")
             if not isinstance(metrics_metadata["reviewer_approval_envelope"], dict):
                 raise ValueError("Metrics reviewer approval envelope must be a mapping.")
             if metrics_metadata["reviewer_approval_envelope"].get("payload", {}).get("reviewer_id") != metrics_metadata["reviewer_id"]:
