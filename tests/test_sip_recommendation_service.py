@@ -904,7 +904,10 @@ def test_screening_policy_snapshot_is_shared_with_engine_and_decision_trace(tmp_
     result = service.recommend_sip(**args)
 
     assert calls["count"] == 1, calls["stacks"]
-    assert captured["screening_policy"] is snapshot
+    assert captured["screening_policy"] is not snapshot
+    assert captured["screening_policy"]["_policy_digest"] == snapshot["_policy_digest"]
+    with pytest.raises(TypeError, match="immutable"):
+        captured["screening_policy"]["gate_thresholds"]["min_aum_crore"] = 0
     trace = result["portfolio_assessment"]["decision_trace"]
     record = json.loads(trace["canonical_record"])
     assert record["screening_policy_sha256"] == snapshot["_policy_digest"]
