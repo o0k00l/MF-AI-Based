@@ -289,6 +289,18 @@ def _custom_saa_sleeve_targets(
     return values
 
 
+def _resolve_custom_saa_risk_ceiling(target: Any, ips: dict[str, Any]) -> int:
+    """Require one explicit integer ceiling shared by the signed target and IPS."""
+    target_ceiling = getattr(target, "risk_ceiling", None)
+    ips_ceiling = ips.get("risk_ceiling")
+    if target_ceiling is not None and ips_ceiling is not None and target_ceiling != ips_ceiling:
+        raise PortfolioInputError("client IPS risk ceiling conflicts with approved custom SAA mandate")
+    value = target_ceiling if target_ceiling is not None else ips_ceiling
+    if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= 6:
+        raise PortfolioInputError("Custom SAA requires an explicit integer risk ceiling between 1 and 6")
+    return value
+
+
 def _validate_active_sip_commitments(context: dict[str, Any], as_of: date) -> dict[str, Any]:
     """Validate the provider-attested mandate schedule before affordability."""
     evidence = context.get("sip_mandate_evidence")
@@ -494,23 +506,7 @@ def _assess_complete_portfolio_context(
         debt_target = float(targets["debt_liquid"])
 
         if risk_profile == "Custom":
-            target_risk_ceiling = getattr(custom_saa_target, "risk_ceiling", None)
-            ips_risk_ceiling = ips.get("risk_ceiling")
-            if target_risk_ceiling is not None and ips_risk_ceiling is not None:
-                if isinstance(ips_risk_ceiling, bool) or target_risk_ceiling != ips_risk_ceiling:
-                    raise PortfolioInputError(
-                        "client IPS risk ceiling conflicts with approved custom SAA mandate"
-                    )
-            risk_ceiling_raw = target_risk_ceiling if target_risk_ceiling is not None else ips_risk_ceiling
-            if risk_ceiling_raw is None:
-                raise PortfolioInputError("Custom SAA requires an explicit independent risk ceiling")
-            try:
-                c_val = int(risk_ceiling_raw)
-                if not isinstance(risk_ceiling_raw, int) or isinstance(risk_ceiling_raw, bool) or not 1 <= c_val <= 6:
-                    raise ValueError()
-                effective_risk_ceiling = c_val
-            except (ValueError, TypeError):
-                raise PortfolioInputError(f"risk_ceiling must be an integer between 1 and 6; got {risk_ceiling_raw!r}")
+            effective_risk_ceiling = _resolve_custom_saa_risk_ceiling(custom_saa_target, ips)
             approved_custom_targets = _custom_saa_sleeve_targets(custom_saa_target, policy)
             for sleeve in _TOTAL_PORTFOLIO_SLEEVES:
                 if abs(float(targets[sleeve]) - approved_custom_targets[sleeve]) > 0.01:
