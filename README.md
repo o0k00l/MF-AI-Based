@@ -36,9 +36,25 @@ The current policy uses a 60% Flexi-cap / 40% Mid-Small-cap equity split when AU
 | `verify_tri_provenance.py` | Fixture checksum and benchmark release-eligibility checks |
 | `advisor.py` | Explicit external client-data path resolver for controlled tooling |\n| `advisor_lean.py`, `legacy/advisor_lean_cli.py`, `ui/app.py` | Retired/disabled entry points; do not use for investor reports or recommendations |
 
-## Dashboard status
+## Application startup and dashboard status
 
-The legacy Streamlit dashboard is retired and intentionally disabled. Its former client-discovery and planning flows used an obsolete in-repository data layout and are not supported. The root `app.py` entry point displays a retirement notice only; it does not load client data or generate recommendations. Do not re-enable the old UI until a replacement has explicit external-data isolation, read-only behavior, and dedicated integration tests.
+The only supported Streamlit startup command is:
+
+```bash
+python app.py
+# or, for a managed Streamlit deployment:
+streamlit run app.py
+```
+
+Both commands target the root `app.py` launcher. It displays a readiness/retirement notice and deliberately does not import or execute `ui/app.py`. The legacy Streamlit dashboard and its planning pages are not a supported investor workflow. Do not launch `ui/app.py` directly or re-enable it as a shortcut.
+
+The API can be started separately for controlled development with:
+
+```bash
+python app.py --api
+```
+
+The API is read-only decision support; production recommendations remain blocked until the evidence and independent release gates pass. The canonical investor-facing SIP UI is not yet implemented or approved. No portfolio upload, fund selection, allocation, recommendation, switch, redemption or execution flow is exposed by the root app. Do not re-enable the old UI until a replacement has explicit external-data isolation, session/privacy controls, backend-only financial decisions and end-to-end acceptance tests.
 
 ## Investor inputs and engine-owned public data
 
