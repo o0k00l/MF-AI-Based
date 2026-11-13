@@ -772,6 +772,8 @@ def load_holdings_from_cas_excel(
     disclosure_as_of_date: Optional[date] = None,
     disclosure_max_age_days: int = 45,
     require_exact_metric_identity: bool = True,
+    metrics_source_sha256: Optional[str] = None,
+    metrics_effective_date: Optional[str] = None,
 ) -> List[HoldingItem]:
     """
     Parses active mutual fund holdings directly from CAS detailed report Excel sheet.
@@ -822,6 +824,8 @@ def load_holdings_from_cas_excel(
                 metrics_map,
                 scheme_master,
                 require_exact_identity=require_exact_metric_identity,
+                expected_source_sha256=metrics_source_sha256,
+                expected_effective_date=metrics_effective_date,
             )
 
     # Load aliases dictionary if provided
@@ -995,7 +999,23 @@ def load_holdings_from_cas_excel(
             sub_cat = None
             fund_id = identity.get("scheme_id") or scheme_str[:30]
         else:
-            category = matched_metric.get("cat")
+            # Scheme category is an identity fact from the independently
+            # verified master. Metrics may corroborate it, never redefine it.
+            category = identity.get("category")
+            metric_category = matched_metric.get("category")
+            metric_cat_alias = matched_metric.get("cat")
+            for category_value in (metric_category, metric_cat_alias):
+                if category_value is not None and (
+                    not isinstance(category_value, str)
+                    or category_value.strip().casefold() != str(category or "").strip().casefold()
+                ):
+                    raise ValueError(
+                        f"Fund metrics category conflicts with verified scheme master for {identity.get('scheme_id')!r}."
+                    )
+            if not category:
+                raise ValueError(
+                    f"Verified scheme master category is missing for {identity.get('scheme_id')!r}."
+                )
             sector_alloc = matched_metric.get("sector")
             sub_cat = matched_metric.get("sub_category")
             raw_ter = matched_metric.get("er")
@@ -1009,8 +1029,12 @@ def load_holdings_from_cas_excel(
             )
             # TER is plan-specific. Unknown plan identity cannot be assigned
             # either Direct or Regular TER, and no commission delta is inferred.
-            if raw_ter is None or expected_plan is None or ter_plan != expected_plan:
+            if raw_ter is None:
                 er = None
+            elif expected_plan is None or ter_plan != expected_plan:
+                raise ValueError(
+                    f"Fund metrics TER plan does not match verified scheme plan for {identity.get('scheme_id')!r}."
+                )
             else:
                 er = float(raw_ter)
                 if not math.isfinite(er) or er < 0:
@@ -1029,9 +1053,17 @@ def load_holdings_from_cas_excel(
                 )
             eq_pct = float(matched_metric["eq"])
             debt_pct = float(matched_metric["debt"])
-            lc_pct = float(matched_metric["lc"])
-            mc_pct = float(matched_metric["mc"])
-            sc_pct = float(matched_metric["sc"])
+            raw_lc_pct = float(matched_metric["lc"])
+            raw_mc_pct = float(matched_metric["mc"])
+            raw_sc_pct = float(matched_metric["sc"])
+            if matched_metric["market_cap_basis"] == "EQUITY_PCT":
+                # Convert equity-sleeve weights into total-holding exposure
+                # before downstream SAA/overlap calculations.
+                lc_pct = eq_pct * raw_lc_pct / 100.0
+                mc_pct = eq_pct * raw_mc_pct / 100.0
+                sc_pct = eq_pct * raw_sc_pct / 100.0
+            else:
+                lc_pct, mc_pct, sc_pct = raw_lc_pct, raw_mc_pct, raw_sc_pct
             asset_class = _infer_asset_class(category, eq_pct, debt_pct, lc_pct, mc_pct, sc_pct)
             metrics_status = "VERIFIED"
             fund_id = matched_metric.get("id", identity.get("scheme_id") or scheme_str[:30])
@@ -1110,7 +1142,15 @@ def load_holdings_from_cas_excel(
 
 
 def _validate_sip_metrics_exposures(metric: Dict[str, Any], *, scheme_id: str) -> None:
-    """Reject malformed exposure inputs before they influence SIP allocation."""
+    """Validate the explicit current-holdings exposure contract before SIP use.
+
+    eq/debt/lc/mc/sc are percentages in [0, 100]. Equity plus debt may not
+    exceed 100%. market_cap_basis is mandatory:
+      * TOTAL_PORTFOLIO_PCT: large/mid/small buckets must sum to no more than eq.
+      * EQUITY_PCT: large/mid/small weights are conditional on equity and sum
+        to no more than 100%; the residual is unclassified equity.
+    A missing basis or inconsistent split is a hard evidence failure.
+    """
     required = ("eq", "debt", "lc", "mc", "sc")
     values: dict[str, float] = {}
     for field in required:
@@ -1126,6 +1166,28 @@ def _validate_sip_metrics_exposures(metric: Dict[str, Any], *, scheme_id: str) -
         values[field] = value
     if values["eq"] + values["debt"] > 100.0 + 1e-9:
         raise ValueError(f"Fund metrics equity plus debt exposure exceeds 100% for {scheme_id!r}.")
+    # Market-cap buckets are a decomposition of equity exposure, not a
+    # separate allocation. Any residual equity remains explicitly unclassified.
+    market_cap_basis = metric.get("market_cap_basis")
+    market_cap_total = values["lc"] + values["mc"] + values["sc"]
+    if market_cap_basis == "TOTAL_PORTFOLIO_PCT":
+        if market_cap_total > values["eq"] + 1e-9:
+            raise ValueError(
+                f"Fund metrics market-cap exposure exceeds equity exposure for {scheme_id!r}."
+            )
+    elif market_cap_basis == "EQUITY_PCT":
+        if market_cap_total > 100.0 + 1e-9:
+            raise ValueError(
+                f"Fund metrics market-cap equity weights exceed 100% for {scheme_id!r}."
+            )
+        if values["eq"] == 0.0 and market_cap_total > 1e-9:
+            raise ValueError(
+                f"Fund metrics report market-cap exposure without an equity allocation for {scheme_id!r}."
+            )
+    else:
+        raise ValueError(
+            f"Fund metrics market_cap_basis is missing or unsupported for {scheme_id!r}."
+        )
 
 
 def _validate_metrics_provenance(
@@ -1133,6 +1195,8 @@ def _validate_metrics_provenance(
     scheme_master: Optional[Dict[str, Any]] = None,
     *,
     require_exact_identity: bool = False,
+    expected_source_sha256: Optional[str] = None,
+    expected_effective_date: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Issue #84: Validate metrics record provenance and exact scheme binding.
@@ -1174,7 +1238,9 @@ def _validate_metrics_provenance(
                     raise ValueError(f"Verified scheme master contains duplicate scheme ID {key!r}.")
                 scheme_master_index[key] = scheme
     if require_exact_identity and not scheme_master_index:
-        raise ValueError("Exact metrics identity requires a non-empty verified scheme master.")
+        raise ValueError(
+            "Exact metrics identity requires a non-empty VERIFIED scheme master."
+        )
 
     required_identity_fields = ("scheme_id", "isin", "amc_name", "category", "plan_type", "option_type")
     seen_scheme_ids: set[str] = set()
@@ -1210,6 +1276,14 @@ def _validate_metrics_provenance(
                     identity_errors.append(f"Metrics record {fid!r} has an invalid SHA-256 source reference.")
                 else:
                     source_refs.add(normalized_ref)
+                    if expected_source_sha256 and normalized_ref != expected_source_sha256.lower():
+                        identity_errors.append(
+                            f"Metrics record {fid!r} source reference does not bind to the reviewed original source bytes."
+                        )
+            if expected_effective_date and eff_date != expected_effective_date:
+                identity_errors.append(
+                    f"Metrics record {fid!r} effective date conflicts with reviewed source metadata."
+                )
         else:
             if eff_date:
                 effective_dates.add(str(eff_date).strip())
@@ -1245,6 +1319,11 @@ def _validate_metrics_provenance(
                         f"Metrics record {fid!r} scheme_id {sid!r} not found in verified scheme master."
                     )
                     continue
+                master_scheme_id = master_scheme.get("scheme_id") or master_scheme.get("id")
+                if metric.get("scheme_id") != master_scheme_id:
+                    identity_errors.append(
+                        f"Metrics record {fid!r} scheme_id is not the exact canonical scheme-master ID."
+                    )
                 # Check ISIN match; a missing master ISIN is itself an identity gap.
                 m_isin = str(metric.get("isin", "")).strip().upper()
                 s_isin = str(master_scheme.get("isin", "")).strip().upper()
@@ -1273,20 +1352,14 @@ def _validate_metrics_provenance(
                         )
                     elif normalize(metric_value) != normalize(master_value):
                         identity_errors.append(
-                            f"Metrics record {fid!r} {label} conflicts with verified scheme master for {sid!r}."
+                            f"Metrics record {fid!r} {label} conflicts with scheme master (verified) for {sid!r}."
                         )
 
     # Exact-identity metrics require one coherent, fully populated snapshot.
     mixed_snapshot = len(effective_dates) > 1 or len(source_refs) > 1
-    if require_exact_identity and (not effective_dates or not source_refs):
-        identity_errors.append("Metrics snapshot provenance is incomplete.")
     if require_exact_identity and (len(effective_dates) != 1 or len(source_refs) != 1):
-        mixed_snapshot = True
-
-    if identity_errors:
-        raise ValueError(
-            "Metrics provenance validation failed (exact identity): " + "; ".join(identity_errors[:5])
-        )
+        if not mixed_snapshot:
+            identity_errors.append("Metrics snapshot provenance is incomplete.")
 
     if mixed_snapshot:
         raise ValueError(
@@ -1294,6 +1367,17 @@ def _validate_metrics_provenance(
             f"Found {len(effective_dates)} distinct effective dates and "
             f"{len(source_refs)} distinct source references. All metrics must come from a single reviewed snapshot."
         )
+
+    if identity_errors:
+        raise ValueError(
+            "Metrics provenance validation failed (exact identity): " + "; ".join(identity_errors[:5])
+        )
+
+    if require_exact_identity:
+        for metric in metrics_map.values():
+            if isinstance(metric, dict):
+                sid = str(metric.get("scheme_id", "")).strip()
+                _validate_sip_metrics_exposures(metric, scheme_id=sid or "UNKNOWN")
 
     return {
         "status": "VERIFIED",
