@@ -51,6 +51,9 @@ def valid_payload(tmp_path):
             "normalized_metrics_sha256": hashlib.sha256(metrics_bytes).hexdigest(),
             "policy_version": "holdings-metrics-v1",
             "reviewer_id": "reviewer-1",
+            "publisher": "AMFI",
+            "coverage_scope": "Reviewed fund metrics snapshot",
+            "record_count": 1,
         },
         "metrics_source_bytes": metrics_source_bytes,
         "scheme_master": {
@@ -532,7 +535,7 @@ def test_alias_document_cannot_carry_financial_facts(tmp_path):
             **_source_metadata(b"alias source"),
             "normalized_aliases_sha256": hashlib.sha256(alias_bytes).hexdigest(),
             "coverage_scope": "Scheme-name variants",
-            "record_count": 1, "policy_version": "alias-policy-v1", "reviewer_id": "reviewer-1",
+            "record_count": 1, "policy_version": "alias-policy-v1", "reviewer_id": "reviewer-1", "publisher": "AMFI",
         },
     })
     with pytest.raises(EvidenceProviderContractError, match="financial facts are prohibited"):
@@ -561,7 +564,7 @@ def test_aliases_cannot_map_same_name_to_multiple_schemes(tmp_path):
             **_source_metadata(b"alias source"),
             "normalized_aliases_sha256": hashlib.sha256(alias_bytes).hexdigest(),
             "coverage_scope": "Scheme-name variants",
-            "record_count": 2, "policy_version": "alias-policy-v1", "reviewer_id": "reviewer-1",
+            "record_count": 2, "policy_version": "alias-policy-v1", "reviewer_id": "reviewer-1", "publisher": "AMFI",
         },
     })
     with pytest.raises(EvidenceProviderContractError, match="ambiguously maps"):
@@ -666,6 +669,7 @@ def test_alias_reviewer_signature_contract_receives_full_normalized_alias_record
             "record_count": 1,
             "policy_version": "alias-resolution-v1",
             "reviewer_id": "reviewer-1",
+            "publisher": "AMFI",
         },
     })
     captured = {}
