@@ -155,3 +155,86 @@ def test_free_provider_failure_is_controlled_and_never_falls_back_to_gemini(monk
             external_processing_consent=True,
         )
     assert attempted == ["openrouter", "requesty"]
+
+
+def test_external_narrative_redacts_all_portfolio_identifiers_and_numeric_facts(monkeypatch):
+    from types import SimpleNamespace
+    from core import prompt_advisor
+
+    facts = SimpleNamespace(
+        client_name="CANARY INVESTOR NAME",
+        holdings=[
+            SimpleNamespace(
+                fund_name="CANARY SCHEME NAME",
+                scheme_name="CANARY SCHEME NAME",
+                folio="CANARY-FOLIO-7788",
+                fund_id="CANARY-FUND-ID",
+                scheme_id="CANARY-SCHEME-ID",
+                isin="INF000CANARY01",
+                account_id="CANARY-ACCOUNT-ID",
+            )
+        ],
+        thematic_exposures=[
+            SimpleNamespace(
+                theme_name="CANARY THEME",
+                key_underlying_holdings=["CANARY STOCK"],
+            )
+        ],
+        deterministic_sip_plan=SimpleNamespace(
+            items=[SimpleNamespace(scheme_name="CANARY SIP DESTINATION")]
+        ),
+        deterministic_lumpsum_plan=SimpleNamespace(
+            tranches=[SimpleNamespace(scheme_name="CANARY LUMPSUM DESTINATION")]
+        ),
+    )
+
+    identifiers = prompt_advisor._sensitive_identifiers_from_facts(facts)
+    expected = {
+        "CANARY INVESTOR NAME",
+        "CANARY SCHEME NAME",
+        "CANARY-FOLIO-7788",
+        "CANARY-FUND-ID",
+        "CANARY-SCHEME-ID",
+        "INF000CANARY01",
+        "CANARY-ACCOUNT-ID",
+        "CANARY THEME",
+        "CANARY STOCK",
+        "CANARY SIP DESTINATION",
+        "CANARY LUMPSUM DESTINATION",
+    }
+    assert expected.issubset(set(identifiers))
+
+    captured = {}
+    monkeypatch.setattr(
+        prompt_advisor,
+        "_engine_call_llm",
+        lambda prompt, **kwargs: captured.update({"prompt": prompt, "kwargs": kwargs}) or "generic narrative",
+    )
+    prompt_advisor._call_llm_with_retry(
+        "Investor CANARY INVESTOR NAME owns CANARY SCHEME NAME, "
+        "folio CANARY-FOLIO-7788, ISIN INF000CANARY01 and CANARY STOCK. "
+        "Portfolio value INR 1,234,567.89, return 14.75%, age 42, horizon 2031.",
+        external_processing_consent=True,
+        client_name="CANARY INVESTOR NAME",
+        sensitive_identifiers=identifiers,
+    )
+
+    outbound = captured["prompt"]
+    for canary in expected:
+        assert canary not in outbound
+    for numeric_detail in ("1,234,567.89", "14.75", "42", "2031"):
+        assert numeric_detail not in outbound
+    assert "[REDACTED_NUMERIC_DETAIL]" in outbound
+    assert captured["kwargs"]["use_cache"] is False
+
+
+def test_numeric_redaction_covers_percentages_and_unlabelled_values():
+    from core.prompt_advisor import sanitize_prompt_for_privacy
+
+    sanitized = sanitize_prompt_for_privacy(
+        "Return 18.25%, age 37, horizon 2034, NAV 125.60 and units 900."
+    )
+
+    for value in ("18.25", "37", "2034", "125.60", "900"):
+        assert value not in sanitized
+    assert sanitized.count("[REDACTED_NUMERIC_DETAIL]") == 5
