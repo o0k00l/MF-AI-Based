@@ -210,3 +210,101 @@ def test_privacy_sanitizer_redacts_rupee_amounts_and_exact_holding_identifiers()
     assert "12,34,567.89" not in sanitized
     assert "[REDACTED_FINANCIAL_AMOUNT]" in sanitized
 
+
+
+def test_live_fiduciary_narrative_minimizes_aggregated_financial_data(monkeypatch):
+    from services.ai_fund_classifier import generate_fiduciary_ai_narrative
+    import core.ai_engine as ai
+
+    captured = []
+    monkeypatch.setattr(
+        ai,
+        "call_llm",
+        lambda prompt, **kwargs: captured.append((prompt, kwargs)) or "A minimized fiduciary narrative response with sufficient detail.",
+    )
+    metrics = {
+        "client_name": "PRIVATE CLIENT NAME",
+        "total_value": 9876543.21,
+        "eq_pct": 70.0,
+        "debt_pct": 30.0,
+        "regular_value": 2500000.0,
+        "regular_pct": 25.0,
+        "annual_bleed": 12500.0,
+        "compounded_10y_drag": 175000.0,
+        "unique_strategies_count": 4,
+        "dual_count": 1,
+    }
+    funds = [{"scheme": "PRIVATE SCHEME NAME", "folio": "PRIVATE-FOLIO-4455"}]
+
+    result = generate_fiduciary_ai_narrative(
+        metrics, funds, use_live_ai=True, external_processing_consent=True
+    )
+
+    assert result["source"] == "Live AI Model (Fiduciary Synthesis)"
+    assert len(captured) == 1
+    prompt, kwargs = captured[0]
+    assert "PRIVATE CLIENT NAME" not in prompt
+    assert "PRIVATE SCHEME NAME" not in prompt
+    assert "PRIVATE-FOLIO-4455" not in prompt
+    assert "9,876,543" not in prompt
+    assert "INR" not in prompt
+    assert "[REDACTED_FINANCIAL_AMOUNT]" in prompt
+    assert kwargs["external_processing_consent"] is True
+    assert kwargs["use_cache"] is False
+
+
+def test_live_fiduciary_query_sanitizes_pii_and_never_uses_shared_answer_cache(monkeypatch):
+    import core.ai_engine as ai
+    from services.ai_fund_classifier import answer_fiduciary_query
+
+    captured = []
+
+    def fake_call_llm(prompt, **kwargs):
+        captured.append((prompt, kwargs))
+        return "This is a qualitative response based only on minimized supplied facts."
+
+    monkeypatch.setattr(ai, "call_llm", fake_call_llm)
+    metrics = {
+        "client_name": "PRIVATE CLIENT NAME",
+        "account_id": "PRIVATE-ACCOUNT-778899",
+        "total_value": 9876543.21,
+        "eq_pct": 70.0,
+        "debt_pct": 30.0,
+        "regular_value": 2500000.0,
+        "regular_pct": 25.0,
+        "annual_bleed": 12500.0,
+        "compounded_10y_drag": 175000.0,
+        "dual_count": 1,
+    }
+    funds = [{
+        "scheme": "PRIVATE SCHEME NAME",
+        "folio": "PRIVATE-FOLIO-4455",
+    }]
+    query = (
+        "I am PRIVATE CLIENT NAME, PAN ABCDE1234F, email client@example.com, "
+        "phone +91 9876543210, account 123456789012 and folio PRIVATE-FOLIO-4455. "
+        "Why is my portfolio worth INR 9,876,543.21?"
+    )
+
+    kwargs = {
+        "use_live_ai": True,
+        "external_processing_consent": True,
+    }
+    first = answer_fiduciary_query(query, metrics, funds, **kwargs)
+    second = answer_fiduciary_query(query, metrics, funds, **kwargs)
+
+    assert first["source"] == "Live AI Assistant (Fiduciary Intelligence)"
+    assert second["source"] == "Live AI Assistant (Fiduciary Intelligence)"
+    assert len(captured) == 2  # investor-specific prompts/responses are never shared-cached
+    for prompt, call_kwargs in captured:
+        for secret in (
+            "PRIVATE CLIENT NAME", "PRIVATE-ACCOUNT-778899", "PRIVATE SCHEME NAME",
+            "PRIVATE-FOLIO-4455", "ABCDE1234F", "client@example.com",
+            "9876543210", "123456789012",
+        ):
+            assert secret not in prompt
+        assert "9,876,543.21" not in prompt
+        assert "INR" not in prompt
+        assert "[REDACTED_FINANCIAL_AMOUNT]" in prompt
+        assert call_kwargs["external_processing_consent"] is True
+        assert call_kwargs["use_cache"] is False
