@@ -718,6 +718,10 @@ def test_api_derives_provider_attestation_only_from_mandate_signature_verificati
     """A generic reviewer-approved context cannot self-assert mandate authentication."""
     from decimal import Decimal
 
+    # The API requires a configured reviewer trust root before it will call
+    # the provider. This test isolates the mandate-specific verifier below;
+    # provider-envelope cryptography is covered by its own contract tests.
+    monkeypatch.setattr(sip, "load_sip_reviewer_trust_registry", lambda: {})
     monkeypatch.setattr(
         sip, "validate_evidence_provider_payload",
         lambda payload, **kwargs: payload,
