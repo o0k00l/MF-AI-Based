@@ -690,6 +690,10 @@ def validate_evidence_provider_payload(
         raise EvidenceProviderContractError("metrics_path must be a Path-like source for candidate evidence files.")
 
     aliases_path = payload.get("aliases_path")
+    if aliases_path is None and aliases_source_present:
+        raise EvidenceProviderContractError(
+            "Alias provenance metadata cannot be supplied without its normalized alias artifact."
+        )
     if aliases_path is not None:
         if not hasattr(aliases_path, "is_file") or not aliases_path.is_file() or aliases_path.is_symlink():
             raise EvidenceProviderContractError("aliases_path must be a regular, non-symlink file.")
