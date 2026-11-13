@@ -69,6 +69,14 @@ def _required_lookthrough_coverage_pct(policy: dict[str, Any] | None = None) -> 
     return policy["portfolio_lookthrough_policy"]["required_coverage_pct"]
 
 
+def _required_lookthrough_weight_tolerance_pct(policy: dict[str, Any] | None = None) -> Any:
+    """Resolve reconciliation tolerance from the same decision-scoped policy."""
+    if policy is None:
+        from core.eligibility import load_fund_screening_policy
+        policy = load_fund_screening_policy()
+    return policy["portfolio_lookthrough_policy"]["constituent_weight_reconciliation_tolerance_pct"]
+
+
 def _build_cas_portfolio_assessment(
     holdings: list[Any],
     risk_profile: str,
@@ -198,7 +206,8 @@ def _build_cas_portfolio_assessment(
             })
         if equity_rows:
             lookthrough = calculate_lookthrough_exposure(
-                equity_rows, required_coverage_pct=_required_lookthrough_coverage_pct(screening_policy)
+                equity_rows, required_coverage_pct=_required_lookthrough_coverage_pct(screening_policy),
+                weight_reconciliation_tolerance_pct=_required_lookthrough_weight_tolerance_pct(screening_policy)
             )
         else:
             lookthrough = {
@@ -705,7 +714,8 @@ def _assess_complete_portfolio_context(
             }
         elif external_equity_rows:
             external_lookthrough = calculate_lookthrough_exposure(
-                external_equity_rows, required_coverage_pct=_required_lookthrough_coverage_pct(screening_policy)
+                external_equity_rows, required_coverage_pct=_required_lookthrough_coverage_pct(screening_policy),
+                weight_reconciliation_tolerance_pct=_required_lookthrough_weight_tolerance_pct(screening_policy)
             )
         else:
             external_lookthrough = {
@@ -765,6 +775,7 @@ def _assess_complete_portfolio_context(
                 [{"holding_value_inr": str(ticket_budget),
                   "coverage_pct": coverage, "constituents": constituents}],
                 required_coverage_pct=_required_lookthrough_coverage_pct(screening_policy),
+                weight_reconciliation_tolerance_pct=_required_lookthrough_weight_tolerance_pct(screening_policy),
             )
             if candidate_exposure.get("status") != "CALCULATED":
                 overlap_results[candidate_id] = candidate_exposure
@@ -861,7 +872,8 @@ def _assess_complete_portfolio_context(
             })
         if candidate_allocation.get("status") == "ALLOCATED" and selected_candidate_rows:
             selected_lookthrough = calculate_lookthrough_exposure(
-                selected_candidate_rows, required_coverage_pct=_required_lookthrough_coverage_pct(screening_policy)
+                selected_candidate_rows, required_coverage_pct=_required_lookthrough_coverage_pct(screening_policy),
+                weight_reconciliation_tolerance_pct=_required_lookthrough_weight_tolerance_pct(screening_policy)
             )
             if selected_lookthrough.get("status") == "CALCULATED":
                 proposed_issuer_values = dict(existing_issuer_values)
