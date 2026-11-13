@@ -1238,7 +1238,13 @@ def _validate_metrics_provenance(
                     raise ValueError(f"Verified scheme master contains duplicate scheme ID {key!r}.")
                 scheme_master_index[key] = scheme
     if require_exact_identity and not scheme_master_index:
-        raise ValueError("Exact metrics identity requires a non-empty verified scheme master.")
+        return {
+            "status": "MISSING",
+            "identity_complete": False,
+            "errors": ["Exact metrics identity cannot be established without a verified scheme master."],
+            "source_sha256": next(iter(source_refs), None),
+            "effective_date": next(iter(effective_dates), None),
+        }
 
     required_identity_fields = ("scheme_id", "isin", "amc_name", "category", "plan_type", "option_type")
     seen_scheme_ids: set[str] = set()
@@ -1360,12 +1366,6 @@ def _validate_metrics_provenance(
     if require_exact_identity and (len(effective_dates) != 1 or len(source_refs) != 1):
         mixed_snapshot = True
 
-    if require_exact_identity:
-        for metric in metrics_map.values():
-            if isinstance(metric, dict):
-                sid = str(metric.get("scheme_id", "")).strip()
-                _validate_sip_metrics_exposures(metric, scheme_id=sid or "UNKNOWN")
-
     if identity_errors:
         raise ValueError(
             "Metrics provenance validation failed (exact identity): " + "; ".join(identity_errors[:5])
@@ -1377,6 +1377,12 @@ def _validate_metrics_provenance(
             f"Found {len(effective_dates)} distinct effective dates and "
             f"{len(source_refs)} distinct source references. All metrics must come from a single reviewed snapshot."
         )
+
+    if require_exact_identity:
+        for metric in metrics_map.values():
+            if isinstance(metric, dict):
+                sid = str(metric.get("scheme_id", "")).strip()
+                _validate_sip_metrics_exposures(metric, scheme_id=sid or "UNKNOWN")
 
     return {
         "status": "VERIFIED",
