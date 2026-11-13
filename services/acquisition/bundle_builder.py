@@ -67,7 +67,6 @@ class EvidenceBundleBuilder:
         scheme_master_source_bytes: bytes,
         metrics_payload: Dict[str, Any],
         metrics_source_bytes: bytes,
-        metrics_source_metadata: Dict[str, Any],
         candidate_universe: List[Dict[str, Any]],
         candidate_universe_source_bytes: bytes,
         portfolio_disclosures: Dict[str, Dict[str, Any]],
@@ -87,6 +86,7 @@ class EvidenceBundleBuilder:
         require_commit_binding: bool = True,
         require_policy_binding: bool = True,
         require_artifact_binding: bool = True,
+        metrics_source_metadata: Optional[Dict[str, Any]] = None,
     ) -> Path:
         """
         Build an evidence bundle in a staging directory, verify its integrity,
@@ -162,82 +162,92 @@ class EvidenceBundleBuilder:
             normalized_metrics_bytes = (staging_dir / "metrics.json").read_bytes()
             normalized_metrics_sha256 = hashlib.sha256(normalized_metrics_bytes).hexdigest()
 
-            if not isinstance(metrics_source_metadata, dict):
-                raise ValueError("Metrics source metadata is required for evidence promotion.")
-            metrics_source_metadata = dict(metrics_source_metadata)
-            m_url = metrics_source_url or metrics_source_metadata.get("source_url") or metrics_payload.get("source_url")
+            metrics_source_metadata = dict(metrics_source_metadata) if isinstance(metrics_source_metadata, dict) else None
+            m_url = metrics_source_url or (metrics_source_metadata or {}).get("source_url") or metrics_payload.get("source_url")
             if not m_url or not str(m_url).strip():
                 raise ValueError("Authoritative fund metrics source URL is missing; synthetic defaults are prohibited.")
 
             if not isinstance(metrics_payload.get("funds"), list) or not metrics_payload["funds"]:
                 raise ValueError("Normalized fund metrics must contain a non-empty funds array.")
-            required_metrics_metadata = ("source_url", "effective_date", "source_type", "publisher", "coverage_scope", "policy_version", "reviewer_id", "reviewer_approval_envelope")
-            missing_metrics_metadata = [
-                key for key in required_metrics_metadata
-                if metrics_source_metadata.get(key) is None
-                or (
-                    key != "reviewer_approval_envelope"
-                    and (
-                        not isinstance(metrics_source_metadata.get(key), str)
-                        or not metrics_source_metadata[key].strip()
+            if metrics_source_metadata is None:
+                # Staging can proceed to validate caller binding errors, but this
+                # incomplete metadata can never be promoted to the active bundle.
+                metrics_metadata = {
+                    "source_url": str(m_url).strip(),
+                    "source_document_sha256": metrics_source_sha256,
+                    "reviewer_attested": reviewer_attested,
+                    "effective_date": as_of.isoformat(),
+                    "source_type": "UNVERIFIED_METRICS_SOURCE",
+                    "normalized_metrics_sha256": normalized_metrics_sha256,
+                }
+            else:
+                required_metrics_metadata = ("source_url", "effective_date", "source_type", "publisher", "coverage_scope", "policy_version", "reviewer_id", "reviewer_approval_envelope")
+                missing_metrics_metadata = [
+                    key for key in required_metrics_metadata
+                    if metrics_source_metadata.get(key) is None
+                    or (
+                        key != "reviewer_approval_envelope"
+                        and (
+                            not isinstance(metrics_source_metadata.get(key), str)
+                            or not metrics_source_metadata[key].strip()
+                        )
                     )
+                ]
+                if missing_metrics_metadata:
+                    raise ValueError(f"Metrics source metadata missing/invalid provenance fields: {missing_metrics_metadata}")
+                if metrics_source_metadata["source_url"] != str(m_url).strip():
+                    raise ValueError("Metrics source URL conflicts with signed source metadata.")
+                metrics_metadata = {
+                    "source_url": str(m_url).strip(),
+                    "source_document_sha256": metrics_source_sha256,
+                    "reviewer_attested": reviewer_attested,
+                    "effective_date": metrics_source_metadata["effective_date"],
+                    "source_type": metrics_source_metadata["source_type"],
+                    "normalized_metrics_sha256": normalized_metrics_sha256,
+                    "publisher": metrics_source_metadata["publisher"],
+                    "coverage_scope": metrics_source_metadata["coverage_scope"],
+                    "record_count": len(metrics_payload["funds"]),
+                    "policy_version": metrics_source_metadata["policy_version"],
+                    "reviewer_id": metrics_source_metadata["reviewer_id"],
+                    "reviewer_approval_envelope": metrics_source_metadata["reviewer_approval_envelope"],
+                }
+                if not isinstance(metrics_metadata["reviewer_approval_envelope"], dict):
+                    raise ValueError("Metrics reviewer approval envelope must be a mapping.")
+                if metrics_metadata["reviewer_approval_envelope"].get("payload", {}).get("reviewer_id") != metrics_metadata["reviewer_id"]:
+                    raise ValueError("Metrics reviewer_id must match the signed source approval.")
+                metrics_by_id = {}
+                for index, metric in enumerate(metrics_payload["funds"]):
+                    if not isinstance(metric, dict) or not isinstance(metric.get("id"), str) or not metric["id"].strip():
+                        raise ValueError(f"Fund metrics row {index} requires a stable non-empty id.")
+                    metric_key = "".join(ch for ch in metric["id"].casefold() if ch.isalnum())
+                    if not metric_key or metric_key in metrics_by_id:
+                        raise ValueError("Fund metrics contain an empty or duplicate normalized id.")
+                    metrics_by_id[metric_key] = metric
+                from core.math_engine import _validate_metrics_provenance
+                _validate_metrics_provenance(
+                    metrics_by_id,
+                    normalized_master,
+                    require_exact_identity=True,
+                    expected_source_sha256=metrics_source_sha256,
+                    expected_effective_date=metrics_metadata["effective_date"],
                 )
-            ]
-            if missing_metrics_metadata:
-                raise ValueError(f"Metrics source metadata missing/invalid provenance fields: {missing_metrics_metadata}")
-            if metrics_source_metadata["source_url"] != str(m_url).strip():
-                raise ValueError("Metrics source URL conflicts with signed source metadata.")
-            metrics_metadata = {
-                "source_url": str(m_url).strip(),
-                "source_document_sha256": metrics_source_sha256,
-                "reviewer_attested": reviewer_attested,
-                "effective_date": metrics_source_metadata["effective_date"],
-                "source_type": metrics_source_metadata["source_type"],
-                "normalized_metrics_sha256": normalized_metrics_sha256,
-                "publisher": metrics_source_metadata["publisher"],
-                "coverage_scope": metrics_source_metadata["coverage_scope"],
-                "record_count": len(metrics_payload["funds"]),
-                "policy_version": metrics_source_metadata["policy_version"],
-                "reviewer_id": metrics_source_metadata["reviewer_id"],
-                "reviewer_approval_envelope": metrics_source_metadata["reviewer_approval_envelope"],
-            }
-            if not isinstance(metrics_metadata["reviewer_approval_envelope"], dict):
-                raise ValueError("Metrics reviewer approval envelope must be a mapping.")
-            if metrics_metadata["reviewer_approval_envelope"].get("payload", {}).get("reviewer_id") != metrics_metadata["reviewer_id"]:
-                raise ValueError("Metrics reviewer_id must match the signed source approval.")
-            metrics_by_id = {}
-            for index, metric in enumerate(metrics_payload["funds"]):
-                if not isinstance(metric, dict) or not isinstance(metric.get("id"), str) or not metric["id"].strip():
-                    raise ValueError(f"Fund metrics row {index} requires a stable non-empty id.")
-                metric_key = "".join(ch for ch in metric["id"].casefold() if ch.isalnum())
-                if not metric_key or metric_key in metrics_by_id:
-                    raise ValueError("Fund metrics contain an empty or duplicate normalized id.")
-                metrics_by_id[metric_key] = metric
-            from core.math_engine import _validate_metrics_provenance
-            _validate_metrics_provenance(
-                metrics_by_id,
-                normalized_master,
-                require_exact_identity=True,
-                expected_source_sha256=metrics_source_sha256,
-                expected_effective_date=metrics_metadata["effective_date"],
-            )
-            metrics_signed_records = {
-                "funds": metrics_payload["funds"],
-                "metadata": {
-                    key: value for key, value in metrics_metadata.items()
-                    if key != "reviewer_approval_envelope"
-                },
-            }
-            metrics_approval = verify_sip_reviewer_approval(
-                envelope=metrics_metadata["reviewer_approval_envelope"],
-                trust_registry=reviewer_trust_registry,
-                expected_scope="SIP_EVIDENCE_RELEASE",
-                expected_source_sha256=metrics_source_sha256,
-                structured_records=metrics_signed_records,
-            )
-            if not metrics_approval.ok:
-                raise ValueError(f"Metrics source approval verification failed: {'; '.join(metrics_approval.errors)}")
-            self._write_json(staging_dir / "metrics_metadata.json", metrics_metadata)
+                metrics_signed_records = {
+                    "funds": metrics_payload["funds"],
+                    "metadata": {
+                        key: value for key, value in metrics_metadata.items()
+                        if key != "reviewer_approval_envelope"
+                    },
+                }
+                metrics_approval = verify_sip_reviewer_approval(
+                    envelope=metrics_metadata["reviewer_approval_envelope"],
+                    trust_registry=reviewer_trust_registry,
+                    expected_scope="SIP_EVIDENCE_RELEASE",
+                    expected_source_sha256=metrics_source_sha256,
+                    structured_records=metrics_signed_records,
+                )
+                if not metrics_approval.ok:
+                    raise ValueError(f"Metrics source approval verification failed: {'; '.join(metrics_approval.errors)}")
+                self._write_json(staging_dir / "metrics_metadata.json", metrics_metadata)
 
             # 3. Direct plan evidence documents
             for scheme_id, raw_pdf in direct_plan_evidence_bytes.items():
@@ -526,6 +536,10 @@ class EvidenceBundleBuilder:
             raise ValueError(f"Evidence bundle staging failed: {exc}") from exc
 
         # 9. Atomic Promotion with Rollback
+        if metrics_source_metadata is None:
+            shutil.rmtree(staging_dir, ignore_errors=True)
+            raise ValueError("Metrics source metadata and independent source approval are required for promotion.")
+
         backup_dir: Optional[Path] = None
         if self.target_dir.exists():
             backup_dir = self.target_dir.parent / f".backup_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
