@@ -906,13 +906,14 @@ def test_screening_policy_snapshot_is_shared_with_engine_and_decision_trace(tmp_
     assert calls["count"] == 1, calls["stacks"]
     assert captured["screening_policy"] is snapshot
     trace = result["portfolio_assessment"]["decision_trace"]
-    assert trace["screening_policy_sha256"] == snapshot["_policy_digest"]
-    assert trace["screening_policy_version"] == snapshot["version"]
-    assert captured["allocation_policy"]["as_of"] == trace["policy_components"]["asset_allocation"]["as_of"]
-    assert trace["policy_components"]["screening"]["status"] == snapshot["status"]
-    assert trace["policy_components"]["screening"]["source_sha256"] == snapshot["_policy_digest"]
-    assert len(trace["policy_components"]["asset_allocation"]["source_sha256"]) == 64
-    assert len(trace["effective_policy_digest"]) == 64
+    record = json.loads(trace["canonical_record"])
+    assert record["screening_policy_sha256"] == snapshot["_policy_digest"]
+    assert record["screening_policy_version"] == snapshot["version"]
+    assert captured["allocation_policy"]["as_of"] == record["policy_components"]["asset_allocation"]["as_of"]
+    assert record["policy_components"]["screening"]["status"] == snapshot["status"]
+    assert record["policy_components"]["screening"]["source_sha256"] == snapshot["_policy_digest"]
+    assert len(record["policy_components"]["asset_allocation"]["source_sha256"]) == 64
+    assert len(record["effective_policy_digest"]) == 64
 
 
 @pytest.mark.parametrize("component", ["screening", "allocation"])
