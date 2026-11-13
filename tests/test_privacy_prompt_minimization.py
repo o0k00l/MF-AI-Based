@@ -447,3 +447,15 @@ def test_active_fund_enrichment_propagates_explicit_external_consent(monkeypatch
     assert seen["batch"] == [True]
     assert seen["lookup"] == [True]
     assert seen["classify"] == [True]
+
+
+def test_online_scheme_cache_rejects_symlink_into_repository(tmp_path, monkeypatch):
+    from pathlib import Path
+    from services.ai_fund_classifier import _external_lookthrough_cache_file
+
+    repository_data = Path(__file__).resolve().parents[1] / "data"
+    linked_root = tmp_path / "linked-engine-data"
+    linked_root.symlink_to(repository_data, target_is_directory=True)
+    monkeypatch.setenv("MF_ENGINE_DATA_DIR", str(linked_root))
+
+    assert _external_lookthrough_cache_file() is None
