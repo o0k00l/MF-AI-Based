@@ -38,8 +38,9 @@ def test_detect_active_sips_identifies_valid_recurring_sip():
         {"folio": "F1", "scheme": "Scheme A", "date": "2026-10-05", "type": "SIP", "description": "Systematic Investment Plan", "amount": 5000.0, "mandate_id": "MND101", "mandate_status": "ACTIVE"},
     ]
     res = detect_active_sips_from_cas(transactions, as_of="2026-10-15")
-    assert res["active_sip_count"] == 1
-    assert res["total_monthly_sip"] == 5000.0
+    assert res["active_sip_count"] == 0
+    assert res["total_monthly_sip"] == 0.0
+    assert res["recurring_transaction_pattern_count"] == 1
     assert res["history_coverage"]["history_status"] == "SUFFICIENT"
 
 
@@ -73,10 +74,10 @@ def test_detect_active_sips_requires_explicit_as_of():
     with pytest.raises(ValueError, match="Explicit 'as_of' date is required"):
         detect_active_sips_from_cas(transactions, as_of=None, require_explicit_as_of=True)
 
-    # Optional derivation allowed when explicitly opting out
+    # Optional date derivation does not authenticate a mandate.
     res = detect_active_sips_from_cas(transactions, as_of=None, require_explicit_as_of=False)
     assert res["as_of_reference_mode"] == "DERIVED_MAX_TRANSACTION_DATE"
-    assert res["active_sip_count"] == 1
+    assert res["active_sip_count"] == 0
 
 
 def test_detect_active_sips_exhaustive_rejection_accounting():
@@ -114,23 +115,24 @@ def test_detect_active_sips_mixed_step_up_streak_consistency():
         {"folio": "F1", "scheme": "Scheme A", "date": "2026-10-05", "type": "SIP", "description": "SIP installment", "amount": 6000.0, "mandate_id": "MND103", "mandate_status": "ACTIVE"},
     ]
     res = detect_active_sips_from_cas(transactions, as_of="2026-10-15")
-    assert res["active_sip_count"] == 1
-    sip = res["active_sips"][0]
-    assert sip["monthly_amount"] == 6000.0
-    # Consistent step-up streak across all 4 installments
-    assert sip["streak_months"] == 4
+    assert res["active_sip_count"] == 0
+    assert res["total_monthly_sip"] == 0.0
+    pattern = res["recurring_transaction_patterns"][0]
+    assert pattern["monthly_amount"] == 6000.0
+    assert pattern["streak_months"] == 4
 
 
 def test_detect_active_sips_mandate_verified_vs_transaction_text_verified():
-    # Mandate verified: explicit mandate ID / active status
+    # Transaction mandate ID/status labels are not an authenticated schedule.
     auth_mandate_txs = [
         {"folio": "F1", "scheme": "Scheme A", "date": "2026-09-05", "type": "SIP", "description": "SIP debit", "amount": 5000.0, "mandate_id": "MND123", "mandate_status": "ACTIVE"},
         {"folio": "F1", "scheme": "Scheme A", "date": "2026-10-05", "type": "SIP", "description": "SIP debit", "amount": 5000.0, "mandate_id": "MND123", "mandate_status": "ACTIVE"},
     ]
     res1 = detect_active_sips_from_cas(auth_mandate_txs, as_of="2026-10-15")
-    assert res1["active_sip_count"] == 1
-    assert res1["active_sips"][0]["confidence"] in ("ACTIVE_MANDATE_VERIFIED", "MANDATE_VERIFIED")
-    assert res1["active_sips"][0]["evidence_level"] == "ACTIVE_MANDATE_CONFIRMED"
+    assert res1["active_sip_count"] == 0
+    assert res1["total_monthly_sip"] == 0.0
+    assert res1["recurring_transaction_pattern_count"] == 1
+    assert res1["recurring_transaction_patterns"][0]["evidence_level"] == "MANDATE_ID_FOUND"
 
     # Transaction text pattern: keyword in description, no explicit mandate ID
     # Must NOT be reported as active mandate; goes to recurring_transaction_patterns with 0 active monthly sip
@@ -165,7 +167,8 @@ def test_detect_active_sips_rejects_duplicate_transactions():
         {"folio": "F1", "scheme": "Scheme A", "date": "2026-10-05", "type": "SIP", "amount": 5000.0, "mandate_id": "MND101", "mandate_status": "ACTIVE"},
     ]
     res = detect_active_sips_from_cas(txs, as_of="2026-10-15")
-    assert res["active_sip_count"] == 1
+    assert res["active_sip_count"] == 0
+    assert res["recurring_transaction_pattern_count"] == 1
     assert res["rejection_stats"]["rejected_duplicate"] == 1
 
 def test_detect_active_sips_rejects_reversals_and_cancellations():
@@ -196,8 +199,9 @@ def test_detect_active_sips_supports_registrar_descriptors():
         {"folio": "F1", "scheme": "Scheme A", "date": "2026-10-05", "type": "SIP", "description": "ACH DR - KFINTECH", "amount": 5000.0, "mandate_id": "MND_CAMS", "mandate_status": "ACTIVE"},
     ]
     res = detect_active_sips_from_cas(txs, as_of="2026-10-15")
-    assert res["active_sip_count"] == 1
-    assert res["total_monthly_sip"] == 5000.0
+    assert res["active_sip_count"] == 0
+    assert res["total_monthly_sip"] == 0.0
+    assert res["recurring_transaction_pattern_count"] == 1
 
 
 def test_detect_active_sips_multi_step_up_streak_consistency():
@@ -208,8 +212,9 @@ def test_detect_active_sips_multi_step_up_streak_consistency():
         {"folio": "F1", "scheme": "Scheme A", "date": "2026-10-05", "type": "SIP", "description": "SIP installment", "amount": 6000.0, "mandate_id": "MND_STP", "mandate_status": "ACTIVE"},
     ]
     res = detect_active_sips_from_cas(txs, as_of="2026-10-15")
-    assert res["active_sip_count"] == 1
-    assert res["active_sips"][0]["streak_months"] == 4
+    assert res["active_sip_count"] == 0
+    assert res["recurring_transaction_pattern_count"] == 1
+    assert res["recurring_transaction_patterns"][0]["streak_months"] == 4
 
 def test_extract_mandate_evidence_distinguishes_found_from_confirmed():
     # 1. Mandate ID found without explicit active status keyword:
@@ -324,15 +329,10 @@ def test_e2e_cas_workbook_extracts_and_authenticates_genuine_sips():
     # Step 2: Downstream active SIP discovery strictly requires active confirmation
     res = detect_active_sips_from_cas(parsed["transactions"], as_of="2026-10-15")
     
-    # EXACTLY 1 active SIP (Scheme Genuine SIP with confirmed active status)
-    assert res["active_sip_count"] == 1
-    assert res["total_monthly_sip"] == 5000.0
-    active_entry = res["active_sips"][0]
-    assert active_entry["scheme"] == "Scheme Genuine SIP"
-    assert active_entry["monthly_amount"] == 5000.0
-    assert active_entry["confidence"] == "ACTIVE_MANDATE_VERIFIED"
-    assert active_entry["evidence_level"] == "ACTIVE_MANDATE_CONFIRMED"
-    assert active_entry["is_active_mandate"] is True
+    # CAS transaction text and investor-supplied mandate fields are not
+    # issuer-authenticated and cannot contribute to affordability.
+    assert res["active_sip_count"] == 0
+    assert res["total_monthly_sip"] == 0.0
 
     # Scheme Unconfirmed Mandate must be in recurring_transaction_patterns with MANDATE_ID_FOUND, NOT active_sips
     unconf_patterns = [p for p in res["recurring_transaction_patterns"] if p["scheme"] == "Scheme Unconfirmed Mandate"]
@@ -391,12 +391,9 @@ def test_e2e_cas_workbook_with_active_mandate_sheet_schedule():
         as_of="2026-10-15",
         active_mandates=parsed["active_mandates"]
     )
-    # Only Scheme Confirmed Schedule is authenticated as active SIP
-    assert res["active_sip_count"] == 1
-    assert res["total_monthly_sip"] == 5000.0
-    assert res["active_sips"][0]["scheme"] == "Scheme Confirmed Schedule"
-    assert res["active_sips"][0]["confidence"] == "ACTIVE_MANDATE_VERIFIED"
-    assert res["active_sips"][0]["evidence_level"] == "ACTIVE_MANDATE_CONFIRMED"
+    # CAS-parsed mandate rows are claims, not authenticated provider schedules.
+    assert res["active_sip_count"] == 0
+    assert res["total_monthly_sip"] == 0.0
 
 
 def test_detect_active_sips_enforces_authenticated_mandate_source_under_strict_contract():
@@ -407,12 +404,14 @@ def test_detect_active_sips_enforces_authenticated_mandate_source_under_strict_c
         {"folio": "F1", "scheme": "Scheme A", "date": "2026-09-05", "type": "SIP", "description": "SIP debit", "amount": 5000.0, "mandate_id": "MND-CALLER-DECLARED", "mandate_status": "ACTIVE"},
         {"folio": "F1", "scheme": "Scheme A", "date": "2026-10-05", "type": "SIP", "description": "SIP debit", "amount": 5000.0, "mandate_id": "MND-CALLER-DECLARED", "mandate_status": "ACTIVE"},
     ]
-    # Without strict contract: legacy acceptance
-    res_legacy = detect_active_sips_from_cas(unauthenticated_caller_txs, as_of="2026-10-15", require_authenticated_mandates=False)
-    assert res_legacy["active_sip_count"] == 1
+    # The legacy opt-out is rejected instead of lowering the gate.
+    with pytest.raises(ValueError, match="legacy unverified mode is disabled"):
+        detect_active_sips_from_cas(
+            unauthenticated_caller_txs, as_of="2026-10-15",
+            require_authenticated_mandates=False,
+        )
 
-    # Under strict mandate authentication: rejected from active_sips
-    res_strict = detect_active_sips_from_cas(unauthenticated_caller_txs, as_of="2026-10-15", require_authenticated_mandates=True)
+    res_strict = detect_active_sips_from_cas(unauthenticated_caller_txs, as_of="2026-10-15")
     assert res_strict["active_sip_count"] == 0
     assert res_strict["total_monthly_sip"] == 0.0
 
