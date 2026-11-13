@@ -275,10 +275,14 @@ def test_contract_rejects_missing_fund_metrics_provenance(tmp_path):
 def test_contract_validates_optional_original_fund_metrics_source_bytes(tmp_path):
     payload = valid_payload(tmp_path)
     metrics_bytes = b"original metrics publisher document"
+    normalized = json.loads(payload["metrics_path"].read_text())
+    normalized["funds"][0]["source_ref"] = "sha256:" + hashlib.sha256(metrics_bytes).hexdigest()
+    normalized_bytes = json.dumps(normalized, separators=(",", ":")).encode()
+    payload["metrics_path"].write_bytes(normalized_bytes)
     payload["metrics_source_metadata"] = {
         **_source_metadata(metrics_bytes),
         "source_type": "OFFICIAL_FUND_METRICS",
-        "normalized_metrics_sha256": hashlib.sha256(payload["metrics_path"].read_bytes()).hexdigest(),
+        "normalized_metrics_sha256": hashlib.sha256(normalized_bytes).hexdigest(),
         "policy_version": "holdings-metrics-v1",
         "reviewer_id": "reviewer-1",
         "publisher": "AMFI",
