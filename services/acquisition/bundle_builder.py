@@ -247,7 +247,7 @@ class EvidenceBundleBuilder:
                 )
                 if not metrics_approval.ok:
                     raise ValueError(f"Metrics source approval verification failed: {'; '.join(metrics_approval.errors)}")
-                self._write_json(staging_dir / "metrics_metadata.json", metrics_metadata)
+            self._write_json(staging_dir / "metrics_metadata.json", metrics_metadata)
 
             # 3. Direct plan evidence documents
             for scheme_id, raw_pdf in direct_plan_evidence_bytes.items():
