@@ -79,7 +79,7 @@ def test_sip_metrics_reject_duplicate_exact_scheme_records():
     ],
 )
 def test_sip_metrics_reject_out_of_domain_exposures(field, value):
-    metric = {"eq": 90, "debt": 10, "lc": 50, "mc": 30, "sc": 10}
+    metric = {"eq": 90, "debt": 10, "lc": 50, "mc": 30, "sc": 10, "market_cap_basis": "TOTAL_PORTFOLIO_PCT"}
     metric[field] = value
 
     with pytest.raises(ValueError, match="exposure"):
@@ -87,13 +87,13 @@ def test_sip_metrics_reject_out_of_domain_exposures(field, value):
 
 
 def test_sip_metrics_reject_equity_and_debt_total_over_100_percent():
-    metric = {"eq": 95.1, "debt": 5.0, "lc": 50, "mc": 30, "sc": 10}
+    metric = {"eq": 95.1, "debt": 5.0, "lc": 50, "mc": 30, "sc": 10, "market_cap_basis": "TOTAL_PORTFOLIO_PCT"}
 
     with pytest.raises(ValueError, match="exceeds 100%"):
         _validate_sip_metrics_exposures(metric, scheme_id="scheme-1")
 
 
 def test_sip_metrics_accept_finite_bounded_exposures():
-    metric = {"eq": 90, "debt": 10, "lc": 50, "mc": 30, "sc": 10}
+    metric = {"eq": 90, "debt": 10, "lc": 50, "mc": 30, "sc": 10, "market_cap_basis": "TOTAL_PORTFOLIO_PCT"}
 
     _validate_sip_metrics_exposures(metric, scheme_id="scheme-1")
