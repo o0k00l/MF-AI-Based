@@ -371,3 +371,19 @@ def test_custom_saa_policy_default_distribution_must_reconcile():
     }
     with pytest.raises(service.PortfolioInputError, match="must reconcile to 100%"):
         service._custom_saa_sleeve_targets(target, policy)
+
+
+def test_custom_saa_requires_matching_independent_risk_ceiling():
+    target = AssetAllocationTarget(
+        equity_pct=60.0, debt_pct=40.0, cash_pct=0.0,
+        risk_ceiling=4,
+    )
+    assert service._resolve_custom_saa_risk_ceiling(target, {"risk_ceiling": 4}) == 4
+    assert service._resolve_custom_saa_risk_ceiling(target, {}) == 4
+    with pytest.raises(service.PortfolioInputError, match="conflicts"):
+        service._resolve_custom_saa_risk_ceiling(target, {"risk_ceiling": 3})
+    with pytest.raises(service.PortfolioInputError, match="integer risk ceiling"):
+        service._resolve_custom_saa_risk_ceiling(
+            target.model_copy(update={"risk_ceiling": None}),
+            {"risk_ceiling": 4.0},
+        )
