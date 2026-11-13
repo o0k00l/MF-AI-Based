@@ -102,13 +102,16 @@ def extract_mandate_evidence_from_transaction(
     extra_fields: dict | None = None,
 ) -> dict:
     """
-    Issue #106: Extract authenticated registrar mandate evidence (UMRN, registration number,
-    mandate ID, and mandate status) from transaction descriptions and metadata.
-    
+    Issue #106: Extract mandate identifiers and status claims from CAS transaction
+    descriptions and metadata without treating those claims as authenticated evidence.
+
     Distinguishes:
-    - Authenticated mandate with verifiable registrar ID (UMRN, REG NO, Mandate ID, OTM ID)
-    - Generic transaction text with no mandate identity
-    - Paused / Cancelled / Expired / Failed mandate states
+    - Mandate identifier found in transaction text
+    - Active status claimed by transaction text (not issuer-authenticated)
+    - Paused / Cancelled / Expired / Failed status claims
+
+    A provider-authenticated mandate requires a separately verified, signed
+    schedule bound to its original source bytes and investor/scheme identity.
     """
     import re
     
