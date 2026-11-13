@@ -162,14 +162,14 @@ class EvidenceBundleBuilder:
             normalized_metrics_bytes = (staging_dir / "metrics.json").read_bytes()
             normalized_metrics_sha256 = hashlib.sha256(normalized_metrics_bytes).hexdigest()
 
-            m_url = metrics_source_url or metrics_payload.get("source_url")
+            m_url = metrics_source_url or metrics_source_metadata.get("source_url") or metrics_payload.get("source_url")
             if not m_url or not str(m_url).strip():
                 raise ValueError("Authoritative fund metrics source URL is missing; synthetic defaults are prohibited.")
 
             if not isinstance(metrics_payload.get("funds"), list) or not metrics_payload["funds"]:
                 raise ValueError("Normalized fund metrics must contain a non-empty funds array.")
             metrics_source_metadata = dict(metrics_source_metadata)
-            required_metrics_metadata = ("publisher", "coverage_scope", "policy_version", "reviewer_id", "reviewer_approval_envelope")
+            required_metrics_metadata = ("source_url", "effective_date", "source_type", "publisher", "coverage_scope", "policy_version", "reviewer_id", "reviewer_approval_envelope")
             missing_metrics_metadata = [
                 key for key in required_metrics_metadata
                 if metrics_source_metadata.get(key) is None
@@ -181,8 +181,8 @@ class EvidenceBundleBuilder:
                 "source_url": str(m_url).strip(),
                 "source_document_sha256": metrics_source_sha256,
                 "reviewer_attested": reviewer_attested,
-                "effective_date": as_of.isoformat(),
-                "source_type": "OFFICIAL_FUND_METRICS",
+                "effective_date": metrics_source_metadata["effective_date"],
+                "source_type": metrics_source_metadata["source_type"],
                 "normalized_metrics_sha256": normalized_metrics_sha256,
                 "publisher": metrics_source_metadata["publisher"],
                 "coverage_scope": metrics_source_metadata["coverage_scope"],
@@ -191,6 +191,8 @@ class EvidenceBundleBuilder:
                 "reviewer_id": metrics_source_metadata["reviewer_id"],
                 "reviewer_approval_envelope": metrics_source_metadata["reviewer_approval_envelope"],
             }
+            if metrics_metadata["source_url"] != str(m_url).strip():
+                raise ValueError("Metrics source URL conflicts with signed source metadata.")
             if not isinstance(metrics_metadata["reviewer_approval_envelope"], dict):
                 raise ValueError("Metrics reviewer approval envelope must be a mapping.")
             if metrics_metadata["reviewer_approval_envelope"].get("payload", {}).get("reviewer_id") != metrics_metadata["reviewer_id"]:
@@ -319,7 +321,7 @@ class EvidenceBundleBuilder:
                     raise ValueError("Alias evidence requires unchanged original publisher source bytes.")
                 if not isinstance(aliases_source_metadata, dict):
                     raise ValueError("Alias evidence requires source metadata and an independent reviewer approval.")
-                aliases_required = ("source_url", "publisher", "coverage_scope", "policy_version", "reviewer_id", "reviewer_approval_envelope")
+                aliases_required = ("source_url", "effective_date", "source_type", "publisher", "coverage_scope", "policy_version", "reviewer_id", "reviewer_approval_envelope")
                 missing_alias_metadata = [
                     key for key in aliases_required
                     if aliases_source_metadata.get(key) is None
@@ -339,8 +341,8 @@ class EvidenceBundleBuilder:
                     "source_url": str(aliases_source_metadata["source_url"]).strip(),
                     "source_document_sha256": hashlib.sha256(aliases_source_bytes).hexdigest(),
                     "reviewer_attested": reviewer_attested,
-                    "effective_date": as_of.isoformat(),
-                    "source_type": "REVIEWED_SCHEME_NAME_ALIASES",
+                    "effective_date": aliases_source_metadata["effective_date"],
+                    "source_type": aliases_source_metadata["source_type"],
                     "normalized_aliases_sha256": alias_normalized_sha256,
                     "publisher": aliases_source_metadata["publisher"],
                     "coverage_scope": aliases_source_metadata["coverage_scope"],
