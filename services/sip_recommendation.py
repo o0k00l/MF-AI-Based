@@ -272,17 +272,24 @@ _TOTAL_PORTFOLIO_SLEEVES = (
 def _validate_active_sip_commitments(context: dict[str, Any], as_of: date) -> dict[str, Any]:
     """Validate the provider-attested mandate schedule before affordability."""
     evidence = context.get("sip_mandate_evidence")
-    if context.get("evidence_attested_by_provider") is not True or context.get("_client_supplied_unverified") is True:
+    if context.get("_client_supplied_unverified") is True:
         return {"status": "HOLD", "reason": "SIP_MANDATE_EVIDENCE_NOT_PROVIDER_AUTHENTICATED"}
     if not isinstance(evidence, dict):
         return {"status": "HOLD", "reason": "ACTIVE_SIP_MANDATE_EVIDENCE_MISSING"}
     if evidence.get("coverage_status") != "COMPLETE":
         return {"status": "HOLD", "reason": "ACTIVE_SIP_MANDATE_COVERAGE_INCOMPLETE"}
     owner_ref = context.get("investor_owner_ref")
-    def valid_ref(value: Any) -> bool:
-        return isinstance(value, str) and len(value) == 71 and value.startswith("sha256:") and all(c in "0123456789abcdef" for c in value[7:])
     if not isinstance(owner_ref, str) or not owner_ref.strip():
         return {"status": "HOLD", "reason": "SIP_MANDATE_INVESTOR_IDENTITY_MISSING"}
+    try:
+        from services.sip_mandate_auth import verify_mandate_schedule
+        signature_verification = verify_mandate_schedule(
+            evidence, owner_ref=owner_ref, as_of=as_of,
+        )
+    except (ValueError, TypeError, OSError):
+        return {"status": "HOLD", "reason": "SIP_MANDATE_SIGNATURE_VERIFICATION_FAILED"}
+    def valid_ref(value: Any) -> bool:
+        return isinstance(value, str) and len(value) == 71 and value.startswith("sha256:") and all(c in "0123456789abcdef" for c in value[7:])
     if not valid_ref(evidence.get("source_ref")):
         return {"status": "HOLD", "reason": "SIP_MANDATE_SCHEDULE_SOURCE_REFERENCE_INVALID"}
     mandates = evidence.get("mandates")
@@ -308,6 +315,13 @@ def _validate_active_sip_commitments(context: dict[str, Any], as_of: date) -> di
             return {"status": "HOLD", "reason": f"SIP_MANDATE_RECORD_{index}_AUTHENTICATION_UNVERIFIED"}
         if not valid_ref(mandate.get("evidence_ref")):
             return {"status": "HOLD", "reason": f"SIP_MANDATE_RECORD_{index}_SOURCE_REFERENCE_INVALID"}
+        try:
+            import rfc8785
+            record_digest = hashlib.sha256(rfc8785.dumps(mandate)).hexdigest()
+        except Exception:
+            return {"status": "HOLD", "reason": f"SIP_MANDATE_RECORD_{index}_CANONICAL_BINDING_INVALID"}
+        if mandate["evidence_ref"] != "sha256:" + record_digest:
+            return {"status": "HOLD", "reason": f"SIP_MANDATE_RECORD_{index}_SOURCE_BINDING_MISMATCH"}
         status = mandate.get("status")
         if status not in allowed_statuses:
             return {"status": "HOLD", "reason": f"SIP_MANDATE_RECORD_{index}_STATUS_UNKNOWN"}
@@ -333,7 +347,8 @@ def _validate_active_sip_commitments(context: dict[str, Any], as_of: date) -> di
             "active_mandate_count": active_count, "inactive_mandate_count": inactive_count,
             "existing_monthly_sip_commitments_inr": str(quantize_inr(total)),
             "schedule_source_ref": evidence["source_ref"],
-            "commitment_evidence_basis": "PROVIDER_ATTESTED_SOURCE_BOUND_MANDATE_SCHEDULE"}
+            "commitment_evidence_basis": "ED25519_VERIFIED_SOURCE_AND_OWNER_BOUND_MANDATE_SCHEDULE",
+            "signature_verification": signature_verification}
 
 
 def _assess_complete_portfolio_context(
