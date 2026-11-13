@@ -369,6 +369,17 @@ def test_exact_metrics_provenance_rejects_missing_or_invalid_record_lineage(over
         )
 
 
+def test_exact_metrics_provenance_rejects_empty_metrics_snapshot():
+    from core.math_engine import _validate_metrics_provenance
+
+    with pytest.raises(ValueError, match="non-empty metrics snapshot"):
+        _validate_metrics_provenance(
+            {},
+            _exact_scheme_master(),
+            require_exact_identity=True,
+        )
+
+
 def test_exact_metrics_provenance_rejects_missing_or_unverified_scheme_master():
     from core.math_engine import _validate_metrics_provenance
 
