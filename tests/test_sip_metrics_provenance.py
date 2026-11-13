@@ -232,6 +232,11 @@ def test_verified_aliases_file_passes_validation(tmp_path):
         "reviewer_attested": True,
         "effective_date": "2026-11-04",
         "source_type": "AMFI_ALIASES",
+        "publisher": "AMFI",
+        "coverage_scope": "Scheme-name variants",
+        "record_count": 1,
+        "reviewer_id": "independent-reviewer",
+        "policy_version": "alias-resolution-v1",
         "normalized_aliases_sha256": hashlib.sha256(aliases_file.read_bytes()).hexdigest(),
     }
     payload["aliases_source_bytes"] = raw_source
@@ -262,6 +267,11 @@ def test_aliases_reject_malformed_or_empty_mappings(tmp_path, alias_payload):
         "reviewer_attested": True,
         "effective_date": "2026-11-04",
         "source_type": "AMFI_ALIASES",
+        "publisher": "AMFI",
+        "coverage_scope": "Scheme-name variants",
+        "record_count": 1,
+        "reviewer_id": "independent-reviewer",
+        "policy_version": "alias-resolution-v1",
         "normalized_aliases_sha256": hashlib.sha256(aliases_file.read_bytes()).hexdigest(),
     }
     payload["aliases_source_bytes"] = raw_source
