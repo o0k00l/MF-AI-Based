@@ -6,6 +6,8 @@ manufactures or substitutes source evidence.
 """
 from __future__ import annotations
 
+import base64
+import binascii
 import hashlib
 import json
 import os
@@ -272,6 +274,26 @@ def build_sip_evidence_provider(
         portfolio_context_source = _resolve_bundle_file(root, manifest["portfolio_context_source_file"], label="portfolio_context_source_file").read_bytes()
         if not isinstance(portfolio_context, dict):
             raise ValueError("portfolio_context_file must contain a JSON object.")
+        mandate_evidence = portfolio_context.get("sip_mandate_evidence")
+        if mandate_evidence is not None:
+            if not isinstance(mandate_evidence, dict):
+                raise ValueError("portfolio_context sip_mandate_evidence must be a JSON object.")
+            encoded_source = mandate_evidence.pop("source_bytes_base64", None)
+            if "source_bytes" in mandate_evidence:
+                raise ValueError("portfolio_context mandate source bytes must use source_bytes_base64 in the JSON bundle.")
+            if not isinstance(encoded_source, str) or not encoded_source:
+                raise ValueError("portfolio_context mandate schedule requires original source_bytes_base64.")
+            try:
+                mandate_source_bytes = base64.b64decode(encoded_source, validate=True)
+            except (ValueError, binascii.Error) as exc:
+                raise ValueError("portfolio_context mandate source_bytes_base64 is malformed.") from exc
+            if (
+                not mandate_source_bytes
+                or len(mandate_source_bytes) > 20 * 1024 * 1024
+                or base64.b64encode(mandate_source_bytes).decode("ascii") != encoded_source
+            ):
+                raise ValueError("portfolio_context mandate source bytes are empty, oversized or non-canonical.")
+            mandate_evidence["source_bytes"] = mandate_source_bytes
         if not isinstance(portfolio_context_metadata, dict) or portfolio_context_metadata.get(
             "normalized_portfolio_context_sha256"
         ) != hashlib.sha256(portfolio_context_normalized_bytes).hexdigest():
