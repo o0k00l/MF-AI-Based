@@ -378,12 +378,13 @@ def test_exact_metrics_provenance_rejects_missing_or_unverified_scheme_master():
             {"status": "UNVERIFIED", "schemes": _exact_scheme_master()["schemes"]},
             require_exact_identity=True,
         )
-    with pytest.raises(ValueError, match="non-empty verified scheme master"):
-        _validate_metrics_provenance(
-            {"scheme-direct-1": _exact_metrics_record()},
-            None,
-            require_exact_identity=True,
-        )
+    missing_master = _validate_metrics_provenance(
+        {"scheme-direct-1": _exact_metrics_record()},
+        None,
+        require_exact_identity=True,
+    )
+    assert missing_master["status"] == "MISSING"
+    assert missing_master["identity_complete"] is False
 
 
 def test_exact_metrics_provenance_rejects_duplicate_scheme_or_isin_records():
