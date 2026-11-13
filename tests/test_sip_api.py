@@ -729,28 +729,30 @@ def test_api_derives_provider_attestation_only_from_mandate_signature_verificati
     )
     observed_contexts = []
 
+    cached_provider_payload = {
+        "metrics_path": Path(__file__),
+        "aliases_path": None,
+        "scheme_master": {},
+        "scheme_master_source_bytes": b"scheme-master",
+        "portfolio_disclosures_by_scheme_id": {},
+        "portfolio_disclosure_source_bytes_by_scheme_id": {},
+        "disclosure_as_of_date": date.today(),
+        "candidate_universe": [],
+        "portfolio_context": {
+            "as_of_date": date.today().isoformat(),
+            "investor_owner_ref": "investor-1",
+            "sip_mandate_evidence": {"coverage_status": "COMPLETE"},
+            # An upstream boolean must never override cryptographic verification.
+            "evidence_attested_by_provider": True,
+        },
+        "portfolio_context_source_metadata": {
+            "source_document_sha256": "a" * 64,
+        },
+        "portfolio_context_source_bytes": b"reviewed-portfolio-context",
+    }
+
     def provider(**kwargs):
-        return {
-            "metrics_path": Path(__file__),
-            "aliases_path": None,
-            "scheme_master": {},
-            "scheme_master_source_bytes": b"scheme-master",
-            "portfolio_disclosures_by_scheme_id": {},
-            "portfolio_disclosure_source_bytes_by_scheme_id": {},
-            "disclosure_as_of_date": date.today(),
-            "candidate_universe": [],
-            "portfolio_context": {
-                "as_of_date": date.today().isoformat(),
-                "investor_owner_ref": "investor-1",
-                "sip_mandate_evidence": {"coverage_status": "COMPLETE"},
-                # An upstream boolean must never override cryptographic verification.
-                "evidence_attested_by_provider": True,
-            },
-            "portfolio_context_source_metadata": {
-                "source_document_sha256": "a" * 64,
-            },
-            "portfolio_context_source_bytes": b"reviewed-portfolio-context",
-        }
+        return cached_provider_payload
 
     def capture_service_inputs(**kwargs):
         observed_contexts.append(kwargs["portfolio_context"])
@@ -778,8 +780,7 @@ def test_api_derives_provider_attestation_only_from_mandate_signature_verificati
         assert observed_contexts[-1]["mandate_evidence_signature_verified"] is expected
 
     # The provider's cached source object was not mutated by request handling.
-    original = provider()
-    assert original["portfolio_context"]["evidence_attested_by_provider"] is True
+    assert cached_provider_payload["portfolio_context"]["evidence_attested_by_provider"] is True
 
 
 def test_provider_mandate_verification_rejects_incomplete_or_invalid_context(monkeypatch):
