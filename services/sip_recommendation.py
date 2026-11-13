@@ -1311,11 +1311,11 @@ def recommend_sip(
     if not isinstance(candidate_universe, list) or not candidate_universe:
         return _hold_plan(budget, ["A source-verified candidate universe is required."])
     try:
-        from core.eligibility import load_fund_screening_policy
-        screening_policy = load_fund_screening_policy()
+        from core.eligibility import load_fund_screening_policy, freeze_policy_snapshot
+        screening_policy = freeze_policy_snapshot(load_fund_screening_policy())
         allocation_policy_path = Path(__file__).resolve().parents[1] / "data" / "policy" / "asset_allocation.json"
         allocation_policy_bytes = allocation_policy_path.read_bytes()
-        allocation_policy = json.loads(allocation_policy_bytes.decode("utf-8"))
+        allocation_policy = freeze_policy_snapshot(json.loads(allocation_policy_bytes.decode("utf-8")))
         if not isinstance(allocation_policy, dict) or not isinstance(allocation_policy.get("as_of"), str):
             raise ValueError("Allocation policy must declare an as_of date")
         allocation_as_of = date.fromisoformat(allocation_policy["as_of"])
