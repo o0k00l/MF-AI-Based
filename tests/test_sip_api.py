@@ -642,6 +642,11 @@ def test_canonical_sip_upload_verifies_signed_independent_statement_review(monke
         "scheme_master_source_bytes": b"master", "portfolio_disclosures_by_scheme_id": {},
         "portfolio_disclosure_source_bytes_by_scheme_id": {}, "disclosure_as_of_date": date(2026, 11, 12),
         "candidate_universe": [],
+        # A generic reviewer-attested portfolio document must not become
+        # provider-authenticated SIP mandate evidence at the API boundary.
+        "portfolio_context": {"sip_mandate_evidence": {"coverage_status": "COMPLETE", "mandates": []}},
+        "portfolio_context_source_metadata": {"source_document_sha256": "a" * 64},
+        "portfolio_context_source_bytes": b"reviewer-attested portfolio context",
     })
     captured = {}
     def service(**kwargs):
@@ -661,6 +666,8 @@ def test_canonical_sip_upload_verifies_signed_independent_statement_review(monke
     assert provenance["authenticated_publisher"] == "CAMS"
     assert provenance["publisher_authenticity_status"] == "AUTHENTICATED_SOURCE"
     assert captured["statement_provenance"] == provenance
+    assert captured["portfolio_context"]["evidence_attested_by_provider"] is False
+    assert captured["portfolio_context"]["_source_bundle_sha256"] == "a" * 64
     assert hashlib.sha256(raw).hexdigest() == provenance["source_sha256"]
 
     # A structurally valid upload without a signed reviewer envelope must not
