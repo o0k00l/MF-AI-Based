@@ -1356,7 +1356,7 @@ def _validate_metrics_provenance(
                         )
                     elif normalize(metric_value) != normalize(master_value):
                         identity_errors.append(
-                            f"Metrics record {fid!r} {label} conflicts with verified scheme master for {sid!r}."
+                            f"Metrics record {fid!r} {label} conflicts with scheme master (verified) for {sid!r}."
                         )
 
     # Exact-identity metrics require one coherent, fully populated snapshot.
