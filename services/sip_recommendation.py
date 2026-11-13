@@ -515,9 +515,19 @@ def _assess_complete_portfolio_context(
         liquidity_input = context["liquidity"]
         mandate_assessment = _validate_active_sip_commitments(context, valuation_date)
         if mandate_assessment.get("status") != "VERIFIED":
-            return {"status": "HOLD", "reason": mandate_assessment.get("reason"),
-                    "active_sip_commitments": mandate_assessment,
-                    "recommendation_authorized": False, "execution_authorized": False}
+            return {
+                "status": "HOLD",
+                "reason": mandate_assessment.get("reason"),
+                "active_sip_commitments": mandate_assessment,
+                "trust_level": (
+                    "UNVERIFIED_CLIENT_DECLARATIONS"
+                    if context.get("_client_supplied_unverified") is True
+                    else "PROVIDER_ATTESTATION_REQUIRED"
+                ),
+                "all_input_gates_pass": False,
+                "recommendation_authorized": False,
+                "execution_authorized": False,
+            }
         existing_monthly_sip_commitments = Decimal(mandate_assessment["existing_monthly_sip_commitments_inr"])
         fixed_monthly_outflows = quantize_inr(liquidity_input["monthly_debt_service_inr"]) + existing_monthly_sip_commitments
         liquidity = assess_liquidity_and_sip_surplus(
