@@ -112,18 +112,28 @@ def test_interactive_query_prompt_minimization(monkeypatch):
     response = answer_interactive_query(
         facts,
         "What is my asset allocation?",
+        chat_history=[{
+            "role": "user",
+            "content": "Prior private note CANARY_HISTORY_42 and INR 987,654.32",
+        }],
         external_processing_consent=True,
     )
 
     outbound_prompt = captured["prompt"]
     # Client name must be redacted
     assert "Vikram Seth" not in outbound_prompt
-    # Granular individual holding valuations and gains must NOT be sent to external LLM
-    assert "Val: INR 500,000" not in outbound_prompt
-    assert "Inv: INR 350,000" not in outbound_prompt
-    assert "Gain: INR +150,000" not in outbound_prompt
-    # Instead, relative allocation percentages are included
+    # Exact scheme names and all rupee balances are removed before provider calls.
+    assert "HDFC Top 100 Fund" not in outbound_prompt
+    assert "SBI Small Cap Fund" not in outbound_prompt
+    assert "INR 500,000" not in outbound_prompt
+    assert "INR 350,000" not in outbound_prompt
+    assert "INR +150,000" not in outbound_prompt
+    assert "INR" not in outbound_prompt
+    assert "[REDACTED_FINANCIAL_AMOUNT]" in outbound_prompt
+    # Non-identifying relative allocation percentages remain useful.
     assert "approx 50.0% allocation" in outbound_prompt
+    assert "CANARY_HISTORY_42" not in outbound_prompt
+    assert "987,654.32" not in outbound_prompt
 
 
 def test_classifier_llm_blocks_without_consent(monkeypatch):
@@ -189,3 +199,14 @@ def test_services_fallback_to_statutory_synthesis_without_consent(monkeypatch):
     assert risk_res["status"] == "PREDICTED"
     assert "revealed investment behavior aligns with" in risk_res["ai_behavioral_rationale"].lower()
     assert called == []
+
+def test_privacy_sanitizer_redacts_rupee_amounts_and_exact_holding_identifiers():
+    sanitized = sanitize_prompt_for_privacy(
+        "Investor holds HDFC Top 100 Fund in folio FOLIO-88991 with INR 12,34,567.89.",
+        sensitive_identifiers=["HDFC Top 100 Fund", "FOLIO-88991"],
+    )
+    assert "HDFC Top 100 Fund" not in sanitized
+    assert "FOLIO-88991" not in sanitized
+    assert "12,34,567.89" not in sanitized
+    assert "[REDACTED_FINANCIAL_AMOUNT]" in sanitized
+
