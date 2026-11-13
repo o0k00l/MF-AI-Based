@@ -888,6 +888,12 @@ def test_screening_policy_snapshot_is_shared_with_engine_and_decision_trace(tmp_
 
     def load_snapshot_once():
         calls["count"] += 1
+        if calls["count"] > 1:
+            import traceback
+            raise AssertionError(
+                "Screening policy was independently loaded more than once: "
+                + "".join(traceback.format_stack(limit=8))
+            )
         return snapshot
 
     captured = {}
