@@ -325,7 +325,12 @@ def validate_evidence_provider_payload(
             raise EvidenceProviderContractError("Fund metrics metadata requires publisher identity.")
         if not isinstance(metrics_metadata.get("coverage_scope"), str) or not metrics_metadata["coverage_scope"].strip():
             raise EvidenceProviderContractError("Fund metrics metadata requires coverage_scope.")
-        if metrics_metadata.get("record_count") != len(normalized_metrics["funds"]):
+        metrics_record_count = metrics_metadata.get("record_count")
+        if (
+            isinstance(metrics_record_count, bool)
+            or not isinstance(metrics_record_count, int)
+            or metrics_record_count != len(normalized_metrics["funds"])
+        ):
             raise EvidenceProviderContractError("Fund metrics record_count does not match normalized records.")
         if not isinstance(metrics_metadata.get("policy_version"), str) or not metrics_metadata["policy_version"].strip():
             raise EvidenceProviderContractError("Fund metrics metadata requires policy_version.")
@@ -819,7 +824,12 @@ def validate_evidence_provider_payload(
                 raise EvidenceProviderContractError("Fund aliases reviewer_id must match the signed approval identity.")
             if not isinstance(metadata.get("coverage_scope"), str) or not metadata["coverage_scope"].strip():
                 raise EvidenceProviderContractError("Fund aliases require an explicit coverage_scope.")
-            if metadata.get("record_count") != len(normalized_alias_owners):
+            alias_record_count = metadata.get("record_count")
+            if (
+                isinstance(alias_record_count, bool)
+                or not isinstance(alias_record_count, int)
+                or alias_record_count != len(normalized_alias_owners)
+            ):
                 raise EvidenceProviderContractError("Fund aliases record_count does not match normalized alias coverage.")
             for target_id in target_ids:
                 if target_id not in scheme_index:
