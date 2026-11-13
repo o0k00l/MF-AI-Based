@@ -16,7 +16,7 @@ openpyxl==3.1.5               # Read .xlsx capital-gains and portfolio statement
 msoffcrypto-tool>=5.0.0       # Decrypt password-protected Microsoft Excel files
 casparser==1.4.1              # Industry-standard CAMS / KFintech CAS PDF parsing
 casparser-isin==2026.6.9      # ISIN lookup database for mutual fund schemes
-pypdf>=4.0.0                  # Fallback PDF parsing and text stream extraction
+pypdf>=7.0.0                  # Fallback PDF parsing and text stream extraction
 
 # --- Numerical Math & Tabular Processing ---
 pandas>=3.1.0                 # Tabular data manipulation for Streamlit views and reports
