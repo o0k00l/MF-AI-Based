@@ -535,7 +535,7 @@ def _assess_complete_portfolio_context(
         stress = stress_test_sip_affordability(
             monthly_net_income_inr=liquidity_input["monthly_net_income_inr"],
             essential_monthly_expenses_inr=liquidity_input["essential_monthly_expenses_inr"],
-            monthly_debt_service_inr=liquidity_input["monthly_debt_service_inr"],
+            monthly_debt_service_inr=fixed_monthly_outflows,
             proposed_monthly_sip_inr=monthly_budget_inr,
             scenarios=context.get("stress_scenarios", []),
         )
