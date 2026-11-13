@@ -1191,9 +1191,9 @@ olefile==0.47 \
     --hash=sha256:543c7da2a7adadf21214938bb79c83ea12b473a4b6ee4ad4bf854e7715e13d1f \
     --hash=sha256:599383381a0bf3dfbd932ca0ca6515acd174ed48870cbf7fee123d698c192c1c
     # via msoffcrypto-tool
-openai==3.43.0 \
-    --hash=sha256:b5e6880586709df7ba002d0a2d4b97b960fc8fa6696a8abe29fbcf24ed2edd67 \
-    --hash=sha256:d8dfc6a187b587769f56fc00c7b8d2cb7715e65583d587eee0f0a99c6cf49d12
+openai==3.48.0 \
+    --hash=sha256:1a798238712133c237712907cc68a059c10b264ca284b9d7f1c253212db67802 \
+    --hash=sha256:8786c46c2496baef3ca840ff6abff59882a7735b08f610bfe96fcf407338527d
     # via -r requirements.txt
 openpyxl==3.1.5 \
     --hash=sha256:5282c12b107bffeef825f4617dc029afaf41d0ea60823bbb665ef3079dc79de2 \
