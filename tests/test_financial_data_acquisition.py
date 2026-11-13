@@ -31,12 +31,16 @@ from cryptography.hazmat.primitives import serialization
 import base64
 
 class CallableEnvelope(dict):
-    def __init__(self, d, signer):
+    def __init__(self, d, signer, source_signer):
         super().__init__(d)
         self._signer = signer
+        self._source_signer = source_signer
 
     def __call__(self, digest: str) -> dict:
         return self._signer(digest)
+
+    def source_approval(self, source_bytes: bytes, structured_records: Any) -> dict:
+        return self._source_signer(source_bytes, structured_records)
 
 
 def _make_test_approval(
@@ -73,10 +77,20 @@ def _make_test_approval(
             artifact_digest=art_dig,
         )
 
+    def sign_source(source_bytes: bytes, structured_records: Any) -> dict:
+        return create_sip_reviewer_approval_envelope(
+            priv,
+            key_id="test-key-1",
+            reviewer_id="test-reviewer-1",
+            scope="SIP_EVIDENCE_RELEASE",
+            source_bytes=source_bytes,
+            structured_records=structured_records,
+        )
+
     base_env = sign(artifact_digest or "0" * 64)
     if artifact_digest is not None:
         return base_env, registry
-    return CallableEnvelope(base_env, sign), registry
+    return CallableEnvelope(base_env, sign, sign_source), registry
 
 
 def _sample_amfi_nav_bytes(as_of: date) -> bytes:
@@ -125,6 +139,61 @@ def _sample_scheme_master_dict(as_of: date) -> dict:
             },
         ],
     }
+
+
+def _metrics_payload_for(master: dict, source_bytes: bytes, as_of: date) -> dict:
+    source_ref = "sha256:" + hashlib.sha256(source_bytes).hexdigest()
+    funds = []
+    for scheme in master["schemes"]:
+        funds.append({
+            "id": scheme["scheme_id"],
+            "scheme_id": scheme["scheme_id"],
+            "isin": scheme["isin"],
+            "amc_name": scheme["amc_name"],
+            "category": scheme["category"],
+            "cat": scheme["category"],
+            "plan_type": scheme["plan_type"],
+            "option_type": scheme["option_type"],
+            "benchmark_identity": scheme["benchmark_identity"],
+            "effective_date": as_of.isoformat(),
+            "source_ref": source_ref,
+            "eq": 100.0,
+            "debt": 0.0,
+            "lc": 60.0,
+            "mc": 25.0,
+            "sc": 15.0,
+            "market_cap_basis": "TOTAL_PORTFOLIO_PCT",
+            "ter_plan": "direct",
+            "er": 0.65,
+            "nav": "82.45",
+            "h": [],
+        })
+    return {"funds": funds}
+
+
+def _metrics_source_metadata(
+    metrics_payload: dict, source_bytes: bytes, as_of: date, source_url: str, approval: CallableEnvelope
+) -> dict:
+    normalized_bytes = json.dumps(metrics_payload, indent=2, sort_keys=True).encode("utf-8")
+    metadata = {
+        "source_url": source_url,
+        "source_document_sha256": hashlib.sha256(source_bytes).hexdigest(),
+        "reviewer_attested": True,
+        "effective_date": as_of.isoformat(),
+        "source_type": "OFFICIAL_FUND_METRICS",
+        "normalized_metrics_sha256": hashlib.sha256(normalized_bytes).hexdigest(),
+        "publisher": "AMFI",
+        "coverage_scope": "All fund metrics records in the reviewed source snapshot",
+        "record_count": len(metrics_payload["funds"]),
+        "policy_version": "fund-metrics-v1",
+        "reviewer_id": "test-reviewer-1",
+    }
+    signed_records = {
+        "funds": metrics_payload["funds"],
+        "metadata": metadata,
+    }
+    metadata["reviewer_approval_envelope"] = approval.source_approval(source_bytes, signed_records)
+    return metadata
 
 
 def test_amfi_nav_adapter_parses_valid_feed_and_preserves_decimal():
