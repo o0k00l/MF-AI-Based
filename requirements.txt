@@ -24,7 +24,7 @@ scipy>=1.10.0                 # Brent's method root-finding for XIRR & portfolio
 python-dateutil>=2.8.0        # Robust financial date parsing and calendar math
 
 # --- Web UI & Dashboard ---
-streamlit==1.66.1  # Pillow 13 compatible; 1.65.0 pins Pillow below 13             # Interactive advisory wizard and client inspection UI
+streamlit==1.67.0  # Pillow 13 compatible; 1.65.0 pins Pillow below 13             # Interactive advisory wizard and client inspection UI
 
 # --- AI Providers & Qualitative Verification ---
 google-genai==1.5.0           # Google Gemini API SDK for qualitative research
