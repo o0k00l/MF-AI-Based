@@ -18,7 +18,22 @@ def _base_payload(tmp_path):
     factsheet_bytes = b"AMC factsheet for Scheme A Direct Growth"
 
     metrics_file = tmp_path / "fund_metrics.json"
-    metrics_file.write_bytes(b'{"funds": []}')
+    metrics_record = {
+        "id": "SCHEME_DIRECT_1",
+        "scheme_id": "SCHEME_DIRECT_1",
+        "isin": "INF000000001",
+        "amc_name": "AMC One",
+        "category": "Flexi Cap Equity",
+        "cat": "Flexi Cap Equity",
+        "plan_type": "Direct",
+        "option_type": "Growth",
+        "benchmark_identity": "NIFTY 500 TRI",
+        "effective_date": "2026-11-04",
+        "source_ref": "sha256:" + hashlib.sha256(metrics_bytes).hexdigest(),
+        "eq": 100.0, "debt": 0.0, "lc": 50.0, "mc": 30.0, "sc": 20.0,
+        "market_cap_basis": "TOTAL_PORTFOLIO_PCT",
+    }
+    metrics_file.write_text(json.dumps({"funds": [metrics_record]}), encoding="utf-8")
 
     # Create actual factsheet file for evidence
     (tmp_path / "factsheet.pdf").write_bytes(factsheet_bytes)
@@ -115,6 +130,11 @@ def _base_payload(tmp_path):
             "effective_date": "2026-11-04",
             "source_type": "AMFI_FUND_METRICS",
             "normalized_metrics_sha256": hashlib.sha256(metrics_file.read_bytes()).hexdigest(),
+            "publisher": "AMFI",
+            "coverage_scope": "ALL_REGISTERED_DIRECT_FLEXI_CAP",
+            "record_count": 1,
+            "reviewer_id": "independent-reviewer",
+            "policy_version": "holdings-metrics-v1",
         },
         "metrics_source_bytes": metrics_bytes,
         "aliases_path": None,
@@ -162,6 +182,11 @@ def test_aliases_file_sha_mismatch_is_rejected(tmp_path):
         "reviewer_attested": True,
         "effective_date": "2026-11-04",
         "source_type": "AMFI_ALIASES",
+        "publisher": "AMFI",
+        "coverage_scope": "Scheme-name variants",
+        "record_count": 1,
+        "reviewer_id": "independent-reviewer",
+        "policy_version": "alias-resolution-v1",
         "normalized_aliases_sha256": "0" * 64,
     }
     payload["aliases_source_bytes"] = raw_source
@@ -182,6 +207,11 @@ def test_alias_target_absent_from_scheme_master_is_rejected(tmp_path):
         "reviewer_attested": True,
         "effective_date": "2026-11-04",
         "source_type": "AMFI_ALIASES",
+        "publisher": "AMFI",
+        "coverage_scope": "Scheme-name variants",
+        "record_count": 1,
+        "reviewer_id": "independent-reviewer",
+        "policy_version": "alias-resolution-v1",
         "normalized_aliases_sha256": hashlib.sha256(aliases_file.read_bytes()).hexdigest(),
     }
     payload["aliases_source_bytes"] = raw_source
@@ -250,6 +280,8 @@ def _exact_metrics_record(**overrides):
         "benchmark_identity": "NIFTY 500 TRI",
         "effective_date": "2026-11-04",
         "source_ref": "sha256:" + "a" * 64,
+        "eq": 80.0, "debt": 20.0, "lc": 50.0, "mc": 20.0, "sc": 10.0,
+        "market_cap_basis": "TOTAL_PORTFOLIO_PCT",
     }
     record.update(overrides)
     return record
