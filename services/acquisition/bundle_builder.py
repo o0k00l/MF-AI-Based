@@ -162,13 +162,15 @@ class EvidenceBundleBuilder:
             normalized_metrics_bytes = (staging_dir / "metrics.json").read_bytes()
             normalized_metrics_sha256 = hashlib.sha256(normalized_metrics_bytes).hexdigest()
 
+            if not isinstance(metrics_source_metadata, dict):
+                raise ValueError("Metrics source metadata is required for evidence promotion.")
+            metrics_source_metadata = dict(metrics_source_metadata)
             m_url = metrics_source_url or metrics_source_metadata.get("source_url") or metrics_payload.get("source_url")
             if not m_url or not str(m_url).strip():
                 raise ValueError("Authoritative fund metrics source URL is missing; synthetic defaults are prohibited.")
 
             if not isinstance(metrics_payload.get("funds"), list) or not metrics_payload["funds"]:
                 raise ValueError("Normalized fund metrics must contain a non-empty funds array.")
-            metrics_source_metadata = dict(metrics_source_metadata)
             required_metrics_metadata = ("source_url", "effective_date", "source_type", "publisher", "coverage_scope", "policy_version", "reviewer_id", "reviewer_approval_envelope")
             missing_metrics_metadata = [
                 key for key in required_metrics_metadata
