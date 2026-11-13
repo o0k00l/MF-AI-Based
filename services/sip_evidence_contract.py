@@ -320,7 +320,17 @@ def validate_evidence_provider_payload(
             raise EvidenceProviderContractError(
                 "Fund metrics normalized file is empty or exceeds the 50 MiB limit."
             )
-        normalized_digest = payload["metrics_source_metadata"].get("normalized_metrics_sha256")
+        metrics_metadata = payload["metrics_source_metadata"]
+        if not isinstance(metrics_metadata.get("policy_version"), str) or not metrics_metadata["policy_version"].strip():
+            raise EvidenceProviderContractError("Fund metrics metadata requires policy_version.")
+        if not isinstance(metrics_metadata.get("reviewer_id"), str) or not metrics_metadata["reviewer_id"].strip():
+            raise EvidenceProviderContractError("Fund metrics metadata requires reviewer_id.")
+        if require_reviewer_signature and (
+            metrics_metadata.get("reviewer_approval_envelope", {}).get("payload", {}).get("reviewer_id")
+            != metrics_metadata.get("reviewer_id")
+        ):
+            raise EvidenceProviderContractError("Fund metrics reviewer_id must match the signed approval identity.")
+        normalized_digest = metrics_metadata.get("normalized_metrics_sha256")
         if not isinstance(normalized_digest, str) or not re.fullmatch(r"[0-9a-fA-F]{64}", normalized_digest):
             raise EvidenceProviderContractError(
                 "Fund metrics metadata requires normalized_metrics_sha256."
@@ -754,6 +764,15 @@ def validate_evidence_provider_payload(
                         )
                     normalized_alias_owners[normalized_name] = target_id.strip()
             metadata = payload["aliases_source_metadata"]
+            if not isinstance(metadata.get("policy_version"), str) or not metadata["policy_version"].strip():
+                raise EvidenceProviderContractError("Fund aliases metadata requires policy_version.")
+            if not isinstance(metadata.get("reviewer_id"), str) or not metadata["reviewer_id"].strip():
+                raise EvidenceProviderContractError("Fund aliases metadata requires reviewer_id.")
+            if require_reviewer_signature and (
+                metadata.get("reviewer_approval_envelope", {}).get("payload", {}).get("reviewer_id")
+                != metadata.get("reviewer_id")
+            ):
+                raise EvidenceProviderContractError("Fund aliases reviewer_id must match the signed approval identity.")
             if not isinstance(metadata.get("coverage_scope"), str) or not metadata["coverage_scope"].strip():
                 raise EvidenceProviderContractError("Fund aliases require an explicit coverage_scope.")
             if metadata.get("record_count") != len(normalized_alias_owners):
