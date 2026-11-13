@@ -46,12 +46,15 @@ When this evidence is stored in the filesystem-backed JSON bundle, the JSON fiel
 
 The signed payload has exactly:
 
-- `schema_version` = 1;
+- `schema_version` = 2;
 - `signer_id`, `signer_key_id`, `signer_type`;
 - `owner_ref`;
 - `source_sha256`;
 - `schedule_sha256`;
+- `coverage_status` = `COMPLETE`, explicitly asserted by the trusted signer;
 - `issued_at`, `expires_at`.
+
+The signer must include `coverage_status` inside the RFC 8785 canonical payload before signing. The unsigned outer metadata must exactly match the signed value; an outer `COMPLETE` flag cannot upgrade a signed `PARTIAL` schedule or a schema-v1 envelope.
 
 The signature is Ed25519 over RFC 8785 JSON Canonicalization Scheme bytes of the payload. `source_sha256` must match the original source bytes and `schedule_sha256` must match the canonical normalized mandate list. The signed expiry and trusted key validity must cover the decision as-of date.
 

@@ -59,13 +59,14 @@ def _signed_schedule(*, status: str = "ACTIVE", amount: str = "7500.00",
 
     schedule_sha = hashlib.sha256(rfc8785.dumps(mandates)).hexdigest()
     payload = {
-        "schema_version": 1,
+        "schema_version": 2,
         "signer_id": "registrar-test",
         "signer_key_id": "registrar-key-test-1",
         "signer_type": "REGISTRAR",
         "owner_ref": OWNER,
         "source_sha256": source_sha,
         "schedule_sha256": schedule_sha,
+        "coverage_status": "COMPLETE",
         "issued_at": "2026-11-01T00:00:00Z",
         "expires_at": "2026-12-01T00:00:00Z",
     }
