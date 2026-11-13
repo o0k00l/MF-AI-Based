@@ -314,7 +314,14 @@ def validate_evidence_provider_payload(
             trust_registry=trust_registry,
             require_reviewer_signature=require_reviewer_signature,
             scope="SIP_EVIDENCE_RELEASE",
-            structured_records=normalized_metrics["funds"],
+            structured_records={
+                "funds": normalized_metrics["funds"],
+                "metadata": {
+                    key: metrics_metadata_value
+                    for key, metrics_metadata_value in payload["metrics_source_metadata"].items()
+                    if key != "reviewer_approval_envelope"
+                },
+            },
         )
         if metrics_path.stat().st_size <= 0 or metrics_path.stat().st_size > 50 * 1024 * 1024:
             raise EvidenceProviderContractError(
@@ -747,7 +754,14 @@ def validate_evidence_provider_payload(
             trust_registry=trust_registry,
             require_reviewer_signature=require_reviewer_signature,
             scope="SIP_EVIDENCE_RELEASE",
-            structured_records=alias_data,
+            structured_records={
+                "aliases": alias_data,
+                "metadata": {
+                    key: alias_metadata_value
+                    for key, alias_metadata_value in payload["aliases_source_metadata"].items()
+                    if key != "reviewer_approval_envelope"
+                },
+            },
         )
         norm_hash = payload["aliases_source_metadata"].get("normalized_aliases_sha256")
         if not isinstance(norm_hash, str) or not re.fullmatch(r"[0-9a-fA-F]{64}", norm_hash):
