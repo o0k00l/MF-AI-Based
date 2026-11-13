@@ -325,9 +325,11 @@ def validate_evidence_provider_payload(
             raise EvidenceProviderContractError("Fund metrics metadata requires policy_version.")
         if not isinstance(metrics_metadata.get("reviewer_id"), str) or not metrics_metadata["reviewer_id"].strip():
             raise EvidenceProviderContractError("Fund metrics metadata requires reviewer_id.")
+        metrics_envelope = metrics_metadata.get("reviewer_approval_envelope")
+        metrics_envelope_payload = metrics_envelope.get("payload") if isinstance(metrics_envelope, dict) else None
         if require_reviewer_signature and (
-            metrics_metadata.get("reviewer_approval_envelope", {}).get("payload", {}).get("reviewer_id")
-            != metrics_metadata.get("reviewer_id")
+            not isinstance(metrics_envelope_payload, dict)
+            or metrics_envelope_payload.get("reviewer_id") != metrics_metadata.get("reviewer_id")
         ):
             raise EvidenceProviderContractError("Fund metrics reviewer_id must match the signed approval identity.")
         normalized_digest = metrics_metadata.get("normalized_metrics_sha256")
@@ -768,9 +770,11 @@ def validate_evidence_provider_payload(
                 raise EvidenceProviderContractError("Fund aliases metadata requires policy_version.")
             if not isinstance(metadata.get("reviewer_id"), str) or not metadata["reviewer_id"].strip():
                 raise EvidenceProviderContractError("Fund aliases metadata requires reviewer_id.")
+            alias_envelope = metadata.get("reviewer_approval_envelope")
+            alias_envelope_payload = alias_envelope.get("payload") if isinstance(alias_envelope, dict) else None
             if require_reviewer_signature and (
-                metadata.get("reviewer_approval_envelope", {}).get("payload", {}).get("reviewer_id")
-                != metadata.get("reviewer_id")
+                not isinstance(alias_envelope_payload, dict)
+                or alias_envelope_payload.get("reviewer_id") != metadata.get("reviewer_id")
             ):
                 raise EvidenceProviderContractError("Fund aliases reviewer_id must match the signed approval identity.")
             if not isinstance(metadata.get("coverage_scope"), str) or not metadata["coverage_scope"].strip():
