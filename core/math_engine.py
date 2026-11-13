@@ -1177,6 +1177,8 @@ def _validate_metrics_provenance(
         raise ValueError("Exact metrics identity requires a non-empty verified scheme master.")
 
     required_identity_fields = ("scheme_id", "isin", "amc_name", "category", "plan_type", "option_type")
+    seen_scheme_ids: set[str] = set()
+    seen_isins: set[str] = set()
 
     for fid, metric in metrics_map.items():
         if not isinstance(metric, dict):
@@ -1216,14 +1218,26 @@ def _validate_metrics_provenance(
 
         if require_exact_identity:
             missing = [f for f in required_identity_fields if not metric.get(f)]
+            if not (metric.get("benchmark_identity") or metric.get("benchmark")):
+                missing.append("benchmark_identity")
             if missing:
                 identity_errors.append(
                     f"Metrics record {fid!r} is missing required identity fields: {', '.join(missing)}."
                 )
                 continue
 
-            # Cross-check against scheme master if available
+            # Metrics rows must be one-to-one with stable scheme and ISIN identity.
             sid = str(metric.get("scheme_id", "")).strip().upper()
+            metric_isin_key = str(metric.get("isin", "")).strip().upper()
+            if sid in seen_scheme_ids or metric_isin_key in seen_isins:
+                identity_errors.append(
+                    f"Metrics record {fid!r} duplicates scheme ID or ISIN identity."
+                )
+                continue
+            seen_scheme_ids.add(sid)
+            seen_isins.add(metric_isin_key)
+
+            # Cross-check against the verified scheme master.
             if sid and scheme_master_index:
                 master_scheme = scheme_master_index.get(sid)
                 if master_scheme is None:
@@ -1231,19 +1245,20 @@ def _validate_metrics_provenance(
                         f"Metrics record {fid!r} scheme_id {sid!r} not found in verified scheme master."
                     )
                     continue
-                # Check ISIN match
+                # Check ISIN match; a missing master ISIN is itself an identity gap.
                 m_isin = str(metric.get("isin", "")).strip().upper()
                 s_isin = str(master_scheme.get("isin", "")).strip().upper()
-                if m_isin and s_isin and m_isin != s_isin:
+                if not s_isin or m_isin != s_isin:
                     identity_errors.append(
-                        f"Metrics record {fid!r} ISIN {m_isin!r} conflicts with scheme master ISIN {s_isin!r}."
+                        f"Metrics record {fid!r} ISIN {m_isin!r} conflicts with or is absent from verified scheme master."
                     )
-                # Bind every identity dimension, not just scheme ID/ISIN.
+                # Bind every identity dimension, including the benchmark.
                 identity_fields = (
                     ("AMC", "amc_name", ("amc_name", "amc"), lambda value: str(value).strip().casefold()),
                     ("category", "category", ("category",), lambda value: " ".join(str(value).strip().casefold().split())),
                     ("plan", "plan_type", ("plan_type", "plan"), lambda value: str(value).strip().casefold()),
                     ("option", "option_type", ("option_type", "option"), lambda value: str(value).strip().casefold()),
+                    ("benchmark", "benchmark_identity", ("benchmark_identity", "benchmark"), lambda value: " ".join(str(value).strip().casefold().split())),
                 )
                 for label, metric_key, master_keys, normalize in identity_fields:
                     metric_value = metric.get(metric_key)
