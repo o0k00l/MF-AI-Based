@@ -250,7 +250,12 @@ def test_metrics_conflicting_amc_rejected_at_exact_identity_binding(tmp_path):
             "category": "Flexi Cap",
             "plan_type": "Direct",
             "option_type": "Growth",
-            "er": 0.65, "eq": 100.0, "debt": 0.0,
+            "benchmark_identity": "NIFTY 500 TRI",
+            "effective_date": "2026-11-04",
+            "source_ref": "sha256:" + "a" * 64,
+            "er": 0.65, "ter_plan": "direct", "eq": 100.0, "debt": 0.0,
+            "lc": 50.0, "mc": 30.0, "sc": 20.0,
+            "market_cap_basis": "TOTAL_PORTFOLIO_PCT",
         }
     }
     from core.math_engine import _validate_metrics_provenance
