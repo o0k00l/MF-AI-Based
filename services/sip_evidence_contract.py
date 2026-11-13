@@ -786,9 +786,13 @@ def validate_evidence_provider_payload(
                     for name in names:
                         normalized_name = " ".join(name.casefold().split())
                         prior_target = normalized_alias_owners.get(normalized_name)
-                        if prior_target is not None and prior_target != target_id.strip():
+                        if prior_target is not None:
+                            if prior_target != target_id.strip():
+                                raise EvidenceProviderContractError(
+                                    f"Alias {name!r} ambiguously maps to multiple scheme IDs."
+                                )
                             raise EvidenceProviderContractError(
-                                f"Alias {name!r} ambiguously maps to multiple scheme IDs."
+                                f"Alias {name!r} is duplicated in the normalized mapping."
                             )
                         normalized_alias_owners[normalized_name] = target_id.strip()
             else:
@@ -803,9 +807,13 @@ def validate_evidence_provider_payload(
                     target_ids.add(target_id.strip())
                     normalized_name = " ".join(alias.casefold().split())
                     prior_target = normalized_alias_owners.get(normalized_name)
-                    if prior_target is not None and prior_target != target_id.strip():
+                    if prior_target is not None:
+                        if prior_target != target_id.strip():
+                            raise EvidenceProviderContractError(
+                                f"Alias {alias!r} ambiguously maps to multiple scheme IDs."
+                            )
                         raise EvidenceProviderContractError(
-                            f"Alias {alias!r} ambiguously maps to multiple scheme IDs."
+                            f"Alias {alias!r} is duplicated in the normalized mapping."
                         )
                     normalized_alias_owners[normalized_name] = target_id.strip()
             metadata = payload["aliases_source_metadata"]
