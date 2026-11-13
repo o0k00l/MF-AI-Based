@@ -103,7 +103,11 @@ def build_sip_evidence_provider(
     candidate_score_fields = {"candidate_score_metadata_file", "candidate_score_source_file"}
     category_anchor_fields = {"category_anchor_metadata_file", "category_anchor_source_file"}
     reviewer_fields = {"reviewer_approval_envelope_file", "reviewer_trust_registry_file"}
-    unexpected = set(manifest) - (required_manifest_fields | {"aliases_file", "commit_sha", "policy_digest"} | portfolio_context_fields | candidate_score_fields | category_anchor_fields | reviewer_fields)
+    aliases_fields = {"aliases_file", "aliases_metadata_file", "aliases_source_file"}
+    supplied_alias_fields = {key for key in aliases_fields if manifest.get(key) is not None}
+    if supplied_alias_fields and supplied_alias_fields != aliases_fields:
+        raise ValueError("Alias normalized file, metadata and original source file must be configured together.")
+    unexpected = set(manifest) - (required_manifest_fields | {"commit_sha", "policy_digest"} | aliases_fields | portfolio_context_fields | candidate_score_fields | category_anchor_fields | reviewer_fields)
     supplied_portfolio_context_fields = set(manifest) & portfolio_context_fields
     if supplied_portfolio_context_fields and supplied_portfolio_context_fields != portfolio_context_fields:
         raise ValueError("Portfolio context file, metadata and original source file must be configured together.")
@@ -143,10 +147,21 @@ def build_sip_evidence_provider(
         root, manifest["metrics_source_file"], label="metrics_source_file"
     ).read_bytes()
     aliases_relative = manifest.get("aliases_file")
-    aliases_path = (
-        _resolve_bundle_file(root, aliases_relative, label="aliases_file")
-        if aliases_relative is not None else None
-    )
+    aliases_path = None
+    aliases_metadata = None
+    aliases_source = None
+    if aliases_relative is not None:
+        aliases_path = _resolve_bundle_file(root, aliases_relative, label="aliases_file")
+        aliases_metadata = _read_json(
+            root, manifest["aliases_metadata_file"], label="aliases_metadata_file"
+        )
+        aliases_source = _resolve_bundle_file(
+            root, manifest["aliases_source_file"], label="aliases_source_file"
+        ).read_bytes()
+        if not isinstance(aliases_metadata, dict):
+            raise ValueError("aliases_metadata_file must contain a JSON object.")
+        if aliases_metadata.get("normalized_aliases_sha256") != hashlib.sha256(aliases_path.read_bytes()).hexdigest():
+            raise ValueError("Normalized aliases SHA-256 does not match reviewed metadata.")
     scheme_master = _read_json(root, manifest["scheme_master_file"], label="scheme_master_file")
     scheme_master_source = _resolve_bundle_file(
         root, manifest["scheme_master_source_file"], label="scheme_master_source_file"
@@ -213,6 +228,11 @@ def build_sip_evidence_provider(
         "candidate_universe_source": candidate_metadata,
         "candidate_universe_source_bytes": candidate_source,
     }
+    if aliases_path is not None:
+        payload.update({
+            "aliases_source_metadata": aliases_metadata,
+            "aliases_source_bytes": aliases_source,
+        })
 
     if supplied_candidate_score_fields:
         score_metadata = _read_json(
