@@ -207,3 +207,34 @@ def test_verified_aliases_file_passes_validation(tmp_path):
     payload["aliases_source_bytes"] = raw_source
     res = validate_evidence_provider_payload(payload, require_reviewer_signature=False)
     assert res["aliases_path"] == aliases_file
+
+@pytest.mark.parametrize(
+    "alias_payload",
+    [
+        [],
+        {"aliases": []},
+        {"aliases": {"SCHEME_DIRECT_1": []}},
+        {"aliases": {"SCHEME_DIRECT_1": ["", "   "]}},
+        {"": "SCHEME_DIRECT_1"},
+        {"Old Scheme": ""},
+    ],
+)
+def test_aliases_reject_malformed_or_empty_mappings(tmp_path, alias_payload):
+    payload = _base_payload(tmp_path)
+    aliases_file = tmp_path / "aliases.json"
+    aliases_file.write_text(json.dumps(alias_payload))
+    raw_source = b"source bytes for malformed aliases"
+    payload["aliases_path"] = aliases_file
+    payload["aliases_source_metadata"] = {
+        "status": "VERIFIED",
+        "source_url": "https://amfiindia.com/aliases",
+        "source_document_sha256": hashlib.sha256(raw_source).hexdigest(),
+        "reviewer_attested": True,
+        "effective_date": "2026-11-04",
+        "source_type": "AMFI_ALIASES",
+        "normalized_aliases_sha256": hashlib.sha256(aliases_file.read_bytes()).hexdigest(),
+    }
+    payload["aliases_source_bytes"] = raw_source
+    with pytest.raises(EvidenceProviderContractError, match="Fund aliases"):
+        validate_evidence_provider_payload(payload, require_reviewer_signature=False)
+
