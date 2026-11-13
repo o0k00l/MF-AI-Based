@@ -129,7 +129,7 @@ def verify_mandate_schedule(
         not isinstance(payload, dict)
         or set(payload) != required
         or type(payload.get("schema_version")) is not int
-        or payload.get("schema_version") != 1
+        or payload.get("schema_version") != 2
     ):
         raise MandateAuthenticationError("Mandate signature payload schema is invalid")
     # A signed schedule cannot prove omitted mandates do not exist unless the
