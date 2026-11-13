@@ -772,6 +772,8 @@ def load_holdings_from_cas_excel(
     disclosure_as_of_date: Optional[date] = None,
     disclosure_max_age_days: int = 45,
     require_exact_metric_identity: bool = True,
+    metrics_source_sha256: Optional[str] = None,
+    metrics_effective_date: Optional[str] = None,
 ) -> List[HoldingItem]:
     """
     Parses active mutual fund holdings directly from CAS detailed report Excel sheet.
@@ -822,6 +824,8 @@ def load_holdings_from_cas_excel(
                 metrics_map,
                 scheme_master,
                 require_exact_identity=require_exact_metric_identity,
+                expected_source_sha256=metrics_source_sha256,
+                expected_effective_date=metrics_effective_date,
             )
 
     # Load aliases dictionary if provided
@@ -1126,6 +1130,12 @@ def _validate_sip_metrics_exposures(metric: Dict[str, Any], *, scheme_id: str) -
         values[field] = value
     if values["eq"] + values["debt"] > 100.0 + 1e-9:
         raise ValueError(f"Fund metrics equity plus debt exposure exceeds 100% for {scheme_id!r}.")
+    # Market-cap buckets are a decomposition of equity exposure, not a
+    # separate allocation. Any residual equity remains explicitly unclassified.
+    if values["lc"] + values["mc"] + values["sc"] > values["eq"] + 1e-9:
+        raise ValueError(
+            f"Fund metrics large/mid/small-cap exposure exceeds equity exposure for {scheme_id!r}."
+        )
 
 
 def _validate_metrics_provenance(
@@ -1133,6 +1143,8 @@ def _validate_metrics_provenance(
     scheme_master: Optional[Dict[str, Any]] = None,
     *,
     require_exact_identity: bool = False,
+    expected_source_sha256: Optional[str] = None,
+    expected_effective_date: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Issue #84: Validate metrics record provenance and exact scheme binding.
@@ -1210,6 +1222,14 @@ def _validate_metrics_provenance(
                     identity_errors.append(f"Metrics record {fid!r} has an invalid SHA-256 source reference.")
                 else:
                     source_refs.add(normalized_ref)
+                    if expected_source_sha256 and normalized_ref != expected_source_sha256.lower():
+                        identity_errors.append(
+                            f"Metrics record {fid!r} source reference does not bind to the reviewed original source bytes."
+                        )
+            if expected_effective_date and eff_date != expected_effective_date:
+                identity_errors.append(
+                    f"Metrics record {fid!r} effective date conflicts with reviewed source metadata."
+                )
         else:
             if eff_date:
                 effective_dates.add(str(eff_date).strip())
@@ -1282,6 +1302,12 @@ def _validate_metrics_provenance(
         identity_errors.append("Metrics snapshot provenance is incomplete.")
     if require_exact_identity and (len(effective_dates) != 1 or len(source_refs) != 1):
         mixed_snapshot = True
+
+    if require_exact_identity:
+        for metric in metrics_map.values():
+            if isinstance(metric, dict):
+                sid = str(metric.get("scheme_id", "")).strip()
+                _validate_sip_metrics_exposures(metric, scheme_id=sid or "UNKNOWN")
 
     if identity_errors:
         raise ValueError(
