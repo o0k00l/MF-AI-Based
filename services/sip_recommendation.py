@@ -506,7 +506,7 @@ def _assess_complete_portfolio_context(
                 raise PortfolioInputError("Custom SAA requires an explicit independent risk ceiling")
             try:
                 c_val = int(risk_ceiling_raw)
-                if not 1 <= c_val <= 6 or isinstance(risk_ceiling_raw, bool) or c_val != risk_ceiling_raw:
+                if not isinstance(risk_ceiling_raw, int) or isinstance(risk_ceiling_raw, bool) or not 1 <= c_val <= 6:
                     raise ValueError()
                 effective_risk_ceiling = c_val
             except (ValueError, TypeError):
