@@ -201,6 +201,12 @@ def test_contract_rejects_regular_candidate_for_direct_sip_universe(tmp_path):
     payload["candidate_universe"][0]["plan_type"] = "Regular"
     payload["scheme_master"]["schemes"][0]["plan_type"] = "Regular"
     payload["candidate_universe"][0]["is_direct"] = False
+    metrics = json.loads(payload["metrics_path"].read_text())
+    metrics["funds"][0]["plan_type"] = "Regular"
+    metrics["funds"][0]["ter_plan"] = "regular"
+    normalized = json.dumps(metrics, separators=(",", ":")).encode()
+    payload["metrics_path"].write_bytes(normalized)
+    payload["metrics_source_metadata"]["normalized_metrics_sha256"] = hashlib.sha256(normalized).hexdigest()
 
     with pytest.raises(EvidenceProviderContractError, match="explicitly verified Direct"):
         validate_evidence_provider_payload(payload, require_reviewer_signature=False)
