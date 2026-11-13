@@ -317,7 +317,8 @@ def _validate_active_sip_commitments(context: dict[str, Any], as_of: date) -> di
             return {"status": "HOLD", "reason": f"SIP_MANDATE_RECORD_{index}_SOURCE_REFERENCE_INVALID"}
         try:
             import rfc8785
-            record_digest = hashlib.sha256(rfc8785.dumps(mandate)).hexdigest()
+            record_payload = {key: value for key, value in mandate.items() if key != "evidence_ref"}
+            record_digest = hashlib.sha256(rfc8785.dumps(record_payload)).hexdigest()
         except Exception:
             return {"status": "HOLD", "reason": f"SIP_MANDATE_RECORD_{index}_CANONICAL_BINDING_INVALID"}
         if mandate["evidence_ref"] != "sha256:" + record_digest:
