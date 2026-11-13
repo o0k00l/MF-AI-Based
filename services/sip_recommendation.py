@@ -494,14 +494,19 @@ def _assess_complete_portfolio_context(
         debt_target = float(targets["debt_liquid"])
 
         if risk_profile == "Custom":
-            risk_ceiling_raw = getattr(custom_saa_target, "risk_ceiling", None)
-            if risk_ceiling_raw is None and "risk_ceiling" in ips:
-                risk_ceiling_raw = ips.get("risk_ceiling")
+            target_risk_ceiling = getattr(custom_saa_target, "risk_ceiling", None)
+            ips_risk_ceiling = ips.get("risk_ceiling")
+            if target_risk_ceiling is not None and ips_risk_ceiling is not None:
+                if isinstance(ips_risk_ceiling, bool) or target_risk_ceiling != ips_risk_ceiling:
+                    raise PortfolioInputError(
+                        "client IPS risk ceiling conflicts with approved custom SAA mandate"
+                    )
+            risk_ceiling_raw = target_risk_ceiling if target_risk_ceiling is not None else ips_risk_ceiling
             if risk_ceiling_raw is None:
                 raise PortfolioInputError("Custom SAA requires an explicit independent risk ceiling")
             try:
                 c_val = int(risk_ceiling_raw)
-                if not 1 <= c_val <= 6 or isinstance(risk_ceiling_raw, bool):
+                if not 1 <= c_val <= 6 or isinstance(risk_ceiling_raw, bool) or c_val != risk_ceiling_raw:
                     raise ValueError()
                 effective_risk_ceiling = c_val
             except (ValueError, TypeError):
