@@ -34,6 +34,7 @@ def test_primary_cas_holdings_loader_resolves_verified_scheme_identity(tmp_path)
             'scheme_name': 'Example Equity Fund - Direct Growth',
             'amc_name': 'Example AMC',
             'category': 'Flexi Cap',
+            'benchmark_identity': 'NIFTY 500 TRI',
             'plan_type': 'Direct',
             'option_type': 'Growth',
             'riskometer_score': 5,
