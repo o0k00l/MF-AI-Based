@@ -15,7 +15,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from services import sip_mandate_auth
 
 
-def make_signed_mandate_schedule(as_of: str, owner_ref: str):
+def make_signed_mandate_schedule(as_of: str, owner_ref: str, coverage_status: str = "COMPLETE"):
     decision_date = date.fromisoformat(as_of)
     private_key = Ed25519PrivateKey.generate()
     public_key = private_key.public_key().public_bytes(
@@ -35,13 +35,14 @@ def make_signed_mandate_schedule(as_of: str, owner_ref: str):
     issued_at = (decision_date - timedelta(days=2)).isoformat() + "T00:00:00Z"
     expires_at = (decision_date + timedelta(days=30)).isoformat() + "T00:00:00Z"
     payload = {
-        "schema_version": 1,
+        "schema_version": 2,
         "signer_id": "ephemeral-registrar",
         "signer_key_id": "ephemeral-registrar-key",
         "signer_type": "REGISTRAR",
         "owner_ref": owner_ref,
         "source_sha256": source_sha,
         "schedule_sha256": schedule_sha,
+        "coverage_status": coverage_status,
         "issued_at": issued_at,
         "expires_at": expires_at,
     }
@@ -51,7 +52,7 @@ def make_signed_mandate_schedule(as_of: str, owner_ref: str):
         return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
 
     evidence = {
-        "coverage_status": "COMPLETE",
+        "coverage_status": coverage_status,
         "source_bytes": source_bytes,
         "source_ref": "sha256:" + source_sha,
         "mandates": mandates,
