@@ -47,10 +47,12 @@ def test_api_tenant_quotas_and_rate_limiting():
     registry = {
         "tenant-key-1": {
             "tenant_id": "tenant-alpha",
+            "authorized_client_ids": ["client-alpha"],
             "rate_limit_per_minute": 2,
         },
         "tenant-key-2": {
             "tenant_id": "tenant-beta",
+            "authorized_client_ids": ["client-beta"],
             "rate_limit_per_minute": 5,
         },
     }
@@ -65,7 +67,7 @@ def test_api_tenant_quotas_and_rate_limiting():
     for _ in range(2):
         resp = client.post(
             "/v1/sip/recommendations",
-            headers={"X-API-Key": "tenant-key-1"},
+            headers={"X-API-Key": "tenant-key-1", "X-Client-Id": "client-alpha"},
             data={"monthly_budget_inr": 10000, "risk_profile": "Moderate"},
             files={"cas_file": ("statement.xlsx", _sample_xlsx_bytes(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
         )
@@ -85,7 +87,7 @@ def test_api_tenant_quotas_and_rate_limiting():
     # Tenant beta has separate isolated quota: still succeeds
     resp_beta = client.post(
         "/v1/sip/recommendations",
-        headers={"X-API-Key": "tenant-key-2"},
+        headers={"X-API-Key": "tenant-key-2", "X-Client-Id": "client-beta"},
         data={"monthly_budget_inr": 10000, "risk_profile": "Moderate"},
         files={"cas_file": ("statement.xlsx", _sample_xlsx_bytes(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
     )
