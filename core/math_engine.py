@@ -3450,6 +3450,7 @@ def evaluate_candidate_portfolio_concentration_controls(
     security_master: Optional[Dict[str, Any]] = None,
     classifications: Optional[Dict[str, Any]] = None,
     max_overlap_pct: Optional[float] = None,
+    screening_policy: Optional[Dict[str, Any]] = None,
     max_issuer_pct: Optional[float] = None,
     max_sector_pct: Optional[float] = None,
     max_theme_pct: Optional[float] = None,
@@ -3474,8 +3475,12 @@ def evaluate_candidate_portfolio_concentration_controls(
         return {"status": "HOLD", "passed": False, "reason": "SECURITY_MASTER_REQUIRED", "overlap_pct": None}
 
     try:
-        from core.eligibility import load_fund_screening_policy
-        screening_policy = load_fund_screening_policy()
+        if screening_policy is None:
+            from core.eligibility import load_fund_screening_policy
+            screening_policy = load_fund_screening_policy()
+        else:
+            from core.eligibility import validate_fund_screening_policy
+            screening_policy = validate_fund_screening_policy(screening_policy)
         if max_overlap_pct is None:
             max_overlap_pct = float(screening_policy["gate_thresholds"]["max_overlap_candidate_pct"])
     except (OSError, ValueError, TypeError, KeyError):
@@ -4936,6 +4941,7 @@ def select_autonomous_blueprint_funds(
                 holdings=holdings,
                 security_master=security_master,
                 max_overlap_pct=float(screening_policy["gate_thresholds"]["max_overlap_candidate_pct"]),
+                screening_policy=screening_policy,
                 is_starter=is_starter,
                 as_of_date=str(disclosure_as_of_date) if disclosure_as_of_date else None,
             )
