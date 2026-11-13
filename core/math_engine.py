@@ -1366,16 +1366,16 @@ def _validate_metrics_provenance(
     if require_exact_identity and (len(effective_dates) != 1 or len(source_refs) != 1):
         mixed_snapshot = True
 
-    if identity_errors:
-        raise ValueError(
-            "Metrics provenance validation failed (exact identity): " + "; ".join(identity_errors[:5])
-        )
-
     if mixed_snapshot:
         raise ValueError(
             f"Metrics provenance validation failed (mixed snapshot): "
             f"Found {len(effective_dates)} distinct effective dates and "
             f"{len(source_refs)} distinct source references. All metrics must come from a single reviewed snapshot."
+        )
+
+    if identity_errors:
+        raise ValueError(
+            "Metrics provenance validation failed (exact identity): " + "; ".join(identity_errors[:5])
         )
 
     if require_exact_identity:
