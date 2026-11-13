@@ -632,6 +632,17 @@ def test_metrics_exact_identity_lineage_and_exposure_reconciliation(tmp_path):
             master, require_exact_identity=True, expected_source_sha256="a" * 64,
             expected_effective_date="2026-11-01",
         )
+    with pytest.raises(ValueError, match="market_cap_basis"):
+        _validate_metrics_provenance(
+            {"scheme-1": {key: value for key, value in metric.items() if key != "market_cap_basis"}},
+            master, require_exact_identity=True, expected_source_sha256="a" * 64,
+            expected_effective_date="2026-11-01",
+        )
+    equity_basis = {**metric, "market_cap_basis": "EQUITY_PCT", "lc": 70, "mc": 20, "sc": 10}
+    assert _validate_metrics_provenance(
+        {"scheme-1": equity_basis}, master, require_exact_identity=True,
+        expected_source_sha256="a" * 64, expected_effective_date="2026-11-01",
+    )["status"] == "VERIFIED"
 
 
 def test_reviewer_signature_contract_receives_full_normalized_metrics_records(tmp_path, monkeypatch):
