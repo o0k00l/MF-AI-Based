@@ -723,5 +723,5 @@ def test_contract_rejects_alias_path_without_source_provenance(tmp_path):
     alias_path = tmp_path / "aliases.json"
     alias_path.write_text(json.dumps({"aliases": {"scheme-1": ["Example"]}}))
     payload["aliases_path"] = alias_path
-    with pytest.raises(EvidenceProviderContractError, match="original source bytes"):
+    with pytest.raises(EvidenceProviderContractError, match="aliases_source_metadata"):
         validate_evidence_provider_payload(payload, require_reviewer_signature=False)
