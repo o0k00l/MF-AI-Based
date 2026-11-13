@@ -900,8 +900,7 @@ def test_screening_policy_snapshot_is_shared_with_engine_and_decision_trace(tmp_
 
     result = service.recommend_sip(**args)
 
-    assert calls["count"] >= 1
-    assert all(policy is snapshot for policy in captured.get("screening_policy", []) if isinstance(captured.get("screening_policy"), list))
+    assert calls["count"] == 1
     assert captured["screening_policy"] is snapshot
     trace = result["portfolio_assessment"]["decision_trace"]
     assert trace["screening_policy_sha256"] == snapshot["_policy_digest"]
