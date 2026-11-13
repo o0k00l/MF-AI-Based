@@ -110,49 +110,8 @@ def _build_cas_portfolio_assessment(
                 or not 1 <= effective_custom_ceiling <= 6
             ):
                 raise ValueError("Custom SAA requires an explicit independent risk ceiling")
-            if custom_saa_target.large_cap_pct is not None:
-                targets = {
-                    "large_cap": float(custom_saa_target.large_cap_pct),
-                    "mid_cap": float(custom_saa_target.mid_cap_pct),
-                    "small_cap": float(custom_saa_target.small_cap_pct),
-                    "flexi_multi_cap": float(custom_saa_target.flexi_cap_pct),
-                    "debt_liquid": float(custom_saa_target.debt_pct),
-                    "unclassified": 0.0,
-                }
-            elif float(custom_saa_target.equity_pct) > 0:
-                distribution = custom_policy["default_equity_distribution_pct"]
-                distribution_keys = (
-                    "large_cap_pct", "flexi_multi_cap_pct",
-                    "mid_cap_pct", "small_cap_pct",
-                )
-                if (
-                    not isinstance(distribution, dict)
-                    or set(distribution) != set(distribution_keys)
-                    or sum(float(distribution[key]) for key in distribution_keys) != 100.0
-                ):
-                    raise ValueError("Custom SAA equity distribution policy is missing or invalid")
-                scale = float(custom_saa_target.equity_pct) / 100.0
-                targets = {
-                    "large_cap": round(float(distribution["large_cap_pct"]) * scale, 2),
-                    "flexi_multi_cap": round(float(distribution["flexi_multi_cap_pct"]) * scale, 2),
-                    "mid_cap": round(float(distribution["mid_cap_pct"]) * scale, 2),
-                    "small_cap": round(float(distribution["small_cap_pct"]) * scale, 2),
-                    "debt_liquid": float(custom_saa_target.debt_pct),
-                    "unclassified": 0.0,
-                }
-                equity_sum = sum(targets[key] for key in (
-                    "large_cap", "flexi_multi_cap", "mid_cap", "small_cap"
-                ))
-                targets["large_cap"] = round(
-                    targets["large_cap"] + float(custom_saa_target.equity_pct) - equity_sum, 2
-                )
-            else:
-                targets = {
-                    "large_cap": 0.0, "mid_cap": 0.0, "small_cap": 0.0,
-                    "flexi_multi_cap": 0.0,
-                    "debt_liquid": float(custom_saa_target.debt_pct),
-                    "unclassified": 0.0,
-                }
+            targets = _custom_saa_sleeve_targets(custom_saa_target, policy)
+            targets["unclassified"] = 0.0
         else:
             public_mapping = policy["public_risk_profile_mapping"][risk_profile]
             profile_key = public_mapping["behavioral_profile"]
@@ -267,6 +226,67 @@ _TOTAL_PORTFOLIO_SLEEVES = (
     "large_cap", "mid_cap", "small_cap", "flexi_multi_cap", "debt_liquid"
 )
 
+
+def _custom_saa_sleeve_targets(
+    target: Any,
+    allocation_policy: dict[str, Any],
+) -> dict[str, float]:
+    """Resolve one exact, investable five-sleeve target; never discard cash."""
+    from core.models import AssetAllocationTarget
+
+    if not isinstance(target, AssetAllocationTarget):
+        raise PortfolioInputError("Custom SAA requires a validated AssetAllocationTarget.")
+    if abs(float(target.cash_pct)) > 0.01:
+        raise PortfolioInputError(
+            "Custom SAA cash allocation is not routable: the current SIP sleeve contract "
+            "does not model a separate cash sleeve. Keep cash outside the investable SIP SAA."
+        )
+    if target.large_cap_pct is not None:
+        values = {
+            "large_cap": float(target.large_cap_pct),
+            "mid_cap": float(target.mid_cap_pct),
+            "small_cap": float(target.small_cap_pct),
+            "flexi_multi_cap": float(target.flexi_cap_pct),
+            "debt_liquid": float(target.debt_pct),
+        }
+    elif float(target.equity_pct) > 0:
+        custom_policy = allocation_policy.get("custom_saa_policy")
+        distribution = custom_policy.get("default_equity_distribution_pct") if isinstance(custom_policy, dict) else None
+        keys = ("large_cap_pct", "flexi_multi_cap_pct", "mid_cap_pct", "small_cap_pct")
+        if not isinstance(distribution, dict) or set(distribution) != set(keys):
+            raise PortfolioInputError("Custom SAA equity distribution policy is missing or invalid.")
+        try:
+            weights = {key: Decimal(str(distribution[key])) for key in keys}
+        except (TypeError, ValueError, ArithmeticError) as exc:
+            raise PortfolioInputError("Custom SAA equity distribution policy is malformed.") from exc
+        if any(not value.is_finite() or value < 0 for value in weights.values()) or abs(sum(weights.values()) - Decimal("100")) > Decimal("0.01"):
+            raise PortfolioInputError("Custom SAA equity distribution policy must reconcile to 100%.")
+        scale = Decimal(str(target.equity_pct)) / Decimal("100")
+        values = {
+            "large_cap": float(weights["large_cap_pct"] * scale),
+            "flexi_multi_cap": float(weights["flexi_multi_cap_pct"] * scale),
+            "mid_cap": float(weights["mid_cap_pct"] * scale),
+            "small_cap": float(weights["small_cap_pct"] * scale),
+            "debt_liquid": float(target.debt_pct),
+        }
+        # Assign any decimal rounding residual deterministically to large-cap.
+        values["large_cap"] += float(target.equity_pct) - sum(
+            values[key] for key in ("large_cap", "flexi_multi_cap", "mid_cap", "small_cap")
+        )
+    else:
+        values = {
+            "large_cap": 0.0, "mid_cap": 0.0, "small_cap": 0.0,
+            "flexi_multi_cap": 0.0, "debt_liquid": float(target.debt_pct),
+        }
+    if set(values) != set(_TOTAL_PORTFOLIO_SLEEVES):
+        raise PortfolioInputError("Custom SAA sleeves do not match the supported routing contract.")
+    decimals = {key: Decimal(str(value)) for key, value in values.items()}
+    if (
+        any(not value.is_finite() or value < 0 or value > 100 for value in decimals.values())
+        or abs(sum(decimals.values()) - Decimal("100")) > Decimal("0.01")
+    ):
+        raise PortfolioInputError("Custom SAA investable sleeve targets must reconcile to 100%.")
+    return values
 
 
 def _validate_active_sip_commitments(context: dict[str, Any], as_of: date) -> dict[str, Any]:
@@ -451,10 +471,25 @@ def _assess_complete_portfolio_context(
         targets = ips["target_weights_pct"]
         if not isinstance(targets, dict) or set(targets) != set(_TOTAL_PORTFOLIO_SLEEVES):
             raise PortfolioInputError("client IPS must specify all five SAA sleeves")
-        tolerance = ips["tolerance_band_pct"]
+        try:
+            target_decimals = {
+                key: Decimal(str(targets[key])) for key in _TOTAL_PORTFOLIO_SLEEVES
+            }
+            tolerance_decimal = Decimal(str(ips["tolerance_band_pct"]))
+        except (KeyError, TypeError, ValueError, ArithmeticError) as exc:
+            raise PortfolioInputError("client IPS SAA targets and tolerance must be numeric.") from exc
+        if (
+            any(not value.is_finite() or value < 0 or value > 100 for value in target_decimals.values())
+            or abs(sum(target_decimals.values()) - Decimal("100")) > Decimal("0.01")
+            or not tolerance_decimal.is_finite()
+            or tolerance_decimal < 0
+            or tolerance_decimal > 100
+        ):
+            raise PortfolioInputError("client IPS SAA targets must be finite, within 0-100 and reconcile to 100%; tolerance must be within 0-100.")
         equity_target = sum(float(targets[key]) for key in (
             "large_cap", "mid_cap", "small_cap", "flexi_multi_cap"
         ))
+        tolerance = float(tolerance_decimal)
         mid_small_target = float(targets["mid_cap"]) + float(targets["small_cap"])
         debt_target = float(targets["debt_liquid"])
 
@@ -471,19 +506,12 @@ def _assess_complete_portfolio_context(
                 effective_risk_ceiling = c_val
             except (ValueError, TypeError):
                 raise PortfolioInputError(f"risk_ceiling must be an integer between 1 and 6; got {risk_ceiling_raw!r}")
-            if abs(equity_target - float(custom_saa_target.equity_pct)) > 0.01:
-                raise PortfolioInputError("client IPS equity target conflicts with approved custom SAA mandate")
-            if abs(debt_target - float(custom_saa_target.debt_pct)) > 0.01:
-                raise PortfolioInputError("client IPS debt target conflicts with approved custom SAA mandate")
-            if custom_saa_target.large_cap_pct is not None:
-                if abs(float(targets["large_cap"]) - float(custom_saa_target.large_cap_pct)) > 0.01:
-                    raise PortfolioInputError("client IPS large cap target conflicts with custom SAA")
-                if abs(float(targets["mid_cap"]) - float(custom_saa_target.mid_cap_pct)) > 0.01:
-                    raise PortfolioInputError("client IPS mid cap target conflicts with custom SAA")
-                if abs(float(targets["small_cap"]) - float(custom_saa_target.small_cap_pct)) > 0.01:
-                    raise PortfolioInputError("client IPS small cap target conflicts with custom SAA")
-                if abs(float(targets["flexi_multi_cap"]) - float(custom_saa_target.flexi_cap_pct)) > 0.01:
-                    raise PortfolioInputError("client IPS flexi cap target conflicts with custom SAA")
+            approved_custom_targets = _custom_saa_sleeve_targets(custom_saa_target, policy)
+            for sleeve in _TOTAL_PORTFOLIO_SLEEVES:
+                if abs(float(targets[sleeve]) - approved_custom_targets[sleeve]) > 0.01:
+                    raise PortfolioInputError(
+                        f"client IPS {sleeve} target conflicts with approved custom SAA mandate"
+                    )
             if equity_target == 100.0 and debt_target == 0.0 and ips.get("tier6_equity_only_authorized") is not True:
                 raise PortfolioInputError("Tier 6 equity-only routing requires explicit IPS authorization")
         else:
