@@ -262,13 +262,16 @@ def test_alias_source_receives_production_reviewer_signature_gate(tmp_path, monk
     trust_registry = {"reviewers": {}}
 
     def capture_source_gate(metadata, source_bytes, **kwargs):
-        if kwargs.get("label") == "Fund aliases":
-            alias_calls.append(dict(kwargs))
-        # This fixture intentionally uses unsigned attestations for every
-        # evidence source. Capture the production arguments first, then disable
-        # signature verification only inside this isolated test double.
+        if kwargs.get("label") != "Fund aliases":
+            # Other source types have separate signature-contract tests. This
+            # test isolates alias argument propagation only.
+            return None
+        alias_calls.append(dict(kwargs))
+        # The alias fixture is intentionally unsigned. Capture production
+        # arguments before bypassing cryptographic verification in this test.
         kwargs["require_reviewer_signature"] = False
         kwargs["trust_registry"] = None
+        kwargs.pop("structured_records", None)
         return original(metadata, source_bytes, **kwargs)
 
     monkeypatch.setattr(contract, "_validate_source_document", capture_source_gate)
