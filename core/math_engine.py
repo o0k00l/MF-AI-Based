@@ -1305,6 +1305,11 @@ def _validate_metrics_provenance(
                         f"Metrics record {fid!r} scheme_id {sid!r} not found in verified scheme master."
                     )
                     continue
+                master_scheme_id = master_scheme.get("scheme_id") or master_scheme.get("id")
+                if metric.get("scheme_id") != master_scheme_id:
+                    identity_errors.append(
+                        f"Metrics record {fid!r} scheme_id is not the exact canonical scheme-master ID."
+                    )
                 # Check ISIN match; a missing master ISIN is itself an identity gap.
                 m_isin = str(metric.get("isin", "")).strip().upper()
                 s_isin = str(master_scheme.get("isin", "")).strip().upper()
