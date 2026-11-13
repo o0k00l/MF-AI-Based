@@ -6,8 +6,8 @@ implicit repository-data fallback and no network source scraping in this API.
 from __future__ import annotations
 
 import json
-from datetime import date
 import tempfile
+from datetime import date
 from decimal import Decimal
 from pathlib import Path
 from typing import Any, Callable
@@ -106,9 +106,11 @@ def _verify_provider_mandate_schedule(context: Any) -> bool:
         as_of = date.fromisoformat(as_of_raw)
         from services.sip_mandate_auth import verify_mandate_schedule
         result = verify_mandate_schedule(evidence, owner_ref=owner_ref, as_of=as_of)
-    except (TypeError, ValueError, OSError):
+    except Exception:
+        # Missing dependencies, malformed signatures and trust-root failures all HOLD.
         return False
     return isinstance(result, dict) and result.get("status") == "VERIFIED"
+
 
 def create_sip_app(
     evidence_provider: Callable[..., dict[str, Any]] | None = None,
