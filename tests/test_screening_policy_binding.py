@@ -53,6 +53,8 @@ def test_policy_loader_rejects_duplicate_rule_ids(tmp_path):
     bad_policy = {
         "_schema": "fiduciary.screening_criteria.v1",
         "version": "1.0.0",
+        "status": "reviewed",
+        "as_of": "2026-10-05",
         "gate_thresholds": {
             "amc_max_limit_pct": 25, "min_aum_crore": 5, "max_top10_concentration_pct": 30,
             "max_sector_concentration_pct": 25, "min_sharpe": 0.5, "min_manager_tenure_years": 5,
@@ -77,6 +79,8 @@ def test_policy_loader_rejects_contradictory_thematic_action(tmp_path):
     bad_policy = {
         "_schema": "fiduciary.screening_criteria.v1",
         "version": "1.0.0",
+        "status": "reviewed",
+        "as_of": "2026-10-05",
         "gate_thresholds": {
             "amc_max_limit_pct": 25, "min_aum_crore": 5, "max_top10_concentration_pct": 30,
             "max_sector_concentration_pct": 25, "min_sharpe": 0.5, "min_manager_tenure_years": 5,
