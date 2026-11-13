@@ -629,3 +629,53 @@ def test_metrics_exact_identity_lineage_and_exposure_reconciliation(tmp_path):
             master, require_exact_identity=True, expected_source_sha256="a" * 64,
             expected_effective_date="2026-11-01",
         )
+
+
+def test_reviewer_signature_contract_receives_full_normalized_metrics_records(tmp_path, monkeypatch):
+    import services.sip_evidence_contract as contract
+
+    payload = valid_payload(tmp_path)
+    captured = {}
+    original = contract._validate_source_document
+
+    def capture(metadata, source_bytes, **kwargs):
+        if kwargs.get("label") == "Fund metrics":
+            captured["records"] = kwargs.get("structured_records")
+        return original(metadata, source_bytes, **kwargs)
+
+    monkeypatch.setattr(contract, "_validate_source_document", capture)
+    validate_evidence_provider_payload(payload, require_reviewer_signature=False)
+    assert captured["records"] == json.loads(payload["metrics_path"].read_text())["funds"]
+
+
+def test_alias_reviewer_signature_contract_receives_full_normalized_alias_records(tmp_path, monkeypatch):
+    import services.sip_evidence_contract as contract
+
+    payload = valid_payload(tmp_path)
+    alias_data = {"aliases": {"scheme-1": ["Example Direct Growth"]}}
+    alias_bytes = json.dumps(alias_data, separators=(",", ":")).encode()
+    alias_path = tmp_path / "aliases.json"
+    alias_path.write_bytes(alias_bytes)
+    payload.update({
+        "aliases_path": alias_path,
+        "aliases_source_bytes": b"alias original source",
+        "aliases_source_metadata": {
+            **_source_metadata(b"alias original source"),
+            "normalized_aliases_sha256": hashlib.sha256(alias_bytes).hexdigest(),
+            "coverage_scope": "Publisher scheme-name variants",
+            "record_count": 1,
+            "policy_version": "alias-resolution-v1",
+            "reviewer_id": "reviewer-1",
+        },
+    })
+    captured = {}
+    original = contract._validate_source_document
+
+    def capture(metadata, source_bytes, **kwargs):
+        if kwargs.get("label") == "Fund aliases":
+            captured["records"] = kwargs.get("structured_records")
+        return original(metadata, source_bytes, **kwargs)
+
+    monkeypatch.setattr(contract, "_validate_source_document", capture)
+    validate_evidence_provider_payload(payload, require_reviewer_signature=False)
+    assert captured["records"] == alias_data
