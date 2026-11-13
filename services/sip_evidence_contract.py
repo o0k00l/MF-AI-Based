@@ -321,6 +321,12 @@ def validate_evidence_provider_payload(
                 "Fund metrics normalized file is empty or exceeds the 50 MiB limit."
             )
         metrics_metadata = payload["metrics_source_metadata"]
+        if not isinstance(metrics_metadata.get("publisher"), str) or not metrics_metadata["publisher"].strip():
+            raise EvidenceProviderContractError("Fund metrics metadata requires publisher identity.")
+        if not isinstance(metrics_metadata.get("coverage_scope"), str) or not metrics_metadata["coverage_scope"].strip():
+            raise EvidenceProviderContractError("Fund metrics metadata requires coverage_scope.")
+        if metrics_metadata.get("record_count") != len(normalized_metrics["funds"]):
+            raise EvidenceProviderContractError("Fund metrics record_count does not match normalized records.")
         if not isinstance(metrics_metadata.get("policy_version"), str) or not metrics_metadata["policy_version"].strip():
             raise EvidenceProviderContractError("Fund metrics metadata requires policy_version.")
         if not isinstance(metrics_metadata.get("reviewer_id"), str) or not metrics_metadata["reviewer_id"].strip():
@@ -766,6 +772,8 @@ def validate_evidence_provider_payload(
                         )
                     normalized_alias_owners[normalized_name] = target_id.strip()
             metadata = payload["aliases_source_metadata"]
+            if not isinstance(metadata.get("publisher"), str) or not metadata["publisher"].strip():
+                raise EvidenceProviderContractError("Fund aliases metadata requires publisher identity.")
             if not isinstance(metadata.get("policy_version"), str) or not metadata["policy_version"].strip():
                 raise EvidenceProviderContractError("Fund aliases metadata requires policy_version.")
             if not isinstance(metadata.get("reviewer_id"), str) or not metadata["reviewer_id"].strip():
