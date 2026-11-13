@@ -47,7 +47,7 @@ class FinancialDataRefreshPipeline:
         target_bundle_dir: Path,
         as_of: date,
         *,
-        hermetic_inputs: Optional[Dict[str, bytes]] = None,
+        hermetic_inputs: Optional[Dict[str, Any]] = None,
         reviewer_attested: bool = False,
         reviewer_approval_envelope: Optional[Union[Dict[str, Any], Callable[[str], Dict[str, Any]]]] = None,
         reviewer_trust_registry: Optional[Dict[str, Any]] = None,
@@ -71,6 +71,8 @@ class FinancialDataRefreshPipeline:
             - "daily_nav": raw bytes for AMFI NAV feed
             - "metrics": raw bytes for metrics.csv / metrics source
             - "metrics_json": optional JSON bytes for metrics.json
+            - "metrics_source_metadata": independently reviewed metrics publisher metadata/envelope
+            - "aliases_payload", "aliases_source_bytes", "aliases_source_metadata": optional atomic alias evidence
             - "disclosures": dict of scheme_id -> raw bytes
             - "direct_evidence": dict of scheme_id -> raw bytes
         """
