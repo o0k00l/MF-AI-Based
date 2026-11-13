@@ -1488,7 +1488,9 @@ def enrich_funds_with_ai(
     """
     if use_live_ai:
         names = [f.get("scheme", "") for f in funds if f.get("scheme")]
-        batch_classify_funds_with_llm(names)
+        batch_classify_funds_with_llm(
+            names, external_processing_consent=external_processing_consent
+        )
 
     # Fast parallel pre-fetch for any funds not in local policy factsheet
     unindexed = []
@@ -1504,14 +1506,20 @@ def enrich_funds_with_ai(
     if unindexed:
         try:
             with concurrent.futures.ThreadPoolExecutor(max_workers=min(6, len(unindexed))) as executor:
-                list(executor.map(lambda name: lookup_fund_segment_allocation_online(name, timeout_sec=5.0), unindexed))
+                list(executor.map(lambda name: lookup_fund_segment_allocation_online(
+                        name, timeout_sec=5.0,
+                        external_processing_consent=external_processing_consent,
+                    ), unindexed))
         except Exception:
             pass
 
     enriched: List[Dict[str, Any]] = []
     for f in funds:
         scheme_name = f.get("scheme", "")
-        profile = classify_fund_with_ai(scheme_name, use_live_ai=use_live_ai)
+        profile = classify_fund_with_ai(
+            scheme_name, use_live_ai=use_live_ai,
+            external_processing_consent=external_processing_consent,
+        )
 
         item = dict(f)
         item["category"] = profile["category"]
