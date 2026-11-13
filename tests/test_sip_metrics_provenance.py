@@ -242,6 +242,12 @@ def test_alias_source_receives_production_reviewer_signature_gate(tmp_path, monk
     import services.sip_evidence_contract as contract
 
     payload = _base_payload(tmp_path)
+    # The full contract requires signed constituent fields when the production
+    # signature gate is enabled; the scheme/disclosure validators are isolated
+    # below so this test can focus on alias-gate argument propagation.
+    disclosure = payload["portfolio_disclosures_by_scheme_id"]["SCHEME_DIRECT_1"]
+    disclosure["constituent_weights"] = {"SECURITY_TEST_1": 100.0}
+    disclosure["constituent_weights_coverage_pct"] = 100.0
     aliases_file = tmp_path / "aliases.json"
     aliases_file.write_text(json.dumps({"aliases": {"SCHEME_DIRECT_1": ["Scheme A Direct"]}}))
     raw_source = b"source bytes for signed aliases"
