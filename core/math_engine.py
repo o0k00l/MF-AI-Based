@@ -5539,7 +5539,8 @@ def compute_deterministic_sip_blueprint(
     try:
         from core.models import get_saa_policy_metadata
         policy_meta = get_saa_policy_metadata(policy_path=policy_file)
-        allocation_policy = json.loads(policy_file.read_text(encoding="utf-8"))
+        if allocation_policy is None:
+            allocation_policy = json.loads(policy_file.read_text(encoding="utf-8"))
         satellite_policy = allocation_policy["thematic_satellite_policy"]
         max_satellite_pct = float(satellite_policy["max_pct_of_equity"])
     except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
