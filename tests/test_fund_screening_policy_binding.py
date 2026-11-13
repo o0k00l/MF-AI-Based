@@ -155,3 +155,53 @@ def test_loaded_policy_can_be_revalidated_without_losing_source_digest():
     validated = validate_fund_screening_policy(copy.deepcopy(policy))
 
     assert validated["_policy_digest"] == digest
+
+
+@pytest.mark.parametrize("bad_status", ["draft", "unreviewed", "", None])
+def test_screening_policy_requires_reviewed_or_approved_status(bad_status):
+    policy = load_fund_screening_policy()
+    policy.pop("_policy_path", None)
+    policy.pop("_policy_digest", None)
+    policy["status"] = bad_status
+    with pytest.raises(ValueError, match="status must be reviewed or approved"):
+        validate_fund_screening_policy(policy)
+
+
+@pytest.mark.parametrize("bad_as_of", ["not-a-date", "2026-13-40", "", None])
+def test_screening_policy_requires_valid_effective_date(bad_as_of):
+    policy = load_fund_screening_policy()
+    policy.pop("_policy_path", None)
+    policy.pop("_policy_digest", None)
+    policy["as_of"] = bad_as_of
+    with pytest.raises(ValueError, match="as_of"):
+        validate_fund_screening_policy(policy)
+
+
+def test_screening_policy_rejects_future_effective_date():
+    from datetime import date, timedelta
+    policy = load_fund_screening_policy()
+    policy.pop("_policy_path", None)
+    policy.pop("_policy_digest", None)
+    policy["as_of"] = (date.today() + timedelta(days=1)).isoformat()
+    with pytest.raises(ValueError, match="cannot be in the future"):
+        validate_fund_screening_policy(policy)
+
+
+@pytest.mark.parametrize(
+    "field,value,match",
+    [
+        ("amc_max_limit_pct", 100.1, "between 0 and 100"),
+        ("max_top10_concentration_pct", 101, "between 0 and 100"),
+        ("max_sector_concentration_pct", 101, "between 0 and 100"),
+        ("max_overlap_candidate_pct", 101, "between 0 and 100"),
+        ("min_aum_crore", 0, "greater than zero"),
+        ("min_confidence_score", 1.1, "between 0 and 1"),
+    ],
+)
+def test_screening_policy_rejects_out_of_range_threshold_units(field, value, match):
+    policy = load_fund_screening_policy()
+    policy.pop("_policy_path", None)
+    policy.pop("_policy_digest", None)
+    policy["gate_thresholds"][field] = value
+    with pytest.raises(ValueError, match=match):
+        validate_fund_screening_policy(policy)
