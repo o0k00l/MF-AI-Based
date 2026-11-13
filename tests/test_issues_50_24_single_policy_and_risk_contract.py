@@ -485,6 +485,13 @@ def test_issue_24_recommend_sip_custom_saa_enforces_risk_ceiling(tmp_path, monke
         ],
     )
 
+    from mandate_test_utils import make_signed_mandate_schedule, install_mandate_trust_registry
+    mandate_evidence, mandate_trust_registry = make_signed_mandate_schedule(
+        as_of, context["investor_owner_ref"]
+    )
+    context["sip_mandate_evidence"] = mandate_evidence
+    install_mandate_trust_registry(monkeypatch, mandate_trust_registry)
+
     result = service.recommend_sip(
         cas_path=cas,
         metrics_path=None,
