@@ -131,7 +131,11 @@ def verify_mandate_schedule(
     if signer_type not in set(_AUTH_METHOD_TO_SIGNER_TYPE.values()):
         raise MandateAuthenticationError("Mandate signer type is not an authorized issuer class")
     methods = {record.get("authentication_method") for record in mandates if isinstance(record, dict)}
-    if len(methods) != 1 or not methods or _AUTH_METHOD_TO_SIGNER_TYPE.get(next(iter(methods))) != signer_type:
+    if mandates and (
+        len(methods) != 1
+        or not methods
+        or _AUTH_METHOD_TO_SIGNER_TYPE.get(next(iter(methods))) != signer_type
+    ):
         raise MandateAuthenticationError("Mandate signer authority does not match schedule authentication method")
     if any(not isinstance(record, dict) for record in mandates):
         raise MandateAuthenticationError("Mandate schedule contains malformed records")
