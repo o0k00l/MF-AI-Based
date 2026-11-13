@@ -94,6 +94,6 @@ def test_sip_metrics_reject_equity_and_debt_total_over_100_percent():
 
 
 def test_sip_metrics_accept_finite_bounded_exposures():
-    metric = {"eq": 90, "debt": 10, "lc": 50, "mc": 30, "sc": 10}
+    metric = {"eq": 90, "debt": 10, "lc": 50, "mc": 30, "sc": 10, "market_cap_basis": "TOTAL_PORTFOLIO_PCT"}
 
     _validate_sip_metrics_exposures(metric, scheme_id="scheme-1")
