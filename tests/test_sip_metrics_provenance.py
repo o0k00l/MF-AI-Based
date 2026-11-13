@@ -275,6 +275,17 @@ def test_alias_source_receives_production_reviewer_signature_gate(tmp_path, monk
         return original(metadata, source_bytes, **kwargs)
 
     monkeypatch.setattr(contract, "_validate_source_document", capture_source_gate)
+
+    original_scheme_master = contract._validate_scheme_master
+
+    def capture_scheme_master(master, **kwargs):
+        # The fixture uses an unsigned test master; its independent signature
+        # verification is covered by the dedicated reviewer-approval suite.
+        kwargs["require_reviewer_signature"] = False
+        kwargs["trust_registry"] = None
+        return original_scheme_master(master, **kwargs)
+
+    monkeypatch.setattr(contract, "_validate_scheme_master", capture_scheme_master)
     validate_evidence_provider_payload(
         payload,
         trust_registry=trust_registry,
