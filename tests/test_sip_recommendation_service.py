@@ -910,3 +910,28 @@ def test_screening_policy_snapshot_is_shared_with_engine_and_decision_trace(tmp_
     assert trace["policy_components"]["screening"]["source_sha256"] == snapshot["_policy_digest"]
     assert len(trace["policy_components"]["asset_allocation"]["source_sha256"]) == 64
     assert len(trace["effective_policy_digest"]) == 64
+
+
+@pytest.mark.parametrize("component", ["screening", "allocation"])
+def test_mid_decision_policy_snapshot_mutation_fails_closed(tmp_path, monkeypatch, component):
+    from core import eligibility
+
+    args = _inputs(tmp_path)
+    monkeypatch.setattr(service, "load_holdings_from_cas_excel", lambda *a, **k: [_holding()])
+
+    def mutating_engine(**kwargs):
+        if component == "screening":
+            kwargs["screening_policy"]["gate_thresholds"]["min_aum_crore"] += 1
+        else:
+            kwargs["allocation_policy"]["as_of"] = "2026-10-29"
+        return SimpleNamespace(items=[])
+
+    monkeypatch.setattr(service, "compute_deterministic_sip_blueprint", mutating_engine)
+
+    result = service.recommend_sip(**args)
+
+    assert result["status"] == "HOLD"
+    assert result["decision"] == "NO_ACTION"
+    assert result["plan"]["items"] == []
+    assert Decimal(result["plan"]["unallocated_budget_inr"]) == Decimal("10000")
+    assert any("policy snapshot integrity failed closed" in reason for reason in result["reasons"])
