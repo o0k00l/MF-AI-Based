@@ -499,6 +499,7 @@ def test_evidence_bundle_builder_atomic_rollback_on_failure(tmp_path):
             scheme_master_source_bytes=master_bytes,
             metrics_payload={"funds": []},
             metrics_source_bytes=b"metrics_2",
+            metrics_source_metadata=metrics_source_metadata,
             candidate_universe=[],  # Invalid: empty candidate universe
             candidate_universe_source_bytes=b"universe_2",
             portfolio_disclosures={},
@@ -756,13 +757,20 @@ def test_builder_fails_closed_on_missing_direct_plan_evidence_bytes(tmp_path):
     envelope, registry = _make_test_approval()
     builder = EvidenceBundleBuilder(tmp_path / "bundle")
     master = _sample_scheme_master_dict(as_of)
+    metrics_source_bytes = b"metrics_1"
+    metrics_payload = _metrics_payload_for(master, metrics_source_bytes, as_of)
+    metrics_source_metadata = _metrics_source_metadata(
+        metrics_payload, metrics_source_bytes, as_of,
+        "https://amfiindia.com/metrics", envelope,
+    )
     with pytest.raises(ValueError, match="Missing direct plan evidence bytes"):
         builder.build_and_promote(
             as_of,
             scheme_master=master,
             scheme_master_source_bytes=json.dumps(master).encode("utf-8"),
-            metrics_payload={"funds": [{"fund_id": "fund-1", "nav": "82.45"}]},
-            metrics_source_bytes=b"metrics_1",
+            metrics_payload=metrics_payload,
+            metrics_source_bytes=metrics_source_bytes,
+            metrics_source_metadata=metrics_source_metadata,
             candidate_universe=[{
                 "fund_id": "fund-1",
                 "fund_name": "Fund 1",
@@ -796,6 +804,12 @@ def test_builder_fails_closed_on_missing_direct_plan_evidence_source_url(tmp_pat
     envelope, registry = _make_test_approval()
     builder = EvidenceBundleBuilder(tmp_path / "bundle")
     master = _sample_scheme_master_dict(as_of)
+    metrics_source_bytes = b"metrics_1"
+    metrics_payload = _metrics_payload_for(master, metrics_source_bytes, as_of)
+    metrics_source_metadata = _metrics_source_metadata(
+        metrics_payload, metrics_source_bytes, as_of,
+        "https://amfiindia.com/metrics", envelope,
+    )
     with pytest.raises(ValueError, match="Missing direct plan evidence source URL"):
         builder.build_and_promote(
             as_of,
@@ -836,6 +850,12 @@ def test_builder_fails_closed_on_missing_disclosure_source_bytes(tmp_path):
     envelope, registry = _make_test_approval()
     builder = EvidenceBundleBuilder(tmp_path / "bundle")
     master = _sample_scheme_master_dict(as_of)
+    metrics_source_bytes = b"metrics_1"
+    metrics_payload = _metrics_payload_for(master, metrics_source_bytes, as_of)
+    metrics_source_metadata = _metrics_source_metadata(
+        metrics_payload, metrics_source_bytes, as_of,
+        "https://amfiindia.com/metrics", envelope,
+    )
     with pytest.raises(ValueError, match="Missing original portfolio disclosure source bytes"):
         builder.build_and_promote(
             as_of,
@@ -876,6 +896,12 @@ def test_builder_fails_closed_on_missing_disclosure_source_url(tmp_path):
     envelope, registry = _make_test_approval()
     builder = EvidenceBundleBuilder(tmp_path / "bundle")
     master = _sample_scheme_master_dict(as_of)
+    metrics_source_bytes = b"metrics_1"
+    metrics_payload = _metrics_payload_for(master, metrics_source_bytes, as_of)
+    metrics_source_metadata = _metrics_source_metadata(
+        metrics_payload, metrics_source_bytes, as_of,
+        "https://amfiindia.com/metrics", envelope,
+    )
     with pytest.raises(ValueError, match="Missing portfolio disclosure source URL"):
         builder.build_and_promote(
             as_of,
