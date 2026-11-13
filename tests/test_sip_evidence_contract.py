@@ -683,3 +683,16 @@ def test_alias_reviewer_signature_contract_receives_full_normalized_alias_record
     monkeypatch.setattr(contract, "_validate_source_document", capture)
     validate_evidence_provider_payload(payload, require_reviewer_signature=False)
     assert captured["records"] == alias_data
+
+
+def test_signed_metrics_metadata_requires_reviewer_id_match(tmp_path):
+    payload = valid_payload(tmp_path)
+    payload["metrics_source_metadata"]["reviewer_approval_envelope"] = {
+        "payload": {"reviewer_id": "different-reviewer"},
+        "signature": "not-used-in-this-structural-test",
+    }
+    with pytest.raises(EvidenceProviderContractError, match="reviewer_id must match"):
+        validate_evidence_provider_payload(
+            payload, trust_registry={"schema_version": 1, "keys": [{"key_id": "k"}]},
+            require_reviewer_signature=True,
+        )
