@@ -25,8 +25,9 @@ def _sample_xlsx_bytes() -> bytes:
 
 
 def test_api_rejects_unauthenticated_requests_when_auth_required():
+    provider_calls = []
     app = sip.create_sip_app(
-        evidence_provider=lambda **kwargs: {},
+        evidence_provider=lambda **kwargs: provider_calls.append(kwargs) or {},
         api_key_registry={
             "a" * 40: {
                 "tenant_id": "tenant-test",
@@ -45,6 +46,7 @@ def test_api_rejects_unauthenticated_requests_when_auth_required():
     )
     assert response.status_code == 401
     assert "Authentication required" in response.json()["reasons"][0]
+    assert provider_calls == []
 
 
 def test_api_accepts_valid_api_key_and_enforces_client_scope():
