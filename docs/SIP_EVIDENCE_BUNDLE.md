@@ -160,7 +160,8 @@ The structured-record digest for each signed scope is canonicalized as follows:
 - `SIP_SCHEME_MASTER`: the complete normalized `schemes` list.
 - `SIP_PORTFOLIO_DISCLOSURE`: `{"constituent_weights": <uppercase identifiers and numeric weights>, "coverage_pct": <numeric coverage>}`; the exact scheme ID is also bound in the approval payload.
 - `SIP_CANDIDATE_UNIVERSE`: the complete normalized candidate list.
-- `SIP_EVIDENCE_RELEASE` for fund metrics: `{"normalized_metrics_sha256": <digest>}`.
+- `SIP_EVIDENCE_RELEASE` for fund metrics: the complete normalized `funds` array.
+- `SIP_EVIDENCE_RELEASE` for aliases: the complete normalized alias mapping.
 - `SIP_EVIDENCE_RELEASE` for total-portfolio context: the complete normalized `portfolio_context` mapping.
 - `SIP_EVIDENCE_RELEASE` for ranking scores: the ordered list of each scored candidate's fund ID, score, score date, methodology, portfolio-overlap status/coverage/source, category-anchor source/policy and benchmark identity.
 - `SIP_EVIDENCE_RELEASE` for category anchors: the complete `category_anchors` mapping.
