@@ -144,6 +144,13 @@ def test_recommend_sip_custom_saa_e2e_with_approved_context(tmp_path, monkeypatc
 
     context = {
         "current_core_fund_count": 0,
+        "evidence_attested_by_provider": True,
+        "investor_owner_ref": "INVESTOR-REF-TEST",
+        "sip_mandate_evidence": {
+            "coverage_status": "COMPLETE",
+            "source_ref": "sha256:" + "a" * 64,
+            "mandates": [],
+        },
         "as_of_date": as_of,
         "cas_valuation_date": as_of,
         "perimeter_complete": True,

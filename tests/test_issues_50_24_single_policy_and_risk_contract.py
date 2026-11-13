@@ -349,6 +349,13 @@ def test_issue_24_recommend_sip_custom_saa_enforces_risk_ceiling(tmp_path, monke
 
     context = {
         "current_core_fund_count": 0,
+        "evidence_attested_by_provider": True,
+        "investor_owner_ref": "INVESTOR-REF-TEST",
+        "sip_mandate_evidence": {
+            "coverage_status": "COMPLETE",
+            "source_ref": "sha256:" + "a" * 64,
+            "mandates": [],
+        },
         "as_of_date": as_of,
         "cas_valuation_date": as_of,
         "perimeter_complete": True,

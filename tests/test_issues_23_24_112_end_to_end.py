@@ -107,6 +107,13 @@ def test_issue_23_signed_report_artifact_enforced_in_sip_service(tmp_path, monke
     }
     context = {
         "current_core_fund_count": 0,
+        "evidence_attested_by_provider": True,
+        "investor_owner_ref": "INVESTOR-REF-TEST",
+        "sip_mandate_evidence": {
+            "coverage_status": "COMPLETE",
+            "source_ref": "sha256:" + "a" * 64,
+            "mandates": [],
+        },
         "as_of_date": as_of,
         "cas_valuation_date": as_of,
         "perimeter_complete": True,
@@ -292,6 +299,13 @@ def test_issue_24_custom_saa_propagates_downstream_and_preserves_unfillable(tmp_
 
     context = {
         "current_core_fund_count": 0,
+        "evidence_attested_by_provider": True,
+        "investor_owner_ref": "INVESTOR-REF-TEST",
+        "sip_mandate_evidence": {
+            "coverage_status": "COMPLETE",
+            "source_ref": "sha256:" + "a" * 64,
+            "mandates": [],
+        },
         "as_of_date": as_of,
         "cas_valuation_date": as_of,
         "perimeter_complete": True,
