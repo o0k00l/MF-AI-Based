@@ -28,14 +28,25 @@ def _source(raw: bytes, source_type: str) -> dict:
 
 def _bundle(root: Path) -> dict:
     root.mkdir(parents=True, exist_ok=True)
-    (root / "metrics.json").write_text('{"funds": []}', encoding="utf-8")
     metrics_bytes = b"original fund metrics source"
+    metrics_record = {
+        "id": "scheme-1", "scheme_id": "scheme-1", "isin": "INF000000001",
+        "amc_name": "Example AMC", "category": "Flexi Cap", "cat": "Flexi Cap",
+        "plan_type": "Direct", "option_type": "Growth",
+        "benchmark_identity": "NIFTY 500 TRI", "effective_date": date.today().isoformat(),
+        "source_ref": "sha256:" + hashlib.sha256(metrics_bytes).hexdigest(),
+        "eq": 80, "debt": 20, "lc": 50, "mc": 20, "sc": 10,
+        "market_cap_basis": "TOTAL_PORTFOLIO_PCT", "ter_plan": "direct", "er": 0.5,
+    }
+    _write_json(root, "metrics.json", {"funds": [metrics_record]})
     (root / "originals").mkdir(parents=True, exist_ok=True)
     (root / "originals/metrics.csv").write_bytes(metrics_bytes)
     metrics_metadata = _source(metrics_bytes, "OFFICIAL_FUND_METRICS")
     metrics_metadata["normalized_metrics_sha256"] = hashlib.sha256(
         (root / "metrics.json").read_bytes()
     ).hexdigest()
+    metrics_metadata["policy_version"] = "holdings-metrics-v1"
+    metrics_metadata["reviewer_id"] = "independent-reviewer"
     _write_json(root, "metrics_metadata.json", metrics_metadata)
     master_bytes = b"original scheme master"
     universe_bytes = b"original candidate universe"
