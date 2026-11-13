@@ -277,8 +277,20 @@ def validate_fund_screening_policy(data: Any, policy_path: Optional[Path] = None
     if data.get("_schema") != "fiduciary.screening_criteria.v1":
         raise ValueError("Screening policy schema must be fiduciary.screening_criteria.v1")
 
-    if not data.get("version"):
+    if not isinstance(data.get("version"), str) or not data["version"].strip():
         raise ValueError("Screening policy must declare an authoritative version string")
+    status = data.get("status")
+    if not isinstance(status, str) or status.strip().lower() not in {"reviewed", "approved"}:
+        raise ValueError("Screening policy status must be reviewed or approved")
+    effective_date = data.get("as_of")
+    if not isinstance(effective_date, str) or not effective_date.strip():
+        raise ValueError("Screening policy must declare an effective as_of date")
+    try:
+        parsed_effective_date = date.fromisoformat(effective_date)
+    except ValueError as exc:
+        raise ValueError("Screening policy as_of must be a valid ISO-8601 date") from exc
+    if parsed_effective_date > date.today():
+        raise ValueError("Screening policy as_of date cannot be in the future")
 
     required_thresholds = {
         "amc_max_limit_pct", "min_aum_crore", "max_top10_concentration_pct",
@@ -292,6 +304,16 @@ def validate_fund_screening_policy(data: Any, policy_path: Optional[Path] = None
         v = gt[k]
         if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(float(v)) or float(v) < 0:
             raise ValueError(f"Screening policy gate_thresholds[{k!r}] must be a finite non-negative number")
+    for key in (
+        "amc_max_limit_pct", "max_top10_concentration_pct",
+        "max_sector_concentration_pct", "max_overlap_candidate_pct",
+    ):
+        if float(gt[key]) > 100:
+            raise ValueError(f"Screening policy gate_thresholds[{key!r}] must be between 0 and 100")
+    if float(gt["min_aum_crore"]) <= 0:
+        raise ValueError("Screening policy gate_thresholds['min_aum_crore'] must be greater than zero")
+    if float(gt["min_confidence_score"]) > 1:
+        raise ValueError("Screening policy gate_thresholds['min_confidence_score'] must be between 0 and 1")
 
     seen_rule_ids = set()
     for rule_set_key in ("quarantine_rules", "reject_rules", "flag_rules"):
@@ -305,14 +327,17 @@ def validate_fund_screening_policy(data: Any, policy_path: Optional[Path] = None
                     raise ValueError(f"Duplicate screening rule ID detected: {rid!r}")
                 seen_rule_ids.add(rid)
 
-    cat_rules = data.get("category_rules", {})
-    if isinstance(cat_rules, dict):
-        thematic = cat_rules.get("thematic_sectoral_liquidation", {})
-        if isinstance(thematic, dict) and thematic.get("action") not in ("REVIEW_REQUIRED", "FLAG"):
-            raise ValueError(
-                f"Contradictory action {thematic.get('action')!r} in category_rules.thematic_sectoral_liquidation; "
-                "must be REVIEW_REQUIRED per fiduciary non-automatic liquidation policy"
-            )
+    cat_rules = data.get("category_rules")
+    if not isinstance(cat_rules, dict):
+        raise ValueError("Screening policy category_rules must be an object")
+    thematic = cat_rules.get("thematic_sectoral_liquidation")
+    if not isinstance(thematic, dict):
+        raise ValueError("Screening policy thematic_sectoral_liquidation rule is required")
+    if thematic.get("action") not in ("REVIEW_REQUIRED", "FLAG"):
+        raise ValueError(
+            f"Contradictory action {thematic.get('action')!r} in category_rules.thematic_sectoral_liquidation; "
+            "must be REVIEW_REQUIRED per fiduciary non-automatic liquidation policy"
+        )
 
     lookthrough_policy = data.get("portfolio_lookthrough_policy")
     if not isinstance(lookthrough_policy, dict) or set(lookthrough_policy) != {
