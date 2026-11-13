@@ -419,9 +419,11 @@ def test_provider_loads_alias_original_bytes_and_metadata_as_atomic_bundle(tmp_p
         "aliases_source_file": "originals/aliases.csv",
     })
     _write_json(tmp_path, "manifest.json", manifest)
+    cas_path = tmp_path / "cas.xlsx"
+    cas_path.write_bytes(b"temporary uploaded CAS")
     provider = build_sip_evidence_provider(tmp_path)
     payload = provider(
-        cas_path=tmp_path / "cas.xlsx", monthly_budget_inr=10000,
+        cas_path=cas_path, monthly_budget_inr=10000,
         risk_profile="Moderate",
     )
     validated = validate_evidence_provider_payload(payload, require_reviewer_signature=False)
