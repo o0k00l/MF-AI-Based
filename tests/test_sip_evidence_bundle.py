@@ -47,6 +47,9 @@ def _bundle(root: Path) -> dict:
     ).hexdigest()
     metrics_metadata["policy_version"] = "holdings-metrics-v1"
     metrics_metadata["reviewer_id"] = "independent-reviewer"
+    metrics_metadata["publisher"] = "AMFI"
+    metrics_metadata["coverage_scope"] = "Reviewed fund metrics snapshot"
+    metrics_metadata["record_count"] = 1
     _write_json(root, "metrics_metadata.json", metrics_metadata)
     master_bytes = b"original scheme master"
     universe_bytes = b"original candidate universe"
@@ -407,6 +410,7 @@ def test_provider_loads_alias_original_bytes_and_metadata_as_atomic_bundle(tmp_p
         "record_count": 1,
         "policy_version": "alias-resolution-v1",
         "reviewer_id": "independent-reviewer",
+        "publisher": "AMFI",
     }
     _write_json(tmp_path, "aliases_metadata.json", alias_metadata)
     manifest.update({
