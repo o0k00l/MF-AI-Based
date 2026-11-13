@@ -181,10 +181,9 @@ def extract_mandate_evidence_from_transaction(
     elif mandate_id:
         if has_explicit_active:
             mandate_status = "ACTIVE"
-            mandate_evidence_level = "ACTIVE_MANDATE_CONFIRMED"
+            # Text may describe a claimed status, but cannot authenticate its issuer.
+            mandate_evidence_level = "TRANSACTION_TEXT_ACTIVE_STATUS"
         else:
-            # Mandate identifier found, but NO explicit active confirmation.
-            # An identifier establishes identity, not necessarily current active status.
             mandate_status = "UNCONFIRMED"
             mandate_evidence_level = "MANDATE_ID_FOUND"
     else:
@@ -192,7 +191,9 @@ def extract_mandate_evidence_from_transaction(
         mandate_evidence_level = "NONE"
         mandate_source = "NONE"
 
-    has_auth_mandate = bool(mandate_id) and (mandate_status == "ACTIVE") and (mandate_evidence_level == "ACTIVE_MANDATE_CONFIRMED")
+    # A CAS transaction description/ID is not a signed, issuer-authenticated
+    # mandate schedule. Keep the extracted claim, but never promote it to auth.
+    has_auth_mandate = False
 
     return {
         "mandate_id": mandate_id or None,
