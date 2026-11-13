@@ -15,6 +15,7 @@ from __future__ import annotations
 import concurrent.futures
 import json
 import logging
+import os
 import re
 import urllib.parse
 import urllib.request
@@ -59,24 +60,54 @@ def _call_privacy_safe_fiduciary_llm(
         use_cache=False,
     )
 
-_CACHE_DIR = Path(__file__).resolve().parent.parent / "data" / "cache"
-_CACHE_FILE = _CACHE_DIR / "online_fund_lookthrough.json"
+def _external_lookthrough_cache_file() -> Path | None:
+    """Use only the configured external engine-data directory; never the repository."""
+    configured = os.getenv("MF_ENGINE_DATA_DIR", "").strip()
+    if not configured:
+        return None
+    project_root = Path(__file__).resolve().parent.parent
+    root = Path(configured).expanduser().resolve()
+    try:
+        root.relative_to(project_root)
+    except ValueError:
+        pass
+    else:
+        return None
+    try:
+        root.mkdir(parents=True, exist_ok=True)
+        root = root.resolve(strict=True)
+        root.relative_to(project_root)
+    except (OSError, ValueError):
+        return None
+    return root / "online_fund_lookthrough.json"
+
+
+_CACHE_FILE = _external_lookthrough_cache_file()
+
 
 def _load_online_lookthrough_cache() -> Dict[str, Dict[str, Any]]:
-    if _CACHE_FILE.exists():
-        try:
-            with open(_CACHE_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            return {}
-    return {}
+    if _CACHE_FILE is None or not _CACHE_FILE.exists():
+        return {}
+    try:
+        with open(_CACHE_FILE, "r", encoding="utf-8") as f:
+            payload = json.load(f)
+        return payload if isinstance(payload, dict) else {}
+    except (OSError, ValueError, TypeError):
+        return {}
+
 
 def _save_online_lookthrough_cache():
+    if _CACHE_FILE is None:
+        return
     try:
-        _CACHE_DIR.mkdir(parents=True, exist_ok=True)
-        with open(_CACHE_FILE, "w", encoding="utf-8") as f:
-            json.dump(_ONLINE_LOOKTHROUGH_CACHE, f, indent=2)
-    except Exception:
+        _CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        temp_path = _CACHE_FILE.with_suffix(".tmp")
+        temp_path.write_text(
+            json.dumps(_ONLINE_LOOKTHROUGH_CACHE, indent=2),
+            encoding="utf-8",
+        )
+        temp_path.replace(_CACHE_FILE)
+    except (OSError, TypeError, ValueError):
         pass
 
 _ONLINE_LOOKTHROUGH_CACHE: Dict[str, Dict[str, Any]] = _load_online_lookthrough_cache()
