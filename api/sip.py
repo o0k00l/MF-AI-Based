@@ -30,6 +30,55 @@ from core.models import quantize_inr
 MAX_CAS_BYTES = 20 * 1024 * 1024
 
 
+def _load_api_key_registry_from_environment() -> dict[str, dict[str, Any]] | None:
+    """Load credentials from an externally mounted secret file; never use defaults."""
+    import os
+
+    registry_path = os.environ.get("MF_API_KEY_REGISTRY_PATH")
+    if not registry_path:
+        return None
+    path = Path(registry_path)
+    if path.is_symlink() or not path.is_file():
+        raise ValueError("MF_API_KEY_REGISTRY_PATH must reference a regular, non-symlink secret file.")
+    if path.stat().st_size <= 0 or path.stat().st_size > 1024 * 1024:
+        raise ValueError("API key registry secret file is empty or exceeds the 1 MiB limit.")
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError("API key registry secret file is not valid UTF-8 JSON.") from exc
+    if not isinstance(raw, dict) or not raw:
+        raise ValueError("API key registry must be a non-empty JSON object.")
+    validated: dict[str, dict[str, Any]] = {}
+    for token, entry in raw.items():
+        if not isinstance(token, str) or len(token.strip()) < 32:
+            raise ValueError("Every API key must be a non-empty secret of at least 32 characters.")
+        if not isinstance(entry, dict):
+            raise ValueError("Every API key registry entry must be an object.")
+        tenant_id = entry.get("tenant_id")
+        clients = entry.get("authorized_client_ids")
+        rate_limit = entry.get("rate_limit_per_minute")
+        if not isinstance(tenant_id, str) or not tenant_id.strip():
+            raise ValueError("Every API key must declare a non-empty tenant_id.")
+        if (
+            not isinstance(clients, list) or not clients
+            or any(not isinstance(client, str) or not client.strip() for client in clients)
+            or len(set(clients)) != len(clients)
+        ):
+            raise ValueError("Every API key must declare a unique, non-empty authorized_client_ids list.")
+        if (
+            isinstance(rate_limit, bool) or not isinstance(rate_limit, int)
+            or rate_limit <= 0
+        ):
+            raise ValueError("Every API key must declare a positive integer rate_limit_per_minute.")
+        validated[token] = {
+            **entry,
+            "tenant_id": tenant_id.strip(),
+            "authorized_client_ids": [client.strip() for client in clients],
+            "rate_limit_per_minute": rate_limit,
+        }
+    return validated
+
+
 def create_sip_app(
     evidence_provider: Callable[..., dict[str, Any]] | None = None,
     api_key_registry: dict[str, dict[str, Any]] | None = None,
@@ -38,6 +87,8 @@ def create_sip_app(
 ) -> FastAPI:
     """Create an isolated SIP API; provider supplies reviewed source evidence."""
     import os
+    if api_key_registry is None:
+        api_key_registry = _load_api_key_registry_from_environment()
     if evidence_provider is None and os.environ.get("MF_SIP_EVIDENCE_BUNDLE_DIR"):
         try:
             evidence_provider = build_sip_evidence_provider()
@@ -62,6 +113,11 @@ def create_sip_app(
         auth_enabled = bool(api_key_registry) or os.environ.get("MF_API_REQUIRE_AUTH", "").lower() in ("1", "true", "yes")
     else:
         auth_enabled = require_auth
+    if auth_enabled and not api_key_registry:
+        raise ValueError(
+            "Authentication is required but no validated API key registry is configured; "
+            "set MF_API_KEY_REGISTRY_PATH to an externally mounted secret file."
+        )
 
     if require_authenticated_cas is None:
         deployment_mode = os.environ.get("MF_DEPLOYMENT_ENVIRONMENT", "production").lower()
@@ -191,13 +247,22 @@ def create_sip_app(
                         "reasons": ["Invalid or revoked API key."],
                     })
                 key_info = api_key_registry[token]
-                tenant_id = key_info.get("tenant_id", token)
-                allowed_clients = key_info.get("authorized_client_ids", [])
-                if x_client_id and allowed_clients and x_client_id not in allowed_clients:
+                tenant_id = key_info.get("tenant_id")
+                allowed_clients = key_info.get("authorized_client_ids")
+                if (
+                    not isinstance(tenant_id, str) or not tenant_id.strip()
+                    or not isinstance(allowed_clients, list) or not allowed_clients
+                ):
+                    return JSONResponse(status_code=503, content={
+                        "status": "HOLD",
+                        "decision": "NO_ACTION",
+                        "reasons": ["API credential registry entry is missing a tenant or client authorization scope."],
+                    })
+                if not x_client_id or x_client_id not in allowed_clients:
                     return JSONResponse(status_code=403, content={
                         "status": "HOLD",
                         "decision": "NO_ACTION",
-                        "reasons": [f"Forbidden: Client ID '{x_client_id}' is not within the authorized scope of this credential."],
+                        "reasons": ["A valid X-Client-Id within this credential's authorized scope is required."],
                     })
                 # Tenant Quota & Rate Limit Enforcement
                 rate_limit = key_info.get("rate_limit_per_minute", 60)
