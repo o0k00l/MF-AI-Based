@@ -61,17 +61,46 @@ def _clean_markdown(text: str) -> str:
 
 
 def _sensitive_identifiers_from_facts(facts: Any) -> list[str]:
-    """Collect investor-specific identifiers that must not leave this process."""
-    identifiers = []
-    client_name = getattr(facts, "client_name", None)
-    if isinstance(client_name, str) and client_name.strip():
-        identifiers.append(client_name.strip())
+    """Collect investor/portfolio identifiers from every outbound narrative context."""
+    identifiers: set[str] = set()
+
+    def add(value: Any) -> None:
+        if isinstance(value, str) and value.strip():
+            identifiers.add(value.strip())
+
+    def field(record: Any, name: str) -> Any:
+        return record.get(name) if isinstance(record, dict) else getattr(record, name, None)
+
+    add(getattr(facts, "client_name", None))
+
+    # Holdings are investor-specific even when their scheme identifiers are not
+    # personally identifying in isolation. Never disclose a client's exact
+    # scheme/folio/security ledger to an external narrative provider.
+    holding_fields = (
+        "fund_name", "scheme_name", "scheme", "folio", "folio_no",
+        "folio_number", "account_id", "account_number", "scheme_id",
+        "fund_id", "isin", "security_id",
+    )
     for holding in getattr(facts, "holdings", None) or []:
-        for field in ("fund_name", "scheme_name", "scheme", "folio", "folio_no", "account_id", "scheme_id", "isin"):
-            value = holding.get(field) if isinstance(holding, dict) else getattr(holding, field, None)
-            if value is not None and str(value).strip():
-                identifiers.append(str(value).strip())
-    return sorted(set(identifiers), key=len, reverse=True)
+        for name in holding_fields:
+            add(field(holding, name))
+
+    # Theme/stock names and deterministic destination names can reveal the
+    # investor's portfolio composition just as directly as holding rows.
+    for exposure in getattr(facts, "thematic_exposures", None) or []:
+        add(field(exposure, "theme_name"))
+        for stock in field(exposure, "key_underlying_holdings") or []:
+            add(stock)
+    for plan_name in ("deterministic_sip_plan", "deterministic_lumpsum_plan"):
+        plan = getattr(facts, plan_name, None)
+        rows = field(plan, "items" if plan_name.endswith("sip_plan") else "tranches") or []
+        for row in rows:
+            add(field(row, "scheme_name"))
+            add(field(row, "fund_name"))
+            add(field(row, "folio"))
+            add(field(row, "account_id"))
+
+    return sorted(identifiers, key=len, reverse=True)
 
 
 def collect_sensitive_identifiers(*records: Any) -> list[str]:
@@ -140,7 +169,16 @@ def sanitize_prompt_for_privacy(
         and (not client_name or value.strip().casefold() != client_name.strip().casefold())
     ]
     for identifier in sorted({value.strip() for value in identifiers}, key=len, reverse=True):
-        s = re.sub(re.escape(identifier), "[REDACTED_HOLDING]", s, flags=re.IGNORECASE)
+        s = re.sub(re.escape(identifier), "[REDACTED_PORTFOLIO_DETAIL]", s, flags=re.IGNORECASE)
+
+    # Numeric facts (including percentages, ages, returns, units, NAVs and
+    # values without an explicit INR label) are not needed by the qualitative
+    # external narrative layer. Keep all financial arithmetic local.
+    s = re.sub(
+        r"(?<![A-Za-z])[-+]?(?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.\\d+)?\\s*%?",
+        "[REDACTED_NUMERIC_DETAIL]",
+        s,
+    )
     return s
 
 
