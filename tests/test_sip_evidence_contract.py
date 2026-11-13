@@ -578,6 +578,7 @@ def test_metrics_exact_identity_lineage_and_exposure_reconciliation(tmp_path):
         "benchmark_identity": "Nifty 500 TRI", "effective_date": "2026-11-01",
         "source_ref": "sha256:" + "a" * 64,
         "eq": 80, "debt": 20, "lc": 50, "mc": 20, "sc": 10,
+        "market_cap_basis": "TOTAL_PORTFOLIO_PCT",
     }
     master = {
         "status": "VERIFIED",
