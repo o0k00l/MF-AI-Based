@@ -15,8 +15,11 @@ def _metrics_file(tmp_path, scheme_name):
         "isin": "INF000A01000", "scheme": scheme_name, "name": scheme_name,
         "amc_name": "Example AMC", "cat": "Flexi Cap", "category": "Flexi Cap",
         "plan_type": "Direct", "option_type": "Growth",
-        "er": 0.65, "eq": 100.0, "debt": 0.0,
-        "lc": 50.0, "mc": 30.0, "sc": 20.0, "h": [],
+        "benchmark_identity": "NIFTY 500 TRI",
+        "effective_date": "2026-11-04", "source_ref": "sha256:" + "a" * 64,
+        "er": 0.65, "ter_plan": "direct", "eq": 100.0, "debt": 0.0,
+        "lc": 50.0, "mc": 30.0, "sc": 20.0,
+        "market_cap_basis": "TOTAL_PORTFOLIO_PCT", "h": [],
     }]}), encoding="utf-8")
     return path
 
@@ -34,6 +37,7 @@ def test_primary_cas_holdings_loader_resolves_verified_scheme_identity(tmp_path)
             'scheme_name': 'Example Equity Fund - Direct Growth',
             'amc_name': 'Example AMC',
             'category': 'Flexi Cap',
+            'benchmark_identity': 'NIFTY 500 TRI',
             'plan_type': 'Direct',
             'option_type': 'Growth',
             'riskometer_score': 5,
@@ -92,6 +96,7 @@ def _scheme_master_complete():
             'scheme_name': 'Example Equity Fund - Direct Growth',
             'amc_name': 'Example AMC',
             'category': 'Flexi Cap',
+            'benchmark_identity': 'NIFTY 500 TRI',
             'plan_type': 'Direct',
             'option_type': 'Growth',
             'riskometer_score': 5,
@@ -109,8 +114,9 @@ def test_metrics_missing_category_rejected_when_exact_identity_required(tmp_path
             "amc_name": "Example AMC",  # category missing
             "plan_type": "Direct",
             "option_type": "Growth",
-            "er": 0.65, "eq": 100.0, "debt": 0.0,
-            "lc": 50.0, "mc": 30.0, "sc": 20.0, "h": [],
+            "er": 0.65, "ter_plan": "direct", "eq": 100.0, "debt": 0.0,
+            "lc": 50.0, "mc": 30.0, "sc": 20.0,
+            "market_cap_basis": "TOTAL_PORTFOLIO_PCT", "h": [],
         }
     }
     from core.math_engine import _validate_metrics_provenance
@@ -138,6 +144,7 @@ def test_mixed_snapshot_rejected_at_exact_identity_binding(tmp_path):
             'scheme_name': 'Example Equity Fund - Direct Growth',
             'amc_name': 'Example AMC',
             'category': 'Flexi Cap',
+            'benchmark_identity': 'NIFTY 500 TRI',
             'plan_type': 'Direct',
             'option_type': 'Growth',
             'riskometer_score': 5,
@@ -150,6 +157,7 @@ def test_mixed_snapshot_rejected_at_exact_identity_binding(tmp_path):
             'isin': 'INF000A01000',
             'amc_name': 'Example AMC',
             'category': 'Flexi Cap',
+            'benchmark_identity': 'NIFTY 500 TRI',
             'plan_type': 'Direct',
             'option_type': 'Growth',
             'effective_date': '2026-06-01',
@@ -161,6 +169,7 @@ def test_mixed_snapshot_rejected_at_exact_identity_binding(tmp_path):
             'isin': 'INF000A01000',
             'amc_name': 'Example AMC',
             'category': 'Flexi Cap',
+            'benchmark_identity': 'NIFTY 500 TRI',
             'plan_type': 'Direct',
             'option_type': 'Growth',
             'effective_date': '2026-10-01',
@@ -190,6 +199,7 @@ def test_scheme_not_in_master_rejected_at_exact_identity_binding(tmp_path):
             'scheme_name': 'Example Equity Fund - Direct Growth',
             'amc_name': 'Example AMC',
             'category': 'Flexi Cap',
+            'benchmark_identity': 'NIFTY 500 TRI',
             'plan_type': 'Direct',
             'option_type': 'Growth',
             'riskometer_score': 5,
@@ -201,10 +211,18 @@ def test_scheme_not_in_master_rejected_at_exact_identity_binding(tmp_path):
             "scheme_id": "SCHEME-999",  # Not in master
             "isin": "INF999999999",
             "amc_name": "Example AMC",
+            "benchmark_identity": "NIFTY 500 TRI",
+            "effective_date": "2026-11-04",
+            "source_ref": "sha256:" + "a" * 64,
             "category": "Large Cap",  # This category doesn't matter, scheme_id is the issue
             "plan_type": "Direct",
             "option_type": "Growth",
-            "er": 0.65, "eq": 100.0, "debt": 0.0,
+            "benchmark_identity": "NIFTY 500 TRI",
+            "effective_date": "2026-11-04",
+            "source_ref": "sha256:" + "a" * 64,
+            "er": 0.65, "ter_plan": "direct", "eq": 100.0, "debt": 0.0,
+            "lc": 50.0, "mc": 30.0, "sc": 20.0,
+            "market_cap_basis": "TOTAL_PORTFOLIO_PCT",
             "lc": 50.0, "mc": 30.0, "sc": 20.0, "h": [],
         }
     }
@@ -232,7 +250,12 @@ def test_metrics_conflicting_amc_rejected_at_exact_identity_binding(tmp_path):
             "category": "Flexi Cap",
             "plan_type": "Direct",
             "option_type": "Growth",
-            "er": 0.65, "eq": 100.0, "debt": 0.0,
+            "benchmark_identity": "NIFTY 500 TRI",
+            "effective_date": "2026-11-04",
+            "source_ref": "sha256:" + "a" * 64,
+            "er": 0.65, "ter_plan": "direct", "eq": 100.0, "debt": 0.0,
+            "lc": 50.0, "mc": 30.0, "sc": 20.0,
+            "market_cap_basis": "TOTAL_PORTFOLIO_PCT",
         }
     }
     from core.math_engine import _validate_metrics_provenance
