@@ -806,8 +806,16 @@ def load_holdings_from_cas_excel(
     if fund_metrics_path and fund_metrics_path.exists():
         with open(fund_metrics_path, "r", encoding="utf-8") as f:
             m_data = json.load(f)
-            for m in m_data.get("funds", []):
-                fid = re.sub(r"[^a-z0-9]", "", m.get("id", "")).strip().casefold()
+            if not isinstance(m_data, dict) or not isinstance(m_data.get("funds"), list):
+                raise ValueError("Fund metrics file must contain a 'funds' list.")
+            for m in m_data["funds"]:
+                if not isinstance(m, dict) or not isinstance(m.get("id"), str) or not m["id"].strip():
+                    raise ValueError("Fund metrics contain a malformed or unidentified record.")
+                fid = re.sub(r"[^a-z0-9]", "", m["id"]).strip().casefold()
+                if not fid:
+                    raise ValueError("Fund metrics record ID normalizes to an empty identifier.")
+                if fid in metrics_map:
+                    raise ValueError(f"Fund metrics contain duplicate normalized record ID {fid!r}.")
                 metrics_map[fid] = m
             # Issue #84: Validate metrics provenance and exact scheme binding
             metrics_provenance = _validate_metrics_provenance(
@@ -1151,12 +1159,22 @@ def _validate_metrics_provenance(
     identity_errors = []
     scheme_master_index = {}
 
-    # Build scheme master index for cross-checking
+    # Build an exact, duplicate-free scheme-master index. Exact metrics
+    # identity cannot be asserted against a missing or ambiguous master.
     if scheme_master and isinstance(scheme_master, dict):
+        if require_exact_identity and scheme_master.get("status") != "VERIFIED":
+            raise ValueError("Exact metrics identity requires a VERIFIED scheme master.")
         for scheme in scheme_master.get("schemes", []):
+            if not isinstance(scheme, dict):
+                raise ValueError("Verified scheme master contains a malformed record.")
             sid = scheme.get("scheme_id") or scheme.get("id")
             if sid:
-                scheme_master_index[str(sid).strip().upper()] = scheme
+                key = str(sid).strip().upper()
+                if key in scheme_master_index:
+                    raise ValueError(f"Verified scheme master contains duplicate scheme ID {key!r}.")
+                scheme_master_index[key] = scheme
+    if require_exact_identity and not scheme_master_index:
+        raise ValueError("Exact metrics identity requires a non-empty verified scheme master.")
 
     required_identity_fields = ("scheme_id", "isin", "amc_name", "category", "plan_type", "option_type")
 
@@ -1165,13 +1183,36 @@ def _validate_metrics_provenance(
             identity_errors.append(f"Metrics record {fid!r} is not a mapping.")
             continue
 
-        # Collect provenance fields
+        # Every record must carry its own source snapshot lineage. Missing
+        # provenance cannot be hidden by another record's populated metadata.
         eff_date = metric.get("effective_date") or metric.get("as_of_date")
         src_ref = metric.get("source_ref") or metric.get("source_document_sha256")
-        if eff_date:
-            effective_dates.add(str(eff_date).strip())
-        if src_ref:
-            source_refs.add(str(src_ref).strip().lower())
+        if require_exact_identity:
+            if not isinstance(eff_date, str) or not eff_date.strip():
+                identity_errors.append(f"Metrics record {fid!r} has no effective/as-of date.")
+            else:
+                try:
+                    parsed_effective_date = date.fromisoformat(eff_date.strip())
+                    if parsed_effective_date.isoformat() != eff_date.strip():
+                        raise ValueError("date is not canonical ISO format")
+                    effective_dates.add(parsed_effective_date.isoformat())
+                except ValueError:
+                    identity_errors.append(f"Metrics record {fid!r} has an invalid effective/as-of date.")
+            if not isinstance(src_ref, str):
+                identity_errors.append(f"Metrics record {fid!r} has no source reference.")
+            else:
+                normalized_ref = src_ref.strip().lower()
+                if normalized_ref.startswith("sha256:"):
+                    normalized_ref = normalized_ref[7:]
+                if not re.fullmatch(r"[0-9a-f]{64}", normalized_ref):
+                    identity_errors.append(f"Metrics record {fid!r} has an invalid SHA-256 source reference.")
+                else:
+                    source_refs.add(normalized_ref)
+        else:
+            if eff_date:
+                effective_dates.add(str(eff_date).strip())
+            if src_ref:
+                source_refs.add(str(src_ref).strip().lower())
 
         if require_exact_identity:
             missing = [f for f in required_identity_fields if not metric.get(f)]
@@ -1197,16 +1238,35 @@ def _validate_metrics_provenance(
                     identity_errors.append(
                         f"Metrics record {fid!r} ISIN {m_isin!r} conflicts with scheme master ISIN {s_isin!r}."
                     )
-                # Check AMC match
-                m_amc = str(metric.get("amc_name", "")).strip().casefold()
-                s_amc = str(master_scheme.get("amc_name", "") or master_scheme.get("amc", "")).strip().casefold()
-                if m_amc and s_amc and m_amc != s_amc:
-                    identity_errors.append(
-                        f"Metrics record {fid!r} AMC {m_amc!r} conflicts with scheme master AMC {s_amc!r}."
+                # Bind every identity dimension, not just scheme ID/ISIN.
+                identity_fields = (
+                    ("AMC", "amc_name", ("amc_name", "amc"), lambda value: str(value).strip().casefold()),
+                    ("category", "category", ("category",), lambda value: " ".join(str(value).strip().casefold().split())),
+                    ("plan", "plan_type", ("plan_type", "plan"), lambda value: str(value).strip().casefold()),
+                    ("option", "option_type", ("option_type", "option"), lambda value: str(value).strip().casefold()),
+                )
+                for label, metric_key, master_keys, normalize in identity_fields:
+                    metric_value = metric.get(metric_key)
+                    master_value = next(
+                        (master_scheme.get(key) for key in master_keys
+                         if master_scheme.get(key) is not None),
+                        None,
                     )
+                    if not isinstance(master_value, str) or not master_value.strip():
+                        identity_errors.append(
+                            f"Verified scheme master record {sid!r} is missing {label} identity."
+                        )
+                    elif normalize(metric_value) != normalize(master_value):
+                        identity_errors.append(
+                            f"Metrics record {fid!r} {label} conflicts with verified scheme master for {sid!r}."
+                        )
 
-    # Mixed-snapshot detection: more than one distinct effective date or source ref
+    # Exact-identity metrics require one coherent, fully populated snapshot.
     mixed_snapshot = len(effective_dates) > 1 or len(source_refs) > 1
+    if require_exact_identity and (not effective_dates or not source_refs):
+        identity_errors.append("Metrics snapshot provenance is incomplete.")
+    if require_exact_identity and (len(effective_dates) != 1 or len(source_refs) != 1):
+        mixed_snapshot = True
 
     if identity_errors:
         raise ValueError(
