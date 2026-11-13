@@ -76,7 +76,7 @@ def test_api_tenant_quotas_and_rate_limiting():
     # Tenant alpha 3rd request -> 429 Quota Exceeded
     resp_quota = client.post(
         "/v1/sip/recommendations",
-        headers={"X-API-Key": "tenant-key-1"},
+        headers={"X-API-Key": "tenant-key-1", "X-Client-Id": "client-alpha"},
         data={"monthly_budget_inr": 10000, "risk_profile": "Moderate"},
         files={"cas_file": ("statement.xlsx", _sample_xlsx_bytes(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
     )
