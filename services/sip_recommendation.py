@@ -61,11 +61,11 @@ _ASSET_CLASS_TO_SAA_BUCKET = {
 }
 
 
-def _required_lookthrough_coverage_pct() -> Any:
-    """Resolve the look-through coverage requirement from the validated screening policy."""
-    from core.eligibility import load_fund_screening_policy
-
-    policy = load_fund_screening_policy()
+def _required_lookthrough_coverage_pct(policy: dict[str, Any] | None = None) -> Any:
+    """Resolve coverage from the decision-scoped validated screening policy."""
+    if policy is None:
+        from core.eligibility import load_fund_screening_policy
+        policy = load_fund_screening_policy()
     return policy["portfolio_lookthrough_policy"]["required_coverage_pct"]
 
 
@@ -1040,6 +1040,7 @@ def _build_sip_decision_trace(
     metrics_normalized_sha256: str | None = None,
     candidate_universe_normalized_sha256: str | None = None,
     statement_provenance: dict[str, Any] | None = None,
+    screening_policy: dict[str, Any] | None = None,
 ) -> dict[str, str]:
     """Hash the source and diagnostic inputs that led to a fail-closed SIP result."""
     candidate_source_hashes = {}
@@ -1058,15 +1059,16 @@ def _build_sip_decision_trace(
             "rank_score_methodology_version": candidate.get("rank_score_methodology_version"),
         }
     policy_path = Path(__file__).resolve().parents[1] / "data" / "policy" / "asset_allocation.json"
-    screening_policy_path = Path(__file__).resolve().parents[1] / "data" / "policy" / "fund_screening.json"
     try:
         policy_source_sha256 = hashlib.sha256(policy_path.read_bytes()).hexdigest()
     except OSError:
         policy_source_sha256 = None
-    try:
-        screening_source_sha256 = hashlib.sha256(screening_policy_path.read_bytes()).hexdigest()
-    except OSError:
-        screening_source_sha256 = None
+    # The digest comes from the exact validated object consumed by the service
+    # and candidate selector; do not reopen the policy file during trace creation.
+    screening_source_sha256 = (
+        screening_policy.get("_policy_digest")
+        if isinstance(screening_policy, dict) else None
+    )
     effective_policy_digest = (
         hashlib.sha256(f"{policy_source_sha256}:{screening_source_sha256}".encode("utf-8")).hexdigest()
         if policy_source_sha256 and screening_source_sha256 else policy_source_sha256
@@ -1107,6 +1109,9 @@ def _build_sip_decision_trace(
         "policy_version": f"asset_allocation.json@{portfolio_assessment.get('policy_as_of')}",
         "policy_source_sha256": policy_source_sha256,
         "screening_policy_sha256": screening_source_sha256,
+        "screening_policy_version": (
+            screening_policy.get("version") if isinstance(screening_policy, dict) else None
+        ),
         "effective_policy_digest": effective_policy_digest,
         "engine_version": "core.math_engine.compute_deterministic_sip_blueprint",
         "eligibility": {
@@ -1273,6 +1278,13 @@ def recommend_sip(
         )
     if not isinstance(candidate_universe, list) or not candidate_universe:
         return _hold_plan(budget, ["A source-verified candidate universe is required."])
+    try:
+        from core.eligibility import load_fund_screening_policy
+        screening_policy = load_fund_screening_policy()
+    except (OSError, ValueError, TypeError) as exc:
+        return _hold_plan(budget, [
+            f"Central screening policy validation failed closed ({type(exc).__name__})."
+        ])
     if isinstance(disclosure_max_age_days, bool) or not isinstance(disclosure_max_age_days, int) or disclosure_max_age_days < 0:
         raise ValueError("disclosure_max_age_days must be a non-negative integer")
 
@@ -1316,7 +1328,7 @@ def recommend_sip(
         try:
             coverage = Decimal(str(holding.constituent_weights_coverage_pct))
             current_value = quantize_inr(holding.current_value_inr)
-            required_coverage = Decimal(str(_required_lookthrough_coverage_pct()))
+            required_coverage = Decimal(str(_required_lookthrough_coverage_pct(screening_policy)))
         except (TypeError, ValueError, AttributeError, ArithmeticError):
             evidence_gaps.append(f"{scheme_label}: coverage or current valuation is missing or malformed.")
             continue
@@ -1361,6 +1373,7 @@ def recommend_sip(
             disclosure_max_age_days=disclosure_max_age_days,
             custom_saa_target=custom_saa_target,
             risk_ceiling=custom_risk_ceiling,
+            screening_policy=screening_policy,
         )
     except (ValueError, TypeError, KeyError) as exc:
         return _hold_plan(
@@ -1418,6 +1431,7 @@ def recommend_sip(
         metrics_normalized_sha256=metrics_normalized_sha256,
         candidate_universe_normalized_sha256=candidate_universe_normalized_sha256,
         statement_provenance=statement_provenance,
+        screening_policy=screening_policy,
     )
     portfolio_assessment["recommendation_lifecycle"]["decision_trace_sha256"] = (
         portfolio_assessment["decision_trace"]["sha256"]
