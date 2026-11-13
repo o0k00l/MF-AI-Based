@@ -38,6 +38,33 @@ OPTIONAL_EVIDENCE_FIELDS = frozenset({
 })
 
 
+def _load_json_file_strict(path: Path, *, label: str, max_bytes: int) -> Any:
+    """Load bounded JSON while rejecting duplicate keys and non-standard numbers."""
+    size = path.stat().st_size
+    if size <= 0 or size > max_bytes:
+        raise EvidenceProviderContractError(f"{label} is empty or exceeds its size limit.")
+
+    def unique_pairs(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError(f"Duplicate JSON key: {key!r}")
+            result[key] = value
+        return result
+
+    def reject_constant(value):
+        raise ValueError(f"Non-standard JSON number {value!r} is prohibited.")
+
+    try:
+        return json.loads(
+            path.read_text(encoding="utf-8"),
+            object_pairs_hook=unique_pairs,
+            parse_constant=reject_constant,
+        )
+    except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as exc:
+        raise EvidenceProviderContractError(f"{label} is malformed JSON: {type(exc).__name__}.") from exc
+
+
 class EvidenceProviderContractError(ValueError):
     """Raised when a provider response violates the structural contract."""
 
@@ -265,6 +292,22 @@ def validate_evidence_provider_payload(
         scope="SIP_SCHEME_MASTER",
     )
     if metrics_present == metrics_fields:
+        metrics_path = payload["metrics_path"]
+        if not isinstance(metrics_path, Path) or metrics_path.is_symlink() or not metrics_path.is_file():
+            raise EvidenceProviderContractError(
+                "Fund metrics normalized file must be a regular, non-symlink file."
+            )
+        normalized_metrics = _load_json_file_strict(
+            metrics_path, label="Normalized fund metrics", max_bytes=50 * 1024 * 1024
+        )
+        if (
+            not isinstance(normalized_metrics, dict)
+            or not isinstance(normalized_metrics.get("funds"), list)
+            or not normalized_metrics["funds"]
+        ):
+            raise EvidenceProviderContractError(
+                "Normalized fund metrics must contain a non-empty funds array."
+            )
         _validate_source_document(
             payload["metrics_source_metadata"], payload["metrics_source_bytes"],
             label="Fund metrics", as_of=as_of,
@@ -272,21 +315,42 @@ def validate_evidence_provider_payload(
             require_reviewer_signature=require_reviewer_signature,
             scope="SIP_EVIDENCE_RELEASE",
             structured_records={
-                "normalized_metrics_sha256": payload["metrics_source_metadata"].get(
-                    "normalized_metrics_sha256"
-                )
+                "funds": normalized_metrics["funds"],
+                "metadata": {
+                    key: metrics_metadata_value
+                    for key, metrics_metadata_value in payload["metrics_source_metadata"].items()
+                    if key != "reviewer_approval_envelope"
+                },
             },
         )
-        metrics_path = payload["metrics_path"]
-        if not isinstance(metrics_path, Path) or metrics_path.is_symlink() or not metrics_path.is_file():
-            raise EvidenceProviderContractError(
-                "Fund metrics normalized file must be a regular, non-symlink file."
-            )
         if metrics_path.stat().st_size <= 0 or metrics_path.stat().st_size > 50 * 1024 * 1024:
             raise EvidenceProviderContractError(
                 "Fund metrics normalized file is empty or exceeds the 50 MiB limit."
             )
-        normalized_digest = payload["metrics_source_metadata"].get("normalized_metrics_sha256")
+        metrics_metadata = payload["metrics_source_metadata"]
+        if not isinstance(metrics_metadata.get("publisher"), str) or not metrics_metadata["publisher"].strip():
+            raise EvidenceProviderContractError("Fund metrics metadata requires publisher identity.")
+        if not isinstance(metrics_metadata.get("coverage_scope"), str) or not metrics_metadata["coverage_scope"].strip():
+            raise EvidenceProviderContractError("Fund metrics metadata requires coverage_scope.")
+        metrics_record_count = metrics_metadata.get("record_count")
+        if (
+            isinstance(metrics_record_count, bool)
+            or not isinstance(metrics_record_count, int)
+            or metrics_record_count != len(normalized_metrics["funds"])
+        ):
+            raise EvidenceProviderContractError("Fund metrics record_count does not match normalized records.")
+        if not isinstance(metrics_metadata.get("policy_version"), str) or not metrics_metadata["policy_version"].strip():
+            raise EvidenceProviderContractError("Fund metrics metadata requires policy_version.")
+        if not isinstance(metrics_metadata.get("reviewer_id"), str) or not metrics_metadata["reviewer_id"].strip():
+            raise EvidenceProviderContractError("Fund metrics metadata requires reviewer_id.")
+        metrics_envelope = metrics_metadata.get("reviewer_approval_envelope")
+        metrics_envelope_payload = metrics_envelope.get("payload") if isinstance(metrics_envelope, dict) else None
+        if require_reviewer_signature and (
+            not isinstance(metrics_envelope_payload, dict)
+            or metrics_envelope_payload.get("reviewer_id") != metrics_metadata.get("reviewer_id")
+        ):
+            raise EvidenceProviderContractError("Fund metrics reviewer_id must match the signed approval identity.")
+        normalized_digest = metrics_metadata.get("normalized_metrics_sha256")
         if not isinstance(normalized_digest, str) or not re.fullmatch(r"[0-9a-fA-F]{64}", normalized_digest):
             raise EvidenceProviderContractError(
                 "Fund metrics metadata requires normalized_metrics_sha256."
@@ -399,6 +463,34 @@ def validate_evidence_provider_payload(
         require_reviewer_signature=require_reviewer_signature,
         as_of=as_of,
     )
+
+    # Validate every normalized metrics row at the provider boundary, not only
+    # when a particular CAS holding happens to consume it. The holdings loader
+    # repeats these checks at the calculation boundary.
+    from core.math_engine import _validate_metrics_provenance
+    metrics_records = normalized_metrics["funds"]
+    metrics_by_id = {}
+    for index, metric in enumerate(metrics_records):
+        if not isinstance(metric, dict) or not isinstance(metric.get("id"), str) or not metric["id"].strip():
+            raise EvidenceProviderContractError(
+                f"Fund metrics row {index} requires a stable non-empty id."
+            )
+        metric_key = re.sub(r"[^a-z0-9]", "", metric["id"].casefold())
+        if not metric_key or metric_key in metrics_by_id:
+            raise EvidenceProviderContractError("Fund metrics contain an empty or duplicate normalized id.")
+        metrics_by_id[metric_key] = metric
+    try:
+        _validate_metrics_provenance(
+            metrics_by_id,
+            payload["scheme_master"],
+            require_exact_identity=True,
+            expected_source_sha256=hashlib.sha256(payload["metrics_source_bytes"]).hexdigest(),
+            expected_effective_date=payload["metrics_source_metadata"]["effective_date"],
+        )
+    except (TypeError, ValueError, KeyError) as exc:
+        raise EvidenceProviderContractError(
+            f"Fund metrics exact identity/provenance validation failed: {type(exc).__name__}."
+        ) from exc
 
     disclosures = payload["portfolio_disclosures_by_scheme_id"]
     disclosure_bytes = payload["portfolio_disclosure_source_bytes_by_scheme_id"]
@@ -638,6 +730,10 @@ def validate_evidence_provider_payload(
         raise EvidenceProviderContractError("metrics_path must be a Path-like source for candidate evidence files.")
 
     aliases_path = payload.get("aliases_path")
+    if aliases_path is None and aliases_source_present:
+        raise EvidenceProviderContractError(
+            "Alias provenance metadata cannot be supplied without its normalized alias artifact."
+        )
     if aliases_path is not None:
         if not hasattr(aliases_path, "is_file") or not aliases_path.is_file() or aliases_path.is_symlink():
             raise EvidenceProviderContractError("aliases_path must be a regular, non-symlink file.")
@@ -647,6 +743,9 @@ def validate_evidence_provider_payload(
             raise EvidenceProviderContractError(
                 "Fund aliases path requires both aliases_source_metadata and aliases_source_bytes; Path-like files alone are prohibited."
             )
+        alias_data = _load_json_file_strict(
+            aliases_path, label="Fund aliases", max_bytes=10 * 1024 * 1024
+        )
         _validate_source_document(
             payload["aliases_source_metadata"],
             payload["aliases_source_bytes"],
@@ -655,6 +754,14 @@ def validate_evidence_provider_payload(
             trust_registry=trust_registry,
             require_reviewer_signature=require_reviewer_signature,
             scope="SIP_EVIDENCE_RELEASE",
+            structured_records={
+                "aliases": alias_data,
+                "metadata": {
+                    key: alias_metadata_value
+                    for key, alias_metadata_value in payload["aliases_source_metadata"].items()
+                    if key != "reviewer_approval_envelope"
+                },
+            },
         )
         norm_hash = payload["aliases_source_metadata"].get("normalized_aliases_sha256")
         if not isinstance(norm_hash, str) or not re.fullmatch(r"[0-9a-fA-F]{64}", norm_hash):
@@ -665,19 +772,22 @@ def validate_evidence_provider_payload(
                 "Fund aliases normalized file SHA-256 does not match reviewed metadata."
             )
         try:
-            with open(aliases_path, "r", encoding="utf-8") as f:
-                alias_data = json.load(f)
             if not isinstance(alias_data, dict) or not alias_data:
                 raise EvidenceProviderContractError(
                     "Fund aliases file must contain a non-empty JSON mapping."
                 )
             if "aliases" in alias_data:
+                if set(alias_data) != {"aliases"}:
+                    raise EvidenceProviderContractError(
+                        "Alias document may contain only the aliases mapping; financial facts are prohibited."
+                    )
                 alias_entries = alias_data["aliases"]
                 if not isinstance(alias_entries, dict) or not alias_entries:
                     raise EvidenceProviderContractError(
                         "Fund aliases 'aliases' member must be a non-empty scheme-ID mapping."
                     )
                 target_ids = set()
+                normalized_alias_owners = {}
                 for target_id, names in alias_entries.items():
                     if not isinstance(target_id, str) or not target_id.strip():
                         raise EvidenceProviderContractError("Fund aliases contain an invalid scheme ID.")
@@ -687,8 +797,21 @@ def validate_evidence_provider_payload(
                             f"Fund aliases for scheme {target_id!r} must be a non-empty list of names."
                         )
                     target_ids.add(target_id.strip())
+                    for name in names:
+                        normalized_name = " ".join(name.casefold().split())
+                        prior_target = normalized_alias_owners.get(normalized_name)
+                        if prior_target is not None:
+                            if prior_target != target_id.strip():
+                                raise EvidenceProviderContractError(
+                                    f"Alias {name!r} ambiguously maps to multiple scheme IDs."
+                                )
+                            raise EvidenceProviderContractError(
+                                f"Alias {name!r} is duplicated in the normalized mapping."
+                            )
+                        normalized_alias_owners[normalized_name] = target_id.strip()
             else:
                 target_ids = set()
+                normalized_alias_owners = {}
                 for alias, target_id in alias_data.items():
                     if (not isinstance(alias, str) or not alias.strip()
                             or not isinstance(target_id, str) or not target_id.strip()):
@@ -696,6 +819,40 @@ def validate_evidence_provider_payload(
                             "Fund aliases must map non-empty alias names to non-empty scheme IDs."
                         )
                     target_ids.add(target_id.strip())
+                    normalized_name = " ".join(alias.casefold().split())
+                    prior_target = normalized_alias_owners.get(normalized_name)
+                    if prior_target is not None:
+                        if prior_target != target_id.strip():
+                            raise EvidenceProviderContractError(
+                                f"Alias {alias!r} ambiguously maps to multiple scheme IDs."
+                            )
+                        raise EvidenceProviderContractError(
+                            f"Alias {alias!r} is duplicated in the normalized mapping."
+                        )
+                    normalized_alias_owners[normalized_name] = target_id.strip()
+            metadata = payload["aliases_source_metadata"]
+            if not isinstance(metadata.get("publisher"), str) or not metadata["publisher"].strip():
+                raise EvidenceProviderContractError("Fund aliases metadata requires publisher identity.")
+            if not isinstance(metadata.get("policy_version"), str) or not metadata["policy_version"].strip():
+                raise EvidenceProviderContractError("Fund aliases metadata requires policy_version.")
+            if not isinstance(metadata.get("reviewer_id"), str) or not metadata["reviewer_id"].strip():
+                raise EvidenceProviderContractError("Fund aliases metadata requires reviewer_id.")
+            alias_envelope = metadata.get("reviewer_approval_envelope")
+            alias_envelope_payload = alias_envelope.get("payload") if isinstance(alias_envelope, dict) else None
+            if require_reviewer_signature and (
+                not isinstance(alias_envelope_payload, dict)
+                or alias_envelope_payload.get("reviewer_id") != metadata.get("reviewer_id")
+            ):
+                raise EvidenceProviderContractError("Fund aliases reviewer_id must match the signed approval identity.")
+            if not isinstance(metadata.get("coverage_scope"), str) or not metadata["coverage_scope"].strip():
+                raise EvidenceProviderContractError("Fund aliases require an explicit coverage_scope.")
+            alias_record_count = metadata.get("record_count")
+            if (
+                isinstance(alias_record_count, bool)
+                or not isinstance(alias_record_count, int)
+                or alias_record_count != len(normalized_alias_owners)
+            ):
+                raise EvidenceProviderContractError("Fund aliases record_count does not match normalized alias coverage.")
             for target_id in target_ids:
                 if target_id not in scheme_index:
                     raise EvidenceProviderContractError(
