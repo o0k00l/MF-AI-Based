@@ -1,4 +1,5 @@
-from datetime import date
+import base64
+from datetime import date, datetime, timedelta, timezone
 import pytest
 from decimal import Decimal
 import hashlib
@@ -7,8 +8,78 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import openpyxl
+import rfc8785
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
 from services import sip_recommendation as service
+from services import sip_mandate_auth
+
+
+_TEST_MANDATE_PRIVATE_KEY = Ed25519PrivateKey.generate()
+_TEST_MANDATE_SIGNER_ID = "test-registrar-signer"
+_TEST_MANDATE_KEY_ID = "test-registrar-key"
+_TEST_MANDATE_PUBLIC_KEY = _TEST_MANDATE_PRIVATE_KEY.public_key().public_bytes(
+    Encoding.Raw, PublicFormat.Raw
+)
+_TEST_MANDATE_TRUST_REGISTRY = {
+    "schema_version": 1,
+    "keys": [{
+        "key_id": _TEST_MANDATE_KEY_ID,
+        "signer_id": _TEST_MANDATE_SIGNER_ID,
+        "signer_type": "REGISTRAR",
+        "public_key": base64.urlsafe_b64encode(_TEST_MANDATE_PUBLIC_KEY).decode("ascii").rstrip("="),
+        "valid_from": "2020-01-01T00:00:00Z",
+        "valid_until": "2035-01-01T00:00:00Z",
+        "revoked": False,
+    }],
+}
+
+
+@pytest.fixture(autouse=True)
+def _install_test_mandate_trust_root(monkeypatch):
+    monkeypatch.setattr(
+        sip_mandate_auth, "load_mandate_trust_registry",
+        lambda: _TEST_MANDATE_TRUST_REGISTRY,
+    )
+
+
+def _signed_mandate_evidence(owner_ref, mandates, as_of):
+    records = []
+    for raw_record in mandates:
+        record = dict(raw_record)
+        record.pop("evidence_ref", None)
+        record["evidence_ref"] = "sha256:" + hashlib.sha256(
+            rfc8785.dumps(record)
+        ).hexdigest()
+        records.append(record)
+    source_bytes = b"TEST_ONLY registrar schedule\n" + rfc8785.dumps(records)
+    source_sha = hashlib.sha256(source_bytes).hexdigest()
+    schedule_sha = hashlib.sha256(rfc8785.dumps(records)).hexdigest()
+    issued = datetime.combine(as_of, datetime.min.time(), tzinfo=timezone.utc)
+    expires = issued + timedelta(days=30)
+    payload = {
+        "schema_version": 1,
+        "signer_id": _TEST_MANDATE_SIGNER_ID,
+        "signer_key_id": _TEST_MANDATE_KEY_ID,
+        "signer_type": "REGISTRAR",
+        "owner_ref": owner_ref,
+        "source_sha256": source_sha,
+        "schedule_sha256": schedule_sha,
+        "issued_at": issued.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "expires_at": expires.strftime("%Y-%m-%dT%H:%M:%SZ"),
+    }
+    signature = _TEST_MANDATE_PRIVATE_KEY.sign(rfc8785.dumps(payload))
+    return {
+        "coverage_status": "COMPLETE",
+        "source_ref": "sha256:" + source_sha,
+        "source_bytes": source_bytes,
+        "mandates": records,
+        "signature_envelope": {
+            "payload": payload,
+            "signature": base64.urlsafe_b64encode(signature).decode("ascii").rstrip("="),
+        },
+    }
 
 
 def _holding():
@@ -259,11 +330,9 @@ def _complete_portfolio_context():
     return {
         "evidence_attested_by_provider": True,
         "investor_owner_ref": "INVESTOR-REF-001",
-        "sip_mandate_evidence": {
-            "coverage_status": "COMPLETE",
-            "source_ref": "sha256:" + "a" * 64,
-            "mandates": [],
-        },
+        "sip_mandate_evidence": _signed_mandate_evidence(
+            "INVESTOR-REF-001", [], date.today()
+        ),
         "current_core_fund_count": 0,
         "as_of_date": as_of,
         "cas_valuation_date": as_of,
@@ -798,14 +867,18 @@ def test_authenticated_active_sip_commitments_reduce_new_sip_affordability(tmp_p
     monkeypatch.setattr(service, "compute_deterministic_sip_blueprint",
         lambda **kwargs: SimpleNamespace(items=[SimpleNamespace(monthly_inr=10000)]))
     context = _complete_portfolio_context()
-    context["sip_mandate_evidence"]["mandates"] = [{
-        "mandate_id": "REG-MANDATE-001", "owner_ref": context["investor_owner_ref"],
-        "folio_no": "FOLIO-001", "scheme_id": "SCHEME-001",
-        "monthly_amount_inr": "20000.00", "frequency": "MONTHLY",
-        "status": "ACTIVE", "authentication_method": "REGISTRAR_SIGNED",
-        "effective_from": date.today().isoformat(), "effective_to": None,
-        "next_debit_date": date.today().isoformat(), "evidence_ref": "sha256:" + "b" * 64,
-    }]
+    context["sip_mandate_evidence"] = _signed_mandate_evidence(
+        context["investor_owner_ref"],
+        [{
+            "mandate_id": "REG-MANDATE-001", "owner_ref": context["investor_owner_ref"],
+            "folio_no": "FOLIO-001", "scheme_id": "SCHEME-001",
+            "monthly_amount_inr": "20000.00", "frequency": "MONTHLY",
+            "status": "ACTIVE", "authentication_method": "REGISTRAR_SIGNED",
+            "effective_from": date.today().isoformat(), "effective_to": None,
+            "next_debit_date": date.today().isoformat(),
+        }],
+        date.today(),
+    )
     result = service.recommend_sip(
         **args, portfolio_context=context,
         metrics_source_bytes=b"reviewed original fund metrics",
@@ -859,23 +932,26 @@ def test_missing_active_sip_mandate_schedule_fails_closed(tmp_path, monkeypatch)
 def test_active_sip_mandate_rejects_unverified_authentication_method():
     from services.sip_recommendation import _validate_active_sip_commitments
 
+    as_of = date(2026, 11, 13)
     context = {
-        "evidence_attested_by_provider": True, "investor_owner_ref": "INVESTOR-REF-001",
-        "sip_mandate_evidence": {
-            "coverage_status": "COMPLETE", "source_ref": "sha256:" + "a" * 64,
-            "mandates": [{
+        "evidence_attested_by_provider": True,
+        "investor_owner_ref": "INVESTOR-REF-001",
+        "sip_mandate_evidence": _signed_mandate_evidence(
+            "INVESTOR-REF-001",
+            [{
                 "mandate_id": "M-1", "owner_ref": "INVESTOR-REF-001",
                 "folio_no": "F-1", "scheme_id": "S-1", "monthly_amount_inr": "5000",
                 "frequency": "MONTHLY", "status": "ACTIVE",
                 "authentication_method": "TRANSACTION_TEXT",
                 "effective_from": "2026-01-01", "effective_to": None,
-                "next_debit_date": "2026-12-01", "evidence_ref": "sha256:" + "b" * 64,
+                "next_debit_date": "2026-12-01",
             }],
-        },
+            as_of,
+        ),
     }
-    result = _validate_active_sip_commitments(context, date(2026, 11, 13))
+    result = _validate_active_sip_commitments(context, as_of)
     assert result["status"] == "HOLD"
-    assert result["reason"] == "SIP_MANDATE_RECORD_1_AUTHENTICATION_UNVERIFIED"
+    assert result["reason"] == "SIP_MANDATE_SIGNATURE_VERIFICATION_FAILED"
 
 
 def test_screening_policy_snapshot_is_shared_with_engine_and_decision_trace(tmp_path, monkeypatch):
