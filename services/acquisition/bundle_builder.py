@@ -175,10 +175,16 @@ class EvidenceBundleBuilder:
             missing_metrics_metadata = [
                 key for key in required_metrics_metadata
                 if metrics_source_metadata.get(key) is None
-                or (isinstance(metrics_source_metadata.get(key), str) and not metrics_source_metadata[key].strip())
+                or (
+                    key != "reviewer_approval_envelope"
+                    and (
+                        not isinstance(metrics_source_metadata.get(key), str)
+                        or not metrics_source_metadata[key].strip()
+                    )
+                )
             ]
             if missing_metrics_metadata:
-                raise ValueError(f"Metrics source metadata missing required provenance fields: {missing_metrics_metadata}")
+                raise ValueError(f"Metrics source metadata missing/invalid provenance fields: {missing_metrics_metadata}")
             if metrics_source_metadata["source_url"] != str(m_url).strip():
                 raise ValueError("Metrics source URL conflicts with signed source metadata.")
             metrics_metadata = {
@@ -343,7 +349,13 @@ class EvidenceBundleBuilder:
                 missing_alias_metadata = [
                     key for key in aliases_required
                     if aliases_source_metadata.get(key) is None
-                    or (isinstance(aliases_source_metadata.get(key), str) and not aliases_source_metadata[key].strip())
+                    or (
+                        key != "reviewer_approval_envelope"
+                        and (
+                            not isinstance(aliases_source_metadata.get(key), str)
+                            or not aliases_source_metadata[key].strip()
+                        )
+                    )
                 ]
                 if missing_alias_metadata:
                     raise ValueError(f"Alias source metadata missing required provenance fields: {missing_alias_metadata}")
