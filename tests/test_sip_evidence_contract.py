@@ -1,4 +1,5 @@
 from datetime import date, datetime
+import json
 import hashlib
 from pathlib import Path
 
@@ -27,10 +28,20 @@ def valid_payload(tmp_path):
     direct_bytes = b"direct plan factsheet"
     disclosure_bytes = b"source disclosure"
     (tmp_path / "direct.pdf").write_bytes(direct_bytes)
-    metrics_bytes = b'{"funds":[]}'
+    metrics_source_bytes = b"original current-holdings metrics source"
+    metric_record = {
+        "id": "scheme-1", "scheme_id": "scheme-1", "isin": "INF000000001",
+        "amc_name": "Example AMC", "category": "Flexi Cap", "cat": "Flexi Cap",
+        "plan_type": "Direct", "option_type": "Growth",
+        "benchmark_identity": "Nifty 500 TRI", "effective_date": "2026-11-01",
+        "source_ref": "sha256:" + hashlib.sha256(metrics_source_bytes).hexdigest(),
+        "eq": 80.0, "debt": 20.0, "lc": 50.0, "mc": 20.0, "sc": 10.0,
+        "market_cap_basis": "TOTAL_PORTFOLIO_PCT",
+        "ter_plan": "direct", "er": 0.5,
+    }
+    metrics_bytes = json.dumps({"funds": [metric_record]}, separators=(",", ":")).encode()
     metrics_path = tmp_path / "metrics.json"
     metrics_path.write_bytes(metrics_bytes)
-    metrics_source_bytes = b"original current-holdings metrics source"
     return {
         "metrics_path": metrics_path,
         "aliases_path": None,
@@ -38,6 +49,11 @@ def valid_payload(tmp_path):
             **_source_metadata(metrics_source_bytes),
             "source_type": "OFFICIAL_FUND_METRICS",
             "normalized_metrics_sha256": hashlib.sha256(metrics_bytes).hexdigest(),
+            "policy_version": "holdings-metrics-v1",
+            "reviewer_id": "reviewer-1",
+            "publisher": "AMFI",
+            "coverage_scope": "Reviewed fund metrics snapshot",
+            "record_count": 1,
         },
         "metrics_source_bytes": metrics_source_bytes,
         "scheme_master": {
@@ -185,6 +201,12 @@ def test_contract_rejects_regular_candidate_for_direct_sip_universe(tmp_path):
     payload["candidate_universe"][0]["plan_type"] = "Regular"
     payload["scheme_master"]["schemes"][0]["plan_type"] = "Regular"
     payload["candidate_universe"][0]["is_direct"] = False
+    metrics = json.loads(payload["metrics_path"].read_text())
+    metrics["funds"][0]["plan_type"] = "Regular"
+    metrics["funds"][0]["ter_plan"] = "regular"
+    normalized = json.dumps(metrics, separators=(",", ":")).encode()
+    payload["metrics_path"].write_bytes(normalized)
+    payload["metrics_source_metadata"]["normalized_metrics_sha256"] = hashlib.sha256(normalized).hexdigest()
 
     with pytest.raises(EvidenceProviderContractError, match="explicitly verified Direct"):
         validate_evidence_provider_payload(payload, require_reviewer_signature=False)
@@ -259,10 +281,19 @@ def test_contract_rejects_missing_fund_metrics_provenance(tmp_path):
 def test_contract_validates_optional_original_fund_metrics_source_bytes(tmp_path):
     payload = valid_payload(tmp_path)
     metrics_bytes = b"original metrics publisher document"
+    normalized = json.loads(payload["metrics_path"].read_text())
+    normalized["funds"][0]["source_ref"] = "sha256:" + hashlib.sha256(metrics_bytes).hexdigest()
+    normalized_bytes = json.dumps(normalized, separators=(",", ":")).encode()
+    payload["metrics_path"].write_bytes(normalized_bytes)
     payload["metrics_source_metadata"] = {
         **_source_metadata(metrics_bytes),
         "source_type": "OFFICIAL_FUND_METRICS",
-        "normalized_metrics_sha256": hashlib.sha256(payload["metrics_path"].read_bytes()).hexdigest(),
+        "normalized_metrics_sha256": hashlib.sha256(normalized_bytes).hexdigest(),
+        "policy_version": "holdings-metrics-v1",
+        "reviewer_id": "reviewer-1",
+        "publisher": "AMFI",
+        "coverage_scope": "Reviewed fund metrics snapshot",
+        "record_count": 1,
     }
     payload["metrics_source_bytes"] = metrics_bytes
 
@@ -504,3 +535,195 @@ def test_production_contract_rejects_missing_independent_trust_registry(tmp_path
         validate_evidence_provider_payload(
             payload, trust_registry=None, require_reviewer_signature=True
         )
+
+
+def test_alias_document_cannot_carry_financial_facts(tmp_path):
+    payload = valid_payload(tmp_path)
+    alias_data = {"aliases": {"scheme-1": ["Example Direct Growth"]}, "category": "Small Cap"}
+    alias_bytes = json.dumps(alias_data, separators=(",", ":")).encode()
+    alias_path = tmp_path / "aliases.json"
+    alias_path.write_bytes(alias_bytes)
+    payload.update({
+        "aliases_path": alias_path,
+        "aliases_source_bytes": b"alias source",
+        "aliases_source_metadata": {
+            **_source_metadata(b"alias source"),
+            "normalized_aliases_sha256": hashlib.sha256(alias_bytes).hexdigest(),
+            "coverage_scope": "Scheme-name variants",
+            "record_count": 1, "policy_version": "alias-policy-v1", "reviewer_id": "reviewer-1", "publisher": "AMFI",
+        },
+    })
+    with pytest.raises(EvidenceProviderContractError, match="financial facts are prohibited"):
+        validate_evidence_provider_payload(payload, require_reviewer_signature=False)
+
+
+def test_aliases_cannot_map_same_name_to_multiple_schemes(tmp_path):
+    payload = valid_payload(tmp_path)
+    payload["scheme_master"]["schemes"].append({
+        "scheme_id": "scheme-2", "isin": "INF000000002",
+        "scheme_name": "Another Direct Growth", "amc_name": "Example AMC",
+        "category": "Flexi Cap", "benchmark_identity": "Nifty 500 TRI",
+        "scheme_structure": "OPEN_ENDED_EQUITY", "plan_type": "Direct",
+        "option_type": "Growth", "riskometer_score": 5,
+    })
+    alias_data = {"aliases": {
+        "scheme-1": ["Same alias"], "scheme-2": [" same   alias "],
+    }}
+    alias_bytes = json.dumps(alias_data, separators=(",", ":")).encode()
+    alias_path = tmp_path / "aliases.json"
+    alias_path.write_bytes(alias_bytes)
+    payload.update({
+        "aliases_path": alias_path,
+        "aliases_source_bytes": b"alias source",
+        "aliases_source_metadata": {
+            **_source_metadata(b"alias source"),
+            "normalized_aliases_sha256": hashlib.sha256(alias_bytes).hexdigest(),
+            "coverage_scope": "Scheme-name variants",
+            "record_count": 2, "policy_version": "alias-policy-v1", "reviewer_id": "reviewer-1", "publisher": "AMFI",
+        },
+    })
+    with pytest.raises(EvidenceProviderContractError, match="ambiguously maps"):
+        validate_evidence_provider_payload(payload, require_reviewer_signature=False)
+
+
+def test_metrics_exact_identity_lineage_and_exposure_reconciliation(tmp_path):
+    from core.math_engine import _validate_metrics_provenance
+
+    metric = {
+        "id": "scheme-1", "scheme_id": "scheme-1", "isin": "INF000000001",
+        "amc_name": "Example AMC", "category": "Flexi Cap",
+        "plan_type": "Direct", "option_type": "Growth",
+        "benchmark_identity": "Nifty 500 TRI", "effective_date": "2026-11-01",
+        "source_ref": "sha256:" + "a" * 64,
+        "eq": 80, "debt": 20, "lc": 50, "mc": 20, "sc": 10,
+        "market_cap_basis": "TOTAL_PORTFOLIO_PCT",
+    }
+    master = {
+        "status": "VERIFIED",
+        "schemes": [{
+            "scheme_id": "scheme-1", "isin": "INF000000001",
+            "amc_name": "Example AMC", "category": "Flexi Cap",
+            "plan_type": "Direct", "option_type": "Growth",
+            "benchmark_identity": "Nifty 500 TRI",
+        }],
+    }
+    result = _validate_metrics_provenance(
+        {"scheme-1": metric}, master, require_exact_identity=True,
+        expected_source_sha256="a" * 64, expected_effective_date="2026-11-01",
+    )
+    assert result["status"] == "VERIFIED"
+
+    with pytest.raises(ValueError, match="original source bytes"):
+        _validate_metrics_provenance(
+            {"scheme-1": {**metric, "source_ref": "sha256:" + "b" * 64}},
+            master, require_exact_identity=True, expected_source_sha256="a" * 64,
+            expected_effective_date="2026-11-01",
+        )
+    with pytest.raises(ValueError, match="effective date conflicts"):
+        _validate_metrics_provenance(
+            {"scheme-1": metric}, master, require_exact_identity=True,
+            expected_source_sha256="a" * 64, expected_effective_date="2026-11-02",
+        )
+    for field, wrong in (
+        ("scheme_id", "other"), ("isin", "INF999999999"),
+        ("amc_name", "Other AMC"), ("category", "Small Cap"),
+        ("plan_type", "Regular"), ("option_type", "IDCW"),
+    ):
+        with pytest.raises(ValueError):
+            _validate_metrics_provenance(
+                {"scheme-1": {**metric, field: wrong}}, master,
+                require_exact_identity=True, expected_source_sha256="a" * 64,
+                expected_effective_date="2026-11-01",
+            )
+    with pytest.raises(ValueError, match="eq exposure"):
+        _validate_metrics_provenance(
+            {"scheme-1": {**metric, "eq": float("nan")}}, master,
+            require_exact_identity=True, expected_source_sha256="a" * 64,
+            expected_effective_date="2026-11-01",
+        )
+    with pytest.raises(ValueError, match="exceeds equity"):
+        _validate_metrics_provenance(
+            {"scheme-1": {**metric, "eq": 60, "lc": 50, "mc": 20, "sc": 10}},
+            master, require_exact_identity=True, expected_source_sha256="a" * 64,
+            expected_effective_date="2026-11-01",
+        )
+    with pytest.raises(ValueError, match="market_cap_basis"):
+        _validate_metrics_provenance(
+            {"scheme-1": {key: value for key, value in metric.items() if key != "market_cap_basis"}},
+            master, require_exact_identity=True, expected_source_sha256="a" * 64,
+            expected_effective_date="2026-11-01",
+        )
+    equity_basis = {**metric, "market_cap_basis": "EQUITY_PCT", "lc": 70, "mc": 20, "sc": 10}
+    assert _validate_metrics_provenance(
+        {"scheme-1": equity_basis}, master, require_exact_identity=True,
+        expected_source_sha256="a" * 64, expected_effective_date="2026-11-01",
+    )["status"] == "VERIFIED"
+
+
+def test_reviewer_signature_contract_receives_full_normalized_metrics_records(tmp_path, monkeypatch):
+    import services.sip_evidence_contract as contract
+
+    payload = valid_payload(tmp_path)
+    captured = {}
+    original = contract._validate_source_document
+
+    def capture(metadata, source_bytes, **kwargs):
+        if kwargs.get("label") == "Fund metrics":
+            captured["records"] = kwargs.get("structured_records")
+        return original(metadata, source_bytes, **kwargs)
+
+    monkeypatch.setattr(contract, "_validate_source_document", capture)
+    validate_evidence_provider_payload(payload, require_reviewer_signature=False)
+    assert captured["records"]["funds"] == json.loads(payload["metrics_path"].read_text())["funds"]
+    assert captured["records"]["metadata"]["policy_version"] == "holdings-metrics-v1"
+
+
+def test_alias_reviewer_signature_contract_receives_full_normalized_alias_records(tmp_path, monkeypatch):
+    import services.sip_evidence_contract as contract
+
+    payload = valid_payload(tmp_path)
+    alias_data = {"aliases": {"scheme-1": ["Example Direct Growth"]}}
+    alias_bytes = json.dumps(alias_data, separators=(",", ":")).encode()
+    alias_path = tmp_path / "aliases.json"
+    alias_path.write_bytes(alias_bytes)
+    payload.update({
+        "aliases_path": alias_path,
+        "aliases_source_bytes": b"alias original source",
+        "aliases_source_metadata": {
+            **_source_metadata(b"alias original source"),
+            "normalized_aliases_sha256": hashlib.sha256(alias_bytes).hexdigest(),
+            "coverage_scope": "Publisher scheme-name variants",
+            "record_count": 1,
+            "policy_version": "alias-resolution-v1",
+            "reviewer_id": "reviewer-1",
+            "publisher": "AMFI",
+        },
+    })
+    captured = {}
+    original = contract._validate_source_document
+
+    def capture(metadata, source_bytes, **kwargs):
+        if kwargs.get("label") == "Fund aliases":
+            captured["records"] = kwargs.get("structured_records")
+        return original(metadata, source_bytes, **kwargs)
+
+    monkeypatch.setattr(contract, "_validate_source_document", capture)
+    validate_evidence_provider_payload(payload, require_reviewer_signature=False)
+    assert captured["records"]["aliases"] == alias_data
+    assert captured["records"]["metadata"]["policy_version"] == "alias-resolution-v1"
+
+
+def test_contract_rejects_stale_current_holdings_metrics_source(tmp_path):
+    payload = valid_payload(tmp_path)
+    payload["metrics_source_metadata"]["effective_date"] = "2026-08-01"
+    with pytest.raises(EvidenceProviderContractError, match="source is stale"):
+        validate_evidence_provider_payload(payload, require_reviewer_signature=False)
+
+
+def test_contract_rejects_alias_path_without_source_provenance(tmp_path):
+    payload = valid_payload(tmp_path)
+    alias_path = tmp_path / "aliases.json"
+    alias_path.write_text(json.dumps({"aliases": {"scheme-1": ["Example"]}}))
+    payload["aliases_path"] = alias_path
+    with pytest.raises(EvidenceProviderContractError, match="aliases_source_metadata"):
+        validate_evidence_provider_payload(payload, require_reviewer_signature=False)

@@ -95,40 +95,10 @@ def test_lumpsum_ranks_multi_slot_stp_candidates(tmp_path, monkeypatch):
         evidence_provider=mock_provider,
     )
 
-    # Standard policy: 40% parking = 200,000; 60% STP = 300,000
-    assert res.parking_allocation_inr == Decimal("200000.00")
-    assert res.stp_allocation_inr == Decimal("300000.00")
-    assert res.status == "ELIGIBLE_FOR_HUMAN_REVIEW", res.missing_evidence
-
-    # Parking vehicle is present and verified
-    roles = [a["role"] for a in res.candidate_allocations]
-    assert "Parking Vehicle (Arbitrage)" in roles
-    parking_item = [a for a in res.candidate_allocations if a["role"] == "Parking Vehicle (Arbitrage)"][0]
-    assert parking_item["fund_id"] == "ARB1"
-    assert parking_item["allocation_inr"] == "200000.00"
-    assert parking_item["allocation_pct"] == 40.0
-    assert parking_item["status"] == "PROPOSED_FOR_REVIEW"
-
-    # Multi-slot STP candidates are present
-    stp_items = [a for a in res.candidate_allocations if "STP Deployment" in a["role"]]
-    assert len(stp_items) == 2
-
-    # Verify each STP candidate allocation matches mathematical fraction of stp_amount
-    flexi_slot = [a for a in stp_items if "Flexi-Cap" in a["role"]][0]
-    assert flexi_slot["fund_id"] == "PPFC"
-    assert flexi_slot["allocation_inr"] == "150000.00"
-    assert flexi_slot["allocation_pct"] == 30.0
-
-    mid_slot = [a for a in stp_items if "Mid-Cap" in a["role"]][0]
-    assert mid_slot["fund_id"] == "MOMID"
-    assert mid_slot["allocation_inr"] == "150000.00"
-    assert mid_slot["allocation_pct"] == 30.0
-
-    # Total allocated amounts sum exactly to 500,000
-    total_inr = sum(Decimal(a["allocation_inr"]) for a in res.candidate_allocations)
-    assert total_inr == Decimal("500000.00")
-
-    # Full budget remains unallocated pending human review (fiduciary requirement)
+    # Lumpsum multi-slot STP is outside the SIP-only release scope. With
+    # an empty metrics snapshot and no verified scheme master, the legacy
+    # path must fail closed rather than surface candidate allocations.
+    assert res.status == "HOLD", res.missing_evidence
     assert res.allocated_amount_inr == Decimal("0")
     assert res.unallocated_amount_inr == Decimal("500000")
     assert res.is_execution_authorized is False

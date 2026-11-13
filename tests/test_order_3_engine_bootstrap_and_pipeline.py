@@ -386,10 +386,19 @@ def test_order_3_evidence_provider_payload_schema_v1_compliance(tmp_path):
     direct_bytes = b"%PDF-1.4 direct plan factsheet bytes"
     disclosure_bytes = b"source portfolio disclosure bytes"
     (tmp_path / "direct.pdf").write_bytes(direct_bytes)
-    metrics_bytes = b'{"funds":[{"fund_id":"fund-1","nav":"125.50"}]}'
+    metrics_source_bytes = b"original metrics source raw text"
+    metrics_record = {
+        "id": "fund-1", "scheme_id": "scheme-1", "isin": "INF000000001",
+        "amc_name": "Example AMC", "category": "Flexi Cap", "cat": "Flexi Cap",
+        "plan_type": "Direct", "option_type": "Growth",
+        "benchmark_identity": "Nifty 500 TRI", "effective_date": "2026-11-01",
+        "source_ref": "sha256:" + hashlib.sha256(metrics_source_bytes).hexdigest(),
+        "eq": 80.0, "debt": 20.0, "lc": 50.0, "mc": 20.0, "sc": 10.0,
+        "market_cap_basis": "TOTAL_PORTFOLIO_PCT",
+    }
+    metrics_bytes = json.dumps({"funds": [metrics_record]}).encode("utf-8")
     metrics_path = tmp_path / "metrics.json"
     metrics_path.write_bytes(metrics_bytes)
-    metrics_source_bytes = b"original metrics source raw text"
 
     def _meta(raw, s_type="OFFICIAL_SCHEME_MASTER"):
         return {
@@ -406,6 +415,11 @@ def test_order_3_evidence_provider_payload_schema_v1_compliance(tmp_path):
         "metrics_source_metadata": {
             **_meta(metrics_source_bytes, "OFFICIAL_FUND_METRICS"),
             "normalized_metrics_sha256": hashlib.sha256(metrics_bytes).hexdigest(),
+            "publisher": "AMFI",
+            "coverage_scope": "One verified test scheme",
+            "record_count": 1,
+            "reviewer_id": "test-reviewer",
+            "policy_version": "metrics-policy-v1",
         },
         "metrics_source_bytes": metrics_source_bytes,
         "scheme_master": {

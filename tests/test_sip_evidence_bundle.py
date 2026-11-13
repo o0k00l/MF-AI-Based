@@ -28,14 +28,28 @@ def _source(raw: bytes, source_type: str) -> dict:
 
 def _bundle(root: Path) -> dict:
     root.mkdir(parents=True, exist_ok=True)
-    (root / "metrics.json").write_text('{"funds": []}', encoding="utf-8")
     metrics_bytes = b"original fund metrics source"
+    metrics_record = {
+        "id": "scheme-1", "scheme_id": "scheme-1", "isin": "INF000000001",
+        "amc_name": "Example AMC", "category": "Flexi Cap", "cat": "Flexi Cap",
+        "plan_type": "Direct", "option_type": "Growth",
+        "benchmark_identity": "NIFTY 500 TRI", "effective_date": date.today().isoformat(),
+        "source_ref": "sha256:" + hashlib.sha256(metrics_bytes).hexdigest(),
+        "eq": 80, "debt": 20, "lc": 50, "mc": 20, "sc": 10,
+        "market_cap_basis": "TOTAL_PORTFOLIO_PCT", "ter_plan": "direct", "er": 0.5,
+    }
+    _write_json(root, "metrics.json", {"funds": [metrics_record]})
     (root / "originals").mkdir(parents=True, exist_ok=True)
     (root / "originals/metrics.csv").write_bytes(metrics_bytes)
     metrics_metadata = _source(metrics_bytes, "OFFICIAL_FUND_METRICS")
     metrics_metadata["normalized_metrics_sha256"] = hashlib.sha256(
         (root / "metrics.json").read_bytes()
     ).hexdigest()
+    metrics_metadata["policy_version"] = "holdings-metrics-v1"
+    metrics_metadata["reviewer_id"] = "independent-reviewer"
+    metrics_metadata["publisher"] = "AMFI"
+    metrics_metadata["coverage_scope"] = "Reviewed fund metrics snapshot"
+    metrics_metadata["record_count"] = 1
     _write_json(root, "metrics_metadata.json", metrics_metadata)
     master_bytes = b"original scheme master"
     universe_bytes = b"original candidate universe"
@@ -380,3 +394,46 @@ def test_provider_decodes_original_mandate_source_bytes_from_portfolio_context(t
     assert payload["portfolio_context"]["sip_mandate_evidence"]["source_bytes"] == original_schedule_bytes
     assert "source_bytes_base64" not in payload["portfolio_context"]["sip_mandate_evidence"]
 
+
+
+def test_provider_loads_alias_original_bytes_and_metadata_as_atomic_bundle(tmp_path):
+    manifest = _bundle(tmp_path)
+    alias_data = {"aliases": {"scheme-1": ["Example Direct Growth"]}}
+    alias_path = tmp_path / "aliases.json"
+    _write_json(tmp_path, "aliases.json", alias_data)
+    alias_source = b"original publisher alias source"
+    (tmp_path / "originals/aliases.csv").write_bytes(alias_source)
+    alias_metadata = {
+        **_source(alias_source, "REVIEWED_SCHEME_NAME_ALIASES"),
+        "normalized_aliases_sha256": hashlib.sha256(alias_path.read_bytes()).hexdigest(),
+        "coverage_scope": "Publisher scheme-name variants",
+        "record_count": 1,
+        "policy_version": "alias-resolution-v1",
+        "reviewer_id": "independent-reviewer",
+        "publisher": "AMFI",
+    }
+    _write_json(tmp_path, "aliases_metadata.json", alias_metadata)
+    manifest.update({
+        "aliases_file": "aliases.json",
+        "aliases_metadata_file": "aliases_metadata.json",
+        "aliases_source_file": "originals/aliases.csv",
+    })
+    _write_json(tmp_path, "manifest.json", manifest)
+    cas_path = tmp_path / "cas.xlsx"
+    cas_path.write_bytes(b"temporary uploaded CAS")
+    provider = build_sip_evidence_provider(tmp_path)
+    payload = provider(
+        cas_path=cas_path, monthly_budget_inr=10000,
+        risk_profile="Moderate",
+    )
+    validated = validate_evidence_provider_payload(payload, require_reviewer_signature=False)
+    assert validated["aliases_source_bytes"] == alias_source
+    assert validated["aliases_source_metadata"]["record_count"] == 1
+
+
+def test_provider_rejects_partial_alias_evidence_manifest(tmp_path):
+    manifest = _bundle(tmp_path)
+    manifest.update({"aliases_file": "aliases.json"})
+    _write_json(tmp_path, "manifest.json", manifest)
+    with pytest.raises(ValueError, match="configured together"):
+        build_sip_evidence_provider(tmp_path)

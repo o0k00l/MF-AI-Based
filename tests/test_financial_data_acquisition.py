@@ -31,12 +31,16 @@ from cryptography.hazmat.primitives import serialization
 import base64
 
 class CallableEnvelope(dict):
-    def __init__(self, d, signer):
+    def __init__(self, d, signer, source_signer):
         super().__init__(d)
         self._signer = signer
+        self._source_signer = source_signer
 
     def __call__(self, digest: str) -> dict:
         return self._signer(digest)
+
+    def source_approval(self, source_bytes: bytes, structured_records: Any) -> dict:
+        return self._source_signer(source_bytes, structured_records)
 
 
 def _make_test_approval(
@@ -73,10 +77,20 @@ def _make_test_approval(
             artifact_digest=art_dig,
         )
 
+    def sign_source(source_bytes: bytes, structured_records: Any) -> dict:
+        return create_sip_reviewer_approval_envelope(
+            priv,
+            key_id="test-key-1",
+            reviewer_id="test-reviewer-1",
+            scope="SIP_EVIDENCE_RELEASE",
+            source_bytes=source_bytes,
+            structured_records=structured_records,
+        )
+
     base_env = sign(artifact_digest or "0" * 64)
     if artifact_digest is not None:
         return base_env, registry
-    return CallableEnvelope(base_env, sign), registry
+    return CallableEnvelope(base_env, sign, sign_source), registry
 
 
 def _sample_amfi_nav_bytes(as_of: date) -> bytes:
@@ -125,6 +139,61 @@ def _sample_scheme_master_dict(as_of: date) -> dict:
             },
         ],
     }
+
+
+def _metrics_payload_for(master: dict, source_bytes: bytes, as_of: date) -> dict:
+    source_ref = "sha256:" + hashlib.sha256(source_bytes).hexdigest()
+    funds = []
+    for scheme in master["schemes"]:
+        funds.append({
+            "id": scheme["scheme_id"],
+            "scheme_id": scheme["scheme_id"],
+            "isin": scheme["isin"],
+            "amc_name": scheme["amc_name"],
+            "category": scheme["category"],
+            "cat": scheme["category"],
+            "plan_type": scheme["plan_type"],
+            "option_type": scheme["option_type"],
+            "benchmark_identity": scheme["benchmark_identity"],
+            "effective_date": as_of.isoformat(),
+            "source_ref": source_ref,
+            "eq": 100.0,
+            "debt": 0.0,
+            "lc": 60.0,
+            "mc": 25.0,
+            "sc": 15.0,
+            "market_cap_basis": "TOTAL_PORTFOLIO_PCT",
+            "ter_plan": "direct",
+            "er": 0.65,
+            "nav": "82.45",
+            "h": [],
+        })
+    return {"funds": funds}
+
+
+def _metrics_source_metadata(
+    metrics_payload: dict, source_bytes: bytes, as_of: date, source_url: str, approval: CallableEnvelope
+) -> dict:
+    normalized_bytes = json.dumps(metrics_payload, indent=2, sort_keys=True).encode("utf-8")
+    metadata = {
+        "source_url": source_url,
+        "source_document_sha256": hashlib.sha256(source_bytes).hexdigest(),
+        "reviewer_attested": True,
+        "effective_date": as_of.isoformat(),
+        "source_type": "OFFICIAL_FUND_METRICS",
+        "normalized_metrics_sha256": hashlib.sha256(normalized_bytes).hexdigest(),
+        "publisher": "AMFI",
+        "coverage_scope": "All fund metrics records in the reviewed source snapshot",
+        "record_count": len(metrics_payload["funds"]),
+        "policy_version": "fund-metrics-v1",
+        "reviewer_id": "test-reviewer-1",
+    }
+    signed_records = {
+        "funds": metrics_payload["funds"],
+        "metadata": metadata,
+    }
+    metadata["reviewer_approval_envelope"] = approval.source_approval(source_bytes, signed_records)
+    return metadata
 
 
 def test_amfi_nav_adapter_parses_valid_feed_and_preserves_decimal():
@@ -320,13 +389,18 @@ def test_evidence_bundle_builder_staging_and_atomic_promotion(tmp_path):
     ]
 
     envelope, registry = _make_test_approval()
+    metrics_source_metadata = _metrics_source_metadata(
+        _metrics_payload_for(master, metrics_bytes, as_of), metrics_bytes, as_of,
+        "https://www.amfiindia.com/research-information/other-data/fund-metrics", envelope,
+    )
     builder = EvidenceBundleBuilder(target_bundle_dir)
     promoted_dir = builder.build_and_promote(
         as_of,
         scheme_master=master,
         scheme_master_source_bytes=master_bytes,
-        metrics_payload={"funds": [{"fund_id": "fund-1", "nav": Decimal("82.45")}]},
+        metrics_payload=_metrics_payload_for(master, metrics_bytes, as_of),
         metrics_source_bytes=metrics_bytes,
+        metrics_source_metadata=metrics_source_metadata,
         candidate_universe=candidates,
         candidate_universe_source_bytes=universe_bytes,
         portfolio_disclosures=disclosures,
@@ -353,6 +427,8 @@ def test_evidence_bundle_builder_staging_and_atomic_promotion(tmp_path):
     cas_file = tmp_path / "cas.xlsx"
     cas_file.write_bytes(b"dummy cas")
     payload = provider(cas_path=cas_file, monthly_budget_inr=25000, risk_profile="Moderate")
+    assert payload["metrics_source_metadata"]["reviewer_approval_envelope"]["payload"]["reviewer_id"] == "test-reviewer-1"
+    payload["metrics_source_metadata"].pop("reviewer_approval_envelope")
     validated = validate_evidence_provider_payload(payload, require_reviewer_signature=False)
     assert len(validated["candidate_universe"]) == 2
 
@@ -365,6 +441,12 @@ def test_evidence_bundle_builder_atomic_rollback_on_failure(tmp_path):
     master_bytes = json.dumps(master).encode("utf-8")
 
     envelope, registry = _make_test_approval()
+    metrics_source_bytes = b"metrics_1"
+    metrics_payload = _metrics_payload_for(master, metrics_source_bytes, as_of)
+    metrics_source_metadata = _metrics_source_metadata(
+        metrics_payload, metrics_source_bytes, as_of,
+        "https://www.amfiindia.com/research-information/other-data/fund-metrics", envelope,
+    )
 
     # Initial successful build
     builder = EvidenceBundleBuilder(target_bundle_dir)
@@ -372,8 +454,9 @@ def test_evidence_bundle_builder_atomic_rollback_on_failure(tmp_path):
         as_of,
         scheme_master=master,
         scheme_master_source_bytes=master_bytes,
-        metrics_payload={"funds": [{"fund_id": "fund-1", "nav": "82.45"}]},
-        metrics_source_bytes=b"metrics_1",
+        metrics_payload=metrics_payload,
+        metrics_source_bytes=metrics_source_bytes,
+        metrics_source_metadata=metrics_source_metadata,
         candidate_universe=[{
             "fund_id": "fund-1",
             "fund_name": master["schemes"][0]["scheme_name"],
@@ -418,6 +501,7 @@ def test_evidence_bundle_builder_atomic_rollback_on_failure(tmp_path):
             scheme_master_source_bytes=master_bytes,
             metrics_payload={"funds": []},
             metrics_source_bytes=b"metrics_2",
+            metrics_source_metadata=metrics_source_metadata,
             candidate_universe=[],  # Invalid: empty candidate universe
             candidate_universe_source_bytes=b"universe_2",
             portfolio_disclosures={},
@@ -476,6 +560,12 @@ def test_financial_data_refresh_pipeline_hermetic_success(tmp_path):
     ]
 
     envelope, registry = _make_test_approval()
+    metrics_source_bytes = b"scheme_id,nav,alpha\n"
+    metrics_payload = _metrics_payload_for(master, metrics_source_bytes, as_of)
+    metrics_source_metadata = _metrics_source_metadata(
+        metrics_payload, metrics_source_bytes, as_of,
+        "https://amfiindia.com/metrics", envelope,
+    )
     pipeline = FinancialDataRefreshPipeline()
     result = pipeline.refresh(
         bundle_target,
@@ -483,8 +573,8 @@ def test_financial_data_refresh_pipeline_hermetic_success(tmp_path):
         hermetic_inputs={
             "scheme_master": master_bytes,
             "daily_nav": nav_bytes,
-            "metrics": b"scheme_id,nav,alpha\n",
-            "metrics_json": json.dumps({"funds": [{"fund_id": "fund-1", "nav": "82.4532"}]}).encode("utf-8"),
+            "metrics": metrics_source_bytes,
+            "metrics_json": json.dumps(metrics_payload).encode("utf-8"),
             "candidate_universe_source": json.dumps(candidates).encode("utf-8"),
             "disclosures": {
                 "scheme-1": json.dumps({"constituent_weights": {"RELIANCE": 100.0}, "constituent_weights_coverage_pct": 100.0}).encode("utf-8"),
@@ -500,6 +590,7 @@ def test_financial_data_refresh_pipeline_hermetic_success(tmp_path):
             },
         },
         metrics_source_url="https://amfiindia.com/metrics",
+        metrics_source_metadata=metrics_source_metadata,
         universe_source_url="https://amfiindia.com/universe",
         reviewer_attested=True,
         reviewer_approval_envelope=envelope,
@@ -519,6 +610,8 @@ def test_financial_data_refresh_pipeline_hermetic_success(tmp_path):
     cas_file = tmp_path / "cas.xlsx"
     cas_file.write_bytes(b"cas content")
     payload = provider(cas_path=cas_file, monthly_budget_inr=20000, risk_profile="Moderate")
+    assert payload["metrics_source_metadata"]["reviewer_approval_envelope"]["payload"]["reviewer_id"] == "test-reviewer-1"
+    payload["metrics_source_metadata"].pop("reviewer_approval_envelope")
     validated = validate_evidence_provider_payload(payload, require_reviewer_signature=False)
     assert len(validated["candidate_universe"]) == 2
 
@@ -565,6 +658,12 @@ def test_refresh_pipeline_fails_closed_on_fabricated_text_direct_evidence(tmp_pa
     nav_bytes = _sample_amfi_nav_bytes(as_of)
 
     envelope, registry = _make_test_approval()
+    metrics_source_bytes = b"scheme_id,nav,alpha\n"
+    metrics_payload = _metrics_payload_for(master, metrics_source_bytes, as_of)
+    metrics_source_metadata = _metrics_source_metadata(
+        metrics_payload, metrics_source_bytes, as_of,
+        "https://amfiindia.com/metrics", envelope,
+    )
     pipeline = FinancialDataRefreshPipeline()
     result = pipeline.refresh(
         bundle_target,
@@ -572,8 +671,8 @@ def test_refresh_pipeline_fails_closed_on_fabricated_text_direct_evidence(tmp_pa
         hermetic_inputs={
             "scheme_master": master_bytes,
             "daily_nav": nav_bytes,
-            "metrics": b"scheme_id,nav,alpha\n",
-            "metrics_json": json.dumps({"funds": [{"fund_id": "fund-1", "nav": "82.4532"}]}).encode("utf-8"),
+            "metrics": metrics_source_bytes,
+            "metrics_json": json.dumps(metrics_payload).encode("utf-8"),
             "candidate_universe_source": b"candidate_source",
             "disclosures": {
                 "scheme-1": json.dumps({"constituent_weights": {"RELIANCE": 100.0}, "constituent_weights_coverage_pct": 100.0}).encode("utf-8"),
@@ -584,6 +683,8 @@ def test_refresh_pipeline_fails_closed_on_fabricated_text_direct_evidence(tmp_pa
                 "scheme-2": b"%PDF-1.4 factsheet 2",
             },
         },
+        metrics_source_url="https://amfiindia.com/metrics",
+        metrics_source_metadata=metrics_source_metadata,
         reviewer_attested=True,
         reviewer_approval_envelope=envelope,
         reviewer_trust_registry=registry,
@@ -675,13 +776,20 @@ def test_builder_fails_closed_on_missing_direct_plan_evidence_bytes(tmp_path):
     envelope, registry = _make_test_approval()
     builder = EvidenceBundleBuilder(tmp_path / "bundle")
     master = _sample_scheme_master_dict(as_of)
+    metrics_source_bytes = b"metrics_1"
+    metrics_payload = _metrics_payload_for(master, metrics_source_bytes, as_of)
+    metrics_source_metadata = _metrics_source_metadata(
+        metrics_payload, metrics_source_bytes, as_of,
+        "https://amfiindia.com/metrics", envelope,
+    )
     with pytest.raises(ValueError, match="Missing direct plan evidence bytes"):
         builder.build_and_promote(
             as_of,
             scheme_master=master,
             scheme_master_source_bytes=json.dumps(master).encode("utf-8"),
-            metrics_payload={"funds": [{"fund_id": "fund-1", "nav": "82.45"}]},
-            metrics_source_bytes=b"metrics_1",
+            metrics_payload=metrics_payload,
+            metrics_source_bytes=metrics_source_bytes,
+            metrics_source_metadata=metrics_source_metadata,
             candidate_universe=[{
                 "fund_id": "fund-1",
                 "fund_name": "Fund 1",
@@ -715,13 +823,20 @@ def test_builder_fails_closed_on_missing_direct_plan_evidence_source_url(tmp_pat
     envelope, registry = _make_test_approval()
     builder = EvidenceBundleBuilder(tmp_path / "bundle")
     master = _sample_scheme_master_dict(as_of)
+    metrics_source_bytes = b"metrics_1"
+    metrics_payload = _metrics_payload_for(master, metrics_source_bytes, as_of)
+    metrics_source_metadata = _metrics_source_metadata(
+        metrics_payload, metrics_source_bytes, as_of,
+        "https://amfiindia.com/metrics", envelope,
+    )
     with pytest.raises(ValueError, match="Missing direct plan evidence source URL"):
         builder.build_and_promote(
             as_of,
             scheme_master=master,
             scheme_master_source_bytes=json.dumps(master).encode("utf-8"),
-            metrics_payload={"funds": [{"fund_id": "fund-1", "nav": "82.45"}]},
-            metrics_source_bytes=b"metrics_1",
+            metrics_payload=metrics_payload,
+            metrics_source_bytes=metrics_source_bytes,
+            metrics_source_metadata=metrics_source_metadata,
             candidate_universe=[{
                 "fund_id": "fund-1",
                 "fund_name": "Fund 1",
@@ -755,13 +870,20 @@ def test_builder_fails_closed_on_missing_disclosure_source_bytes(tmp_path):
     envelope, registry = _make_test_approval()
     builder = EvidenceBundleBuilder(tmp_path / "bundle")
     master = _sample_scheme_master_dict(as_of)
+    metrics_source_bytes = b"metrics_1"
+    metrics_payload = _metrics_payload_for(master, metrics_source_bytes, as_of)
+    metrics_source_metadata = _metrics_source_metadata(
+        metrics_payload, metrics_source_bytes, as_of,
+        "https://amfiindia.com/metrics", envelope,
+    )
     with pytest.raises(ValueError, match="Missing original portfolio disclosure source bytes"):
         builder.build_and_promote(
             as_of,
             scheme_master=master,
             scheme_master_source_bytes=json.dumps(master).encode("utf-8"),
-            metrics_payload={"funds": [{"fund_id": "fund-1", "nav": "82.45"}]},
-            metrics_source_bytes=b"metrics_1",
+            metrics_payload=metrics_payload,
+            metrics_source_bytes=metrics_source_bytes,
+            metrics_source_metadata=metrics_source_metadata,
             candidate_universe=[{
                 "fund_id": "fund-1",
                 "fund_name": "Fund 1",
@@ -795,13 +917,20 @@ def test_builder_fails_closed_on_missing_disclosure_source_url(tmp_path):
     envelope, registry = _make_test_approval()
     builder = EvidenceBundleBuilder(tmp_path / "bundle")
     master = _sample_scheme_master_dict(as_of)
+    metrics_source_bytes = b"metrics_1"
+    metrics_payload = _metrics_payload_for(master, metrics_source_bytes, as_of)
+    metrics_source_metadata = _metrics_source_metadata(
+        metrics_payload, metrics_source_bytes, as_of,
+        "https://amfiindia.com/metrics", envelope,
+    )
     with pytest.raises(ValueError, match="Missing portfolio disclosure source URL"):
         builder.build_and_promote(
             as_of,
             scheme_master=master,
             scheme_master_source_bytes=json.dumps(master).encode("utf-8"),
-            metrics_payload={"funds": [{"fund_id": "fund-1", "nav": "82.45"}]},
-            metrics_source_bytes=b"metrics_1",
+            metrics_payload=metrics_payload,
+            metrics_source_bytes=metrics_source_bytes,
+            metrics_source_metadata=metrics_source_metadata,
             candidate_universe=[{
                 "fund_id": "fund-1",
                 "fund_name": "Fund 1",

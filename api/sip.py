@@ -510,6 +510,7 @@ def create_sip_app(
                 }
                 for provenance_field in (
                     "metrics_source_bytes",
+                    "aliases_source_bytes",
                     "candidate_universe_source_bytes",
                     "candidate_score_source_bytes",
                     "category_anchor_source_bytes",
@@ -522,6 +523,14 @@ def create_sip_app(
                     service_inputs["metrics_normalized_sha256"] = metrics_metadata.get(
                         "normalized_metrics_sha256"
                     )
+                    service_inputs["metrics_source_effective_date"] = metrics_metadata.get("effective_date")
+                    service_inputs["metrics_source_metadata"] = metrics_metadata
+                aliases_metadata = evidence.get("aliases_source_metadata")
+                if isinstance(aliases_metadata, dict):
+                    service_inputs["aliases_normalized_sha256"] = aliases_metadata.get(
+                        "normalized_aliases_sha256"
+                    )
+                    service_inputs["aliases_source_metadata"] = aliases_metadata
                 candidate_metadata = evidence.get("candidate_universe_source")
                 if isinstance(candidate_metadata, dict):
                     service_inputs["candidate_universe_normalized_sha256"] = candidate_metadata.get(

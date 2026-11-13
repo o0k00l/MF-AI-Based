@@ -47,12 +47,14 @@ class FinancialDataRefreshPipeline:
         target_bundle_dir: Path,
         as_of: date,
         *,
-        hermetic_inputs: Optional[Dict[str, bytes]] = None,
+        hermetic_inputs: Optional[Dict[str, Any]] = None,
         reviewer_attested: bool = False,
         reviewer_approval_envelope: Optional[Union[Dict[str, Any], Callable[[str], Dict[str, Any]]]] = None,
         reviewer_trust_registry: Optional[Dict[str, Any]] = None,
         master_source_url: Optional[str] = None,
         metrics_source_url: Optional[str] = None,
+        metrics_source_metadata: Optional[Dict[str, Any]] = None,
+        aliases_source_metadata: Optional[Dict[str, Any]] = None,
         universe_source_url: Optional[str] = None,
         require_reviewer_signature: bool = True,
         expected_commit_sha: Optional[str] = None,
@@ -69,6 +71,8 @@ class FinancialDataRefreshPipeline:
             - "daily_nav": raw bytes for AMFI NAV feed
             - "metrics": raw bytes for metrics.csv / metrics source
             - "metrics_json": optional JSON bytes for metrics.json
+            - "metrics_source_metadata": independently reviewed metrics publisher metadata/envelope
+            - "aliases_payload", "aliases_source_bytes", "aliases_source_metadata": optional atomic alias evidence
             - "disclosures": dict of scheme_id -> raw bytes
             - "direct_evidence": dict of scheme_id -> raw bytes
         """
@@ -411,6 +415,7 @@ class FinancialDataRefreshPipeline:
                 scheme_master_source_bytes=master_record.source_bytes,
                 metrics_payload=metrics_payload,
                 metrics_source_bytes=metrics_source_bytes,
+                metrics_source_metadata=metrics_source_metadata or inputs.get("metrics_source_metadata"),
                 candidate_universe=candidate_universe,
                 candidate_universe_source_bytes=candidate_universe_source_bytes,
                 portfolio_disclosures=portfolio_disclosures,
@@ -419,6 +424,9 @@ class FinancialDataRefreshPipeline:
                 master_source_url=master_source_url or master_record.source_url,
                 metrics_source_url=metrics_source_url or metrics_payload.get("source_url"),
                 universe_source_url=universe_source_url or inputs.get("candidate_universe_source_url"),
+                aliases_payload=inputs.get("aliases_payload"),
+                aliases_source_bytes=inputs.get("aliases_source_bytes"),
+                aliases_source_metadata=aliases_source_metadata or inputs.get("aliases_source_metadata"),
                 reviewer_attested=reviewer_attested,
                 reviewer_approval_envelope=reviewer_approval_envelope,
                 reviewer_trust_registry=reviewer_trust_registry,

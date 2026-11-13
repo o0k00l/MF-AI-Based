@@ -27,6 +27,8 @@ A version-1 bundle uses a UTF-8 `manifest.json`:
   "metrics_metadata_file": "records/fund_metrics_metadata.json",
   "metrics_source_file": "originals/fund_metrics_source.xlsx",
   "aliases_file": "metrics/reviewed_aliases.json",
+  "aliases_metadata_file": "records/reviewed_aliases_metadata.json",
+  "aliases_source_file": "originals/reviewed_aliases_source.csv",
   "scheme_master_file": "records/scheme_master.json",
   "scheme_master_source_file": "originals/scheme_master.xlsx",
   "portfolio_disclosures": {
@@ -48,8 +50,10 @@ A version-1 bundle uses a UTF-8 `manifest.json`:
 }
 ```
 
-All paths are relative to the bundle root. The optional `aliases_file` may be
-null. The three `portfolio_context_*` fields are optional, but if one is present all three are required. The two `candidate_score_*` fields are optional, but must be configured together when supplied. The two `category_anchor_*` fields are optional, but any candidate carrying a ranking score requires the approved category-anchor pair. Every referenced file must exist. Paths that escape the bundle,
+All paths are relative to the bundle root. The optional alias artifact is
+configured as an atomic trio: `aliases_file`, `aliases_metadata_file` and
+`aliases_source_file`; if no alias artifact is supplied, all three are null
+or absent. The three `portfolio_context_*` fields are optional, but if one is present all three are required. The two `candidate_score_*` fields are optional, but must be configured together when supplied. The two `category_anchor_*` fields are optional, but any candidate carrying a ranking score requires the approved category-anchor pair. Every referenced file must exist. Paths that escape the bundle,
 absolute paths, symlink escapes and bundles located inside the Git checkout
 are rejected.
 
@@ -102,12 +106,32 @@ are rejected.
   Metrics must not be inferred from scheme-master identity.
 - `metrics_metadata_file` and `metrics_source_file`: source metadata and
   unchanged original publisher bytes for the metrics dataset. Metadata must
-  also include `normalized_metrics_sha256`, the digest of the normalized
-  `metrics_file`. The provider checks both the original-source digest and the
-  normalized-file digest. It also verifies HTTPS URL, reviewer attestation
-  and freshness before the evidence contract accepts the bundle.
-- `aliases_file`: optional reviewed exact-alias mapping; fuzzy matching is
-  not supported.
+  include `normalized_metrics_sha256`, `publisher`, `coverage_scope`,
+  `record_count`, `effective_date`, `source_type`, `reviewer_id` and
+  `policy_version`. The detached reviewer approval binds the original source
+  digest and the complete normalized `funds` array, not merely the file hash.
+  Every consumed metrics record must carry the exact `scheme_id`, `ISIN`,
+  `AMC`, `category`, `plan_type`, `option_type`, benchmark identity,
+  per-record effective date and a source reference equal to the original
+  publisher SHA-256. Those identity dimensions must match the verified scheme
+  master. Missing, stale, mixed-snapshot, unmatched or conflicting records
+  block the current-holdings assessment.
+- Numeric exposure fields must be finite and within 0–100. Equity plus debt
+  cannot exceed 100%. Each record must declare `market_cap_basis`:
+  `TOTAL_PORTFOLIO_PCT` requires large/mid/small-cap buckets to reconcile
+  within equity exposure; `EQUITY_PCT` treats those buckets as weights within
+  the equity sleeve and their sum cannot exceed 100%. An absent/unknown basis
+  or unreconciled split blocks analysis. TER is accepted only when its plan
+  matches the exact verified scheme plan.
+- `aliases_file`, `aliases_metadata_file` and `aliases_source_file`: an
+  optional atomic, independently reviewed alias evidence bundle. Metadata
+  must include normalized digest, publisher, coverage scope/count, effective
+  date, reviewer ID and policy version. Its detached signature binds the
+  original bytes and complete normalized alias mapping. Aliases can resolve
+  names only; they cannot carry category, plan/option, TER, exposure or other
+  financial facts. Ambiguous mappings are rejected. The strict SIP holdings
+  path does not use aliases to match metrics; it matches only exact verified
+  scheme ID and ISIN.
 - `portfolio_context_file`: optional provider-supplied total-portfolio context
   JSON. It must include the dated, owner-scoped perimeter, reconciled CAS row,
   approved IPS, goals, cash/reserve/obligation evidence, candidate policy,
@@ -136,7 +160,8 @@ The structured-record digest for each signed scope is canonicalized as follows:
 - `SIP_SCHEME_MASTER`: the complete normalized `schemes` list.
 - `SIP_PORTFOLIO_DISCLOSURE`: `{"constituent_weights": <uppercase identifiers and numeric weights>, "coverage_pct": <numeric coverage>}`; the exact scheme ID is also bound in the approval payload.
 - `SIP_CANDIDATE_UNIVERSE`: the complete normalized candidate list.
-- `SIP_EVIDENCE_RELEASE` for fund metrics: `{"normalized_metrics_sha256": <digest>}`.
+- `SIP_EVIDENCE_RELEASE` for fund metrics: `{"funds": <complete normalized funds array>, "metadata": <all metrics metadata except the detached envelope>}`.
+- `SIP_EVIDENCE_RELEASE` for aliases: `{"aliases": <complete normalized alias document>, "metadata": <all alias metadata except the detached envelope>}`.
 - `SIP_EVIDENCE_RELEASE` for total-portfolio context: the complete normalized `portfolio_context` mapping.
 - `SIP_EVIDENCE_RELEASE` for ranking scores: the ordered list of each scored candidate's fund ID, score, score date, methodology, portfolio-overlap status/coverage/source, category-anchor source/policy and benchmark identity.
 - `SIP_EVIDENCE_RELEASE` for category anchors: the complete `category_anchors` mapping.
@@ -189,3 +214,7 @@ This document is subordinate to `docs/SIP_ENGINE_DECISION_REGISTER.md` for settl
 **Examples are non-operative:** numbers, scheme names, benchmark names, dates, file names and sample JSON are illustrative unless explicitly identified as a currently approved policy/source contract. Example values must never be promoted to runtime defaults. Any fixed numeric threshold or benchmark list in a legacy section is historical/example material pending explicit approval and migration into the effective policy/source registry; it is not authority to hardcode that value.
 
 **Conflict resolution:** apply the decision register, then the normative architecture, then the approved effective policy/IPS for investor-specific values, then authoritative source evidence for market facts. Policy cannot override source facts and source facts cannot invent policy. Record unresolved conflicts and HOLD; do not pick whichever value makes the workflow pass.
+
+## Cross-evidence boundary
+
+Fund-metrics and alias approvals establish only the facts within their declared evidence scope. They do not establish registrar identity, investor ownership, active SIP mandates or recurring-debit authority. Existing recurring commitments consumed by the recommendation path must independently satisfy the authenticated mandate-schedule contract; transaction descriptions, alias matches and metrics records cannot substitute for that evidence. Missing or conflicting mandate evidence remains UNKNOWN/HOLD and must not be inferred from a metrics or alias artifact.
