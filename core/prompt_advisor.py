@@ -175,7 +175,7 @@ def sanitize_prompt_for_privacy(
     # values without an explicit INR label) are not needed by the qualitative
     # external narrative layer. Keep all financial arithmetic local.
     s = re.sub(
-        r"(?<![A-Za-z])[-+]?(?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.\\d+)?\\s*%?",
+        r"(?<![A-Za-z])[-+]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?\s*%?",
         "[REDACTED_NUMERIC_DETAIL]",
         s,
     )
