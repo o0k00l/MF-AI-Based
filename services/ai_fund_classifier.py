@@ -34,25 +34,14 @@ def _call_privacy_safe_fiduciary_llm(
 ) -> str:
     """Send only minimized narrative context; never persist investor-specific answers."""
     from core.ai_engine import call_llm
-    from core.prompt_advisor import sanitize_prompt_for_privacy
-
-    identifiers: list[str] = []
-    identity_fields = {
-        "client_name", "investor_name", "account_holder", "holder_name",
-        "fund_name", "scheme_name", "scheme", "fund_id", "scheme_id",
-        "folio", "folio_no", "account_id", "isin", "pan",
-    }
-    for record in [portfolio_metrics, *(funds or [])]:
-        if not isinstance(record, dict):
-            continue
-        for key in identity_fields:
-            value = record.get(key)
-            if isinstance(value, str) and value.strip():
-                identifiers.append(value.strip())
+    from core.prompt_advisor import (
+        collect_sensitive_identifiers,
+        sanitize_prompt_for_privacy,
+    )
 
     minimized_prompt = sanitize_prompt_for_privacy(
         prompt,
-        sensitive_identifiers=identifiers,
+        sensitive_identifiers=collect_sensitive_identifiers(portfolio_metrics, funds),
     )
     return call_llm(
         minimized_prompt,
