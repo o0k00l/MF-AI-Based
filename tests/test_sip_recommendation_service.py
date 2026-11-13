@@ -59,13 +59,14 @@ def _signed_mandate_evidence(owner_ref, mandates, as_of):
     issued = datetime.combine(as_of, datetime.min.time(), tzinfo=timezone.utc)
     expires = issued + timedelta(days=30)
     payload = {
-        "schema_version": 1,
+        "schema_version": 2,
         "signer_id": _TEST_MANDATE_SIGNER_ID,
         "signer_key_id": _TEST_MANDATE_KEY_ID,
         "signer_type": "REGISTRAR",
         "owner_ref": owner_ref,
         "source_sha256": source_sha,
         "schedule_sha256": schedule_sha,
+        "coverage_status": "COMPLETE",
         "issued_at": issued.strftime("%Y-%m-%dT%H:%M:%SZ"),
         "expires_at": expires.strftime("%Y-%m-%dT%H:%M:%SZ"),
     }
