@@ -811,7 +811,7 @@ def load_holdings_from_cas_excel(
             for m in m_data["funds"]:
                 if not isinstance(m, dict) or not isinstance(m.get("id"), str) or not m["id"].strip():
                     raise ValueError("Fund metrics contain a malformed or unidentified record.")
-                fid = re.sub(r"[^a-z0-9]", "", m["id"]).strip().casefold()
+                fid = re.sub(r"[^a-z0-9]", "", m["id"].casefold()).strip()
                 if not fid:
                     raise ValueError("Fund metrics record ID normalizes to an empty identifier.")
                 if fid in metrics_map:
