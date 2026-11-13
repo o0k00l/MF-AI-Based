@@ -38,6 +38,33 @@ OPTIONAL_EVIDENCE_FIELDS = frozenset({
 })
 
 
+def _load_json_file_strict(path: Path, *, label: str, max_bytes: int) -> Any:
+    """Load bounded JSON while rejecting duplicate keys and non-standard numbers."""
+    size = path.stat().st_size
+    if size <= 0 or size > max_bytes:
+        raise EvidenceProviderContractError(f"{label} is empty or exceeds its size limit.")
+
+    def unique_pairs(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError(f"Duplicate JSON key: {key!r}")
+            result[key] = value
+        return result
+
+    def reject_constant(value):
+        raise ValueError(f"Non-standard JSON number {value!r} is prohibited.")
+
+    try:
+        return json.loads(
+            path.read_text(encoding="utf-8"),
+            object_pairs_hook=unique_pairs,
+            parse_constant=reject_constant,
+        )
+    except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as exc:
+        raise EvidenceProviderContractError(f"{label} is malformed JSON: {type(exc).__name__}.") from exc
+
+
 class EvidenceProviderContractError(ValueError):
     """Raised when a provider response violates the structural contract."""
 
@@ -271,11 +298,9 @@ def validate_evidence_provider_payload(
             trust_registry=trust_registry,
             require_reviewer_signature=require_reviewer_signature,
             scope="SIP_EVIDENCE_RELEASE",
-            structured_records={
-                "normalized_metrics_sha256": payload["metrics_source_metadata"].get(
-                    "normalized_metrics_sha256"
-                )
-            },
+            structured_records=_load_json_file_strict(
+                payload["metrics_path"], label="Normalized fund metrics", max_bytes=50 * 1024 * 1024
+            ).get("funds"),
         )
         metrics_path = payload["metrics_path"]
         if not isinstance(metrics_path, Path) or metrics_path.is_symlink() or not metrics_path.is_file():
@@ -647,6 +672,9 @@ def validate_evidence_provider_payload(
             raise EvidenceProviderContractError(
                 "Fund aliases path requires both aliases_source_metadata and aliases_source_bytes; Path-like files alone are prohibited."
             )
+        alias_data = _load_json_file_strict(
+            aliases_path, label="Fund aliases", max_bytes=10 * 1024 * 1024
+        )
         _validate_source_document(
             payload["aliases_source_metadata"],
             payload["aliases_source_bytes"],
@@ -655,6 +683,7 @@ def validate_evidence_provider_payload(
             trust_registry=trust_registry,
             require_reviewer_signature=require_reviewer_signature,
             scope="SIP_EVIDENCE_RELEASE",
+            structured_records=alias_data,
         )
         norm_hash = payload["aliases_source_metadata"].get("normalized_aliases_sha256")
         if not isinstance(norm_hash, str) or not re.fullmatch(r"[0-9a-fA-F]{64}", norm_hash):
@@ -665,8 +694,6 @@ def validate_evidence_provider_payload(
                 "Fund aliases normalized file SHA-256 does not match reviewed metadata."
             )
         try:
-            with open(aliases_path, "r", encoding="utf-8") as f:
-                alias_data = json.load(f)
             if not isinstance(alias_data, dict) or not alias_data:
                 raise EvidenceProviderContractError(
                     "Fund aliases file must contain a non-empty JSON mapping."
