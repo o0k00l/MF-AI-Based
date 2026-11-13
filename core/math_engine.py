@@ -1238,13 +1238,9 @@ def _validate_metrics_provenance(
                     raise ValueError(f"Verified scheme master contains duplicate scheme ID {key!r}.")
                 scheme_master_index[key] = scheme
     if require_exact_identity and not scheme_master_index:
-        return {
-            "status": "MISSING",
-            "identity_complete": False,
-            "errors": ["Exact metrics identity cannot be established without a verified scheme master."],
-            "source_sha256": next(iter(source_refs), None),
-            "effective_date": next(iter(effective_dates), None),
-        }
+        raise ValueError(
+            "Exact metrics identity requires a non-empty VERIFIED scheme master."
+        )
 
     required_identity_fields = ("scheme_id", "isin", "amc_name", "category", "plan_type", "option_type")
     seen_scheme_ids: set[str] = set()
