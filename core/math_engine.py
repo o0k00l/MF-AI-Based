@@ -999,7 +999,23 @@ def load_holdings_from_cas_excel(
             sub_cat = None
             fund_id = identity.get("scheme_id") or scheme_str[:30]
         else:
-            category = matched_metric.get("cat")
+            # Scheme category is an identity fact from the independently
+            # verified master. Metrics may corroborate it, never redefine it.
+            category = identity.get("category")
+            metric_category = matched_metric.get("category")
+            metric_cat_alias = matched_metric.get("cat")
+            for category_value in (metric_category, metric_cat_alias):
+                if category_value is not None and (
+                    not isinstance(category_value, str)
+                    or category_value.strip().casefold() != str(category or "").strip().casefold()
+                ):
+                    raise ValueError(
+                        f"Fund metrics category conflicts with verified scheme master for {identity.get('scheme_id')!r}."
+                    )
+            if not category:
+                raise ValueError(
+                    f"Verified scheme master category is missing for {identity.get('scheme_id')!r}."
+                )
             sector_alloc = matched_metric.get("sector")
             sub_cat = matched_metric.get("sub_category")
             raw_ter = matched_metric.get("er")
@@ -1013,8 +1029,12 @@ def load_holdings_from_cas_excel(
             )
             # TER is plan-specific. Unknown plan identity cannot be assigned
             # either Direct or Regular TER, and no commission delta is inferred.
-            if raw_ter is None or expected_plan is None or ter_plan != expected_plan:
+            if raw_ter is None:
                 er = None
+            elif expected_plan is None or ter_plan != expected_plan:
+                raise ValueError(
+                    f"Fund metrics TER plan does not match verified scheme plan for {identity.get('scheme_id')!r}."
+                )
             else:
                 er = float(raw_ter)
                 if not math.isfinite(er) or er < 0:
