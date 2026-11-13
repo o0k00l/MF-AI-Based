@@ -75,6 +75,7 @@ def _build_cas_portfolio_assessment(
     custom_saa_target: Any | None = None,
     *,
     risk_ceiling: Any | None = None,
+    screening_policy: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Return a CAS-only SAA diagnostic; never imply total-portfolio completeness."""
     policy_path = Path(__file__).resolve().parents[1] / "data" / "policy" / "asset_allocation.json"
@@ -194,7 +195,7 @@ def _build_cas_portfolio_assessment(
             })
         if equity_rows:
             lookthrough = calculate_lookthrough_exposure(
-                equity_rows, required_coverage_pct=_required_lookthrough_coverage_pct()
+                equity_rows, required_coverage_pct=_required_lookthrough_coverage_pct(screening_policy)
             )
         else:
             lookthrough = {
@@ -333,6 +334,7 @@ def _assess_complete_portfolio_context(
     cas_holdings_total_inr: Decimal,
     evidence_as_of_date: date,
     custom_saa_target: Any | None = None,
+    screening_policy: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Orchestrate portfolio, suitability, affordability and candidate gates.
 
@@ -697,7 +699,7 @@ def _assess_complete_portfolio_context(
             }
         elif external_equity_rows:
             external_lookthrough = calculate_lookthrough_exposure(
-                external_equity_rows, required_coverage_pct=_required_lookthrough_coverage_pct()
+                external_equity_rows, required_coverage_pct=_required_lookthrough_coverage_pct(screening_policy)
             )
         else:
             external_lookthrough = {
@@ -756,7 +758,7 @@ def _assess_complete_portfolio_context(
             candidate_exposure = calculate_lookthrough_exposure(
                 [{"holding_value_inr": str(ticket_budget),
                   "coverage_pct": coverage, "constituents": constituents}],
-                required_coverage_pct=_required_lookthrough_coverage_pct(),
+                required_coverage_pct=_required_lookthrough_coverage_pct(screening_policy),
             )
             if candidate_exposure.get("status") != "CALCULATED":
                 overlap_results[candidate_id] = candidate_exposure
@@ -853,7 +855,7 @@ def _assess_complete_portfolio_context(
             })
         if candidate_allocation.get("status") == "ALLOCATED" and selected_candidate_rows:
             selected_lookthrough = calculate_lookthrough_exposure(
-                selected_candidate_rows, required_coverage_pct=_required_lookthrough_coverage_pct()
+                selected_candidate_rows, required_coverage_pct=_required_lookthrough_coverage_pct(screening_policy)
             )
             if selected_lookthrough.get("status") == "CALCULATED":
                 proposed_issuer_values = dict(existing_issuer_values)
@@ -1349,6 +1351,7 @@ def recommend_sip(
     portfolio_assessment = _build_cas_portfolio_assessment(
         holdings, risk_profile, custom_saa_target=custom_saa_target,
         risk_ceiling=custom_risk_ceiling,
+        screening_policy=screening_policy,
     )
 
     # Run the deterministic engine with the exact evidence bundle. Its output is
@@ -1402,6 +1405,7 @@ def recommend_sip(
                 ),
                 evidence_as_of_date=disclosure_as_of_date,
                 custom_saa_target=custom_saa_target,
+                screening_policy=screening_policy,
             )
         portfolio_assessment["total_portfolio_context"] = context_assessment
     portfolio_assessment["statement_provenance"] = statement_provenance or {
