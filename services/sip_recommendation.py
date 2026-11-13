@@ -76,11 +76,14 @@ def _build_cas_portfolio_assessment(
     *,
     risk_ceiling: Any | None = None,
     screening_policy: dict[str, Any] | None = None,
+    allocation_policy: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Return a CAS-only SAA diagnostic; never imply total-portfolio completeness."""
     policy_path = Path(__file__).resolve().parents[1] / "data" / "policy" / "asset_allocation.json"
     try:
-        policy = json.loads(policy_path.read_text(encoding="utf-8"))
+        policy = allocation_policy
+        if policy is None:
+            policy = json.loads(policy_path.read_text(encoding="utf-8"))
         if risk_profile == "Custom" and custom_saa_target is not None:
             profile_key = "custom"
             from core.models import AssetAllocationTarget
@@ -335,6 +338,7 @@ def _assess_complete_portfolio_context(
     evidence_as_of_date: date,
     custom_saa_target: Any | None = None,
     screening_policy: dict[str, Any] | None = None,
+    allocation_policy: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Orchestrate portfolio, suitability, affordability and candidate gates.
 
@@ -395,7 +399,9 @@ def _assess_complete_portfolio_context(
         if sum(current.values(), Decimal("0")) != total:
             raise PortfolioInputError("SAA sleeve values do not reconcile exactly to total portfolio")
         policy_path = Path(__file__).resolve().parents[1] / "data" / "policy" / "asset_allocation.json"
-        policy = json.loads(policy_path.read_text(encoding="utf-8"))
+        policy = allocation_policy
+        if policy is None:
+            policy = json.loads(policy_path.read_text(encoding="utf-8"))
         if risk_profile == "Custom":
             if custom_saa_target is None:
                 raise PortfolioInputError("Custom SAA requires an approved custom_saa_target.")
@@ -1043,6 +1049,8 @@ def _build_sip_decision_trace(
     candidate_universe_normalized_sha256: str | None = None,
     statement_provenance: dict[str, Any] | None = None,
     screening_policy: dict[str, Any] | None = None,
+    allocation_policy_sha256: str | None = None,
+    allocation_policy_as_of: str | None = None,
 ) -> dict[str, str]:
     """Hash the source and diagnostic inputs that led to a fail-closed SIP result."""
     candidate_source_hashes = {}
@@ -1060,11 +1068,7 @@ def _build_sip_decision_trace(
             "rank_score_as_of_date": candidate.get("rank_score_as_of_date"),
             "rank_score_methodology_version": candidate.get("rank_score_methodology_version"),
         }
-    policy_path = Path(__file__).resolve().parents[1] / "data" / "policy" / "asset_allocation.json"
-    try:
-        policy_source_sha256 = hashlib.sha256(policy_path.read_bytes()).hexdigest()
-    except OSError:
-        policy_source_sha256 = None
+    policy_source_sha256 = allocation_policy_sha256
     # The digest comes from the exact validated object consumed by the service
     # and candidate selector; do not reopen the policy file during trace creation.
     screening_source_sha256 = (
@@ -1108,7 +1112,8 @@ def _build_sip_decision_trace(
                 if isinstance(context_assessment, dict) else "UNVERIFIED_NOT_RECONCILED"
             ),
         },
-        "policy_version": f"asset_allocation.json@{portfolio_assessment.get('policy_as_of')}",
+        "policy_version": f"asset_allocation.json@{allocation_policy_as_of}",
+        "allocation_policy_as_of": allocation_policy_as_of,
         "policy_source_sha256": policy_source_sha256,
         "screening_policy_sha256": screening_source_sha256,
         "screening_policy_version": (
@@ -1283,7 +1288,14 @@ def recommend_sip(
     try:
         from core.eligibility import load_fund_screening_policy
         screening_policy = load_fund_screening_policy()
-    except (OSError, ValueError, TypeError) as exc:
+        allocation_policy_path = Path(__file__).resolve().parents[1] / "data" / "policy" / "asset_allocation.json"
+        allocation_policy_bytes = allocation_policy_path.read_bytes()
+        allocation_policy = json.loads(allocation_policy_bytes.decode("utf-8"))
+        if not isinstance(allocation_policy, dict) or not isinstance(allocation_policy.get("as_of"), str):
+            raise ValueError("Allocation policy must declare an as_of date")
+        date.fromisoformat(allocation_policy["as_of"])
+        allocation_policy_sha256 = hashlib.sha256(allocation_policy_bytes).hexdigest()
+    except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
         return _hold_plan(budget, [
             f"Central screening policy validation failed closed ({type(exc).__name__})."
         ])
@@ -1352,6 +1364,7 @@ def recommend_sip(
         holdings, risk_profile, custom_saa_target=custom_saa_target,
         risk_ceiling=custom_risk_ceiling,
         screening_policy=screening_policy,
+        allocation_policy=allocation_policy,
     )
 
     # Run the deterministic engine with the exact evidence bundle. Its output is
@@ -1377,6 +1390,7 @@ def recommend_sip(
             custom_saa_target=custom_saa_target,
             risk_ceiling=custom_risk_ceiling,
             screening_policy=screening_policy,
+            allocation_policy=allocation_policy,
         )
     except (ValueError, TypeError, KeyError) as exc:
         return _hold_plan(
@@ -1406,6 +1420,7 @@ def recommend_sip(
                 evidence_as_of_date=disclosure_as_of_date,
                 custom_saa_target=custom_saa_target,
                 screening_policy=screening_policy,
+                allocation_policy=allocation_policy,
             )
         portfolio_assessment["total_portfolio_context"] = context_assessment
     portfolio_assessment["statement_provenance"] = statement_provenance or {
@@ -1436,6 +1451,8 @@ def recommend_sip(
         candidate_universe_normalized_sha256=candidate_universe_normalized_sha256,
         statement_provenance=statement_provenance,
         screening_policy=screening_policy,
+        allocation_policy_sha256=allocation_policy_sha256,
+        allocation_policy_as_of=allocation_policy.get("as_of"),
     )
     portfolio_assessment["recommendation_lifecycle"]["decision_trace_sha256"] = (
         portfolio_assessment["decision_trace"]["sha256"]
