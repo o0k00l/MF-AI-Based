@@ -148,7 +148,16 @@ Provide a concise, institutional tax optimization action plan covering:
 2. Loss Set-Off & Carry-Forward Strategy
 3. Tax-Efficient Regular-to-Direct Switching Guidance
 Tone: Objective, fiduciary, statutory compliance-focused."""
-            res = call_llm(prompt, external_processing_consent=external_processing_consent)
+            from core.prompt_advisor import collect_sensitive_identifiers, sanitize_prompt_for_privacy
+            minimized_prompt = sanitize_prompt_for_privacy(
+                prompt,
+                sensitive_identifiers=collect_sensitive_identifiers(cgs_data, portfolio_funds),
+            )
+            res = call_llm(
+                minimized_prompt,
+                external_processing_consent=external_processing_consent,
+                use_cache=False,
+            )
             if res and len(res.strip()) > 50:
                 ai_narrative = res.strip()
         except Exception as exc:

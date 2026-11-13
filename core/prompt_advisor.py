@@ -74,6 +74,36 @@ def _sensitive_identifiers_from_facts(facts: Any) -> list[str]:
     return sorted(set(identifiers), key=len, reverse=True)
 
 
+def collect_sensitive_identifiers(*records: Any) -> list[str]:
+    """Extract known investor/holding identifiers from nested input records."""
+    sensitive_fields = {
+        "client_name", "investor_name", "account_holder", "holder_name",
+        "beneficiary_name", "goal_name", "goal_description", "fund_name", "scheme_name", "scheme", "fund_id",
+        "scheme_id", "folio", "folio_no", "folio_number", "account_id",
+        "account_number", "bank_account", "isin", "pan", "pan_number",
+        "aadhaar", "aadhaar_number", "email", "phone", "ifsc",
+    }
+    found: set[str] = set()
+
+    def visit(value: Any) -> None:
+        if isinstance(value, dict):
+            for key, item in value.items():
+                normalized_key = str(key).strip().lower()
+                if normalized_key in sensitive_fields and isinstance(item, (str, int)):
+                    candidate = str(item).strip()
+                    if len(candidate) > 1:
+                        found.add(candidate)
+                if isinstance(item, (dict, list, tuple)):
+                    visit(item)
+        elif isinstance(value, (list, tuple)):
+            for item in value:
+                visit(item)
+
+    for record in records:
+        visit(record)
+    return sorted(found, key=len, reverse=True)
+
+
 def sanitize_prompt_for_privacy(
     text: str,
     client_name: Optional[str] = None,

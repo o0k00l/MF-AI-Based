@@ -15,6 +15,7 @@ from __future__ import annotations
 import concurrent.futures
 import json
 import logging
+import os
 import re
 import urllib.parse
 import urllib.request
@@ -22,26 +23,85 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 _AI_QUERY_EXECUTOR = concurrent.futures.ThreadPoolExecutor(max_workers=2, thread_name_prefix="fiduciary_ai_worker")
-_FIDUCIARY_QA_CACHE: Dict[str, Dict[str, str]] = {}
 
-_CACHE_DIR = Path(__file__).resolve().parent.parent / "data" / "cache"
-_CACHE_FILE = _CACHE_DIR / "online_fund_lookthrough.json"
+
+def _call_privacy_safe_fiduciary_llm(
+    prompt: str,
+    portfolio_metrics: Dict[str, Any],
+    funds: List[Dict[str, Any]],
+    *,
+    external_processing_consent: bool,
+) -> str:
+    """Send only minimized narrative context; never persist investor-specific answers."""
+    from core.ai_engine import call_llm
+    from core.prompt_advisor import (
+        collect_sensitive_identifiers,
+        sanitize_prompt_for_privacy,
+    )
+
+    minimized_prompt = sanitize_prompt_for_privacy(
+        prompt,
+        sensitive_identifiers=collect_sensitive_identifiers(portfolio_metrics, funds),
+    )
+    return call_llm(
+        minimized_prompt,
+        external_processing_consent=external_processing_consent,
+        use_cache=False,
+    )
+
+def _external_lookthrough_cache_file() -> Path | None:
+    """Use only the configured external engine-data directory; never the repository."""
+    configured = os.getenv("MF_ENGINE_DATA_DIR", "").strip()
+    if not configured:
+        return None
+    project_root = Path(__file__).resolve().parent.parent
+    root = Path(configured).expanduser().resolve()
+    try:
+        root.relative_to(project_root)
+    except ValueError:
+        pass
+    else:
+        return None
+    try:
+        root.mkdir(parents=True, exist_ok=True)
+        root = root.resolve(strict=True)
+    except OSError:
+        return None
+    try:
+        root.relative_to(project_root)
+    except ValueError:
+        pass
+    else:
+        return None
+    return root / "online_fund_lookthrough.json"
+
+
+_CACHE_FILE = _external_lookthrough_cache_file()
+
 
 def _load_online_lookthrough_cache() -> Dict[str, Dict[str, Any]]:
-    if _CACHE_FILE.exists():
-        try:
-            with open(_CACHE_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            return {}
-    return {}
+    if _CACHE_FILE is None or not _CACHE_FILE.exists():
+        return {}
+    try:
+        with open(_CACHE_FILE, "r", encoding="utf-8") as f:
+            payload = json.load(f)
+        return payload if isinstance(payload, dict) else {}
+    except (OSError, ValueError, TypeError):
+        return {}
+
 
 def _save_online_lookthrough_cache():
+    if _CACHE_FILE is None:
+        return
     try:
-        _CACHE_DIR.mkdir(parents=True, exist_ok=True)
-        with open(_CACHE_FILE, "w", encoding="utf-8") as f:
-            json.dump(_ONLINE_LOOKTHROUGH_CACHE, f, indent=2)
-    except Exception:
+        _CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        temp_path = _CACHE_FILE.with_suffix(".tmp")
+        temp_path.write_text(
+            json.dumps(_ONLINE_LOOKTHROUGH_CACHE, indent=2),
+            encoding="utf-8",
+        )
+        temp_path.replace(_CACHE_FILE)
+    except (OSError, TypeError, ValueError):
         pass
 
 _ONLINE_LOOKTHROUGH_CACHE: Dict[str, Dict[str, Any]] = _load_online_lookthrough_cache()
@@ -405,7 +465,12 @@ Respond ONLY with a valid JSON array of objects, one per scheme, in this exact f
 
 
 
-def lookup_fund_segment_allocation_online(scheme_name: str, timeout_sec: float = 5.0) -> Optional[Dict[str, Any]]:
+def lookup_fund_segment_allocation_online(
+    scheme_name: str,
+    timeout_sec: float = 5.0,
+    *,
+    external_processing_consent: bool = False,
+) -> Optional[Dict[str, Any]]:
     """Dynamically look up actual fund segment allocations from live online factsheets or Google Search.
 
     Extracts actual Large Cap %, Mid Cap %, Small Cap %, and True Debt / Liquid Cash % from
@@ -418,6 +483,8 @@ def lookup_fund_segment_allocation_online(scheme_name: str, timeout_sec: float =
         return dict(_ONLINE_LOOKTHROUGH_CACHE[canonical])
     if scheme_name in _ONLINE_LOOKTHROUGH_CACHE:
         return dict(_ONLINE_LOOKTHROUGH_CACHE[scheme_name])
+    if external_processing_consent is not True:
+        return None
 
     try:
         headers = {
@@ -509,7 +576,12 @@ def lookup_fund_segment_allocation_online(scheme_name: str, timeout_sec: float =
 
     return None
 
-def classify_fund_with_ai(scheme_name: str, use_live_ai: bool = False) -> Dict[str, Any]:
+def classify_fund_with_ai(
+    scheme_name: str,
+    use_live_ai: bool = False,
+    *,
+    external_processing_consent: bool = False,
+) -> Dict[str, Any]:
     """Classify a single mutual fund scheme using fund-by-fund verified disclosures and AI.
 
     Returns authentic SEBI broad category (Equity, Hybrid, Debt), exact scheme_type,
@@ -520,7 +592,9 @@ def classify_fund_with_ai(scheme_name: str, use_live_ai: bool = False) -> Dict[s
 
     # 1. First Pass (Live AI Prompting): If live AI requested, query LLM
     if use_live_ai:
-        ai_res = classify_fund_with_llm(scheme_name)
+        ai_res = classify_fund_with_llm(
+            scheme_name, external_processing_consent=external_processing_consent
+        )
         if ai_res:
             return ai_res
 
@@ -547,7 +621,9 @@ def classify_fund_with_ai(scheme_name: str, use_live_ai: bool = False) -> Dict[s
             return res
 
     # 3.5 Pass: Live Online Factsheet & Google Search Grounding
-    online_lookthrough = lookup_fund_segment_allocation_online(scheme_name)
+    online_lookthrough = lookup_fund_segment_allocation_online(
+        scheme_name, external_processing_consent=external_processing_consent
+    )
     if online_lookthrough:
         return online_lookthrough
 
@@ -1096,7 +1172,12 @@ def extract_canonical_scheme_name(scheme_name: str) -> str:
     return cleaned
 
 
-def enrich_funds_with_ai(funds: List[Dict[str, Any]], use_live_ai: bool = False) -> List[Dict[str, Any]]:
+def enrich_funds_with_ai(
+    funds: List[Dict[str, Any]],
+    use_live_ai: bool = False,
+    *,
+    external_processing_consent: bool = False,
+) -> List[Dict[str, Any]]:
     """Enrich an uploaded portfolio fund list with fund-by-fund AI look-through intelligence.
 
     Replaces static heuristic assumptions with verified AMC factsheet data,
@@ -1105,7 +1186,9 @@ def enrich_funds_with_ai(funds: List[Dict[str, Any]], use_live_ai: bool = False)
     """
     if use_live_ai:
         names = [f.get("scheme", "") for f in funds if f.get("scheme")]
-        batch_classify_funds_with_llm(names)
+        batch_classify_funds_with_llm(
+            names, external_processing_consent=external_processing_consent
+        )
 
     # Fast parallel pre-fetch for any funds not in local policy factsheet
     unindexed = []
@@ -1121,14 +1204,20 @@ def enrich_funds_with_ai(funds: List[Dict[str, Any]], use_live_ai: bool = False)
     if unindexed:
         try:
             with concurrent.futures.ThreadPoolExecutor(max_workers=min(6, len(unindexed))) as executor:
-                list(executor.map(lambda name: lookup_fund_segment_allocation_online(name, timeout_sec=5.0), unindexed))
+                list(executor.map(lambda name: lookup_fund_segment_allocation_online(
+                        name, timeout_sec=5.0,
+                        external_processing_consent=external_processing_consent,
+                    ), unindexed))
         except Exception:
             pass
 
     enriched: List[Dict[str, Any]] = []
     for f in funds:
         scheme_name = f.get("scheme", "")
-        profile = classify_fund_with_ai(scheme_name, use_live_ai=use_live_ai)
+        profile = classify_fund_with_ai(
+            scheme_name, use_live_ai=use_live_ai,
+            external_processing_consent=external_processing_consent,
+        )
 
         item = dict(f)
         item["category"] = profile["category"]
@@ -1390,7 +1479,12 @@ def extract_canonical_scheme_name(scheme_name: str) -> str:
     return cleaned
 
 
-def enrich_funds_with_ai(funds: List[Dict[str, Any]], use_live_ai: bool = False) -> List[Dict[str, Any]]:
+def enrich_funds_with_ai(
+    funds: List[Dict[str, Any]],
+    use_live_ai: bool = False,
+    *,
+    external_processing_consent: bool = False,
+) -> List[Dict[str, Any]]:
     """Enrich an uploaded portfolio fund list with fund-by-fund AI look-through intelligence.
 
     Replaces static heuristic assumptions with verified AMC factsheet data,
@@ -1399,7 +1493,9 @@ def enrich_funds_with_ai(funds: List[Dict[str, Any]], use_live_ai: bool = False)
     """
     if use_live_ai:
         names = [f.get("scheme", "") for f in funds if f.get("scheme")]
-        batch_classify_funds_with_llm(names)
+        batch_classify_funds_with_llm(
+            names, external_processing_consent=external_processing_consent
+        )
 
     # Fast parallel pre-fetch for any funds not in local policy factsheet
     unindexed = []
@@ -1415,14 +1511,20 @@ def enrich_funds_with_ai(funds: List[Dict[str, Any]], use_live_ai: bool = False)
     if unindexed:
         try:
             with concurrent.futures.ThreadPoolExecutor(max_workers=min(6, len(unindexed))) as executor:
-                list(executor.map(lambda name: lookup_fund_segment_allocation_online(name, timeout_sec=5.0), unindexed))
+                list(executor.map(lambda name: lookup_fund_segment_allocation_online(
+                        name, timeout_sec=5.0,
+                        external_processing_consent=external_processing_consent,
+                    ), unindexed))
         except Exception:
             pass
 
     enriched: List[Dict[str, Any]] = []
     for f in funds:
         scheme_name = f.get("scheme", "")
-        profile = classify_fund_with_ai(scheme_name, use_live_ai=use_live_ai)
+        profile = classify_fund_with_ai(
+            scheme_name, use_live_ai=use_live_ai,
+            external_processing_consent=external_processing_consent,
+        )
 
         item = dict(f)
         item["category"] = profile["category"]
@@ -1666,7 +1768,10 @@ Tone: Professional, institutional, objective, fiduciary, strictly non-promotiona
 Format: Clear markdown bullet points."""
 
             def _call_narrative():
-                return call_llm(prompt, external_processing_consent=external_processing_consent)
+                return _call_privacy_safe_fiduciary_llm(
+                    prompt, portfolio_metrics, funds,
+                    external_processing_consent=external_processing_consent,
+                )
 
             future = _AI_QUERY_EXECUTOR.submit(_call_narrative)
             raw_res = future.result(timeout=4.0)
@@ -2047,11 +2152,6 @@ def answer_fiduciary_query(
     if target_saa and isinstance(target_saa, dict):
         target_eq = float(target_saa.get("total_equity_pct", 75.0) or 75.0)
 
-    # 0. Check Fast Fiduciary Response Cache (Instant 0 ms return)
-    cache_key = f"{q_clean.lower()}::{round(tot_val, 2)}::{round(eq_pct, 1)}::{round(reg_val, 2)}"
-    if cache_key in _FIDUCIARY_QA_CACHE:
-        return dict(_FIDUCIARY_QA_CACHE[cache_key])
-
     # 1. Attempt Live LLM synthesis if requested and consented (with strict 4.0s timeout worker)
     if use_live_ai and external_processing_consent is True:
         try:
@@ -2072,7 +2172,10 @@ Portfolio Facts:
 Provide a concise, direct, institutional fiduciary answer in 2-4 bullet points. Strictly objective and non-promotional."""
 
             def _fetch_live():
-                return call_llm(prompt, external_processing_consent=external_processing_consent)
+                return _call_privacy_safe_fiduciary_llm(
+                    prompt, portfolio_metrics, funds,
+                    external_processing_consent=external_processing_consent,
+                )
 
             future = _AI_QUERY_EXECUTOR.submit(_fetch_live)
             raw_res = future.result(timeout=4.0)
@@ -2081,7 +2184,6 @@ Provide a concise, direct, institutional fiduciary answer in 2-4 bullet points. 
                     "source": "Live AI Assistant (Fiduciary Intelligence)",
                     "response": raw_res.strip(),
                 }
-                _FIDUCIARY_QA_CACHE[cache_key] = out
                 return out
         except Exception:
             pass
@@ -2155,5 +2257,4 @@ Provide a concise, direct, institutional fiduciary answer in 2-4 bullet points. 
         "source": "Statutory Fiduciary Assessment (SEBI Mandate)",
         "response": resp,
     }
-    _FIDUCIARY_QA_CACHE[cache_key] = out
     return out

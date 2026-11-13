@@ -210,3 +210,252 @@ def test_privacy_sanitizer_redacts_rupee_amounts_and_exact_holding_identifiers()
     assert "12,34,567.89" not in sanitized
     assert "[REDACTED_FINANCIAL_AMOUNT]" in sanitized
 
+
+
+def test_live_fiduciary_narrative_minimizes_aggregated_financial_data(monkeypatch):
+    from services.ai_fund_classifier import generate_fiduciary_ai_narrative
+    import core.ai_engine as ai
+
+    captured = []
+    monkeypatch.setattr(
+        ai,
+        "call_llm",
+        lambda prompt, **kwargs: captured.append((prompt, kwargs)) or "A minimized fiduciary narrative response with sufficient detail.",
+    )
+    metrics = {
+        "client_name": "PRIVATE CLIENT NAME",
+        "total_value": 9876543.21,
+        "eq_pct": 70.0,
+        "debt_pct": 30.0,
+        "regular_value": 2500000.0,
+        "regular_pct": 25.0,
+        "annual_bleed": 12500.0,
+        "compounded_10y_drag": 175000.0,
+        "unique_strategies_count": 4,
+        "dual_count": 1,
+    }
+    funds = [{"scheme": "PRIVATE SCHEME NAME", "folio": "PRIVATE-FOLIO-4455"}]
+
+    result = generate_fiduciary_ai_narrative(
+        metrics, funds, use_live_ai=True, external_processing_consent=True
+    )
+
+    assert result["source"] == "Live AI Model (Fiduciary Synthesis)"
+    assert len(captured) == 1
+    prompt, kwargs = captured[0]
+    assert "PRIVATE CLIENT NAME" not in prompt
+    assert "PRIVATE SCHEME NAME" not in prompt
+    assert "PRIVATE-FOLIO-4455" not in prompt
+    assert "9,876,543" not in prompt
+    assert "INR" not in prompt
+    assert "[REDACTED_FINANCIAL_AMOUNT]" in prompt
+    assert kwargs["external_processing_consent"] is True
+    assert kwargs["use_cache"] is False
+
+
+def test_live_fiduciary_query_sanitizes_pii_and_never_uses_shared_answer_cache(monkeypatch):
+    import core.ai_engine as ai
+    from services.ai_fund_classifier import answer_fiduciary_query
+
+    captured = []
+
+    def fake_call_llm(prompt, **kwargs):
+        captured.append((prompt, kwargs))
+        return "This is a qualitative response based only on minimized supplied facts."
+
+    monkeypatch.setattr(ai, "call_llm", fake_call_llm)
+    metrics = {
+        "client_name": "PRIVATE CLIENT NAME",
+        "account_id": "PRIVATE-ACCOUNT-778899",
+        "total_value": 9876543.21,
+        "eq_pct": 70.0,
+        "debt_pct": 30.0,
+        "regular_value": 2500000.0,
+        "regular_pct": 25.0,
+        "annual_bleed": 12500.0,
+        "compounded_10y_drag": 175000.0,
+        "dual_count": 1,
+    }
+    funds = [{
+        "scheme": "PRIVATE SCHEME NAME",
+        "folio": "PRIVATE-FOLIO-4455",
+    }]
+    query = (
+        "I am PRIVATE CLIENT NAME, PAN ABCDE1234F, email client@example.com, "
+        "phone +91 9876543210, account 123456789012 and folio PRIVATE-FOLIO-4455. "
+        "Why is my portfolio worth INR 9,876,543.21?"
+    )
+
+    kwargs = {
+        "use_live_ai": True,
+        "external_processing_consent": True,
+    }
+    first = answer_fiduciary_query(query, metrics, funds, **kwargs)
+    second = answer_fiduciary_query(query, metrics, funds, **kwargs)
+
+    assert first["source"] == "Live AI Assistant (Fiduciary Intelligence)"
+    assert second["source"] == "Live AI Assistant (Fiduciary Intelligence)"
+    assert len(captured) == 2  # investor-specific prompts/responses are never shared-cached
+    for prompt, call_kwargs in captured:
+        for secret in (
+            "PRIVATE CLIENT NAME", "PRIVATE-ACCOUNT-778899", "PRIVATE SCHEME NAME",
+            "PRIVATE-FOLIO-4455", "ABCDE1234F", "client@example.com",
+            "9876543210", "123456789012",
+        ):
+            assert secret not in prompt
+        assert "9,876,543.21" not in prompt
+        assert "INR" not in prompt
+        assert "[REDACTED_FINANCIAL_AMOUNT]" in prompt
+        assert call_kwargs["external_processing_consent"] is True
+        assert call_kwargs["use_cache"] is False
+
+
+def test_external_scheme_factsheet_lookup_requires_explicit_consent(monkeypatch):
+    from services.ai_fund_classifier import (
+        _ONLINE_LOOKTHROUGH_CACHE,
+        lookup_fund_segment_allocation_online,
+    )
+
+    _ONLINE_LOOKTHROUGH_CACHE.pop("Private Investor Scheme 44", None)
+    _ONLINE_LOOKTHROUGH_CACHE.pop("Private Investor Scheme", None)
+    calls = []
+
+    def fake_urlopen(*args, **kwargs):
+        calls.append((args, kwargs))
+        raise OSError("synthetic network block")
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+
+    assert lookup_fund_segment_allocation_online("Private Investor Scheme 44") is None
+    assert calls == []  # no scheme/holding disclosure to a search provider without consent
+
+    assert lookup_fund_segment_allocation_online(
+        "Private Investor Scheme 44",
+        external_processing_consent=True,
+    ) is None
+    assert calls  # the explicit opt-in is the only path that may contact the external source
+
+
+def test_cgs_goal_and_risk_ai_paths_minimize_prompts_before_external_calls(monkeypatch):
+    import core.ai_engine as ai
+
+    captured = []
+
+    def fake_call_llm(prompt, **kwargs):
+        captured.append((prompt, kwargs))
+        return "A qualitative narrative based only on minimized portfolio context."
+
+    monkeypatch.setattr(ai, "call_llm", fake_call_llm)
+
+    portfolio = [{
+        "scheme": "PRIVATE SCHEME NAME",
+        "folio": "PRIVATE-FOLIO-7788",
+        "current_value": 900000.0,
+        "invested_value": 700000.0,
+        "category": "Equity",
+        "eq": 100.0,
+        "debt": 0.0,
+    }]
+    cgs_data = {
+        "client_name": "PRIVATE CLIENT NAME",
+        "summary": {"ltcg_inr": 25000.0, "stcg_inr": 10000.0},
+    }
+    goals = [{
+        "name": "PRIVATE GOAL NAME",
+        "goal_name": "PRIVATE GOAL NAME",
+        "cost_today": 5000000.0,
+        "horizon": 15,
+        "required_sip": 20000.0,
+    }]
+    target_saa = {"equity_pct": 70.0, "debt_pct": 30.0, "cash_pct": 0.0}
+
+    evaluate_tax_harvesting_strategy(
+        cgs_data, portfolio, use_live_ai=True, external_processing_consent=True
+    )
+    evaluate_goal_scenarios_with_ai(
+        goals, 25000.0, portfolio=portfolio, target_saa=target_saa,
+        use_live_ai=True, external_processing_consent=True,
+    )
+    predict_risk_tier_from_portfolio(
+        portfolio, use_live_ai=True, external_processing_consent=True
+    )
+
+    assert len(captured) == 3
+    for prompt, kwargs in captured:
+        for secret in (
+            "PRIVATE CLIENT NAME", "PRIVATE SCHEME NAME", "PRIVATE-FOLIO-7788",
+            "PRIVATE GOAL NAME", "25000", "900000", "700000",
+        ):
+            assert secret not in prompt
+        assert "INR" not in prompt
+        assert "[REDACTED_FINANCIAL_AMOUNT]" in prompt
+        assert kwargs["external_processing_consent"] is True
+        assert kwargs["use_cache"] is False
+
+
+def test_online_scheme_cache_is_disabled_or_external_to_repository(tmp_path, monkeypatch):
+    from services.ai_fund_classifier import _external_lookthrough_cache_file
+    from pathlib import Path
+    import services.ai_fund_classifier as classifier
+
+    monkeypatch.delenv("MF_ENGINE_DATA_DIR", raising=False)
+    assert _external_lookthrough_cache_file() is None
+
+    monkeypatch.setenv("MF_ENGINE_DATA_DIR", str(classifier.Path(__file__).resolve().parents[1] / "data" / "cache"))
+    assert _external_lookthrough_cache_file() is None
+
+    external_root = tmp_path / "engine-data"
+    monkeypatch.setenv("MF_ENGINE_DATA_DIR", str(external_root))
+    cache_file = _external_lookthrough_cache_file()
+    assert cache_file == external_root / "online_fund_lookthrough.json"
+    assert cache_file is not None
+    assert not cache_file.is_relative_to(Path(__file__).resolve().parents[1])
+
+
+def test_active_fund_enrichment_propagates_explicit_external_consent(monkeypatch):
+    import services.ai_fund_classifier as classifier
+
+    seen = {"batch": [], "lookup": [], "classify": []}
+    monkeypatch.setattr(
+        classifier,
+        "batch_classify_funds_with_llm",
+        lambda names, external_processing_consent=False: seen["batch"].append(external_processing_consent) or {},
+    )
+    monkeypatch.setattr(
+        classifier,
+        "lookup_fund_segment_allocation_online",
+        lambda name, timeout_sec=5.0, external_processing_consent=False: seen["lookup"].append(external_processing_consent) or None,
+    )
+
+    def fake_classify(name, use_live_ai=False, external_processing_consent=False):
+        seen["classify"].append(external_processing_consent)
+        return {
+            "category": "Equity", "scheme_type": "Equity", "asset_class": "Equity",
+            "sub_category": "", "eq": None, "debt": None, "gold": None,
+            "intl": None, "lc": None, "mc": None, "sc": None, "re": None,
+            "other": None, "sector": None, "benchmark": None, "risk_rating": None,
+            "source": "UNVERIFIED", "ai_rationale": "No verified facts.",
+        }
+
+    monkeypatch.setattr(classifier, "classify_fund_with_ai", fake_classify)
+    classifier.enrich_funds_with_ai(
+        [{"scheme": "Unknown Private Scheme"}],
+        use_live_ai=True,
+        external_processing_consent=True,
+    )
+
+    assert seen["batch"] == [True]
+    assert seen["lookup"] == [True]
+    assert seen["classify"] == [True]
+
+
+def test_online_scheme_cache_rejects_symlink_into_repository(tmp_path, monkeypatch):
+    from pathlib import Path
+    from services.ai_fund_classifier import _external_lookthrough_cache_file
+
+    repository_data = Path(__file__).resolve().parents[1] / "data"
+    linked_root = tmp_path / "linked-engine-data"
+    linked_root.symlink_to(repository_data, target_is_directory=True)
+    monkeypatch.setenv("MF_ENGINE_DATA_DIR", str(linked_root))
+
+    assert _external_lookthrough_cache_file() is None
