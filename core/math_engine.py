@@ -1053,9 +1053,17 @@ def load_holdings_from_cas_excel(
                 )
             eq_pct = float(matched_metric["eq"])
             debt_pct = float(matched_metric["debt"])
-            lc_pct = float(matched_metric["lc"])
-            mc_pct = float(matched_metric["mc"])
-            sc_pct = float(matched_metric["sc"])
+            raw_lc_pct = float(matched_metric["lc"])
+            raw_mc_pct = float(matched_metric["mc"])
+            raw_sc_pct = float(matched_metric["sc"])
+            if matched_metric["market_cap_basis"] == "EQUITY_PCT":
+                # Convert equity-sleeve weights into total-holding exposure
+                # before downstream SAA/overlap calculations.
+                lc_pct = eq_pct * raw_lc_pct / 100.0
+                mc_pct = eq_pct * raw_mc_pct / 100.0
+                sc_pct = eq_pct * raw_sc_pct / 100.0
+            else:
+                lc_pct, mc_pct, sc_pct = raw_lc_pct, raw_mc_pct, raw_sc_pct
             asset_class = _infer_asset_class(category, eq_pct, debt_pct, lc_pct, mc_pct, sc_pct)
             metrics_status = "VERIFIED"
             fund_id = matched_metric.get("id", identity.get("scheme_id") or scheme_str[:30])
@@ -1171,6 +1179,10 @@ def _validate_sip_metrics_exposures(metric: Dict[str, Any], *, scheme_id: str) -
         if market_cap_total > 100.0 + 1e-9:
             raise ValueError(
                 f"Fund metrics market-cap equity weights exceed 100% for {scheme_id!r}."
+            )
+        if values["eq"] == 0.0 and market_cap_total > 1e-9:
+            raise ValueError(
+                f"Fund metrics report market-cap exposure without an equity allocation for {scheme_id!r}."
             )
     else:
         raise ValueError(
