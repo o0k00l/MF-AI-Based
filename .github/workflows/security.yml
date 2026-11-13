@@ -33,7 +33,7 @@ jobs:
       - name: Generate CycloneDX dependency SBOM
         run: pip-audit -r requirements.lock --format cyclonedx-json --output dependency-sbom.cdx.json
       - name: Retain dependency SBOM
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: dependency-sbom-${{ github.sha }}
           path: dependency-sbom.cdx.json
