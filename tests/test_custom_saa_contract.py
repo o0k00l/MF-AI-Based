@@ -305,3 +305,69 @@ def test_recommend_sip_custom_saa_e2e_with_approved_context(tmp_path, monkeypatc
     reconciliation = ctx["portfolio_reconciliation"]
     assert reconciliation["status"] == "RECONCILED"
     assert reconciliation["is_approved_for_sip_routing"] is True
+
+
+def test_custom_saa_resolves_exact_investable_sleeves_from_approved_target():
+    target = AssetAllocationTarget(
+        equity_pct=60.0, debt_pct=40.0, cash_pct=0.0,
+        large_cap_pct=25.0, mid_cap_pct=15.0,
+        small_cap_pct=10.0, flexi_cap_pct=10.0,
+        risk_ceiling=4,
+    )
+    policy = {
+        "custom_saa_policy": {
+            "default_equity_distribution_pct": {
+                "large_cap_pct": 40.0,
+                "flexi_multi_cap_pct": 20.0,
+                "mid_cap_pct": 25.0,
+                "small_cap_pct": 15.0,
+            }
+        }
+    }
+    resolved = service._custom_saa_sleeve_targets(target, policy)
+    assert resolved == {
+        "large_cap": 25.0,
+        "mid_cap": 15.0,
+        "small_cap": 10.0,
+        "flexi_multi_cap": 10.0,
+        "debt_liquid": 40.0,
+    }
+    assert sum(resolved.values()) == pytest.approx(100.0)
+
+
+def test_custom_saa_does_not_silently_discard_cash_target():
+    target = AssetAllocationTarget(
+        equity_pct=60.0, debt_pct=30.0, cash_pct=10.0,
+        risk_ceiling=4,
+    )
+    policy = {
+        "custom_saa_policy": {
+            "default_equity_distribution_pct": {
+                "large_cap_pct": 40.0,
+                "flexi_multi_cap_pct": 20.0,
+                "mid_cap_pct": 25.0,
+                "small_cap_pct": 15.0,
+            }
+        }
+    }
+    with pytest.raises(service.PortfolioInputError, match="does not model a separate cash sleeve"):
+        service._custom_saa_sleeve_targets(target, policy)
+
+
+def test_custom_saa_policy_default_distribution_must_reconcile():
+    target = AssetAllocationTarget(
+        equity_pct=60.0, debt_pct=40.0, cash_pct=0.0,
+        risk_ceiling=4,
+    )
+    policy = {
+        "custom_saa_policy": {
+            "default_equity_distribution_pct": {
+                "large_cap_pct": 40.0,
+                "flexi_multi_cap_pct": 20.0,
+                "mid_cap_pct": 25.0,
+                "small_cap_pct": 10.0,
+            }
+        }
+    }
+    with pytest.raises(service.PortfolioInputError, match="must reconcile to 100%"):
+        service._custom_saa_sleeve_targets(target, policy)
