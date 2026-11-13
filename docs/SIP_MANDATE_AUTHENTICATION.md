@@ -42,6 +42,8 @@ For investor-signed confirmation, the trusted signer identity must equal the inv
 
 The internal evidence object contains `coverage_status`, `source_bytes` (the original bytes), `source_ref` (`sha256:<64 lowercase hex>`), `mandates`, and `signature_envelope`. The envelope has exactly `payload` and `signature`.
 
+When this evidence is stored in the filesystem-backed JSON bundle, the JSON field is `source_bytes_base64` (canonical standard Base64). The bundle loader decodes it to internal `source_bytes` before the SIP service sees it; a JSON-supplied `source_bytes` field is rejected. The enclosing portfolio-context artifact is separately reviewer-signed and digest-checked.
+
 The signed payload has exactly:
 
 - `schema_version` = 1;
