@@ -51,6 +51,7 @@ def test_readiness_distinguishes_live_api_from_missing_evidence_provider():
             "authenticated_daily_tri_unavailable",
             "independent_nse_calendar_unavailable",
             "research_release_approval_missing",
+            "mandate_signer_trust_registry_unavailable",
         ],
     }
 
@@ -73,6 +74,7 @@ def test_configured_provider_only_enables_evidence_validation_not_recommendation
             "authenticated_daily_tri_unavailable",
             "independent_nse_calendar_unavailable",
             "research_release_approval_missing",
+            "mandate_signer_trust_registry_unavailable",
         ],
     }
 
