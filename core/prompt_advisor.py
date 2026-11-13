@@ -89,7 +89,7 @@ def sanitize_prompt_for_privacy(
     s = re.sub(r"(?:\+91[\-\s]?)?[6789]\d{9}\b", "[REDACTED_PHONE]", s)
     s = re.sub(r"\b[A-Z]{4}0[A-Z0-9]{6}\b", "[REDACTED_IFSC]", s, flags=re.IGNORECASE)
     s = re.sub(r"(?i)\b(?:account|acct|a/c|bank account)\s*[:#-]?\s*(\d{9,18})\b", "[REDACTED_ACCOUNT]", s)
-    s = re.sub(r"(?i)\b(?:folio|acct|account|acc)\s*[:#-]?\s*[A-Z0-9/-]{4,24}\b", "[REDACTED_FOLIO]", s)
+    s = re.sub(r"(?i)\b(?:folio(?:\s*(?:no\.?|number))?|acct|account|acc)\s*[:#-]?\s*[A-Z0-9/-]{4,24}\b", "[REDACTED_FOLIO]", s)
     s = re.sub(r"(?i)(?:₹|INR|Rs\.?)\s*[-+]?\s*\d[\d,]*(?:\.\d{1,2})?", "[REDACTED_FINANCIAL_AMOUNT]", s)
     s = re.sub(
         r"(?i)\b(?:portfolio value|invested value|current value|monthly sip|lumpsum budget|annual bleed|commission leakage|unrealized gain|investment amount)\b\s*[:=-]?\s*[-+]?\d[\d,]*(?:\.\d{1,2})?",

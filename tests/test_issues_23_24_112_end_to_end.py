@@ -159,6 +159,13 @@ def test_issue_23_signed_report_artifact_enforced_in_sip_service(tmp_path, monke
         },
     }
 
+    from mandate_test_utils import make_signed_mandate_schedule, install_mandate_trust_registry
+    mandate_evidence, mandate_trust_registry = make_signed_mandate_schedule(
+        as_of, context["investor_owner_ref"]
+    )
+    context["sip_mandate_evidence"] = mandate_evidence
+    install_mandate_trust_registry(monkeypatch, mandate_trust_registry)
+
     result = service.recommend_sip(
         cas_path=cas_path,
         metrics_path=None,
@@ -350,6 +357,13 @@ def test_issue_24_custom_saa_propagates_downstream_and_preserves_unfillable(tmp_
             "source_ref": "sha256:conc",
         },
     }
+
+    from mandate_test_utils import make_signed_mandate_schedule, install_mandate_trust_registry
+    mandate_evidence, mandate_trust_registry = make_signed_mandate_schedule(
+        as_of, context["investor_owner_ref"]
+    )
+    context["sip_mandate_evidence"] = mandate_evidence
+    install_mandate_trust_registry(monkeypatch, mandate_trust_registry)
 
     result = service.recommend_sip(
         cas_path=cas_path,

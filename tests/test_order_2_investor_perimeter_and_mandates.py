@@ -280,11 +280,15 @@ def test_issue_106_identifies_active_recurring_mandate_correctly():
         {"folio": "F1", "scheme": "Core Growth Direct", "date": "2026-10-10", "type": "SIP", "description": "SIP auto debit", "amount": 5000.0, "mandate_id": "UMRN1234567890", "mandate_status": "ACTIVE"},
     ]
     res = detect_active_sips_from_cas(transactions, as_of=as_of)
-    assert res["active_sip_count"] == 1
-    assert res["total_monthly_sip"] == 5000.0
-    assert len(res["active_sips"]) == 1
-    assert res["active_sips"][0]["scheme"] == "Core Growth Direct"
-    assert res["active_sips"][0]["monthly_amount"] == 5000.0
+    # CAS transaction rows, free-text SIP labels, UMRNs and a local ACTIVE
+    # status claim are not authenticated registrar/AMC/bank mandate evidence.
+    # They must remain an unverified pattern and never enter affordability.
+    assert res["active_sip_count"] == 0
+    assert res["total_monthly_sip"] == 0.0
+    assert res["active_sips"] == []
+    assert res["recurring_transaction_pattern_count"] == 1
+    assert res["recurring_transaction_patterns"][0]["scheme"] == "Core Growth Direct"
+    assert res["recurring_transaction_patterns"][0]["confidence"] == "UNVERIFIED"
 
 
 # =============================================================================

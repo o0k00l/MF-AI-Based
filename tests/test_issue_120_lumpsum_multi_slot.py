@@ -76,7 +76,7 @@ def test_lumpsum_ranks_multi_slot_stp_candidates(tmp_path, monkeypatch):
     monkeypatch.setattr(lumpsum_mod, "select_autonomous_blueprint_funds", lambda *a, **k: mock_slots)
 
     metrics_file = tmp_path / "metrics.json"
-    metrics_file.write_text("{}", encoding="utf-8")
+    metrics_file.write_text('{"funds": []}', encoding="utf-8")
 
     def mock_provider(**kwargs):
         return {
@@ -98,7 +98,7 @@ def test_lumpsum_ranks_multi_slot_stp_candidates(tmp_path, monkeypatch):
     # Standard policy: 40% parking = 200,000; 60% STP = 300,000
     assert res.parking_allocation_inr == Decimal("200000.00")
     assert res.stp_allocation_inr == Decimal("300000.00")
-    assert res.status == "ELIGIBLE_FOR_HUMAN_REVIEW"
+    assert res.status == "ELIGIBLE_FOR_HUMAN_REVIEW", res.missing_evidence
 
     # Parking vehicle is present and verified
     roles = [a["role"] for a in res.candidate_allocations]

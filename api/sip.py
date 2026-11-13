@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import tempfile
+from datetime import date
 from decimal import Decimal
 from pathlib import Path
 from typing import Any, Callable
@@ -77,6 +78,38 @@ def _load_api_key_registry_from_environment() -> dict[str, dict[str, Any]] | Non
             "rate_limit_per_minute": rate_limit,
         }
     return validated
+
+
+
+def _verify_provider_mandate_schedule(context: Any) -> bool:
+    """Return True only when the provider context contains a complete, independently signed mandate schedule.
+
+    Generic reviewer approval of a portfolio-context bundle is deliberately not
+    sufficient. The mandate signer trust root and detached signature are checked
+    separately, and the recommendation service repeats this verification before
+    using any amount in affordability calculations.
+    """
+    if not isinstance(context, dict):
+        return False
+    evidence = context.get("sip_mandate_evidence")
+    owner_ref = context.get("investor_owner_ref")
+    as_of_raw = context.get("as_of_date")
+    if (
+        not isinstance(evidence, dict)
+        or evidence.get("coverage_status") != "COMPLETE"
+        or not isinstance(owner_ref, str)
+        or not owner_ref.strip()
+        or not isinstance(as_of_raw, str)
+    ):
+        return False
+    try:
+        as_of = date.fromisoformat(as_of_raw)
+        from services.sip_mandate_auth import verify_mandate_schedule
+        result = verify_mandate_schedule(evidence, owner_ref=owner_ref, as_of=as_of)
+    except Exception:
+        # Missing dependencies, malformed signatures and trust-root failures all HOLD.
+        return False
+    return isinstance(result, dict) and result.get("status") == "VERIFIED"
 
 
 def create_sip_app(
@@ -496,11 +529,14 @@ def create_sip_app(
                     )
                 provider_portfolio_context = evidence.get("portfolio_context")
                 if provider_portfolio_context is not None:
-                    # A reviewer-signed portfolio-context document is not proof that
-                    # an RTA/AMC/bank authenticated the active SIP mandate schedule.
-                    # Until a mandate-specific source contract and trust scope exist,
-                    # never promote generic evidence into provider mandate attestation.
-                    provider_portfolio_context["evidence_attested_by_provider"] = False
+                    # Do not mutate the provider's cached nested object across requests.
+                    provider_portfolio_context = dict(provider_portfolio_context)
+                    # A generic reviewer signature is not mandate authentication.
+                    # Promote this context only when the separately signed schedule
+                    # verifies against the deployment-owned mandate signer trust root.
+                    mandate_verified = _verify_provider_mandate_schedule(provider_portfolio_context)
+                    provider_portfolio_context["evidence_attested_by_provider"] = mandate_verified
+                    provider_portfolio_context["mandate_evidence_signature_verified"] = mandate_verified
                     provider_portfolio_context["_source_bundle_sha256"] = evidence[
                         "portfolio_context_source_metadata"
                     ]["source_document_sha256"]

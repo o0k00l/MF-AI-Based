@@ -15,8 +15,11 @@ def _metrics_file(tmp_path, scheme_name):
         "isin": "INF000A01000", "scheme": scheme_name, "name": scheme_name,
         "amc_name": "Example AMC", "cat": "Flexi Cap", "category": "Flexi Cap",
         "plan_type": "Direct", "option_type": "Growth",
-        "er": 0.65, "eq": 100.0, "debt": 0.0,
-        "lc": 50.0, "mc": 30.0, "sc": 20.0, "h": [],
+        "benchmark_identity": "NIFTY 500 TRI",
+        "effective_date": "2026-11-04", "source_ref": "sha256:" + "a" * 64,
+        "er": 0.65, "ter_plan": "direct", "eq": 100.0, "debt": 0.0,
+        "lc": 50.0, "mc": 30.0, "sc": 20.0,
+        "market_cap_basis": "TOTAL_PORTFOLIO_PCT", "h": [],
     }]}), encoding="utf-8")
     return path
 
@@ -34,6 +37,7 @@ def test_primary_cas_holdings_loader_resolves_verified_scheme_identity(tmp_path)
             'scheme_name': 'Example Equity Fund - Direct Growth',
             'amc_name': 'Example AMC',
             'category': 'Flexi Cap',
+            'benchmark_identity': 'NIFTY 500 TRI',
             'plan_type': 'Direct',
             'option_type': 'Growth',
             'riskometer_score': 5,
@@ -66,12 +70,13 @@ def test_primary_cas_holdings_loader_does_not_infer_identity_from_name(tmp_path)
     path = tmp_path / 'portfolio-no-amc.xlsx'
     wb.save(path)
 
-    holdings = load_holdings_from_cas_excel(
-        path, fund_metrics_path=_metrics_file(tmp_path, 'Example Equity Fund - Direct Growth')
-    )
-    assert len(holdings) == 1
-    assert holdings[0].scheme_id is None
-    assert holdings[0].lookthrough_status == 'MISSING'
+    # Exact metric identity cannot be asserted without an authoritative
+    # scheme master. The loader must fail closed rather than infer identity
+    # from the display name in the CAS.
+    with pytest.raises(ValueError, match="non-empty verified scheme master"):
+        load_holdings_from_cas_excel(
+            path, fund_metrics_path=_metrics_file(tmp_path, 'Example Equity Fund - Direct Growth')
+        )
 
 
 # =============================================================================
@@ -92,6 +97,7 @@ def _scheme_master_complete():
             'scheme_name': 'Example Equity Fund - Direct Growth',
             'amc_name': 'Example AMC',
             'category': 'Flexi Cap',
+            'benchmark_identity': 'NIFTY 500 TRI',
             'plan_type': 'Direct',
             'option_type': 'Growth',
             'riskometer_score': 5,
@@ -109,8 +115,9 @@ def test_metrics_missing_category_rejected_when_exact_identity_required(tmp_path
             "amc_name": "Example AMC",  # category missing
             "plan_type": "Direct",
             "option_type": "Growth",
-            "er": 0.65, "eq": 100.0, "debt": 0.0,
-            "lc": 50.0, "mc": 30.0, "sc": 20.0, "h": [],
+            "er": 0.65, "ter_plan": "direct", "eq": 100.0, "debt": 0.0,
+            "lc": 50.0, "mc": 30.0, "sc": 20.0,
+            "market_cap_basis": "TOTAL_PORTFOLIO_PCT", "h": [],
         }
     }
     from core.math_engine import _validate_metrics_provenance
@@ -138,34 +145,50 @@ def test_mixed_snapshot_rejected_at_exact_identity_binding(tmp_path):
             'scheme_name': 'Example Equity Fund - Direct Growth',
             'amc_name': 'Example AMC',
             'category': 'Flexi Cap',
+            'benchmark_identity': 'NIFTY 500 TRI',
+            'plan_type': 'Direct',
+            'option_type': 'Growth',
+            'riskometer_score': 5,
+        }, {
+            'scheme_id': 'SCHEME-002',
+            'isin': 'INF000A01001',
+            'scheme_name': 'Example Equity Fund Two - Direct Growth',
+            'amc_name': 'Example AMC',
+            'category': 'Flexi Cap',
+            'benchmark_identity': 'NIFTY 500 TRI',
             'plan_type': 'Direct',
             'option_type': 'Growth',
             'riskometer_score': 5,
         }],
     }
-    # Two metrics with different effective_dates = mixed snapshot
+    # Two otherwise valid, unique scheme records with different effective
+    # dates isolate the mixed-snapshot invariant.
     metrics_map = {
         'FUND-1': {
             'scheme_id': 'SCHEME-001',
             'isin': 'INF000A01000',
             'amc_name': 'Example AMC',
             'category': 'Flexi Cap',
+            'benchmark_identity': 'NIFTY 500 TRI',
             'plan_type': 'Direct',
             'option_type': 'Growth',
             'effective_date': '2026-06-01',
+            'source_ref': 'sha256:' + 'a' * 64,
             'er': 0.65, 'eq': 100.0, 'debt': 0.0,
-            'lc': 50.0, 'mc': 30.0, 'sc': 20.0, 'h': [],
+            'lc': 50.0, 'mc': 30.0, 'sc': 20.0, 'market_cap_basis': 'TOTAL_PORTFOLIO_PCT', 'h': [],
         },
         'FUND-2': {
-            'scheme_id': 'SCHEME-001',
-            'isin': 'INF000A01000',
+            'scheme_id': 'SCHEME-002',
+            'isin': 'INF000A01001',
             'amc_name': 'Example AMC',
             'category': 'Flexi Cap',
+            'benchmark_identity': 'NIFTY 500 TRI',
             'plan_type': 'Direct',
             'option_type': 'Growth',
             'effective_date': '2026-10-01',
+            'source_ref': 'sha256:' + 'a' * 64,
             'er': 0.65, 'eq': 100.0, 'debt': 0.0,
-            'lc': 50.0, 'mc': 30.0, 'sc': 20.0, 'h': [],
+            'lc': 50.0, 'mc': 30.0, 'sc': 20.0, 'market_cap_basis': 'TOTAL_PORTFOLIO_PCT', 'h': [],
         }
     }
     from core.math_engine import _validate_metrics_provenance
@@ -190,6 +213,7 @@ def test_scheme_not_in_master_rejected_at_exact_identity_binding(tmp_path):
             'scheme_name': 'Example Equity Fund - Direct Growth',
             'amc_name': 'Example AMC',
             'category': 'Flexi Cap',
+            'benchmark_identity': 'NIFTY 500 TRI',
             'plan_type': 'Direct',
             'option_type': 'Growth',
             'riskometer_score': 5,
@@ -201,10 +225,18 @@ def test_scheme_not_in_master_rejected_at_exact_identity_binding(tmp_path):
             "scheme_id": "SCHEME-999",  # Not in master
             "isin": "INF999999999",
             "amc_name": "Example AMC",
+            "benchmark_identity": "NIFTY 500 TRI",
+            "effective_date": "2026-11-04",
+            "source_ref": "sha256:" + "a" * 64,
             "category": "Large Cap",  # This category doesn't matter, scheme_id is the issue
             "plan_type": "Direct",
             "option_type": "Growth",
-            "er": 0.65, "eq": 100.0, "debt": 0.0,
+            "benchmark_identity": "NIFTY 500 TRI",
+            "effective_date": "2026-11-04",
+            "source_ref": "sha256:" + "a" * 64,
+            "er": 0.65, "ter_plan": "direct", "eq": 100.0, "debt": 0.0,
+            "lc": 50.0, "mc": 30.0, "sc": 20.0,
+            "market_cap_basis": "TOTAL_PORTFOLIO_PCT",
             "lc": 50.0, "mc": 30.0, "sc": 20.0, "h": [],
         }
     }
@@ -232,11 +264,16 @@ def test_metrics_conflicting_amc_rejected_at_exact_identity_binding(tmp_path):
             "category": "Flexi Cap",
             "plan_type": "Direct",
             "option_type": "Growth",
-            "er": 0.65, "eq": 100.0, "debt": 0.0,
+            "benchmark_identity": "NIFTY 500 TRI",
+            "effective_date": "2026-11-04",
+            "source_ref": "sha256:" + "a" * 64,
+            "er": 0.65, "ter_plan": "direct", "eq": 100.0, "debt": 0.0,
+            "lc": 50.0, "mc": 30.0, "sc": 20.0,
+            "market_cap_basis": "TOTAL_PORTFOLIO_PCT",
         }
     }
     from core.math_engine import _validate_metrics_provenance
-    with pytest.raises(ValueError, match="AMC.*conflicts with scheme master"):
+    with pytest.raises(ValueError, match="AMC.*conflicts with (?:verified )?scheme master"):
         _validate_metrics_provenance(
             metrics_map, master, require_exact_identity=True
         )

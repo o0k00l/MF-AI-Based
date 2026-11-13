@@ -712,3 +712,115 @@ def test_production_defaults_to_requiring_authenticated_cas(monkeypatch):
     monkeypatch.delenv("MF_SIP_REQUIRE_AUTHENTICATED_CAS", raising=False)
     status = TestClient(sip.create_sip_app()).get("/v1/deployment/status").json()
     assert status["authenticated_cas_required"] is True
+
+
+def test_api_derives_provider_attestation_only_from_mandate_signature_verification(monkeypatch):
+    """A generic reviewer-approved context cannot self-assert mandate authentication."""
+    from decimal import Decimal
+
+    # The API requires a configured reviewer trust root before it will call
+    # the provider. This test isolates the mandate-specific verifier below;
+    # provider-envelope cryptography is covered by its own contract tests.
+    monkeypatch.setattr(sip, "load_sip_reviewer_trust_registry", lambda: {})
+    monkeypatch.setattr(
+        sip, "validate_evidence_provider_payload",
+        lambda payload, **kwargs: payload,
+    )
+    # Isolate mandate attestation from the separate CAS publisher/structure gate.
+    # Those boundaries have independent integration coverage.
+    from types import SimpleNamespace
+    monkeypatch.setattr(
+        sip, "validate_cas_excel",
+        lambda *args, **kwargs: SimpleNamespace(
+            is_valid=True, structural_validity=True, is_publisher_authenticated=False
+        ),
+    )
+    monkeypatch.setattr(sip, "public_statement_provenance", lambda result: {})
+    verification_results = iter((True, False))
+    monkeypatch.setattr(
+        sip, "_verify_provider_mandate_schedule",
+        lambda context: next(verification_results),
+    )
+    observed_contexts = []
+
+    cached_provider_payload = {
+        "metrics_path": Path(__file__),
+        "aliases_path": None,
+        "scheme_master": {},
+        "scheme_master_source_bytes": b"scheme-master",
+        "portfolio_disclosures_by_scheme_id": {},
+        "portfolio_disclosure_source_bytes_by_scheme_id": {},
+        "disclosure_as_of_date": date.today(),
+        "candidate_universe": [],
+        "portfolio_context": {
+            "as_of_date": date.today().isoformat(),
+            "investor_owner_ref": "investor-1",
+            "sip_mandate_evidence": {"coverage_status": "COMPLETE"},
+            # An upstream boolean must never override cryptographic verification.
+            "evidence_attested_by_provider": True,
+        },
+        "portfolio_context_source_metadata": {
+            "source_document_sha256": "a" * 64,
+        },
+        "portfolio_context_source_bytes": b"reviewed-portfolio-context",
+    }
+
+    def provider(**kwargs):
+        return cached_provider_payload
+
+    def capture_service_inputs(**kwargs):
+        observed_contexts.append(kwargs["portfolio_context"])
+        return {
+            "status": "HOLD",
+            "decision": "NO_ACTION",
+            "unallocated_budget_inr": str(Decimal(kwargs["monthly_budget_inr"])),
+        }
+
+    monkeypatch.setattr(sip, "recommend_sip", capture_service_inputs)
+    client = TestClient(sip.create_sip_app(
+        evidence_provider=provider,
+        require_authenticated_cas=False,
+    ))
+
+    for expected in (True, False):
+        response = _upload(
+            client,
+            cas_bytes=_valid_cas_bytes(date.today()),
+            monthly_budget_inr="10000",
+            risk_profile="Moderate",
+        )
+        assert response.status_code == 200, response.text
+        assert observed_contexts[-1]["evidence_attested_by_provider"] is expected
+        assert observed_contexts[-1]["mandate_evidence_signature_verified"] is expected
+
+    # The provider's cached source object was not mutated by request handling.
+    assert cached_provider_payload["portfolio_context"]["evidence_attested_by_provider"] is True
+
+
+def test_provider_mandate_verification_rejects_incomplete_or_invalid_context(monkeypatch):
+    calls = []
+    import services.sip_mandate_auth as mandate_auth
+
+    def verified(evidence, *, owner_ref, as_of):
+        calls.append((evidence, owner_ref, as_of))
+        return {"status": "VERIFIED"}
+
+    monkeypatch.setattr(mandate_auth, "verify_mandate_schedule", verified)
+    context = {
+        "as_of_date": "2026-11-13",
+        "investor_owner_ref": "investor-1",
+        "sip_mandate_evidence": {"coverage_status": "COMPLETE"},
+    }
+    assert sip._verify_provider_mandate_schedule(context) is True
+    assert calls[-1][1:] == ("investor-1", date(2026, 11, 13))
+
+    incomplete = dict(context)
+    incomplete["sip_mandate_evidence"] = {"coverage_status": "PARTIAL"}
+    assert sip._verify_provider_mandate_schedule(incomplete) is False
+    assert len(calls) == 1
+
+    monkeypatch.setattr(
+        mandate_auth, "verify_mandate_schedule",
+        lambda *args, **kwargs: (_ for _ in ()).throw(ValueError("invalid signature")),
+    )
+    assert sip._verify_provider_mandate_schedule(context) is False
