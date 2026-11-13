@@ -652,6 +652,9 @@ def validate_evidence_provider_payload(
             payload["aliases_source_bytes"],
             label="Fund aliases",
             as_of=as_of,
+            trust_registry=trust_registry,
+            require_reviewer_signature=require_reviewer_signature,
+            scope="SIP_EVIDENCE_RELEASE",
         )
         norm_hash = payload["aliases_source_metadata"].get("normalized_aliases_sha256")
         if not isinstance(norm_hash, str) or not re.fullmatch(r"[0-9a-fA-F]{64}", norm_hash):
@@ -664,12 +667,35 @@ def validate_evidence_provider_payload(
         try:
             with open(aliases_path, "r", encoding="utf-8") as f:
                 alias_data = json.load(f)
-            target_ids = set()
-            if isinstance(alias_data, dict):
-                if "aliases" in alias_data and isinstance(alias_data["aliases"], dict):
-                    target_ids.update(alias_data["aliases"].keys())
-                else:
-                    target_ids.update(str(v).strip() for v in alias_data.values())
+            if not isinstance(alias_data, dict) or not alias_data:
+                raise EvidenceProviderContractError(
+                    "Fund aliases file must contain a non-empty JSON mapping."
+                )
+            if "aliases" in alias_data:
+                alias_entries = alias_data["aliases"]
+                if not isinstance(alias_entries, dict) or not alias_entries:
+                    raise EvidenceProviderContractError(
+                        "Fund aliases 'aliases' member must be a non-empty scheme-ID mapping."
+                    )
+                target_ids = set()
+                for target_id, names in alias_entries.items():
+                    if not isinstance(target_id, str) or not target_id.strip():
+                        raise EvidenceProviderContractError("Fund aliases contain an invalid scheme ID.")
+                    if (not isinstance(names, list) or not names
+                            or any(not isinstance(name, str) or not name.strip() for name in names)):
+                        raise EvidenceProviderContractError(
+                            f"Fund aliases for scheme {target_id!r} must be a non-empty list of names."
+                        )
+                    target_ids.add(target_id.strip())
+            else:
+                target_ids = set()
+                for alias, target_id in alias_data.items():
+                    if (not isinstance(alias, str) or not alias.strip()
+                            or not isinstance(target_id, str) or not target_id.strip()):
+                        raise EvidenceProviderContractError(
+                            "Fund aliases must map non-empty alias names to non-empty scheme IDs."
+                        )
+                    target_ids.add(target_id.strip())
             for target_id in target_ids:
                 if target_id not in scheme_index:
                     raise EvidenceProviderContractError(
