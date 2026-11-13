@@ -76,7 +76,7 @@ def test_lumpsum_ranks_multi_slot_stp_candidates(tmp_path, monkeypatch):
     monkeypatch.setattr(lumpsum_mod, "select_autonomous_blueprint_funds", lambda *a, **k: mock_slots)
 
     metrics_file = tmp_path / "metrics.json"
-    metrics_file.write_text("{}", encoding="utf-8")
+    metrics_file.write_text('{"funds": []}', encoding="utf-8")
 
     def mock_provider(**kwargs):
         return {
