@@ -262,7 +262,7 @@ def create_sip_app(
                     return JSONResponse(status_code=403, content={
                         "status": "HOLD",
                         "decision": "NO_ACTION",
-                        "reasons": ["A valid X-Client-Id within this credential's authorized scope is required."],
+                        "reasons": ["Client ID is missing or not within the authorized scope of this credential."],
                     })
                 # Tenant Quota & Rate Limit Enforcement
                 rate_limit = key_info.get("rate_limit_per_minute", 60)
