@@ -52,39 +52,25 @@ def test_root_launcher_strictly_preserves_ui_retirement_contract():
         elif isinstance(node, ast.ImportFrom) and node.module:
             imported_modules.add(node.module.split(".")[0])
 
-    # Launcher must only import standard library process management
-    # os is included for environment variable support (STREAMLIT_PORT)
-    assert imported_modules <= {"subprocess", "sys", "os"}
+    # Streamlit is imported only in the UI runtime branch; no financial or
+    # legacy application modules are imported by the launcher.
+    assert imported_modules <= {"subprocess", "sys", "os", "streamlit"}
 
     source = launcher_path.read_text(encoding="utf-8")
     assert "streamlit" in source
-    assert "ui/app.py" in source
-    # Must never directly touch financial calculation or planning modules
+    assert "ui/app.py" not in source
+    assert "st.stop()" in source
+    # Must never directly touch financial calculation or planning modules.
     assert "core" not in source
     assert "advisor" not in source
+    assert "exec(" not in source
 
 
-def test_ui_app_is_functional_dashboard():
-    """UI dashboard must be a functional Streamlit app driven by uploaded CAS."""
+def test_legacy_ui_module_is_not_part_of_the_supported_startup_path():
+    """Legacy UI source may remain for archival reference but is never launched."""
     root = Path(__file__).resolve().parents[1]
-    ui_app_path = root / "ui" / "app.py"
-    assert ui_app_path.is_file(), "ui/app.py must exist."
-
-    source = ui_app_path.read_text(encoding="utf-8")
-    # Dashboard should show portfolio analysis
-    assert "Portfolio Dashboard" in source or "Fund Metrics" in source
-    # Data flow must come from the uploaded CAS parser, never a policy fixture
-    assert "parse_cas_file" in source
-    # Must have file uploader (CAS-upload-only design)
-    assert "file_uploader" in source
-
-    tree = ast.parse(source)
-    imported_modules = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            imported_modules.update(alias.name.split(".")[0] for alias in node.names)
-        elif isinstance(node, ast.ImportFrom) and node.module:
-            imported_modules.add(node.module.split(".")[0])
-
-    # Must only import streamlit, standard library, and services package
-    assert imported_modules <= {"streamlit", "__future__", "json", "pathlib", "services"}
+    launcher = (root / "app.py").read_text(encoding="utf-8")
+    assert (root / "ui" / "app.py").is_file()
+    assert "ui/app.py" not in launcher
+    assert "ui.app" not in launcher
+    assert "parse_cas_file" not in launcher
