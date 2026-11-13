@@ -214,3 +214,7 @@ This document is subordinate to `docs/SIP_ENGINE_DECISION_REGISTER.md` for settl
 **Examples are non-operative:** numbers, scheme names, benchmark names, dates, file names and sample JSON are illustrative unless explicitly identified as a currently approved policy/source contract. Example values must never be promoted to runtime defaults. Any fixed numeric threshold or benchmark list in a legacy section is historical/example material pending explicit approval and migration into the effective policy/source registry; it is not authority to hardcode that value.
 
 **Conflict resolution:** apply the decision register, then the normative architecture, then the approved effective policy/IPS for investor-specific values, then authoritative source evidence for market facts. Policy cannot override source facts and source facts cannot invent policy. Record unresolved conflicts and HOLD; do not pick whichever value makes the workflow pass.
+
+## Cross-evidence boundary
+
+Fund-metrics and alias approvals establish only the facts within their declared evidence scope. They do not establish registrar identity, investor ownership, active SIP mandates or recurring-debit authority. Existing recurring commitments consumed by the recommendation path must independently satisfy the authenticated mandate-schedule contract; transaction descriptions, alias matches and metrics records cannot substitute for that evidence. Missing or conflicting mandate evidence remains UNKNOWN/HOLD and must not be inferred from a metrics or alias artifact.
