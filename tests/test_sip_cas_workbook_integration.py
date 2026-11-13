@@ -27,6 +27,8 @@ def _metrics_file(tmp_path: Path) -> Path:
         "scheme": SCHEME_NAME, "name": SCHEME_NAME,
         "amc_name": AMC_NAME, "cat": "Flexi Cap", "category": "Flexi Cap",
         "plan_type": "Direct", "option_type": "Growth",
+        "benchmark_identity": "NIFTY 500 TRI",
+        "effective_date": AS_OF.isoformat(), "source_ref": "sha256:" + "a" * 64,
         "er": 0.65, "eq": 100.0, "debt": 0.0,
         "lc": 50.0, "mc": 30.0, "sc": 20.0, "h": [],
     }]}), encoding="utf-8")
@@ -67,6 +69,7 @@ def _scheme_master():
             "option_type": "Growth",
             "riskometer_score": 5,
             "category": "Flexi Cap",
+            "benchmark_identity": "NIFTY 500 TRI",
         }],
     }, source_bytes)
 
