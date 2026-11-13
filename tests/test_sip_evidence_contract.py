@@ -279,6 +279,11 @@ def test_contract_validates_optional_original_fund_metrics_source_bytes(tmp_path
         **_source_metadata(metrics_bytes),
         "source_type": "OFFICIAL_FUND_METRICS",
         "normalized_metrics_sha256": hashlib.sha256(payload["metrics_path"].read_bytes()).hexdigest(),
+        "policy_version": "holdings-metrics-v1",
+        "reviewer_id": "reviewer-1",
+        "publisher": "AMFI",
+        "coverage_scope": "Reviewed fund metrics snapshot",
+        "record_count": 1,
     }
     payload["metrics_source_bytes"] = metrics_bytes
 
