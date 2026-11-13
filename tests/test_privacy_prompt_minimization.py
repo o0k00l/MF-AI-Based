@@ -130,8 +130,9 @@ def test_interactive_query_prompt_minimization(monkeypatch):
     assert "INR +150,000" not in outbound_prompt
     assert "INR" not in outbound_prompt
     assert "[REDACTED_FINANCIAL_AMOUNT]" in outbound_prompt
-    # Non-identifying relative allocation percentages remain useful.
-    assert "approx 50.0% allocation" in outbound_prompt
+    # Numeric portfolio facts, including percentages, remain local.
+    assert "approx 50.0% allocation" not in outbound_prompt
+    assert "[REDACTED_NUMERIC_DETAIL]" in outbound_prompt
     assert "CANARY_HISTORY_42" not in outbound_prompt
     assert "987,654.32" not in outbound_prompt
 
