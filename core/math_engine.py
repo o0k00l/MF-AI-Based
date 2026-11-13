@@ -1210,6 +1210,10 @@ def _validate_metrics_provenance(
     Returns a provenance summary dict. Raises ValueError on tamper/mixed-snapshot/conflict.
     """
     if not metrics_map:
+        if require_exact_identity:
+            raise ValueError(
+                "Exact metrics identity requires a non-empty metrics snapshot."
+            )
         return {
             "status": "MISSING",
             "reason": "No metrics records supplied.",
