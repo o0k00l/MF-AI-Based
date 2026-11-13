@@ -1134,7 +1134,15 @@ def load_holdings_from_cas_excel(
 
 
 def _validate_sip_metrics_exposures(metric: Dict[str, Any], *, scheme_id: str) -> None:
-    """Reject malformed exposure inputs before they influence SIP allocation."""
+    """Validate the explicit current-holdings exposure contract before SIP use.
+
+    eq/debt/lc/mc/sc are percentages in [0, 100]. Equity plus debt may not
+    exceed 100%. market_cap_basis is mandatory:
+      * TOTAL_PORTFOLIO_PCT: large/mid/small buckets must sum to no more than eq.
+      * EQUITY_PCT: large/mid/small weights are conditional on equity and sum
+        to no more than 100%; the residual is unclassified equity.
+    A missing basis or inconsistent split is a hard evidence failure.
+    """
     required = ("eq", "debt", "lc", "mc", "sc")
     values: dict[str, float] = {}
     for field in required:
