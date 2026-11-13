@@ -1,4 +1,5 @@
 from datetime import date, datetime
+import json
 import hashlib
 from pathlib import Path
 
@@ -27,10 +28,19 @@ def valid_payload(tmp_path):
     direct_bytes = b"direct plan factsheet"
     disclosure_bytes = b"source disclosure"
     (tmp_path / "direct.pdf").write_bytes(direct_bytes)
-    metrics_bytes = b'{"funds":[]}'
+    metrics_source_bytes = b"original current-holdings metrics source"
+    metric_record = {
+        "id": "scheme-1", "scheme_id": "scheme-1", "isin": "INF000000001",
+        "amc_name": "Example AMC", "category": "Flexi Cap", "cat": "Flexi Cap",
+        "plan_type": "Direct", "option_type": "Growth",
+        "benchmark_identity": "Nifty 500 TRI", "effective_date": "2026-11-01",
+        "source_ref": "sha256:" + hashlib.sha256(metrics_source_bytes).hexdigest(),
+        "eq": 80.0, "debt": 20.0, "lc": 50.0, "mc": 20.0, "sc": 10.0,
+        "ter_plan": "direct", "er": 0.5,
+    }
+    metrics_bytes = json.dumps({"funds": [metric_record]}, separators=(",", ":")).encode()
     metrics_path = tmp_path / "metrics.json"
     metrics_path.write_bytes(metrics_bytes)
-    metrics_source_bytes = b"original current-holdings metrics source"
     return {
         "metrics_path": metrics_path,
         "aliases_path": None,
@@ -504,3 +514,52 @@ def test_production_contract_rejects_missing_independent_trust_registry(tmp_path
         validate_evidence_provider_payload(
             payload, trust_registry=None, require_reviewer_signature=True
         )
+
+
+def test_alias_document_cannot_carry_financial_facts(tmp_path):
+    payload = valid_payload(tmp_path)
+    alias_data = {"aliases": {"scheme-1": ["Example Direct Growth"]}, "category": "Small Cap"}
+    alias_bytes = json.dumps(alias_data, separators=(",", ":")).encode()
+    alias_path = tmp_path / "aliases.json"
+    alias_path.write_bytes(alias_bytes)
+    payload.update({
+        "aliases_path": alias_path,
+        "aliases_source_bytes": b"alias source",
+        "aliases_source_metadata": {
+            **_source_metadata(b"alias source"),
+            "normalized_aliases_sha256": hashlib.sha256(alias_bytes).hexdigest(),
+            "coverage_scope": "Scheme-name variants",
+            "record_count": 1,
+        },
+    })
+    with pytest.raises(EvidenceProviderContractError, match="financial facts are prohibited"):
+        validate_evidence_provider_payload(payload, require_reviewer_signature=False)
+
+
+def test_aliases_cannot_map_same_name_to_multiple_schemes(tmp_path):
+    payload = valid_payload(tmp_path)
+    payload["scheme_master"]["schemes"].append({
+        "scheme_id": "scheme-2", "isin": "INF000000002",
+        "scheme_name": "Another Direct Growth", "amc_name": "Example AMC",
+        "category": "Flexi Cap", "benchmark_identity": "Nifty 500 TRI",
+        "scheme_structure": "OPEN_ENDED_EQUITY", "plan_type": "Direct",
+        "option_type": "Growth", "riskometer_score": 5,
+    })
+    alias_data = {"aliases": {
+        "scheme-1": ["Same alias"], "scheme-2": [" same   alias "],
+    }}
+    alias_bytes = json.dumps(alias_data, separators=(",", ":")).encode()
+    alias_path = tmp_path / "aliases.json"
+    alias_path.write_bytes(alias_bytes)
+    payload.update({
+        "aliases_path": alias_path,
+        "aliases_source_bytes": b"alias source",
+        "aliases_source_metadata": {
+            **_source_metadata(b"alias source"),
+            "normalized_aliases_sha256": hashlib.sha256(alias_bytes).hexdigest(),
+            "coverage_scope": "Scheme-name variants",
+            "record_count": 2,
+        },
+    })
+    with pytest.raises(EvidenceProviderContractError, match="ambiguously maps"):
+        validate_evidence_provider_payload(payload, require_reviewer_signature=False)
