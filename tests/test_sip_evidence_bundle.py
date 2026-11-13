@@ -1,3 +1,4 @@
+import base64
 import hashlib
 import json
 from datetime import date
@@ -334,3 +335,48 @@ def test_provider_rejects_partial_category_anchor_manifest(tmp_path):
     _write_json(tmp_path, "manifest.json", manifest)
     with pytest.raises(ValueError, match="must be configured together"):
         build_sip_evidence_provider(tmp_path)
+
+def test_provider_decodes_original_mandate_source_bytes_from_portfolio_context(tmp_path):
+    manifest = _bundle(tmp_path)
+    original_schedule_bytes = b"original registrar-signed mandate schedule bytes"
+    context = {
+        "as_of_date": date.today().isoformat(),
+        "investor_owner_ref": "INVESTOR-REF-001",
+        "sip_mandate_evidence": {
+            "coverage_status": "COMPLETE",
+            "source_ref": "sha256:" + hashlib.sha256(original_schedule_bytes).hexdigest(),
+            "source_bytes_base64": base64.b64encode(original_schedule_bytes).decode("ascii"),
+            "mandates": [],
+            "signature_envelope": {
+                "payload": {"schema_version": 1},
+                "signature": "TEST_ONLY",
+            },
+        },
+    }
+    _write_json(tmp_path, "portfolio_context.json", context)
+    normalized_context = (tmp_path / "portfolio_context.json").read_bytes()
+    context_source_bytes = b"independently reviewed portfolio context source"
+    (tmp_path / "originals/portfolio-context.json").write_bytes(context_source_bytes)
+    context_metadata = _source(context_source_bytes, "REVIEWED_PORTFOLIO_CONTEXT")
+    context_metadata["normalized_portfolio_context_sha256"] = hashlib.sha256(
+        normalized_context
+    ).hexdigest()
+    _write_json(tmp_path, "portfolio_context_metadata.json", context_metadata)
+    manifest.update({
+        "portfolio_context_file": "portfolio_context.json",
+        "portfolio_context_metadata_file": "portfolio_context_metadata.json",
+        "portfolio_context_source_file": "originals/portfolio-context.json",
+    })
+    _write_json(tmp_path, "manifest.json", manifest)
+
+    provider = build_sip_evidence_provider(tmp_path)
+    cas_path = tmp_path / "cas.xlsx"
+    cas_path.write_bytes(b"temporary uploaded CAS")
+    payload = provider(
+        cas_path=cas_path,
+        monthly_budget_inr=25000,
+        risk_profile="Moderate",
+    )
+    assert payload["portfolio_context"]["sip_mandate_evidence"]["source_bytes"] == original_schedule_bytes
+    assert "source_bytes_base64" not in payload["portfolio_context"]["sip_mandate_evidence"]
+
