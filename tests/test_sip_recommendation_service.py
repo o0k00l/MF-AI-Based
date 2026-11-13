@@ -1024,3 +1024,77 @@ def test_mid_decision_policy_snapshot_mutation_fails_closed(tmp_path, monkeypatc
     assert result["plan"]["items"] == []
     assert Decimal(result["plan"]["unallocated_budget_inr"]) == Decimal("10000")
     assert mutation_blocked["value"] is True
+
+def test_mandate_schedule_rejects_tampered_original_source_bytes():
+    from services.sip_mandate_auth import MandateAuthenticationError, verify_mandate_schedule
+
+    as_of = date(2026, 11, 13)
+    evidence = _signed_mandate_evidence("INVESTOR-REF-001", [], as_of)
+    evidence["source_bytes"] += b"tampered"
+    with pytest.raises(MandateAuthenticationError, match="source reference"):
+        verify_mandate_schedule(
+            evidence, owner_ref="INVESTOR-REF-001", as_of=as_of,
+        )
+
+
+def test_mandate_schedule_rejects_changed_normalized_terms():
+    from services.sip_mandate_auth import MandateAuthenticationError, verify_mandate_schedule
+
+    as_of = date(2026, 11, 13)
+    evidence = _signed_mandate_evidence(
+        "INVESTOR-REF-001",
+        [{
+            "mandate_id": "M-1", "owner_ref": "INVESTOR-REF-001",
+            "folio_no": "F-1", "scheme_id": "S-1", "monthly_amount_inr": "5000",
+            "frequency": "MONTHLY", "status": "ACTIVE",
+            "authentication_method": "REGISTRAR_SIGNED",
+            "effective_from": "2026-01-01", "effective_to": None,
+            "next_debit_date": "2026-12-01",
+        }],
+        as_of,
+    )
+    evidence["mandates"][0]["monthly_amount_inr"] = "50000"
+    with pytest.raises(MandateAuthenticationError, match="normalized records"):
+        verify_mandate_schedule(
+            evidence, owner_ref="INVESTOR-REF-001", as_of=as_of,
+        )
+
+
+def test_mandate_schedule_signature_is_bound_to_investor_owner():
+    from services.sip_mandate_auth import MandateAuthenticationError, verify_mandate_schedule
+
+    as_of = date(2026, 11, 13)
+    evidence = _signed_mandate_evidence("INVESTOR-REF-001", [], as_of)
+    with pytest.raises(MandateAuthenticationError, match="owner"):
+        verify_mandate_schedule(
+            evidence, owner_ref="INVESTOR-REF-OTHER", as_of=as_of,
+        )
+
+
+def test_provider_boolean_without_signed_schedule_cannot_verify_commitments():
+    from services.sip_recommendation import _validate_active_sip_commitments
+
+    context = {
+        "evidence_attested_by_provider": True,
+        "investor_owner_ref": "INVESTOR-REF-001",
+        "sip_mandate_evidence": {
+            "coverage_status": "COMPLETE",
+            "source_ref": "sha256:" + "a" * 64,
+            "mandates": [],
+        },
+    }
+    result = _validate_active_sip_commitments(context, date(2026, 11, 13))
+    assert result["status"] == "HOLD"
+    assert result["reason"] == "SIP_MANDATE_SIGNATURE_VERIFICATION_FAILED"
+
+
+def test_signed_empty_mandate_schedule_is_a_verified_zero_commitment():
+    from services.sip_recommendation import _validate_active_sip_commitments
+
+    context = _complete_portfolio_context()
+    result = _validate_active_sip_commitments(context, date.today())
+    assert result["status"] == "VERIFIED"
+    assert result["active_mandate_count"] == 0
+    assert result["existing_monthly_sip_commitments_inr"] == "0.00"
+    assert result["signature_verification"]["status"] == "VERIFIED"
+
