@@ -563,3 +563,65 @@ def test_aliases_cannot_map_same_name_to_multiple_schemes(tmp_path):
     })
     with pytest.raises(EvidenceProviderContractError, match="ambiguously maps"):
         validate_evidence_provider_payload(payload, require_reviewer_signature=False)
+
+
+def test_metrics_exact_identity_lineage_and_exposure_reconciliation(tmp_path):
+    from core.math_engine import _validate_metrics_provenance
+
+    metric = {
+        "id": "scheme-1", "scheme_id": "scheme-1", "isin": "INF000000001",
+        "amc_name": "Example AMC", "category": "Flexi Cap",
+        "plan_type": "Direct", "option_type": "Growth",
+        "benchmark_identity": "Nifty 500 TRI", "effective_date": "2026-11-01",
+        "source_ref": "sha256:" + "a" * 64,
+        "eq": 80, "debt": 20, "lc": 50, "mc": 20, "sc": 10,
+    }
+    master = {
+        "status": "VERIFIED",
+        "schemes": [{
+            "scheme_id": "scheme-1", "isin": "INF000000001",
+            "amc_name": "Example AMC", "category": "Flexi Cap",
+            "plan_type": "Direct", "option_type": "Growth",
+            "benchmark_identity": "Nifty 500 TRI",
+        }],
+    }
+    result = _validate_metrics_provenance(
+        {"scheme-1": metric}, master, require_exact_identity=True,
+        expected_source_sha256="a" * 64, expected_effective_date="2026-11-01",
+    )
+    assert result["status"] == "VERIFIED"
+
+    with pytest.raises(ValueError, match="original source bytes"):
+        _validate_metrics_provenance(
+            {"scheme-1": {**metric, "source_ref": "sha256:" + "b" * 64}},
+            master, require_exact_identity=True, expected_source_sha256="a" * 64,
+            expected_effective_date="2026-11-01",
+        )
+    with pytest.raises(ValueError, match="effective date conflicts"):
+        _validate_metrics_provenance(
+            {"scheme-1": metric}, master, require_exact_identity=True,
+            expected_source_sha256="a" * 64, expected_effective_date="2026-11-02",
+        )
+    for field, wrong in (
+        ("scheme_id", "other"), ("isin", "INF999999999"),
+        ("amc_name", "Other AMC"), ("category", "Small Cap"),
+        ("plan_type", "Regular"), ("option_type", "IDCW"),
+    ):
+        with pytest.raises(ValueError):
+            _validate_metrics_provenance(
+                {"scheme-1": {**metric, field: wrong}}, master,
+                require_exact_identity=True, expected_source_sha256="a" * 64,
+                expected_effective_date="2026-11-01",
+            )
+    with pytest.raises(ValueError, match="eq exposure"):
+        _validate_metrics_provenance(
+            {"scheme-1": {**metric, "eq": float("nan")}}, master,
+            require_exact_identity=True, expected_source_sha256="a" * 64,
+            expected_effective_date="2026-11-01",
+        )
+    with pytest.raises(ValueError, match="exceeds equity"):
+        _validate_metrics_provenance(
+            {"scheme-1": {**metric, "eq": 60, "lc": 50, "mc": 20, "sc": 10}},
+            master, require_exact_identity=True, expected_source_sha256="a" * 64,
+            expected_effective_date="2026-11-01",
+        )
