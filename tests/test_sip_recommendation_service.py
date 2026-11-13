@@ -923,11 +923,17 @@ def test_mid_decision_policy_snapshot_mutation_fails_closed(tmp_path, monkeypatc
     args = _inputs(tmp_path)
     monkeypatch.setattr(service, "load_holdings_from_cas_excel", lambda *a, **k: [_holding()])
 
+    mutation_blocked = {"value": False}
+
     def mutating_engine(**kwargs):
-        if component == "screening":
-            kwargs["screening_policy"]["gate_thresholds"]["min_aum_crore"] += 1
-        else:
-            kwargs["allocation_policy"]["as_of"] = "2026-10-29"
+        try:
+            if component == "screening":
+                kwargs["screening_policy"]["gate_thresholds"]["min_aum_crore"] += 1
+            else:
+                kwargs["allocation_policy"]["as_of"] = "2026-10-29"
+        except TypeError as exc:
+            assert "immutable" in str(exc)
+            mutation_blocked["value"] = True
         return SimpleNamespace(items=[])
 
     monkeypatch.setattr(service, "compute_deterministic_sip_blueprint", mutating_engine)
@@ -938,4 +944,4 @@ def test_mid_decision_policy_snapshot_mutation_fails_closed(tmp_path, monkeypatc
     assert result["decision"] == "NO_ACTION"
     assert result["plan"]["items"] == []
     assert Decimal(result["plan"]["unallocated_budget_inr"]) == Decimal("10000")
-    assert any("policy snapshot integrity failed closed" in reason for reason in result["reasons"])
+    assert mutation_blocked["value"] is True
