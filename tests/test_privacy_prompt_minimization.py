@@ -308,3 +308,29 @@ def test_live_fiduciary_query_sanitizes_pii_and_never_uses_shared_answer_cache(m
         assert "[REDACTED_FINANCIAL_AMOUNT]" in prompt
         assert call_kwargs["external_processing_consent"] is True
         assert call_kwargs["use_cache"] is False
+
+
+def test_external_scheme_factsheet_lookup_requires_explicit_consent(monkeypatch):
+    from services.ai_fund_classifier import (
+        _ONLINE_LOOKTHROUGH_CACHE,
+        lookup_fund_segment_allocation_online,
+    )
+
+    _ONLINE_LOOKTHROUGH_CACHE.pop("Private Investor Scheme 44", None)
+    _ONLINE_LOOKTHROUGH_CACHE.pop("Private Investor Scheme", None)
+    calls = []
+
+    def fake_urlopen(*args, **kwargs):
+        calls.append((args, kwargs))
+        raise OSError("synthetic network block")
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+
+    assert lookup_fund_segment_allocation_online("Private Investor Scheme 44") is None
+    assert calls == []  # no scheme/holding disclosure to a search provider without consent
+
+    assert lookup_fund_segment_allocation_online(
+        "Private Investor Scheme 44",
+        external_processing_consent=True,
+    ) is None
+    assert calls  # the explicit opt-in is the only path that may contact the external source
