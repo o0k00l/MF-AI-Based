@@ -122,15 +122,20 @@ def verify_mandate_schedule(
     payload = envelope.get("payload")
     required = {
         "schema_version", "signer_id", "signer_key_id", "signer_type",
-        "owner_ref", "source_sha256", "schedule_sha256", "issued_at", "expires_at",
+        "owner_ref", "source_sha256", "schedule_sha256", "coverage_status",
+        "issued_at", "expires_at",
     }
     if (
         not isinstance(payload, dict)
         or set(payload) != required
         or type(payload.get("schema_version")) is not int
-        or payload.get("schema_version") != 1
+        or payload.get("schema_version") != 2
     ):
         raise MandateAuthenticationError("Mandate signature payload schema is invalid")
+    if payload.get("coverage_status") != "COMPLETE":
+        raise MandateAuthenticationError("Mandate schedule completeness is not signer-attested")
+    if evidence.get("coverage_status") != payload["coverage_status"]:
+        raise MandateAuthenticationError("Mandate schedule coverage metadata is not signature-bound")
     if payload["owner_ref"] != owner_ref:
         raise MandateAuthenticationError("Signed mandate schedule owner does not match investor")
     if payload["source_sha256"] != source_sha or payload["schedule_sha256"] != schedule_sha:
