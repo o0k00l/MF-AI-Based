@@ -1399,6 +1399,24 @@ def recommend_sip(
             portfolio_assessment,
         )
 
+    # Recheck the decision-scoped policy objects and their authoritative source
+    # bindings after all consumers have run. Any mid-decision mutation or source
+    # replacement invalidates the whole decision rather than producing a mixed trace.
+    try:
+        from core.eligibility import validate_fund_screening_policy
+        validate_fund_screening_policy(screening_policy)
+        current_allocation_bytes = allocation_policy_path.read_bytes()
+        if hashlib.sha256(current_allocation_bytes).hexdigest() != allocation_policy_sha256:
+            raise ValueError("Allocation policy source changed during SIP decision")
+        if json.loads(current_allocation_bytes.decode("utf-8")) != allocation_policy:
+            raise ValueError("Allocation policy object changed during SIP decision")
+    except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
+        return _hold_plan(
+            budget,
+            [f"Decision policy snapshot integrity failed closed ({type(exc).__name__})."],
+            portfolio_assessment,
+        )
+
     context_assessment = None
     if portfolio_context is not None:
         if not isinstance(portfolio_context, dict):
