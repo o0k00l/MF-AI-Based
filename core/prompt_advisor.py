@@ -96,15 +96,21 @@ def sanitize_prompt_for_privacy(
         "[REDACTED_FINANCIAL_AMOUNT]",
         s,
     )
-    identifiers = list(sensitive_identifiers or [])
-    if client_name:
-        identifiers.append(client_name)
-    for identifier in sorted(
-        {value.strip() for value in identifiers if isinstance(value, str) and len(value.strip()) > 1},
-        key=len,
-        reverse=True,
-    ):
-        s = re.sub(re.escape(identifier), "[REDACTED_HOLDING_OR_CLIENT]", s, flags=re.IGNORECASE)
+    if client_name and len(client_name.strip()) > 1:
+        s = re.sub(
+            re.escape(client_name.strip()),
+            "the supplied investor portfolio",
+            s,
+            flags=re.IGNORECASE,
+        )
+    identifiers = [
+        value for value in (sensitive_identifiers or [])
+        if isinstance(value, str)
+        and len(value.strip()) > 1
+        and (not client_name or value.strip().casefold() != client_name.strip().casefold())
+    ]
+    for identifier in sorted({value.strip() for value in identifiers}, key=len, reverse=True):
+        s = re.sub(re.escape(identifier), "[REDACTED_HOLDING]", s, flags=re.IGNORECASE)
     return s
 
 
