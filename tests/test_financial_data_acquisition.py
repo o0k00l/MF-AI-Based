@@ -427,6 +427,8 @@ def test_evidence_bundle_builder_staging_and_atomic_promotion(tmp_path):
     cas_file = tmp_path / "cas.xlsx"
     cas_file.write_bytes(b"dummy cas")
     payload = provider(cas_path=cas_file, monthly_budget_inr=25000, risk_profile="Moderate")
+    assert payload["metrics_source_metadata"]["reviewer_approval_envelope"]["payload"]["reviewer_id"] == "test-reviewer-1"
+    payload["metrics_source_metadata"].pop("reviewer_approval_envelope")
     validated = validate_evidence_provider_payload(payload, require_reviewer_signature=False)
     assert len(validated["candidate_universe"]) == 2
 
@@ -608,6 +610,8 @@ def test_financial_data_refresh_pipeline_hermetic_success(tmp_path):
     cas_file = tmp_path / "cas.xlsx"
     cas_file.write_bytes(b"cas content")
     payload = provider(cas_path=cas_file, monthly_budget_inr=20000, risk_profile="Moderate")
+    assert payload["metrics_source_metadata"]["reviewer_approval_envelope"]["payload"]["reviewer_id"] == "test-reviewer-1"
+    payload["metrics_source_metadata"].pop("reviewer_approval_envelope")
     validated = validate_evidence_provider_payload(payload, require_reviewer_signature=False)
     assert len(validated["candidate_universe"]) == 2
 
