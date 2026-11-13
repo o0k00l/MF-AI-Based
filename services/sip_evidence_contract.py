@@ -292,21 +292,30 @@ def validate_evidence_provider_payload(
         scope="SIP_SCHEME_MASTER",
     )
     if metrics_present == metrics_fields:
+        metrics_path = payload["metrics_path"]
+        if not isinstance(metrics_path, Path) or metrics_path.is_symlink() or not metrics_path.is_file():
+            raise EvidenceProviderContractError(
+                "Fund metrics normalized file must be a regular, non-symlink file."
+            )
+        normalized_metrics = _load_json_file_strict(
+            metrics_path, label="Normalized fund metrics", max_bytes=50 * 1024 * 1024
+        )
+        if (
+            not isinstance(normalized_metrics, dict)
+            or not isinstance(normalized_metrics.get("funds"), list)
+            or not normalized_metrics["funds"]
+        ):
+            raise EvidenceProviderContractError(
+                "Normalized fund metrics must contain a non-empty funds array."
+            )
         _validate_source_document(
             payload["metrics_source_metadata"], payload["metrics_source_bytes"],
             label="Fund metrics", as_of=as_of,
             trust_registry=trust_registry,
             require_reviewer_signature=require_reviewer_signature,
             scope="SIP_EVIDENCE_RELEASE",
-            structured_records=_load_json_file_strict(
-                payload["metrics_path"], label="Normalized fund metrics", max_bytes=50 * 1024 * 1024
-            ).get("funds"),
+            structured_records=normalized_metrics["funds"],
         )
-        metrics_path = payload["metrics_path"]
-        if not isinstance(metrics_path, Path) or metrics_path.is_symlink() or not metrics_path.is_file():
-            raise EvidenceProviderContractError(
-                "Fund metrics normalized file must be a regular, non-symlink file."
-            )
         if metrics_path.stat().st_size <= 0 or metrics_path.stat().st_size > 50 * 1024 * 1024:
             raise EvidenceProviderContractError(
                 "Fund metrics normalized file is empty or exceeds the 50 MiB limit."
@@ -699,12 +708,17 @@ def validate_evidence_provider_payload(
                     "Fund aliases file must contain a non-empty JSON mapping."
                 )
             if "aliases" in alias_data:
+                if set(alias_data) != {"aliases"}:
+                    raise EvidenceProviderContractError(
+                        "Alias document may contain only the aliases mapping; financial facts are prohibited."
+                    )
                 alias_entries = alias_data["aliases"]
                 if not isinstance(alias_entries, dict) or not alias_entries:
                     raise EvidenceProviderContractError(
                         "Fund aliases 'aliases' member must be a non-empty scheme-ID mapping."
                     )
                 target_ids = set()
+                normalized_alias_owners = {}
                 for target_id, names in alias_entries.items():
                     if not isinstance(target_id, str) or not target_id.strip():
                         raise EvidenceProviderContractError("Fund aliases contain an invalid scheme ID.")
@@ -714,8 +728,17 @@ def validate_evidence_provider_payload(
                             f"Fund aliases for scheme {target_id!r} must be a non-empty list of names."
                         )
                     target_ids.add(target_id.strip())
+                    for name in names:
+                        normalized_name = " ".join(name.casefold().split())
+                        prior_target = normalized_alias_owners.get(normalized_name)
+                        if prior_target is not None and prior_target != target_id.strip():
+                            raise EvidenceProviderContractError(
+                                f"Alias {name!r} ambiguously maps to multiple scheme IDs."
+                            )
+                        normalized_alias_owners[normalized_name] = target_id.strip()
             else:
                 target_ids = set()
+                normalized_alias_owners = {}
                 for alias, target_id in alias_data.items():
                     if (not isinstance(alias, str) or not alias.strip()
                             or not isinstance(target_id, str) or not target_id.strip()):
@@ -723,6 +746,18 @@ def validate_evidence_provider_payload(
                             "Fund aliases must map non-empty alias names to non-empty scheme IDs."
                         )
                     target_ids.add(target_id.strip())
+                    normalized_name = " ".join(alias.casefold().split())
+                    prior_target = normalized_alias_owners.get(normalized_name)
+                    if prior_target is not None and prior_target != target_id.strip():
+                        raise EvidenceProviderContractError(
+                            f"Alias {alias!r} ambiguously maps to multiple scheme IDs."
+                        )
+                    normalized_alias_owners[normalized_name] = target_id.strip()
+            metadata = payload["aliases_source_metadata"]
+            if not isinstance(metadata.get("coverage_scope"), str) or not metadata["coverage_scope"].strip():
+                raise EvidenceProviderContractError("Fund aliases require an explicit coverage_scope.")
+            if metadata.get("record_count") != len(normalized_alias_owners):
+                raise EvidenceProviderContractError("Fund aliases record_count does not match normalized alias coverage.")
             for target_id in target_ids:
                 if target_id not in scheme_index:
                     raise EvidenceProviderContractError(
