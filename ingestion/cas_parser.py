@@ -1608,7 +1608,7 @@ def detect_active_sips_from_cas(
     max_history_days: int = 180,
     require_explicit_as_of: bool = True,
     active_mandates: list[dict] | None = None,
-    require_authenticated_mandates: bool = False,
+    require_authenticated_mandates: bool = True,
 ) -> dict:
     """
     GAP-109: Transaction-Led Active Monthly SIP Periodicity Discovery.
@@ -1620,6 +1620,12 @@ def detect_active_sips_from_cas(
     """
     from collections import defaultdict
     import datetime
+
+    # Mandate authentication is a mandatory safety boundary. The legacy
+    # opt-out would let caller-supplied IDs/status labels enter affordability
+    # as verified recurring commitments.
+    if require_authenticated_mandates is not True:
+        raise ValueError("Authenticated mandate evidence is mandatory; legacy unverified mode is disabled")
 
     # Validate parameters
     if tolerance_days <= 0:
