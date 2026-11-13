@@ -27,6 +27,13 @@ def _sample_xlsx_bytes() -> bytes:
 def test_api_rejects_unauthenticated_requests_when_auth_required():
     app = sip.create_sip_app(
         evidence_provider=lambda **kwargs: {},
+        api_key_registry={
+            "a" * 40: {
+                "tenant_id": "tenant-test",
+                "authorized_client_ids": ["client-test"],
+                "rate_limit_per_minute": 10,
+            }
+        },
         require_auth=True,
     )
     client = TestClient(app)
@@ -43,7 +50,9 @@ def test_api_rejects_unauthenticated_requests_when_auth_required():
 def test_api_accepts_valid_api_key_and_enforces_client_scope():
     registry = {
         "valid-secret-key-123": {
+            "tenant_id": "tenant-alpha",
             "authorized_client_ids": ["client-alpha", "client-beta"],
+            "rate_limit_per_minute": 60,
             "tier": "enterprise",
         }
     }
@@ -83,3 +92,46 @@ def test_api_accepts_valid_api_key_and_enforces_client_scope():
     )
     # Passed authentication gate and reached recommendation validation
     assert resp_ok.status_code in (200, 422)
+
+
+def test_auth_required_rejects_missing_registry_at_startup(monkeypatch):
+    monkeypatch.delenv("MF_API_KEY_REGISTRY_PATH", raising=False)
+    with pytest.raises(ValueError, match="no validated API key registry is configured"):
+        sip.create_sip_app(
+            evidence_provider=lambda **kwargs: {},
+            require_auth=True,
+        )
+
+
+def test_api_key_registry_secret_file_is_validated(tmp_path, monkeypatch):
+    import json
+
+    registry_path = tmp_path / "api-key-registry.json"
+    registry_path.write_text(json.dumps({
+        "k" * 40: {
+            "tenant_id": "tenant-alpha",
+            "authorized_client_ids": ["client-alpha"],
+            "rate_limit_per_minute": 30,
+        }
+    }), encoding="utf-8")
+    monkeypatch.setenv("MF_API_KEY_REGISTRY_PATH", str(registry_path))
+    registry = sip._load_api_key_registry_from_environment()
+    assert registry is not None
+    assert registry["k" * 40]["tenant_id"] == "tenant-alpha"
+    assert registry["k" * 40]["authorized_client_ids"] == ["client-alpha"]
+
+
+def test_api_key_registry_rejects_missing_client_scope(tmp_path, monkeypatch):
+    import json
+
+    registry_path = tmp_path / "api-key-registry.json"
+    registry_path.write_text(json.dumps({
+        "k" * 40: {
+            "tenant_id": "tenant-alpha",
+            "authorized_client_ids": [],
+            "rate_limit_per_minute": 30,
+        }
+    }), encoding="utf-8")
+    monkeypatch.setenv("MF_API_KEY_REGISTRY_PATH", str(registry_path))
+    with pytest.raises(ValueError, match="authorized_client_ids"):
+        sip._load_api_key_registry_from_environment()
