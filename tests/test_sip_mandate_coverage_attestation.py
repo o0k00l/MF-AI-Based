@@ -21,7 +21,7 @@ def _evidence(payload: dict, coverage_status: str = "COMPLETE") -> dict:
 
 def _payload() -> dict:
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "signer_id": "registrar-1",
         "signer_key_id": "key-1",
         "signer_type": "REGISTRAR",
