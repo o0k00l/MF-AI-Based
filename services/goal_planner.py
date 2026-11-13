@@ -473,7 +473,16 @@ Analyze these financial milestones:
 - Accelerated Target (-2y): Requires INR {accel_sip:,.0f}/mo
 
 Provide a structured, encouraging fiduciary narrative advising the investor on how to balance their goals, calibrate realistic inflation, and optimize their monthly cashflow."""
-            res = call_llm(prompt, external_processing_consent=external_processing_consent)
+            from core.prompt_advisor import collect_sensitive_identifiers, sanitize_prompt_for_privacy
+            minimized_prompt = sanitize_prompt_for_privacy(
+                prompt,
+                sensitive_identifiers=collect_sensitive_identifiers(goals, portfolio),
+            )
+            res = call_llm(
+                minimized_prompt,
+                external_processing_consent=external_processing_consent,
+                use_cache=False,
+            )
             if res and len(res.strip()) > 50:
                 ai_narrative = res.strip()
         except Exception:
