@@ -104,7 +104,7 @@ def build_sip_evidence_provider(
     category_anchor_fields = {"category_anchor_metadata_file", "category_anchor_source_file"}
     reviewer_fields = {"reviewer_approval_envelope_file", "reviewer_trust_registry_file"}
     aliases_fields = {"aliases_file", "aliases_metadata_file", "aliases_source_file"}
-    supplied_alias_fields = set(manifest) & aliases_fields
+    supplied_alias_fields = {key for key in aliases_fields if manifest.get(key) is not None}
     if supplied_alias_fields and supplied_alias_fields != aliases_fields:
         raise ValueError("Alias normalized file, metadata and original source file must be configured together.")
     unexpected = set(manifest) - (required_manifest_fields | {"commit_sha", "policy_digest"} | aliases_fields | portfolio_context_fields | candidate_score_fields | category_anchor_fields | reviewer_fields)
