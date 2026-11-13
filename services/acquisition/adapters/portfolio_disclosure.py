@@ -104,7 +104,7 @@ class PortfolioDisclosureAdapter(BaseSourceAdapter):
             total_weight += weight_decimal
             clean_weights[normalized_asset] = float(weight_decimal)
 
-        if total_weight > coverage_decimal + Decimal("0.10"):
+        if total_weight > coverage_decimal:
             raise ValueError(
                 f"Constituent weights ({total_weight}) exceed disclosed coverage ({coverage_decimal}) "
                 f"for scheme {self._scheme_id}."
