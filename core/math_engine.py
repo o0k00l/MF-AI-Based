@@ -1361,10 +1361,9 @@ def _validate_metrics_provenance(
 
     # Exact-identity metrics require one coherent, fully populated snapshot.
     mixed_snapshot = len(effective_dates) > 1 or len(source_refs) > 1
-    if require_exact_identity and (not effective_dates or not source_refs):
-        identity_errors.append("Metrics snapshot provenance is incomplete.")
     if require_exact_identity and (len(effective_dates) != 1 or len(source_refs) != 1):
-        mixed_snapshot = True
+        if not mixed_snapshot:
+            identity_errors.append("Metrics snapshot provenance is incomplete.")
 
     if mixed_snapshot:
         raise ValueError(
