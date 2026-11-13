@@ -1152,9 +1152,21 @@ def _validate_sip_metrics_exposures(metric: Dict[str, Any], *, scheme_id: str) -
         raise ValueError(f"Fund metrics equity plus debt exposure exceeds 100% for {scheme_id!r}.")
     # Market-cap buckets are a decomposition of equity exposure, not a
     # separate allocation. Any residual equity remains explicitly unclassified.
-    if values["lc"] + values["mc"] + values["sc"] > values["eq"] + 1e-9:
+    market_cap_basis = metric.get("market_cap_basis")
+    market_cap_total = values["lc"] + values["mc"] + values["sc"]
+    if market_cap_basis == "TOTAL_PORTFOLIO_PCT":
+        if market_cap_total > values["eq"] + 1e-9:
+            raise ValueError(
+                f"Fund metrics market-cap exposure exceeds equity exposure for {scheme_id!r}."
+            )
+    elif market_cap_basis == "EQUITY_PCT":
+        if market_cap_total > 100.0 + 1e-9:
+            raise ValueError(
+                f"Fund metrics market-cap equity weights exceed 100% for {scheme_id!r}."
+            )
+    else:
         raise ValueError(
-            f"Fund metrics large/mid/small-cap exposure exceeds equity exposure for {scheme_id!r}."
+            f"Fund metrics market_cap_basis is missing or unsupported for {scheme_id!r}."
         )
 
 
