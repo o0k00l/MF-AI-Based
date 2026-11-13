@@ -267,6 +267,7 @@ def test_alias_source_receives_production_reviewer_signature_gate(tmp_path, monk
         # Keep this unit test focused on argument propagation; other evidence
         # sources in this fixture intentionally use unsigned test attestations.
         kwargs["require_reviewer_signature"] = False
+        kwargs["trust_registry"] = None
         return original(metadata, source_bytes, **kwargs)
 
     monkeypatch.setattr(contract, "_validate_source_document", capture_source_gate)
