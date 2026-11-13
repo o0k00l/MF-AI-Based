@@ -255,6 +255,74 @@ _TOTAL_PORTFOLIO_SLEEVES = (
 )
 
 
+
+def _validate_active_sip_commitments(context: dict[str, Any], as_of: date) -> dict[str, Any]:
+    """Validate the provider-attested mandate schedule before affordability."""
+    evidence = context.get("sip_mandate_evidence")
+    if context.get("evidence_attested_by_provider") is not True or context.get("_client_supplied_unverified") is True:
+        return {"status": "HOLD", "reason": "SIP_MANDATE_EVIDENCE_NOT_PROVIDER_AUTHENTICATED"}
+    if not isinstance(evidence, dict):
+        return {"status": "HOLD", "reason": "ACTIVE_SIP_MANDATE_EVIDENCE_MISSING"}
+    if evidence.get("coverage_status") != "COMPLETE":
+        return {"status": "HOLD", "reason": "ACTIVE_SIP_MANDATE_COVERAGE_INCOMPLETE"}
+    owner_ref = context.get("investor_owner_ref")
+    def valid_ref(value: Any) -> bool:
+        return isinstance(value, str) and len(value) == 71 and value.startswith("sha256:") and all(c in "0123456789abcdef" for c in value[7:])
+    if not isinstance(owner_ref, str) or not owner_ref.strip():
+        return {"status": "HOLD", "reason": "SIP_MANDATE_INVESTOR_IDENTITY_MISSING"}
+    if not valid_ref(evidence.get("source_ref")):
+        return {"status": "HOLD", "reason": "SIP_MANDATE_SCHEDULE_SOURCE_REFERENCE_INVALID"}
+    mandates = evidence.get("mandates")
+    if not isinstance(mandates, list):
+        return {"status": "HOLD", "reason": "SIP_MANDATE_SCHEDULE_MALFORMED"}
+    total = Decimal("0")
+    active_count = inactive_count = 0
+    seen_ids: set[str] = set()
+    allowed_statuses = {"ACTIVE", "PAUSED", "CANCELLED", "EXPIRED", "SUSPENDED", "INACTIVE"}
+    allowed_auth = {"REGISTRAR_SIGNED", "AMC_SIGNED", "BANK_MANDATE_SIGNED", "INVESTOR_SIGNED_CONFIRMATION"}
+    for index, mandate in enumerate(mandates, start=1):
+        if not isinstance(mandate, dict):
+            return {"status": "HOLD", "reason": f"SIP_MANDATE_RECORD_{index}_MALFORMED"}
+        mandate_id = mandate.get("mandate_id")
+        if not isinstance(mandate_id, str) or not mandate_id.strip() or mandate_id in seen_ids:
+            return {"status": "HOLD", "reason": f"SIP_MANDATE_RECORD_{index}_IDENTITY_INVALID"}
+        seen_ids.add(mandate_id)
+        if mandate.get("owner_ref") != owner_ref:
+            return {"status": "HOLD", "reason": f"SIP_MANDATE_RECORD_{index}_OWNER_MISMATCH"}
+        if any(not isinstance(mandate.get(k), str) or not mandate[k].strip() for k in ("folio_no", "scheme_id")):
+            return {"status": "HOLD", "reason": f"SIP_MANDATE_RECORD_{index}_SCHEME_OR_FOLIO_MISSING"}
+        if mandate.get("authentication_method") not in allowed_auth:
+            return {"status": "HOLD", "reason": f"SIP_MANDATE_RECORD_{index}_AUTHENTICATION_UNVERIFIED"}
+        if not valid_ref(mandate.get("evidence_ref")):
+            return {"status": "HOLD", "reason": f"SIP_MANDATE_RECORD_{index}_SOURCE_REFERENCE_INVALID"}
+        status = mandate.get("status")
+        if status not in allowed_statuses:
+            return {"status": "HOLD", "reason": f"SIP_MANDATE_RECORD_{index}_STATUS_UNKNOWN"}
+        try:
+            amount = quantize_inr(mandate.get("monthly_amount_inr"))
+            starts = date.fromisoformat(mandate.get("effective_from"))
+            next_debit = date.fromisoformat(mandate.get("next_debit_date"))
+            ends = date.fromisoformat(mandate["effective_to"]) if mandate.get("effective_to") is not None else None
+        except (TypeError, ValueError, ArithmeticError):
+            return {"status": "HOLD", "reason": f"SIP_MANDATE_RECORD_{index}_TERMS_INVALID"}
+        if not amount.is_finite() or amount <= 0 or mandate.get("frequency") != "MONTHLY":
+            return {"status": "HOLD", "reason": f"SIP_MANDATE_RECORD_{index}_AMOUNT_OR_FREQUENCY_INVALID"}
+        if starts > as_of:
+            return {"status": "HOLD", "reason": f"SIP_MANDATE_RECORD_{index}_NOT_YET_EFFECTIVE"}
+        if status == "ACTIVE":
+            if (ends is not None and ends < as_of) or next_debit < as_of:
+                return {"status": "HOLD", "reason": f"SIP_MANDATE_RECORD_{index}_ACTIVE_TERMS_STALE"}
+            total += amount
+            active_count += 1
+        else:
+            inactive_count += 1
+    return {"status": "VERIFIED", "coverage_status": "COMPLETE", "as_of_date": as_of.isoformat(),
+            "active_mandate_count": active_count, "inactive_mandate_count": inactive_count,
+            "existing_monthly_sip_commitments_inr": str(quantize_inr(total)),
+            "schedule_source_ref": evidence["source_ref"],
+            "commitment_evidence_basis": "PROVIDER_ATTESTED_SOURCE_BOUND_MANDATE_SCHEDULE"}
+
+
 def _assess_complete_portfolio_context(
     context: dict[str, Any],
     *,
@@ -445,13 +513,30 @@ def _assess_complete_portfolio_context(
                 "affected_goal_ids": mismatched_goal_profiles,
             }
         liquidity_input = context["liquidity"]
+        mandate_assessment = _validate_active_sip_commitments(context, valuation_date)
+        if mandate_assessment.get("status") != "VERIFIED":
+            return {
+                "status": "HOLD",
+                "reason": mandate_assessment.get("reason"),
+                "active_sip_commitments": mandate_assessment,
+                "trust_level": (
+                    "UNVERIFIED_CLIENT_DECLARATIONS"
+                    if context.get("_client_supplied_unverified") is True
+                    else "PROVIDER_ATTESTATION_REQUIRED"
+                ),
+                "all_input_gates_pass": False,
+                "recommendation_authorized": False,
+                "execution_authorized": False,
+            }
+        existing_monthly_sip_commitments = Decimal(mandate_assessment["existing_monthly_sip_commitments_inr"])
+        fixed_monthly_outflows = quantize_inr(liquidity_input["monthly_debt_service_inr"]) + existing_monthly_sip_commitments
         liquidity = assess_liquidity_and_sip_surplus(
             verified_cash_inr=liquidity_input["verified_cash_inr"],
             approved_reserve_target_inr=liquidity_input["approved_reserve_target_inr"],
             near_term_obligations_inr=liquidity_input["near_term_obligations_inr"],
             monthly_net_income_inr=liquidity_input["monthly_net_income_inr"],
             essential_monthly_expenses_inr=liquidity_input["essential_monthly_expenses_inr"],
-            monthly_debt_service_inr=liquidity_input["monthly_debt_service_inr"],
+            monthly_debt_service_inr=fixed_monthly_outflows,
             proposed_monthly_sip_inr=monthly_budget_inr,
             evidence_refs=liquidity_input["evidence_refs"],
             as_of_date=as_of,
@@ -460,7 +545,7 @@ def _assess_complete_portfolio_context(
         stress = stress_test_sip_affordability(
             monthly_net_income_inr=liquidity_input["monthly_net_income_inr"],
             essential_monthly_expenses_inr=liquidity_input["essential_monthly_expenses_inr"],
-            monthly_debt_service_inr=liquidity_input["monthly_debt_service_inr"],
+            monthly_debt_service_inr=fixed_monthly_outflows,
             proposed_monthly_sip_inr=monthly_budget_inr,
             scenarios=context.get("stress_scenarios", []),
         )
@@ -906,7 +991,13 @@ def _assess_complete_portfolio_context(
             "saa": {"current_sleeve_values_inr": current, "target_weights_pct": targets,
                     "drift": drift, "policy_as_of": policy.get("as_of")},
             "goal_suitability": goals,
-            "liquidity_and_affordability": liquidity,
+            "active_sip_commitments": mandate_assessment,
+            "liquidity_and_affordability": {
+                **liquidity,
+                "existing_monthly_sip_commitments_inr": str(existing_monthly_sip_commitments),
+                "monthly_debt_service_inr": str(quantize_inr(liquidity_input["monthly_debt_service_inr"])),
+                "total_fixed_monthly_outflows_inr": str(fixed_monthly_outflows),
+            },
             "affordability_stress": stress,
             "candidate_screening": screening,
             "scheme_operational_feasibility": operational_results,

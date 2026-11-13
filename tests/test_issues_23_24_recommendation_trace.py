@@ -312,7 +312,19 @@ def test_issue_24_complete_eligible_candidate_recommendation_trace(tmp_path, mon
 
     portfolio_context = {
         "evidence_attested_by_provider": True,
+        "investor_owner_ref": "INVESTOR-REF-TEST",
+        "sip_mandate_evidence": {
+            "coverage_status": "COMPLETE",
+            "source_ref": "sha256:" + "a" * 64,
+            "mandates": [],
+        },
         "current_core_fund_count": 0,
+        "investor_owner_ref": "INVESTOR-REF-TEST",
+        "sip_mandate_evidence": {
+            "coverage_status": "COMPLETE",
+            "source_ref": "sha256:" + "a" * 64,
+            "mandates": [],
+        },
         "as_of_date": as_of,
         "cas_valuation_date": as_of,
         "perimeter_complete": True,
@@ -562,7 +574,19 @@ def test_issue_24_custom_saa_unfillable_sleeve_budget_strictly_preserved(tmp_pat
 
     portfolio_context = {
         "evidence_attested_by_provider": True,
+        "investor_owner_ref": "INVESTOR-REF-TEST",
+        "sip_mandate_evidence": {
+            "coverage_status": "COMPLETE",
+            "source_ref": "sha256:" + "a" * 64,
+            "mandates": [],
+        },
         "current_core_fund_count": 0,
+        "investor_owner_ref": "INVESTOR-REF-TEST",
+        "sip_mandate_evidence": {
+            "coverage_status": "COMPLETE",
+            "source_ref": "sha256:" + "a" * 64,
+            "mandates": [],
+        },
         "as_of_date": as_of,
         "cas_valuation_date": as_of,
         "perimeter_complete": True,

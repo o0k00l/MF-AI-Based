@@ -257,6 +257,12 @@ def _complete_portfolio_context():
     }
     return {
         "evidence_attested_by_provider": True,
+        "investor_owner_ref": "INVESTOR-REF-001",
+        "sip_mandate_evidence": {
+            "coverage_status": "COMPLETE",
+            "source_ref": "sha256:" + "a" * 64,
+            "mandates": [],
+        },
         "current_core_fund_count": 0,
         "as_of_date": as_of,
         "cas_valuation_date": as_of,
@@ -775,3 +781,97 @@ def test_recommend_sip_rejects_binary_float_budget_before_any_evidence_work(tmp_
     import pytest
     with pytest.raises(ValueError, match="Binary float"):
         service.recommend_sip(**args)
+
+
+def test_authenticated_active_sip_commitments_reduce_new_sip_affordability(tmp_path, monkeypatch):
+    args = _inputs(tmp_path)
+    candidates = _candidate_universe()
+    score_source = b"reviewed rank-score export for mandate affordability"
+    score_ref = "sha256:" + hashlib.sha256(score_source).hexdigest()
+    for candidate in candidates:
+        candidate["rank_score_source_ref"] = score_ref
+        candidate["rank_score_methodology_version"] = "risk-quality-v1"
+    args["candidate_universe"] = candidates
+    args["monthly_budget_inr"] = Decimal("40000")
+    monkeypatch.setattr(service, "load_holdings_from_cas_excel", lambda *a, **k: [_holding()])
+    monkeypatch.setattr(service, "compute_deterministic_sip_blueprint",
+        lambda **kwargs: SimpleNamespace(items=[SimpleNamespace(monthly_inr=10000)]))
+    context = _complete_portfolio_context()
+    context["sip_mandate_evidence"]["mandates"] = [{
+        "mandate_id": "REG-MANDATE-001", "owner_ref": context["investor_owner_ref"],
+        "folio_no": "FOLIO-001", "scheme_id": "SCHEME-001",
+        "monthly_amount_inr": "20000.00", "frequency": "MONTHLY",
+        "status": "ACTIVE", "authentication_method": "REGISTRAR_SIGNED",
+        "effective_from": date.today().isoformat(), "effective_to": None,
+        "next_debit_date": date.today().isoformat(), "evidence_ref": "sha256:" + "b" * 64,
+    }]
+    result = service.recommend_sip(
+        **args, portfolio_context=context,
+        metrics_source_bytes=b"reviewed original fund metrics",
+        candidate_universe_source_bytes=b"reviewed original candidate universe",
+        candidate_score_source_bytes=score_source,
+        metrics_normalized_sha256="a" * 64,
+        candidate_universe_normalized_sha256="b" * 64,
+        portfolio_context_source_bytes=b"reviewed original total portfolio context",
+    )
+    assessment = result["portfolio_assessment"]["total_portfolio_context"]
+    assert assessment["active_sip_commitments"]["status"] == "VERIFIED"
+    assert assessment["active_sip_commitments"]["existing_monthly_sip_commitments_inr"] == "20000.00"
+    assert assessment["liquidity_and_affordability"]["total_fixed_monthly_outflows_inr"] == "30000.00"
+    assert assessment["liquidity_and_affordability"]["status"] == "HOLD"
+    assert assessment["liquidity_and_affordability"]["reason"] == "PROPOSED_SIP_EXCEEDS_VERIFIED_SURPLUS"
+    assert assessment["affordability_stress"]["all_scenarios_sustainable"] is False
+    assert assessment["incremental_sip_routing_simulation"]["status"] == "HOLD"
+    assert assessment["incremental_sip_routing_simulation"]["allocated_budget_inr"] == "0"
+
+
+def test_missing_active_sip_mandate_schedule_fails_closed(tmp_path, monkeypatch):
+    args = _inputs(tmp_path)
+    candidates = _candidate_universe()
+    score_source = b"reviewed rank-score export for missing mandate evidence"
+    score_ref = "sha256:" + hashlib.sha256(score_source).hexdigest()
+    for candidate in candidates:
+        candidate["rank_score_source_ref"] = score_ref
+        candidate["rank_score_methodology_version"] = "risk-quality-v1"
+    args["candidate_universe"] = candidates
+    monkeypatch.setattr(service, "load_holdings_from_cas_excel", lambda *a, **k: [_holding()])
+    monkeypatch.setattr(service, "compute_deterministic_sip_blueprint",
+        lambda **kwargs: SimpleNamespace(items=[SimpleNamespace(monthly_inr=10000)]))
+    context = _complete_portfolio_context()
+    context.pop("sip_mandate_evidence")
+    result = service.recommend_sip(
+        **args, portfolio_context=context,
+        metrics_source_bytes=b"reviewed original fund metrics",
+        candidate_universe_source_bytes=b"reviewed original candidate universe",
+        candidate_score_source_bytes=score_source,
+        metrics_normalized_sha256="a" * 64,
+        candidate_universe_normalized_sha256="b" * 64,
+        portfolio_context_source_bytes=b"reviewed original total portfolio context",
+    )
+    assessment = result["portfolio_assessment"]["total_portfolio_context"]
+    assert assessment["status"] == "HOLD"
+    assert assessment["reason"] == "ACTIVE_SIP_MANDATE_EVIDENCE_MISSING"
+    assert assessment["recommendation_authorized"] is False
+    assert assessment["execution_authorized"] is False
+
+
+def test_active_sip_mandate_rejects_unverified_authentication_method():
+    from services.sip_recommendation import _validate_active_sip_commitments
+
+    context = {
+        "evidence_attested_by_provider": True, "investor_owner_ref": "INVESTOR-REF-001",
+        "sip_mandate_evidence": {
+            "coverage_status": "COMPLETE", "source_ref": "sha256:" + "a" * 64,
+            "mandates": [{
+                "mandate_id": "M-1", "owner_ref": "INVESTOR-REF-001",
+                "folio_no": "F-1", "scheme_id": "S-1", "monthly_amount_inr": "5000",
+                "frequency": "MONTHLY", "status": "ACTIVE",
+                "authentication_method": "TRANSACTION_TEXT",
+                "effective_from": "2026-01-01", "effective_to": None,
+                "next_debit_date": "2026-12-01", "evidence_ref": "sha256:" + "b" * 64,
+            }],
+        },
+    }
+    result = _validate_active_sip_commitments(context, date(2026, 11, 13))
+    assert result["status"] == "HOLD"
+    assert result["reason"] == "SIP_MANDATE_RECORD_1_AUTHENTICATION_UNVERIFIED"
