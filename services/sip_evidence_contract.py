@@ -452,6 +452,34 @@ def validate_evidence_provider_payload(
         as_of=as_of,
     )
 
+    # Validate every normalized metrics row at the provider boundary, not only
+    # when a particular CAS holding happens to consume it. The holdings loader
+    # repeats these checks at the calculation boundary.
+    from core.math_engine import _validate_metrics_provenance
+    metrics_records = normalized_metrics["funds"]
+    metrics_by_id = {}
+    for index, metric in enumerate(metrics_records):
+        if not isinstance(metric, dict) or not isinstance(metric.get("id"), str) or not metric["id"].strip():
+            raise EvidenceProviderContractError(
+                f"Fund metrics row {index} requires a stable non-empty id."
+            )
+        metric_key = re.sub(r"[^a-z0-9]", "", metric["id"].casefold())
+        if not metric_key or metric_key in metrics_by_id:
+            raise EvidenceProviderContractError("Fund metrics contain an empty or duplicate normalized id.")
+        metrics_by_id[metric_key] = metric
+    try:
+        _validate_metrics_provenance(
+            metrics_by_id,
+            payload["scheme_master"],
+            require_exact_identity=True,
+            expected_source_sha256=hashlib.sha256(payload["metrics_source_bytes"]).hexdigest(),
+            expected_effective_date=payload["metrics_source_metadata"]["effective_date"],
+        )
+    except (TypeError, ValueError, KeyError) as exc:
+        raise EvidenceProviderContractError(
+            f"Fund metrics exact identity/provenance validation failed: {type(exc).__name__}."
+        ) from exc
+
     disclosures = payload["portfolio_disclosures_by_scheme_id"]
     disclosure_bytes = payload["portfolio_disclosure_source_bytes_by_scheme_id"]
     if not isinstance(disclosures, dict) or not isinstance(disclosure_bytes, dict):
