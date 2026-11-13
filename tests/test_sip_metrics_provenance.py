@@ -237,3 +237,150 @@ def test_aliases_reject_malformed_or_empty_mappings(tmp_path, alias_payload):
     payload["aliases_source_bytes"] = raw_source
     with pytest.raises(EvidenceProviderContractError, match="Fund aliases"):
         validate_evidence_provider_payload(payload, require_reviewer_signature=False)
+
+def _exact_metrics_record(**overrides):
+    record = {
+        "id": "SCHEME_DIRECT_1",
+        "scheme_id": "SCHEME_DIRECT_1",
+        "isin": "INF000000001",
+        "amc_name": "AMC One",
+        "category": "Flexi Cap Equity",
+        "plan_type": "Direct",
+        "option_type": "Growth",
+        "benchmark_identity": "NIFTY 500 TRI",
+        "effective_date": "2026-11-04",
+        "source_ref": "sha256:" + "a" * 64,
+    }
+    record.update(overrides)
+    return record
+
+
+def _exact_scheme_master():
+    return {
+        "status": "VERIFIED",
+        "schemes": [{
+            "scheme_id": "SCHEME_DIRECT_1",
+            "isin": "INF000000001",
+            "amc_name": "AMC One",
+            "category": "Flexi Cap Equity",
+            "plan_type": "Direct",
+            "option_type": "Growth",
+            "benchmark_identity": "NIFTY 500 TRI",
+        }],
+    }
+
+
+def test_exact_metrics_provenance_accepts_one_source_bound_identity_snapshot():
+    from core.math_engine import _validate_metrics_provenance
+
+    result = _validate_metrics_provenance(
+        {"scheme-direct-1": _exact_metrics_record()},
+        _exact_scheme_master(),
+        require_exact_identity=True,
+    )
+    assert result["status"] == "VERIFIED"
+    assert result["record_count"] == 1
+    assert result["identity_complete"] is True
+    assert len(result["effective_dates"]) == 1
+    assert len(result["source_refs"]) == 1
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("category", "Small Cap Equity"),
+        ("plan_type", "Regular"),
+        ("option_type", "IDCW"),
+        ("benchmark_identity", "NIFTY 50 TRI"),
+        ("amc_name", "Different AMC"),
+        ("isin", "INF000000999"),
+    ],
+)
+def test_exact_metrics_provenance_rejects_scheme_identity_tuple_conflicts(field, value):
+    from core.math_engine import _validate_metrics_provenance
+
+    with pytest.raises(ValueError, match="identity|conflicts"):
+        _validate_metrics_provenance(
+            {"scheme-direct-1": _exact_metrics_record(**{field: value})},
+            _exact_scheme_master(),
+            require_exact_identity=True,
+        )
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"effective_date": None},
+        {"effective_date": "04-11-2026"},
+        {"source_ref": None},
+        {"source_ref": "not-a-digest"},
+    ],
+)
+def test_exact_metrics_provenance_rejects_missing_or_invalid_record_lineage(overrides):
+    from core.math_engine import _validate_metrics_provenance
+
+    with pytest.raises(ValueError, match="provenance|source reference|effective"):
+        _validate_metrics_provenance(
+            {"scheme-direct-1": _exact_metrics_record(**overrides)},
+            _exact_scheme_master(),
+            require_exact_identity=True,
+        )
+
+
+def test_exact_metrics_provenance_rejects_missing_or_unverified_scheme_master():
+    from core.math_engine import _validate_metrics_provenance
+
+    with pytest.raises(ValueError, match="VERIFIED scheme master"):
+        _validate_metrics_provenance(
+            {"scheme-direct-1": _exact_metrics_record()},
+            {"status": "UNVERIFIED", "schemes": _exact_scheme_master()["schemes"]},
+            require_exact_identity=True,
+        )
+    with pytest.raises(ValueError, match="non-empty verified scheme master"):
+        _validate_metrics_provenance(
+            {"scheme-direct-1": _exact_metrics_record()},
+            None,
+            require_exact_identity=True,
+        )
+
+
+def test_exact_metrics_provenance_rejects_duplicate_scheme_or_isin_records():
+    from core.math_engine import _validate_metrics_provenance
+
+    duplicate = _exact_metrics_record(id="SECOND_METRICS_ID")
+    with pytest.raises(ValueError, match="duplicates scheme ID or ISIN"):
+        _validate_metrics_provenance(
+            {
+                "scheme-direct-1": _exact_metrics_record(),
+                "second-metrics-id": duplicate,
+            },
+            _exact_scheme_master(),
+            require_exact_identity=True,
+        )
+
+
+def test_exact_metrics_provenance_rejects_mixed_snapshot_lineage():
+    from core.math_engine import _validate_metrics_provenance
+
+    first = _exact_metrics_record()
+    second = _exact_metrics_record(
+        id="SCHEME_DIRECT_2",
+        scheme_id="SCHEME_DIRECT_2",
+        isin="INF000000002",
+        effective_date="2026-11-03",
+        source_ref="sha256:" + "b" * 64,
+    )
+    master = _exact_scheme_master()
+    second_master = dict(master["schemes"][0])
+    second_master.update({
+        "scheme_id": "SCHEME_DIRECT_2",
+        "isin": "INF000000002",
+    })
+    master["schemes"].append(second_master)
+    with pytest.raises(ValueError, match="mixed snapshot"):
+        _validate_metrics_provenance(
+            {"first": first, "second": second},
+            master,
+            require_exact_identity=True,
+        )
+
