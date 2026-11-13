@@ -259,6 +259,64 @@ def _finite_number(value: Any, field: str) -> float:
         raise ValueError(f"{field} must be finite")
     return result
 
+class _FrozenPolicyDict(dict):
+    """JSON-compatible recursively immutable mapping for a decision policy snapshot."""
+
+    def __init__(self, source: Dict[str, Any]):
+        dict.__init__(self, {key: _freeze_policy_value(value) for key, value in source.items()})
+
+    @staticmethod
+    def _deny_mutation(*args, **kwargs):
+        raise TypeError("Decision policy snapshots are immutable")
+
+    __setitem__ = _deny_mutation
+    __delitem__ = _deny_mutation
+    clear = _deny_mutation
+    pop = _deny_mutation
+    popitem = _deny_mutation
+    setdefault = _deny_mutation
+    update = _deny_mutation
+
+
+class _FrozenPolicyList(list):
+    """JSON-compatible recursively immutable list for a decision policy snapshot."""
+
+    def __init__(self, source: list[Any]):
+        list.__init__(self, [_freeze_policy_value(value) for value in source])
+
+    @staticmethod
+    def _deny_mutation(*args, **kwargs):
+        raise TypeError("Decision policy snapshots are immutable")
+
+    __setitem__ = _deny_mutation
+    __delitem__ = _deny_mutation
+    append = _deny_mutation
+    clear = _deny_mutation
+    extend = _deny_mutation
+    insert = _deny_mutation
+    pop = _deny_mutation
+    remove = _deny_mutation
+    reverse = _deny_mutation
+    sort = _deny_mutation
+    __iadd__ = _deny_mutation
+    __imul__ = _deny_mutation
+
+
+def _freeze_policy_value(value: Any) -> Any:
+    if isinstance(value, dict):
+        return _FrozenPolicyDict(value)
+    if isinstance(value, list):
+        return _FrozenPolicyList(value)
+    return value
+
+
+def freeze_policy_snapshot(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Return a recursively immutable, JSON-compatible copy of a validated policy."""
+    if not isinstance(data, dict):
+        raise ValueError("Decision policy snapshot must be an object")
+    return _FrozenPolicyDict(data)
+
+
 def validate_fund_screening_policy(data: Any, policy_path: Optional[Path] = None) -> Dict[str, Any]:
     """Authoritatively validate a screening policy object.
 
@@ -413,7 +471,8 @@ def validate_fund_screening_policy(data: Any, policy_path: Optional[Path] = None
         ):
             raise ValueError("Screening policy digest does not match its validated content")
 
-    data["_policy_digest"] = expected_digest
+    if declared_digest is None:
+        data["_policy_digest"] = expected_digest
     return data
 
 
