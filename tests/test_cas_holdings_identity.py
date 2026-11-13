@@ -15,8 +15,11 @@ def _metrics_file(tmp_path, scheme_name):
         "isin": "INF000A01000", "scheme": scheme_name, "name": scheme_name,
         "amc_name": "Example AMC", "cat": "Flexi Cap", "category": "Flexi Cap",
         "plan_type": "Direct", "option_type": "Growth",
-        "er": 0.65, "eq": 100.0, "debt": 0.0,
-        "lc": 50.0, "mc": 30.0, "sc": 20.0, "h": [],
+        "benchmark_identity": "NIFTY 500 TRI",
+        "effective_date": "2026-11-04", "source_ref": "sha256:" + "a" * 64,
+        "er": 0.65, "ter_plan": "direct", "eq": 100.0, "debt": 0.0,
+        "lc": 50.0, "mc": 30.0, "sc": 20.0,
+        "market_cap_basis": "TOTAL_PORTFOLIO_PCT", "h": [],
     }]}), encoding="utf-8")
     return path
 
