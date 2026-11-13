@@ -114,8 +114,9 @@ def test_metrics_missing_category_rejected_when_exact_identity_required(tmp_path
             "amc_name": "Example AMC",  # category missing
             "plan_type": "Direct",
             "option_type": "Growth",
-            "er": 0.65, "eq": 100.0, "debt": 0.0,
-            "lc": 50.0, "mc": 30.0, "sc": 20.0, "h": [],
+            "er": 0.65, "ter_plan": "direct", "eq": 100.0, "debt": 0.0,
+            "lc": 50.0, "mc": 30.0, "sc": 20.0,
+            "market_cap_basis": "TOTAL_PORTFOLIO_PCT", "h": [],
         }
     }
     from core.math_engine import _validate_metrics_provenance
@@ -210,10 +211,18 @@ def test_scheme_not_in_master_rejected_at_exact_identity_binding(tmp_path):
             "scheme_id": "SCHEME-999",  # Not in master
             "isin": "INF999999999",
             "amc_name": "Example AMC",
+            "benchmark_identity": "NIFTY 500 TRI",
+            "effective_date": "2026-11-04",
+            "source_ref": "sha256:" + "a" * 64,
             "category": "Large Cap",  # This category doesn't matter, scheme_id is the issue
             "plan_type": "Direct",
             "option_type": "Growth",
-            "er": 0.65, "eq": 100.0, "debt": 0.0,
+            "benchmark_identity": "NIFTY 500 TRI",
+            "effective_date": "2026-11-04",
+            "source_ref": "sha256:" + "a" * 64,
+            "er": 0.65, "ter_plan": "direct", "eq": 100.0, "debt": 0.0,
+            "lc": 50.0, "mc": 30.0, "sc": 20.0,
+            "market_cap_basis": "TOTAL_PORTFOLIO_PCT",
             "lc": 50.0, "mc": 30.0, "sc": 20.0, "h": [],
         }
     }
