@@ -709,3 +709,19 @@ def test_alias_reviewer_signature_contract_receives_full_normalized_alias_record
     monkeypatch.setattr(contract, "_validate_source_document", capture)
     validate_evidence_provider_payload(payload, require_reviewer_signature=False)
     assert captured["records"] == alias_data
+
+
+def test_contract_rejects_stale_current_holdings_metrics_source(tmp_path):
+    payload = valid_payload(tmp_path)
+    payload["metrics_source_metadata"]["effective_date"] = "2026-08-01"
+    with pytest.raises(EvidenceProviderContractError, match="source is stale"):
+        validate_evidence_provider_payload(payload, require_reviewer_signature=False)
+
+
+def test_contract_rejects_alias_path_without_source_provenance(tmp_path):
+    payload = valid_payload(tmp_path)
+    alias_path = tmp_path / "aliases.json"
+    alias_path.write_text(json.dumps({"aliases": {"scheme-1": ["Example"]}}))
+    payload["aliases_path"] = alias_path
+    with pytest.raises(EvidenceProviderContractError, match="original source bytes"):
+        validate_evidence_provider_payload(payload, require_reviewer_signature=False)
