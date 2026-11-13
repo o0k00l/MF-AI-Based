@@ -1119,6 +1119,19 @@ def _build_sip_decision_trace(
         "screening_policy_version": (
             screening_policy.get("version") if isinstance(screening_policy, dict) else None
         ),
+        "policy_components": {
+            "screening": {
+                "version": screening_policy.get("version") if isinstance(screening_policy, dict) else None,
+                "status": screening_policy.get("status") if isinstance(screening_policy, dict) else None,
+                "as_of": screening_policy.get("as_of") if isinstance(screening_policy, dict) else None,
+                "source_sha256": screening_source_sha256,
+            },
+            "asset_allocation": {
+                "version": f"asset_allocation.json@{allocation_policy_as_of}",
+                "as_of": allocation_policy_as_of,
+                "source_sha256": policy_source_sha256,
+            },
+        },
         "effective_policy_digest": effective_policy_digest,
         "engine_version": "core.math_engine.compute_deterministic_sip_blueprint",
         "eligibility": {
@@ -1293,7 +1306,9 @@ def recommend_sip(
         allocation_policy = json.loads(allocation_policy_bytes.decode("utf-8"))
         if not isinstance(allocation_policy, dict) or not isinstance(allocation_policy.get("as_of"), str):
             raise ValueError("Allocation policy must declare an as_of date")
-        date.fromisoformat(allocation_policy["as_of"])
+        allocation_as_of = date.fromisoformat(allocation_policy["as_of"])
+        if allocation_as_of > date.today():
+            raise ValueError("Allocation policy as_of date cannot be in the future")
         allocation_policy_sha256 = hashlib.sha256(allocation_policy_bytes).hexdigest()
     except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
         return _hold_plan(budget, [
