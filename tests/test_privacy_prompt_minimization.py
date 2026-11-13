@@ -410,3 +410,40 @@ def test_online_scheme_cache_is_disabled_or_external_to_repository(tmp_path, mon
     assert cache_file == external_root / "online_fund_lookthrough.json"
     assert cache_file is not None
     assert not cache_file.is_relative_to(Path(__file__).resolve().parents[1])
+
+
+def test_active_fund_enrichment_propagates_explicit_external_consent(monkeypatch):
+    import services.ai_fund_classifier as classifier
+
+    seen = {"batch": [], "lookup": [], "classify": []}
+    monkeypatch.setattr(
+        classifier,
+        "batch_classify_funds_with_llm",
+        lambda names, external_processing_consent=False: seen["batch"].append(external_processing_consent) or {},
+    )
+    monkeypatch.setattr(
+        classifier,
+        "lookup_fund_segment_allocation_online",
+        lambda name, timeout_sec=5.0, external_processing_consent=False: seen["lookup"].append(external_processing_consent) or None,
+    )
+
+    def fake_classify(name, use_live_ai=False, external_processing_consent=False):
+        seen["classify"].append(external_processing_consent)
+        return {
+            "category": "Equity", "scheme_type": "Equity", "asset_class": "Equity",
+            "sub_category": "", "eq": None, "debt": None, "gold": None,
+            "intl": None, "lc": None, "mc": None, "sc": None, "re": None,
+            "other": None, "sector": None, "benchmark": None, "risk_rating": None,
+            "source": "UNVERIFIED", "ai_rationale": "No verified facts.",
+        }
+
+    monkeypatch.setattr(classifier, "classify_fund_with_ai", fake_classify)
+    classifier.enrich_funds_with_ai(
+        [{"scheme": "Unknown Private Scheme"}],
+        use_live_ai=True,
+        external_processing_consent=True,
+    )
+
+    assert seen["batch"] == [True]
+    assert seen["lookup"] == [True]
+    assert seen["classify"] == [True]
