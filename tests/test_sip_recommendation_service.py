@@ -884,16 +884,12 @@ def test_screening_policy_snapshot_is_shared_with_engine_and_decision_trace(tmp_
     args = _inputs(tmp_path)
     monkeypatch.setattr(service, "load_holdings_from_cas_excel", lambda *a, **k: [_holding()])
     snapshot = eligibility.load_fund_screening_policy()
-    calls = {"count": 0}
+    calls = {"count": 0, "stacks": []}
 
     def load_snapshot_once():
+        import traceback
         calls["count"] += 1
-        if calls["count"] > 1:
-            import traceback
-            raise AssertionError(
-                "Screening policy was independently loaded more than once: "
-                + "".join(traceback.format_stack(limit=8))
-            )
+        calls["stacks"].append("".join(traceback.format_stack(limit=8)))
         return snapshot
 
     captured = {}
@@ -907,7 +903,7 @@ def test_screening_policy_snapshot_is_shared_with_engine_and_decision_trace(tmp_
 
     result = service.recommend_sip(**args)
 
-    assert calls["count"] == 1
+    assert calls["count"] == 1, calls["stacks"]
     assert captured["screening_policy"] is snapshot
     trace = result["portfolio_assessment"]["decision_trace"]
     assert trace["screening_policy_sha256"] == snapshot["_policy_digest"]
