@@ -199,6 +199,22 @@ class EvidenceBundleBuilder:
                 raise ValueError("Metrics reviewer approval envelope must be a mapping.")
             if metrics_metadata["reviewer_approval_envelope"].get("payload", {}).get("reviewer_id") != metrics_metadata["reviewer_id"]:
                 raise ValueError("Metrics reviewer_id must match the signed source approval.")
+            metrics_by_id = {}
+            for index, metric in enumerate(metrics_payload["funds"]):
+                if not isinstance(metric, dict) or not isinstance(metric.get("id"), str) or not metric["id"].strip():
+                    raise ValueError(f"Fund metrics row {index} requires a stable non-empty id.")
+                metric_key = "".join(ch for ch in metric["id"].casefold() if ch.isalnum())
+                if not metric_key or metric_key in metrics_by_id:
+                    raise ValueError("Fund metrics contain an empty or duplicate normalized id.")
+                metrics_by_id[metric_key] = metric
+            from core.math_engine import _validate_metrics_provenance
+            _validate_metrics_provenance(
+                metrics_by_id,
+                normalized_master,
+                require_exact_identity=True,
+                expected_source_sha256=metrics_source_sha256,
+                expected_effective_date=metrics_metadata["effective_date"],
+            )
             metrics_signed_records = {
                 "funds": metrics_payload["funds"],
                 "metadata": {
@@ -331,6 +347,29 @@ class EvidenceBundleBuilder:
                 ]
                 if missing_alias_metadata:
                     raise ValueError(f"Alias source metadata missing required provenance fields: {missing_alias_metadata}")
+                if not isinstance(aliases_payload, dict) or set(aliases_payload) != {"aliases"}:
+                    raise ValueError("Alias artifact must contain only the aliases mapping; financial facts are prohibited.")
+                alias_entries = aliases_payload.get("aliases")
+                if not isinstance(alias_entries, dict) or not alias_entries:
+                    raise ValueError("Alias artifact requires a non-empty mapping.")
+                known_scheme_ids = {
+                    str(row.get("scheme_id") or row.get("id") or "").strip()
+                    for row in normalized_master.get("schemes", [])
+                    if isinstance(row, dict)
+                }
+                alias_names = set()
+                for target_id, names in alias_entries.items():
+                    if target_id not in known_scheme_ids:
+                        raise ValueError(f"Alias target {target_id!r} is absent from verified scheme master.")
+                    if not isinstance(names, list) or not names:
+                        raise ValueError(f"Alias target {target_id!r} requires a non-empty name list.")
+                    for name in names:
+                        if not isinstance(name, str) or not name.strip():
+                            raise ValueError("Alias names must be non-empty strings.")
+                        normalized_name = " ".join(name.casefold().split())
+                        if normalized_name in alias_names:
+                            raise ValueError(f"Alias {name!r} is duplicated or ambiguously mapped.")
+                        alias_names.add(normalized_name)
                 aliases_file_manifest = "aliases.json"
                 aliases_metadata_manifest = "aliases_metadata.json"
                 aliases_source_manifest = "originals/aliases.json"
