@@ -286,9 +286,9 @@ def test_issue_106_identifies_active_recurring_mandate_correctly():
     assert res["active_sip_count"] == 0
     assert res["total_monthly_sip"] == 0.0
     assert res["active_sips"] == []
-    assert res["unverified_count"] == 1
-    assert res["unverified_patterns"][0]["scheme"] == "Core Growth Direct"
-    assert res["unverified_patterns"][0]["confidence"] == "UNVERIFIED"
+    assert res["recurring_transaction_pattern_count"] == 1
+    assert res["recurring_transaction_patterns"][0]["scheme"] == "Core Growth Direct"
+    assert res["recurring_transaction_patterns"][0]["confidence"] == "UNVERIFIED"
 
 
 # =============================================================================
