@@ -222,22 +222,23 @@ def test_extract_mandate_evidence_distinguishes_found_from_confirmed():
     assert m1["has_auth_mandate"] is False
 
     # 2. Mandate ID with explicit ACTIVE keyword:
-    # Confirms active status and yields ACTIVE_MANDATE_CONFIRMED
+    # Transaction text can report a claimed status, but cannot authenticate
+    # the issuer or bind a signed mandate schedule to the investor.
     desc2 = "Systematic Investment - Mandate ID: MND7829104 - Status: ACTIVE"
     m2 = extract_mandate_evidence_from_transaction(desc2, "SIP")
     assert m2["mandate_id"] == "MND7829104"
     assert m2["mandate_status"] == "ACTIVE"
-    assert m2["mandate_evidence_level"] == "ACTIVE_MANDATE_CONFIRMED"
-    assert m2["has_auth_mandate"] is True
+    assert m2["mandate_evidence_level"] == "TRANSACTION_TEXT_ACTIVE_STATUS"
+    assert m2["has_auth_mandate"] is False
     assert m2["mandate_source"] == "REGISTRAR_CAS_REGN"
 
-    # 3. Explicit UMRN with STATUS: LIVE
+    # 3. Explicit UMRN with STATUS: LIVE remains a text-derived claim.
     desc3 = "SIP PUR - UMRN: NACH00000000099999 - STATUS: LIVE"
     m3 = extract_mandate_evidence_from_transaction(desc3, "SIP")
     assert m3["mandate_id"] == "NACH00000000099999"
     assert m3["mandate_status"] == "ACTIVE"
-    assert m3["mandate_evidence_level"] == "ACTIVE_MANDATE_CONFIRMED"
-    assert m3["has_auth_mandate"] is True
+    assert m3["mandate_evidence_level"] == "TRANSACTION_TEXT_ACTIVE_STATUS"
+    assert m3["has_auth_mandate"] is False
 
     # 4. Cancelled mandate description
     desc4 = "SIP DEBIT - UMRN: NACH00000000012345 - CANCELLED"
