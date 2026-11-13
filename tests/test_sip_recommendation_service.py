@@ -905,3 +905,8 @@ def test_screening_policy_snapshot_is_shared_with_engine_and_decision_trace(tmp_
     trace = result["portfolio_assessment"]["decision_trace"]
     assert trace["screening_policy_sha256"] == snapshot["_policy_digest"]
     assert trace["screening_policy_version"] == snapshot["version"]
+    assert captured["allocation_policy"]["as_of"] == trace["policy_components"]["asset_allocation"]["as_of"]
+    assert trace["policy_components"]["screening"]["status"] == snapshot["status"]
+    assert trace["policy_components"]["screening"]["source_sha256"] == snapshot["_policy_digest"]
+    assert len(trace["policy_components"]["asset_allocation"]["source_sha256"]) == 64
+    assert len(trace["effective_policy_digest"]) == 64
