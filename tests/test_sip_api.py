@@ -726,6 +726,16 @@ def test_api_derives_provider_attestation_only_from_mandate_signature_verificati
         sip, "validate_evidence_provider_payload",
         lambda payload, **kwargs: payload,
     )
+    # Isolate mandate attestation from the separate CAS publisher/structure gate.
+    # Those boundaries have independent integration coverage.
+    from types import SimpleNamespace
+    monkeypatch.setattr(
+        sip, "validate_cas_excel",
+        lambda *args, **kwargs: SimpleNamespace(
+            is_valid=True, structural_validity=True, is_publisher_authenticated=False
+        ),
+    )
+    monkeypatch.setattr(sip, "public_statement_provenance", lambda result: {})
     verification_results = iter((True, False))
     monkeypatch.setattr(
         sip, "_verify_provider_mandate_schedule",
@@ -779,7 +789,7 @@ def test_api_derives_provider_attestation_only_from_mandate_signature_verificati
             monthly_budget_inr="10000",
             risk_profile="Moderate",
         )
-        assert response.status_code == 200
+        assert response.status_code == 200, response.text
         assert observed_contexts[-1]["evidence_attested_by_provider"] is expected
         assert observed_contexts[-1]["mandate_evidence_signature_verified"] is expected
 
