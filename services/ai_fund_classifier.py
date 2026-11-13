@@ -65,8 +65,13 @@ def _external_lookthrough_cache_file() -> Path | None:
     try:
         root.mkdir(parents=True, exist_ok=True)
         root = root.resolve(strict=True)
+    except OSError:
+        return None
+    try:
         root.relative_to(project_root)
-    except (OSError, ValueError):
+    except ValueError:
+        pass
+    else:
         return None
     return root / "online_fund_lookthrough.json"
 
