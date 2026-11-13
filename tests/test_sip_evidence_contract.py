@@ -36,6 +36,7 @@ def valid_payload(tmp_path):
         "benchmark_identity": "Nifty 500 TRI", "effective_date": "2026-11-01",
         "source_ref": "sha256:" + hashlib.sha256(metrics_source_bytes).hexdigest(),
         "eq": 80.0, "debt": 20.0, "lc": 50.0, "mc": 20.0, "sc": 10.0,
+        "market_cap_basis": "TOTAL_PORTFOLIO_PCT",
         "ter_plan": "direct", "er": 0.5,
     }
     metrics_bytes = json.dumps({"funds": [metric_record]}, separators=(",", ":")).encode()
@@ -48,6 +49,8 @@ def valid_payload(tmp_path):
             **_source_metadata(metrics_source_bytes),
             "source_type": "OFFICIAL_FUND_METRICS",
             "normalized_metrics_sha256": hashlib.sha256(metrics_bytes).hexdigest(),
+            "policy_version": "holdings-metrics-v1",
+            "reviewer_id": "reviewer-1",
         },
         "metrics_source_bytes": metrics_source_bytes,
         "scheme_master": {
@@ -529,7 +532,7 @@ def test_alias_document_cannot_carry_financial_facts(tmp_path):
             **_source_metadata(b"alias source"),
             "normalized_aliases_sha256": hashlib.sha256(alias_bytes).hexdigest(),
             "coverage_scope": "Scheme-name variants",
-            "record_count": 1,
+            "record_count": 1, "policy_version": "alias-policy-v1", "reviewer_id": "reviewer-1",
         },
     })
     with pytest.raises(EvidenceProviderContractError, match="financial facts are prohibited"):
@@ -558,7 +561,7 @@ def test_aliases_cannot_map_same_name_to_multiple_schemes(tmp_path):
             **_source_metadata(b"alias source"),
             "normalized_aliases_sha256": hashlib.sha256(alias_bytes).hexdigest(),
             "coverage_scope": "Scheme-name variants",
-            "record_count": 2,
+            "record_count": 2, "policy_version": "alias-policy-v1", "reviewer_id": "reviewer-1",
         },
     })
     with pytest.raises(EvidenceProviderContractError, match="ambiguously maps"):
