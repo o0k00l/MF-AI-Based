@@ -440,7 +440,12 @@ Respond ONLY with a valid JSON array of objects, one per scheme, in this exact f
 
 
 
-def lookup_fund_segment_allocation_online(scheme_name: str, timeout_sec: float = 5.0) -> Optional[Dict[str, Any]]:
+def lookup_fund_segment_allocation_online(
+    scheme_name: str,
+    timeout_sec: float = 5.0,
+    *,
+    external_processing_consent: bool = False,
+) -> Optional[Dict[str, Any]]:
     """Dynamically look up actual fund segment allocations from live online factsheets or Google Search.
 
     Extracts actual Large Cap %, Mid Cap %, Small Cap %, and True Debt / Liquid Cash % from
@@ -453,6 +458,8 @@ def lookup_fund_segment_allocation_online(scheme_name: str, timeout_sec: float =
         return dict(_ONLINE_LOOKTHROUGH_CACHE[canonical])
     if scheme_name in _ONLINE_LOOKTHROUGH_CACHE:
         return dict(_ONLINE_LOOKTHROUGH_CACHE[scheme_name])
+    if external_processing_consent is not True:
+        return None
 
     try:
         headers = {
@@ -544,7 +551,12 @@ def lookup_fund_segment_allocation_online(scheme_name: str, timeout_sec: float =
 
     return None
 
-def classify_fund_with_ai(scheme_name: str, use_live_ai: bool = False) -> Dict[str, Any]:
+def classify_fund_with_ai(
+    scheme_name: str,
+    use_live_ai: bool = False,
+    *,
+    external_processing_consent: bool = False,
+) -> Dict[str, Any]:
     """Classify a single mutual fund scheme using fund-by-fund verified disclosures and AI.
 
     Returns authentic SEBI broad category (Equity, Hybrid, Debt), exact scheme_type,
@@ -555,7 +567,9 @@ def classify_fund_with_ai(scheme_name: str, use_live_ai: bool = False) -> Dict[s
 
     # 1. First Pass (Live AI Prompting): If live AI requested, query LLM
     if use_live_ai:
-        ai_res = classify_fund_with_llm(scheme_name)
+        ai_res = classify_fund_with_llm(
+            scheme_name, external_processing_consent=external_processing_consent
+        )
         if ai_res:
             return ai_res
 
@@ -582,7 +596,9 @@ def classify_fund_with_ai(scheme_name: str, use_live_ai: bool = False) -> Dict[s
             return res
 
     # 3.5 Pass: Live Online Factsheet & Google Search Grounding
-    online_lookthrough = lookup_fund_segment_allocation_online(scheme_name)
+    online_lookthrough = lookup_fund_segment_allocation_online(
+        scheme_name, external_processing_consent=external_processing_consent
+    )
     if online_lookthrough:
         return online_lookthrough
 
@@ -1131,7 +1147,12 @@ def extract_canonical_scheme_name(scheme_name: str) -> str:
     return cleaned
 
 
-def enrich_funds_with_ai(funds: List[Dict[str, Any]], use_live_ai: bool = False) -> List[Dict[str, Any]]:
+def enrich_funds_with_ai(
+    funds: List[Dict[str, Any]],
+    use_live_ai: bool = False,
+    *,
+    external_processing_consent: bool = False,
+) -> List[Dict[str, Any]]:
     """Enrich an uploaded portfolio fund list with fund-by-fund AI look-through intelligence.
 
     Replaces static heuristic assumptions with verified AMC factsheet data,
@@ -1140,7 +1161,9 @@ def enrich_funds_with_ai(funds: List[Dict[str, Any]], use_live_ai: bool = False)
     """
     if use_live_ai:
         names = [f.get("scheme", "") for f in funds if f.get("scheme")]
-        batch_classify_funds_with_llm(names)
+        batch_classify_funds_with_llm(
+            names, external_processing_consent=external_processing_consent
+        )
 
     # Fast parallel pre-fetch for any funds not in local policy factsheet
     unindexed = []
@@ -1156,14 +1179,20 @@ def enrich_funds_with_ai(funds: List[Dict[str, Any]], use_live_ai: bool = False)
     if unindexed:
         try:
             with concurrent.futures.ThreadPoolExecutor(max_workers=min(6, len(unindexed))) as executor:
-                list(executor.map(lambda name: lookup_fund_segment_allocation_online(name, timeout_sec=5.0), unindexed))
+                list(executor.map(lambda name: lookup_fund_segment_allocation_online(
+                        name, timeout_sec=5.0,
+                        external_processing_consent=external_processing_consent,
+                    ), unindexed))
         except Exception:
             pass
 
     enriched: List[Dict[str, Any]] = []
     for f in funds:
         scheme_name = f.get("scheme", "")
-        profile = classify_fund_with_ai(scheme_name, use_live_ai=use_live_ai)
+        profile = classify_fund_with_ai(
+            scheme_name, use_live_ai=use_live_ai,
+            external_processing_consent=external_processing_consent,
+        )
 
         item = dict(f)
         item["category"] = profile["category"]
@@ -1425,7 +1454,12 @@ def extract_canonical_scheme_name(scheme_name: str) -> str:
     return cleaned
 
 
-def enrich_funds_with_ai(funds: List[Dict[str, Any]], use_live_ai: bool = False) -> List[Dict[str, Any]]:
+def enrich_funds_with_ai(
+    funds: List[Dict[str, Any]],
+    use_live_ai: bool = False,
+    *,
+    external_processing_consent: bool = False,
+) -> List[Dict[str, Any]]:
     """Enrich an uploaded portfolio fund list with fund-by-fund AI look-through intelligence.
 
     Replaces static heuristic assumptions with verified AMC factsheet data,
