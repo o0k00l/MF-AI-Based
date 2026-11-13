@@ -654,6 +654,12 @@ def test_refresh_pipeline_fails_closed_on_fabricated_text_direct_evidence(tmp_pa
     nav_bytes = _sample_amfi_nav_bytes(as_of)
 
     envelope, registry = _make_test_approval()
+    metrics_source_bytes = b"scheme_id,nav,alpha\n"
+    metrics_payload = _metrics_payload_for(master, metrics_source_bytes, as_of)
+    metrics_source_metadata = _metrics_source_metadata(
+        metrics_payload, metrics_source_bytes, as_of,
+        "https://amfiindia.com/metrics", envelope,
+    )
     pipeline = FinancialDataRefreshPipeline()
     result = pipeline.refresh(
         bundle_target,
@@ -661,8 +667,8 @@ def test_refresh_pipeline_fails_closed_on_fabricated_text_direct_evidence(tmp_pa
         hermetic_inputs={
             "scheme_master": master_bytes,
             "daily_nav": nav_bytes,
-            "metrics": b"scheme_id,nav,alpha\n",
-            "metrics_json": json.dumps({"funds": [{"fund_id": "fund-1", "nav": "82.4532"}]}).encode("utf-8"),
+            "metrics": metrics_source_bytes,
+            "metrics_json": json.dumps(metrics_payload).encode("utf-8"),
             "candidate_universe_source": b"candidate_source",
             "disclosures": {
                 "scheme-1": json.dumps({"constituent_weights": {"RELIANCE": 100.0}, "constituent_weights_coverage_pct": 100.0}).encode("utf-8"),
@@ -673,6 +679,8 @@ def test_refresh_pipeline_fails_closed_on_fabricated_text_direct_evidence(tmp_pa
                 "scheme-2": b"%PDF-1.4 factsheet 2",
             },
         },
+        metrics_source_url="https://amfiindia.com/metrics",
+        metrics_source_metadata=metrics_source_metadata,
         reviewer_attested=True,
         reviewer_approval_envelope=envelope,
         reviewer_trust_registry=registry,
