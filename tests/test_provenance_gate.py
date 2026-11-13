@@ -2282,7 +2282,10 @@ def test_classifier_never_infers_debt_from_market_cap_residual(monkeypatch):
 
     monkeypatch.setattr(ai_fund_classifier.urllib.request, "urlopen", mock_urlopen)
 
-    res = ai_fund_classifier.lookup_fund_segment_allocation_online("Aditya Birla Sun Life Frontline Equity Fund Direct-Growth")
+    res = ai_fund_classifier.lookup_fund_segment_allocation_online(
+        "Aditya Birla Sun Life Frontline Equity Fund Direct-Growth",
+        external_processing_consent=True,
+    )
     assert res is not None
     assert res["eq"] == 90.0
     assert res["debt"] in (None, 0.0), "Market cap residual MUST NOT be inferred as debt!"
@@ -2707,7 +2710,10 @@ def test_adversarial_10_third_party_online_lookup_cannot_become_verified(monkeyp
 
     monkeypatch.setattr("urllib.request.urlopen", dummy_urlopen)
 
-    res = ai_fund_classifier.lookup_fund_segment_allocation_online("Sample Dynamic Test Fund Direct Growth")
+    res = ai_fund_classifier.lookup_fund_segment_allocation_online(
+        "Sample Dynamic Test Fund Direct Growth",
+        external_processing_consent=True,
+    )
     assert res is not None
     assert res.get("is_verified") is False
     assert res.get("lookthrough_status") == "UNVERIFIED_THIRD_PARTY"
