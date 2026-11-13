@@ -70,12 +70,13 @@ def test_primary_cas_holdings_loader_does_not_infer_identity_from_name(tmp_path)
     path = tmp_path / 'portfolio-no-amc.xlsx'
     wb.save(path)
 
-    holdings = load_holdings_from_cas_excel(
-        path, fund_metrics_path=_metrics_file(tmp_path, 'Example Equity Fund - Direct Growth')
-    )
-    assert len(holdings) == 1
-    assert holdings[0].scheme_id is None
-    assert holdings[0].lookthrough_status == 'MISSING'
+    # Name-only matching cannot establish exact scheme identity. The
+    # default production loader must reject this rather than return holdings
+    # with an unverified identity that downstream allocation might consume.
+    with pytest.raises(ValueError, match="non-empty VERIFIED scheme master"):
+        load_holdings_from_cas_excel(
+            path, fund_metrics_path=_metrics_file(tmp_path, 'Example Equity Fund - Direct Growth')
+        )
 
 
 # =============================================================================
