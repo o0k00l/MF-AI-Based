@@ -389,13 +389,18 @@ def test_evidence_bundle_builder_staging_and_atomic_promotion(tmp_path):
     ]
 
     envelope, registry = _make_test_approval()
+    metrics_source_metadata = _metrics_source_metadata(
+        _metrics_payload_for(master, metrics_bytes, as_of), metrics_bytes, as_of,
+        "https://www.amfiindia.com/research-information/other-data/fund-metrics", envelope,
+    )
     builder = EvidenceBundleBuilder(target_bundle_dir)
     promoted_dir = builder.build_and_promote(
         as_of,
         scheme_master=master,
         scheme_master_source_bytes=master_bytes,
-        metrics_payload={"funds": [{"fund_id": "fund-1", "nav": Decimal("82.45")}]},
+        metrics_payload=_metrics_payload_for(master, metrics_bytes, as_of),
         metrics_source_bytes=metrics_bytes,
+        metrics_source_metadata=metrics_source_metadata,
         candidate_universe=candidates,
         candidate_universe_source_bytes=universe_bytes,
         portfolio_disclosures=disclosures,
@@ -434,6 +439,12 @@ def test_evidence_bundle_builder_atomic_rollback_on_failure(tmp_path):
     master_bytes = json.dumps(master).encode("utf-8")
 
     envelope, registry = _make_test_approval()
+    metrics_source_bytes = b"metrics_1"
+    metrics_payload = _metrics_payload_for(master, metrics_source_bytes, as_of)
+    metrics_source_metadata = _metrics_source_metadata(
+        metrics_payload, metrics_source_bytes, as_of,
+        "https://www.amfiindia.com/research-information/other-data/fund-metrics", envelope,
+    )
 
     # Initial successful build
     builder = EvidenceBundleBuilder(target_bundle_dir)
@@ -441,8 +452,9 @@ def test_evidence_bundle_builder_atomic_rollback_on_failure(tmp_path):
         as_of,
         scheme_master=master,
         scheme_master_source_bytes=master_bytes,
-        metrics_payload={"funds": [{"fund_id": "fund-1", "nav": "82.45"}]},
-        metrics_source_bytes=b"metrics_1",
+        metrics_payload=metrics_payload,
+        metrics_source_bytes=metrics_source_bytes,
+        metrics_source_metadata=metrics_source_metadata,
         candidate_universe=[{
             "fund_id": "fund-1",
             "fund_name": master["schemes"][0]["scheme_name"],
