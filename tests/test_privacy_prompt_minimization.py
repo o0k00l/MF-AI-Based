@@ -334,3 +334,60 @@ def test_external_scheme_factsheet_lookup_requires_explicit_consent(monkeypatch)
         external_processing_consent=True,
     ) is None
     assert calls  # the explicit opt-in is the only path that may contact the external source
+
+
+def test_cgs_goal_and_risk_ai_paths_minimize_prompts_before_external_calls(monkeypatch):
+    import core.ai_engine as ai
+
+    captured = []
+
+    def fake_call_llm(prompt, **kwargs):
+        captured.append((prompt, kwargs))
+        return "A qualitative narrative based only on minimized portfolio context."
+
+    monkeypatch.setattr(ai, "call_llm", fake_call_llm)
+
+    portfolio = [{
+        "scheme": "PRIVATE SCHEME NAME",
+        "folio": "PRIVATE-FOLIO-7788",
+        "current_value": 900000.0,
+        "invested_value": 700000.0,
+        "category": "Equity",
+        "eq": 100.0,
+        "debt": 0.0,
+    }]
+    cgs_data = {
+        "client_name": "PRIVATE CLIENT NAME",
+        "summary": {"ltcg_inr": 25000.0, "stcg_inr": 10000.0},
+    }
+    goals = [{
+        "name": "PRIVATE GOAL NAME",
+        "goal_name": "PRIVATE GOAL NAME",
+        "cost_today": 5000000.0,
+        "horizon": 15,
+        "required_sip": 20000.0,
+    }]
+    target_saa = {"equity_pct": 70.0, "debt_pct": 30.0, "cash_pct": 0.0}
+
+    evaluate_tax_harvesting_strategy(
+        cgs_data, portfolio, use_live_ai=True, external_processing_consent=True
+    )
+    evaluate_goal_scenarios_with_ai(
+        goals, 25000.0, portfolio=portfolio, target_saa=target_saa,
+        use_live_ai=True, external_processing_consent=True,
+    )
+    predict_risk_tier_from_portfolio(
+        portfolio, use_live_ai=True, external_processing_consent=True
+    )
+
+    assert len(captured) == 3
+    for prompt, kwargs in captured:
+        for secret in (
+            "PRIVATE CLIENT NAME", "PRIVATE SCHEME NAME", "PRIVATE-FOLIO-7788",
+            "PRIVATE GOAL NAME", "25000", "900000", "700000",
+        ):
+            assert secret not in prompt
+        assert "INR" not in prompt
+        assert "[REDACTED_FINANCIAL_AMOUNT]" in prompt
+        assert kwargs["external_processing_consent"] is True
+        assert kwargs["use_cache"] is False
