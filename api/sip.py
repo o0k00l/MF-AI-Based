@@ -423,7 +423,11 @@ def create_sip_app(
                     )
                 provider_portfolio_context = evidence.get("portfolio_context")
                 if provider_portfolio_context is not None:
-                    provider_portfolio_context["evidence_attested_by_provider"] = True
+                    # A reviewer-signed portfolio-context document is not proof that
+                    # an RTA/AMC/bank authenticated the active SIP mandate schedule.
+                    # Until a mandate-specific source contract and trust scope exist,
+                    # never promote generic evidence into provider mandate attestation.
+                    provider_portfolio_context["evidence_attested_by_provider"] = False
                     provider_portfolio_context["_source_bundle_sha256"] = evidence[
                         "portfolio_context_source_metadata"
                     ]["source_document_sha256"]
