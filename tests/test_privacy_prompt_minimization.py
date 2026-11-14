@@ -330,6 +330,7 @@ def test_external_scheme_factsheet_lookup_requires_explicit_consent(monkeypatch)
     assert lookup_fund_segment_allocation_online("Private Investor Scheme 44") is None
     assert calls == []  # no scheme/holding disclosure to a search provider without consent
 
+    monkeypatch.setenv("MF_EXTERNAL_PROCESSING_POLICY_APPROVED", "true")
     assert lookup_fund_segment_allocation_online(
         "Private Investor Scheme 44",
         external_processing_consent=True,
@@ -460,3 +461,54 @@ def test_online_scheme_cache_rejects_symlink_into_repository(tmp_path, monkeypat
     monkeypatch.setenv("MF_ENGINE_DATA_DIR", str(linked_root))
 
     assert _external_lookthrough_cache_file() is None
+
+
+
+def test_external_scheme_lookup_requires_provider_policy_approval(monkeypatch):
+    from services.ai_fund_classifier import lookup_fund_segment_allocation_online
+
+    monkeypatch.delenv("MF_EXTERNAL_PROCESSING_POLICY_APPROVED", raising=False)
+    calls = []
+    monkeypatch.setattr("urllib.request.urlopen", lambda *args, **kwargs: calls.append((args, kwargs)))
+
+    assert lookup_fund_segment_allocation_online(
+        "Synthetic Public Scheme", external_processing_consent=True
+    ) is None
+    assert calls == []
+
+
+def test_classifier_sends_only_minimum_scheme_lookup_context_and_disables_cache(monkeypatch):
+    import json
+    import core.ai_engine as ai
+    import services.ai_fund_classifier as classifier
+
+    classifier._AI_SCHEME_CACHE.clear()
+    captured = []
+
+    def fake_call_llm(prompt, **kwargs):
+        captured.append((prompt, kwargs))
+        return json.dumps({
+            "canonical_name": "Synthetic Public Scheme",
+            "category": "Equity", "scheme_type": "Flexi Cap",
+            "sub_category": "Diversified equity",
+            "eq": 95, "debt": 5, "gold": 0, "intl": 0,
+            "lc": 50, "mc": 25, "sc": 20,
+            "benchmark": "Synthetic TRI", "risk_rating": "Very High",
+            "ai_rationale": "Synthetic test only",
+        })
+
+    monkeypatch.setattr(ai, "call_llm", fake_call_llm)
+    result = classifier.classify_fund_with_llm(
+        "Synthetic Public Scheme", external_processing_consent=True
+    )
+
+    assert result is not None
+    assert len(captured) == 1
+    prompt, kwargs = captured[0]
+    assert "Synthetic Public Scheme" in prompt
+    assert "client_name" not in prompt.lower()
+    assert "folio" not in prompt.lower()
+    assert "account" not in prompt.lower()
+    assert "portfolio value" not in prompt.lower()
+    assert kwargs["use_cache"] is False
+    assert kwargs["external_processing_consent"] is True

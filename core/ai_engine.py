@@ -432,6 +432,17 @@ def _call_gemini(prompt: str, system_prompt: str = "") -> str:
     )
 
 
+def external_processing_policy_approved() -> bool:
+    """Return True only after an operator has approved external provider data-use terms.
+
+    This deployment-level attestation is separate from per-investor consent.
+    The default is deny; callers must also pass external_processing_consent=True.
+    """
+    return os.getenv("MF_EXTERNAL_PROCESSING_POLICY_APPROVED", "").strip().lower() in {
+        "1", "true", "yes",
+    }
+
+
 def call_llm(
     prompt: str,
     data_snapshot: str = "",
@@ -449,6 +460,11 @@ def call_llm(
         raise ProviderError(
             "Privacy",
             "External AI processing is blocked: explicit investor consent is required for this request.",
+        )
+    if not external_processing_policy_approved():
+        raise ProviderError(
+            "Privacy",
+            "External AI processing is blocked: provider data-use and retention review is not approved for this deployment.",
         )
     full_prompt = prompt
     if append_guardrail:

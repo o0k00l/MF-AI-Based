@@ -16,6 +16,7 @@ def test_external_ai_is_blocked_without_explicit_per_request_consent(monkeypatch
 
 
 def test_explicit_consent_allows_only_free_provider_and_never_persists_narrative(tmp_path, monkeypatch):
+    monkeypatch.setenv("MF_EXTERNAL_PROCESSING_POLICY_APPROVED", "true")
     monkeypatch.setattr(ai_engine, "MODEL_CACHE_FILE", None)
     monkeypatch.setattr(ai_engine, "_call_openrouter", lambda *a, **k: "approved narrative")
     monkeypatch.setattr(ai_engine, "_call_requesty", lambda *a, **k: pytest.fail("fallback should not run"))
@@ -130,6 +131,7 @@ def test_prompt_advisor_never_sends_client_name_or_folio_to_external_model(monke
 
 
 def test_free_provider_failure_is_controlled_and_never_falls_back_to_gemini(monkeypatch):
+    monkeypatch.setenv("MF_EXTERNAL_PROCESSING_POLICY_APPROVED", "true")
     attempted = []
     monkeypatch.setenv("GEMINI_API_KEY", "configured-but-prohibited")
     monkeypatch.setattr(
@@ -238,3 +240,21 @@ def test_numeric_redaction_covers_percentages_and_unlabelled_values():
     for value in ("18.25", "37", "2034", "125.60", "900"):
         assert value not in sanitized
     assert sanitized.count("[REDACTED_NUMERIC_DETAIL]") == 5
+
+
+
+def test_external_ai_requires_provider_policy_approval_even_with_investor_consent(monkeypatch):
+    called = []
+    monkeypatch.delenv("MF_EXTERNAL_PROCESSING_POLICY_APPROVED", raising=False)
+    monkeypatch.setattr(ai_engine, "_call_openrouter", lambda *a, **k: called.append("openrouter") or "must not run")
+    monkeypatch.setattr(ai_engine, "_call_requesty", lambda *a, **k: called.append("requesty") or "must not run")
+
+    with pytest.raises(ai_engine.ProviderError, match="provider data-use and retention review"):
+        ai_engine.call_llm("synthetic minimized prompt", external_processing_consent=True)
+    assert called == []
+
+
+def test_provider_policy_approval_requires_explicit_true_value(monkeypatch):
+    for value in ("", "false", "1 ", "approved", "yes-no"):
+        monkeypatch.setenv("MF_EXTERNAL_PROCESSING_POLICY_APPROVED", value)
+        assert ai_engine.external_processing_policy_approved() is (value.strip().lower() in {"1", "true", "yes"})

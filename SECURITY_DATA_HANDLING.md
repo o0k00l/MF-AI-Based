@@ -85,3 +85,21 @@ A PR-based workflow is intended for future maintenance; it does not change the h
 ## 5. Production-release conditions
 
 The application remains a non-executable decision-support prototype until the release report records the exact release SHA, complete passing CI results, tax/legal review, authenticated benchmark data and calendar, private-data purge verification, protected-branch status and independent reviewer sign-off.
+
+
+## 6. External AI and third-party lookup approval
+
+External processing is **default-deny**. Two independent conditions are required before an AI-provider request is made:
+
+1. The request path must receive explicit per-request investor consent (`external_processing_consent=True`). A deployment default, environment variable, or general terms acceptance is not a substitute for that investor's consent.
+2. The deployment must set `MF_EXTERNAL_PROCESSING_POLICY_APPROVED=true` only after an authorized reviewer has approved the exact provider(s), applicable terms and data-use configuration. The code treats every missing, malformed or false value as denial.
+
+The environment variable is an operator attestation gate, not proof that a review occurred. Keep the review record outside this repository and identify: provider and endpoint; terms/privacy-policy version and review date; prompt retention and deletion period; model-training/data-use opt-out status; subprocessors and processing region; security and access controls; incident notification; and contractual/DPA coverage. Re-review after a provider, endpoint, terms, retention policy or model changes. Do not enable the gate while any required item is unknown.
+
+The gate applies to LLM narrative/classification requests and third-party online scheme lookups. Online scheme classification may transmit only the public scheme name required to resolve that scheme; it must not include a client's name, account/folio, balances, transaction history, goals or a holdings list. Narrative paths must continue to redact client/holding identifiers and numeric portfolio facts before the provider adapter. Provider failures and logs must not include prompts, credentials, raw response bodies or investor data.
+
+Narrative-response caching remains disabled. Do not re-enable it through `use_cache`; the compatibility argument is ignored. The external model-catalogue cache contains provider catalogue metadata only and must remain outside the repository. The third-party scheme look-through cache contains non-investor scheme metadata and is disabled unless an external data directory is configured outside the repository.
+
+The boolean consent argument is an enforcement input, not an auditable consent ledger. Production UI/API integration must source it from a recorded, purpose-specific investor consent event and retain the consent version, timestamp, scope, withdrawal and evidence in the approved client-data store. Do not infer consent from login, upload, service use or a global setting.
+
+Before issue #44 can be closed, independently verify the production consent capture/withdrawal flow, provider review record, encrypted storage and access controls, retention/deletion behavior, and absence of investor payloads in application logs, telemetry, temporary files, CI artifacts and reports. These deployment facts cannot be established by repository unit tests alone.

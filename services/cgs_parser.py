@@ -161,7 +161,7 @@ Tone: Objective, fiduciary, statutory compliance-focused."""
             if res and len(res.strip()) > 50:
                 ai_narrative = res.strip()
         except Exception as exc:
-            logger.debug("Live AI tax narrative generation unavailable: %s", exc)
+            logger.debug("Live AI tax narrative generation unavailable (%s)", type(exc).__name__)
 
     if not ai_narrative:
         ai_narrative = (

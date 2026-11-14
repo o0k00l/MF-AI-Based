@@ -336,7 +336,7 @@ Respond ONLY with a valid JSON object in this exact schema without any markdown 
     if external_processing_consent is not True:
         return None
     try:
-        raw_res = call_llm(prompt, external_processing_consent=external_processing_consent)
+        raw_res = call_llm(prompt, use_cache=False, external_processing_consent=external_processing_consent)
         clean = raw_res.strip()
         if "```json" in clean:
             clean = clean.split("```json")[1].split("```")[0].strip()
@@ -365,7 +365,7 @@ Respond ONLY with a valid JSON object in this exact schema without any markdown 
         _AI_SCHEME_CACHE[scheme_name] = res
         return res
     except Exception as exc:
-        logger.debug("Live LLM classification bypassed or unavailable: %s", exc)
+        logger.debug("Live LLM classification bypassed or unavailable (%s)", type(exc).__name__)
         return None
 
 
@@ -423,7 +423,7 @@ Respond ONLY with a valid JSON array of objects, one per scheme, in this exact f
     if external_processing_consent is not True:
         return results
     try:
-        raw_res = call_llm(prompt, external_processing_consent=external_processing_consent)
+        raw_res = call_llm(prompt, use_cache=False, external_processing_consent=external_processing_consent)
         clean = raw_res.strip()
         if "```json" in clean:
             clean = clean.split("```json")[1].split("```")[0].strip()
@@ -458,7 +458,7 @@ Respond ONLY with a valid JSON array of objects, one per scheme, in this exact f
                 if c_key:
                     _AI_SCHEME_CACHE[c_key] = res
     except Exception as exc:
-        logger.debug("Batch live LLM classification bypassed or unavailable: %s", exc)
+        logger.debug("Batch live LLM classification bypassed or unavailable (%s)", type(exc).__name__)
 
     return results
 
@@ -484,6 +484,11 @@ def lookup_fund_segment_allocation_online(
     if scheme_name in _ONLINE_LOOKTHROUGH_CACHE:
         return dict(_ONLINE_LOOKTHROUGH_CACHE[scheme_name])
     if external_processing_consent is not True:
+        return None
+    # Scheme-name lookups disclose a user's holding to third parties. Require
+    # both per-request consent and the deployment's provider/privacy approval.
+    from core.ai_engine import external_processing_policy_approved
+    if not external_processing_policy_approved():
         return None
 
     try:
@@ -572,7 +577,7 @@ def lookup_fund_segment_allocation_online(
                         _save_online_lookthrough_cache()
                         return res
     except Exception as exc:
-        logger.debug("Online factsheet lookup skipped/failed: %s", exc)
+        logger.debug("Online factsheet lookup skipped/failed (%s)", type(exc).__name__)
 
     return None
 
