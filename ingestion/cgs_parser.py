@@ -109,8 +109,6 @@ def parse_cgs_excel(
         if statement_as_of_date is None:
             raise ValueError("CGS statement has missing or conflicting embedded dates")
         validated_source_sha256 = hashlib.sha256(source_bytes).hexdigest()
-        if validated_source_sha256 != hashlib.sha256(source_bytes).hexdigest():
-            raise ValueError("CGS source digest changed during validation")
         statement_selection_error = None
     except (OSError, ValueError, TypeError) as exc:
         statement_as_of_date = None
