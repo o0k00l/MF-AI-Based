@@ -220,6 +220,7 @@ def transition_lifecycle(
     policy_sha256: str,
     source_evidence_sha256: str,
     authorized_reviewer_ids: set[str] | frozenset[str] = frozenset(),
+    authorized_operator_ids: set[str] | frozenset[str] = frozenset(),
     replacement_decision_trace_sha256: str | None = None,
     storage_dir: str | Path | None = None,
 ) -> dict[str, Any]:
@@ -261,12 +262,18 @@ def transition_lifecycle(
         elif to_state == "SUPERSEDED":
             if current != "REVIEWED":
                 raise ValueError("only a REVIEWED recommendation can be SUPERSEDED")
+            operators = {_opaque(item, "authorized operator id") for item in authorized_operator_ids}
+            if actor not in operators:
+                raise ValueError("superseding actor is not in the trusted operator registry")
             replacement = _digest(replacement_decision_trace_sha256 or "", "replacement decision trace digest")
             if replacement == digest:
                 raise ValueError("replacement decision trace must differ")
         elif to_state == "WITHDRAWN":
             if current not in {"DRAFT", "REVIEWED"}:
                 raise ValueError("only a DRAFT or REVIEWED recommendation can be WITHDRAWN")
+            operators = {_opaque(item, "authorized operator id") for item in authorized_operator_ids}
+            if actor != draft.get("created_by") and actor not in operators:
+                raise ValueError("withdrawal actor is neither the authenticated author nor a trusted operator")
             replacement = None
         event = {
             "schema_version": 1,
