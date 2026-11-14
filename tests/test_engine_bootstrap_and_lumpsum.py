@@ -144,7 +144,7 @@ def test_engine_bootstrap_pipeline_validation_report(tmp_path):
     assert len(report.gates) >= 5
     assert not all(g.passed for g in report.gates)
 
-    # Complete inputs with valid cryptographic reviewer envelope produce PROMOTABLE status
+    # Complete-looking fixtures and a valid test signature must remain read-only.
     envelope, registry = _make_test_approval()
     report_valid = pipeline.build_staging_bundle(
         staging_dir,
@@ -161,8 +161,11 @@ def test_engine_bootstrap_pipeline_validation_report(tmp_path):
         reviewer_approval_envelope=envelope,
         reviewer_trust_registry=registry,
     )
-    assert report_valid.status == "PROMOTABLE"
-    assert all(g.passed for g in report_valid.gates)
+    assert report_valid.status == "BLOCKED"
+    provenance_gate = next(g for g in report_valid.gates if g.gate_name == "PRODUCTION_SOURCE_PROVENANCE")
+    assert provenance_gate.passed is False
+    assert "test fixtures" in provenance_gate.remediation
+    assert not all(g.passed for g in report_valid.gates)
 
 
 def test_evaluate_portfolio_aware_lumpsum_fails_closed_without_complete_evidence(tmp_path):
