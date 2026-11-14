@@ -658,3 +658,50 @@ def test_numeric_folio_and_account_identifiers_are_collected_from_fact_objects()
     identifiers = _sensitive_identifiers_from_facts(facts)
     assert "987654321" in identifiers
     assert "123456789012" in identifiers
+
+
+def test_every_application_ai_callsite_explicitly_disables_cache_and_passes_consent():
+    """New provider call sites must opt into the privacy contract explicitly."""
+    import ast
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    source_roots = (root / "core", root / "services", root / "api", root / "ui")
+    violations = []
+
+    for source_root in source_roots:
+        if not source_root.exists():
+            continue
+        for path in source_root.rglob("*.py"):
+            if path == root / "core" / "ai_engine.py":
+                # This is the enforcement boundary, not an application caller.
+                continue
+            try:
+                tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            except (OSError, SyntaxError) as exc:
+                violations.append(f"{path.relative_to(root)}: source cannot be audited ({type(exc).__name__})")
+                continue
+
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Call):
+                    continue
+                func = node.func
+                name = func.id if isinstance(func, ast.Name) else (
+                    func.attr if isinstance(func, ast.Attribute) else ""
+                )
+                if name not in {"call_llm", "_engine_call_llm"}:
+                    continue
+
+                keywords = {item.arg: item.value for item in node.keywords if item.arg}
+                cache_value = keywords.get("use_cache")
+                consent_value = keywords.get("external_processing_consent")
+                cache_disabled = (
+                    isinstance(cache_value, ast.Constant) and cache_value.value is False
+                )
+                if not cache_disabled or consent_value is None:
+                    violations.append(
+                        f"{path.relative_to(root)}:{node.lineno}: "
+                        "provider call must pass external_processing_consent and use_cache=False"
+                    )
+
+    assert not violations, "AI privacy call-site contract violations:\\n" + "\\n".join(violations)
