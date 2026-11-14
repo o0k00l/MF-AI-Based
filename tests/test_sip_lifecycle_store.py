@@ -184,3 +184,23 @@ def test_review_triggers_reject_naive_timestamps_and_invalid_policy_freshness():
         assess_review_triggers(**{**kwargs, "now": datetime(2026, 11, 14)})
     with pytest.raises(ValueError, match="effective policy"):
         assess_review_triggers(**{**kwargs, "maximum_evidence_age_days": -1})
+
+
+def test_lifecycle_transition_is_idempotent_for_duplicate_requests(tmp_path):
+    digest = "d" * 64
+    _reviewable_draft(tmp_path, digest=digest)
+    first = transition_lifecycle(
+        decision_trace_sha256=digest, to_state="WITHDRAWN", actor_id="author-01",
+        reason_code="CLIENT_WITHDRAWAL", policy_sha256="1" * 64, source_evidence_sha256="2" * 64,
+        storage_dir=tmp_path,
+    )
+    duplicate = transition_lifecycle(
+        decision_trace_sha256=digest, to_state="WITHDRAWN", actor_id="author-01",
+        reason_code="CLIENT_WITHDRAWAL", policy_sha256="1" * 64, source_evidence_sha256="2" * 64,
+        storage_dir=tmp_path,
+    )
+    status = get_lifecycle_status(decision_trace_sha256=digest, storage_dir=tmp_path)
+    assert first["persistence_status"] == "RECORDED"
+    assert duplicate["persistence_status"] == "ALREADY_RECORDED"
+    assert duplicate["event_sha256"] == first["event_sha256"]
+    assert status["event_count"] == 1
