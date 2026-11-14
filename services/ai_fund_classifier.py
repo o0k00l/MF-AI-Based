@@ -312,7 +312,7 @@ def classify_fund_with_llm(scheme_name: str, external_processing_consent: bool =
 
     prompt = f"""You are a SEBI-registered Mutual Fund Research Analyst. Classify the following Indian Mutual Fund scheme strictly per SEBI Categorization Circular (SEBI/HO/IMD/DF3/CIR/P/2017/114).
 
-Scheme Name: \"{scheme_name}\"
+Scheme Name: \"{canonical}\"
 
 Analyze its investment mandate, asset allocation, and market cap exposure.
 Respond ONLY with a valid JSON object in this exact schema without any markdown formatting or commentary:
@@ -393,7 +393,8 @@ def batch_classify_funds_with_llm(scheme_names: List[str], external_processing_c
     except ImportError:
         return results
 
-    unique_needed = list(dict.fromkeys(needed))[:25]
+    # Plan/option suffixes do not help classification and disclose extra holding detail.
+    unique_needed = list(dict.fromkeys(extract_canonical_scheme_name(name) for name in needed))[:25]
     prompt = f"""You are an expert SEBI-registered Research Analyst. Classify the following Indian Mutual Fund schemes strictly according to SEBI Categorization Circular (SEBI/HO/IMD/DF3/CIR/P/2017/114).
 
 Schemes to classify:
@@ -457,6 +458,11 @@ Respond ONLY with a valid JSON array of objects, one per scheme, in this exact f
                     results[s_key] = res
                 if c_key:
                     _AI_SCHEME_CACHE[c_key] = res
+                    # Restore local caller keys without sending plan variants externally.
+                    for original_name in needed:
+                        if extract_canonical_scheme_name(original_name) == c_key:
+                            _AI_SCHEME_CACHE[original_name] = res
+                            results[original_name] = res
     except Exception as exc:
         logger.debug("Batch live LLM classification bypassed or unavailable (%s)", type(exc).__name__)
 

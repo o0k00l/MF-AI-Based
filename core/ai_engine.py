@@ -56,6 +56,11 @@ def _purge_legacy_narrative_cache(path: Path | None = None) -> bool:
     """Remove the former plaintext investor narrative cache; fail closed on errors."""
     candidate = Path(path) if path is not None else LEGACY_NARRATIVE_CACHE_FILE
     try:
+        if path is None:
+            # Do not follow a redirected cache directory and delete outside the checkout.
+            project_root = PROJECT_ROOT.resolve()
+            if not candidate.parent.resolve().is_relative_to(project_root):
+                return False
         if candidate.is_symlink() or candidate.is_file():
             candidate.unlink()
         return not candidate.exists() and not candidate.is_symlink()

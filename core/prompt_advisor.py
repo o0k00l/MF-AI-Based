@@ -113,7 +113,10 @@ def collect_sensitive_identifiers(*records: Any) -> list[str]:
         "account_number", "bank_account", "isin", "security_id", "security_name",
         "stock_name", "theme_name", "key_underlying_holdings", "underlying_holdings",
         "transaction_description", "transaction_narration", "narration", "payee",
-        "beneficiary", "merchant", "pan", "pan_number", "aadhaar", "aadhaar_number",
+        "beneficiary", "merchant", "client_id", "investor_id", "user_id", "customer_id", "holder_id",
+        "scheme_code", "transaction_id", "reference_number", "upi_id", "date_of_birth", "dob",
+        "address", "residential_address", "postal_address", "postal_code", "pin_code",
+        "pan", "pan_number", "aadhaar", "aadhaar_number",
         "email", "phone", "ifsc",
     }
     found: set[str] = set()

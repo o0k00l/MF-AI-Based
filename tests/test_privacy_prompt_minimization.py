@@ -499,13 +499,14 @@ def test_classifier_sends_only_minimum_scheme_lookup_context_and_disables_cache(
 
     monkeypatch.setattr(ai, "call_llm", fake_call_llm)
     result = classifier.classify_fund_with_llm(
-        "Synthetic Public Scheme", external_processing_consent=True
+        "Synthetic Public Scheme Direct Growth", external_processing_consent=True
     )
 
     assert result is not None
     assert len(captured) == 1
     prompt, kwargs = captured[0]
     assert "Synthetic Public Scheme" in prompt
+    assert "Direct Growth" not in prompt
     assert "client_name" not in prompt.lower()
     assert "folio" not in prompt.lower()
     assert "account" not in prompt.lower()
@@ -539,3 +540,40 @@ def test_nested_goal_transaction_and_security_identifiers_are_collected():
     outbound = sanitize_prompt_for_privacy(" ".join(expected), sensitive_identifiers=identifiers)
     for value in expected:
         assert value not in outbound
+
+
+
+def test_batch_classifier_sends_canonical_names_without_plan_variants(monkeypatch):
+    import json
+    import core.ai_engine as ai
+    import services.ai_fund_classifier as classifier
+
+    classifier._AI_SCHEME_CACHE.clear()
+    captured = []
+
+    def fake_call_llm(prompt, **kwargs):
+        captured.append((prompt, kwargs))
+        return json.dumps([{
+            "scheme": "Synthetic Public Scheme",
+            "canonical_name": "Synthetic Public Scheme",
+            "category": "Equity", "scheme_type": "Flexi Cap",
+            "sub_category": "Diversified equity",
+            "eq": 95, "debt": 5, "gold": 0, "intl": 0,
+            "lc": 50, "mc": 25, "sc": 20,
+            "benchmark": "Synthetic TRI", "risk_rating": "Very High",
+            "ai_rationale": "Synthetic test only",
+        }])
+
+    monkeypatch.setattr(ai, "call_llm", fake_call_llm)
+    original = "Synthetic Public Scheme Regular Growth"
+    result = classifier.batch_classify_funds_with_llm(
+        [original], external_processing_consent=True
+    )
+
+    assert original in result
+    assert len(captured) == 1
+    prompt, kwargs = captured[0]
+    assert "Synthetic Public Scheme" in prompt
+    assert "Regular Growth" not in prompt
+    assert kwargs["use_cache"] is False
+    assert kwargs["external_processing_consent"] is True

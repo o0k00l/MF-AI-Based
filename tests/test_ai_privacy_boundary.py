@@ -278,3 +278,22 @@ def test_provider_call_fails_closed_if_legacy_narrative_cache_cannot_be_removed(
 
     with pytest.raises(ai_engine.ProviderError, match="legacy plaintext narrative cache"):
         ai_engine.call_llm("synthetic minimized prompt", external_processing_consent=True)
+
+
+
+def test_legacy_cache_purge_refuses_to_follow_cache_directory_symlink(tmp_path, monkeypatch):
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    legacy = outside / "narrative_cache.json"
+    legacy.write_text('{"sample":"CANARY"}', encoding="utf-8")
+    linked_cache_dir = tmp_path / "checkout-cache"
+    linked_cache_dir.symlink_to(outside, target_is_directory=True)
+
+    monkeypatch.setattr(ai_engine, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(
+        ai_engine, "LEGACY_NARRATIVE_CACHE_FILE",
+        linked_cache_dir / "narrative_cache.json",
+    )
+
+    assert ai_engine._purge_legacy_narrative_cache() is False
+    assert legacy.exists()
