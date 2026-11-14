@@ -387,3 +387,5 @@ def test_streamlit_upload_handling_does_not_retain_filenames_or_render_raw_error
     report_page = (Path(__file__).resolve().parents[1] / "ui" / "pages" / "5_Fiduciary_Report.py").read_text(encoding="utf-8")
     assert "{_pdf_err}" not in report_page
     assert "Sensitive report and exception details are not displayed." in report_page
+    assert 'st.caption(f"Raw alert data: {al}")' not in source
+    assert "Sensitive alert data and exception details are not displayed." in source
