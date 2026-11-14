@@ -105,7 +105,7 @@ def test_review_lifecycle_requires_independent_trusted_reviewer_and_is_append_on
     superseded = transition_lifecycle(
         decision_trace_sha256=digest, to_state="SUPERSEDED", actor_id="operator-01",
         reason_code="NEW_DECISION", policy_sha256="1" * 64, source_evidence_sha256="2" * 64,
-        replacement_decision_trace_sha256="f" * 64, storage_dir=tmp_path,
+        replacement_decision_trace_sha256="f" * 64, authorized_operator_ids={"operator-01"}, storage_dir=tmp_path,
     )
     assert superseded["state"] == "SUPERSEDED"
     with pytest.raises(ValueError, match="terminal"):
@@ -134,7 +134,7 @@ def test_review_lifecycle_detects_event_tampering(tmp_path):
     digest = "b" * 64
     _reviewable_draft(tmp_path, digest=digest)
     transition_lifecycle(
-        decision_trace_sha256=digest, to_state="WITHDRAWN", actor_id="user-01",
+        decision_trace_sha256=digest, to_state="WITHDRAWN", actor_id="author-01",
         reason_code="CLIENT_WITHDRAWAL", policy_sha256="1" * 64, source_evidence_sha256="2" * 64,
         storage_dir=tmp_path,
     )
