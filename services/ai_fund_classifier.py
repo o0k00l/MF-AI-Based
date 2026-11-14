@@ -495,6 +495,12 @@ def lookup_fund_segment_allocation_online(
         return dict(_ONLINE_LOOKTHROUGH_CACHE[scheme_name])
     if external_processing_consent is not True:
         return None
+    # A legacy on-disk cache may contain an investor's historical scheme set.
+    # Never disclose another scheme name externally while that cache is still
+    # present or cannot be safely removed. Recheck here, not only at import,
+    # because MF_ENGINE_DATA_DIR may be configured after module initialization.
+    if not _purge_legacy_online_lookthrough_cache():
+        return None
     # Scheme-name lookups disclose a user's holding to third parties. Require
     # both per-request consent and the deployment's provider/privacy approval.
     from core.ai_engine import external_processing_policy_approved
