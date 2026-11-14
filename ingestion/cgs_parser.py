@@ -57,24 +57,31 @@ def discover_cgs_report(
 
 
 def parse_cgs_excel(
-    cgs_path: str | Path,
+    cgs_path: str | Path | bytes | bytearray | memoryview,
     *,
     publisher_approval: dict[str, Any] | str | None = None,
     publisher_trust_registry: dict[str, Any] | None = None,
     require_authenticated_publisher: bool = False,
 ) -> Dict[str, Any]:
     """Extract CGS figures while preserving structural and publisher-authenticity states."""
-    path = Path(cgs_path)
-    if not path.exists() or not path.is_file():
-        raise FileNotFoundError(f"CGS statement not found at: {path}")
+    if isinstance(cgs_path, (bytes, bytearray, memoryview)):
+        # Uploaded statements stay in memory; never stage investor data on disk.
+        path = None
+        source_bytes = bytes(cgs_path)
+        source_name = "uploaded-cgs.xlsx"
+    else:
+        path = Path(cgs_path)
+        if not path.exists() or not path.is_file():
+            raise FileNotFoundError(f"CGS statement not found at: {path}")
+        source_bytes = path.read_bytes()
+        source_name = path.name
     if not isinstance(require_authenticated_publisher, bool):
         raise TypeError("require_authenticated_publisher must be boolean")
     from ingestion.statement_validator import validate_cgs_excel, require_authenticated_statement
     from ingestion.statement_publisher_review import (
         authenticate_statement_with_reviewer_approval, public_statement_provenance,
     )
-    source_bytes = path.read_bytes()
-    statement_validation = validate_cgs_excel(source_bytes, path.name)
+    statement_validation = validate_cgs_excel(source_bytes, source_name)
     if not statement_validation.is_valid or not statement_validation.structural_validity:
         raise ValueError("CGS structural validation failed: " + "; ".join(statement_validation.errors))
     if publisher_approval is not None:
@@ -87,9 +94,21 @@ def parse_cgs_excel(
         require_authenticated_statement(statement_validation)
     statement_provenance = public_statement_provenance(statement_validation)
 
-    from ingestion.statement_selection import _validate_document
+    from ingestion.statement_selection import _embedded_statement_date
     try:
-        statement_as_of_date, validated_source_sha256 = _validate_document(path, "CGS")
+        date_workbook = openpyxl.load_workbook(
+            io.BytesIO(source_bytes), read_only=True, data_only=True
+        )
+        try:
+            supported_sheets = {"Summary", "Scheme_Level_Summary", "TransactionDetails"}
+            if not (supported_sheets & set(date_workbook.sheetnames)):
+                raise ValueError("Not a supported CGS workbook")
+            statement_as_of_date = _embedded_statement_date(date_workbook)
+        finally:
+            date_workbook.close()
+        if statement_as_of_date is None:
+            raise ValueError("CGS statement has missing or conflicting embedded dates")
+        validated_source_sha256 = hashlib.sha256(source_bytes).hexdigest()
         if validated_source_sha256 != hashlib.sha256(source_bytes).hexdigest():
             raise ValueError("CGS source digest changed during validation")
         statement_selection_error = None
@@ -341,8 +360,8 @@ def parse_cgs_excel(
     parse_status = "COMPLETE" if not parse_errors else "INCOMPLETE"
 
     return {
-        "statement_path": str(path),
-        "filename": path.name,
+        "statement_path": str(path) if path is not None else None,
+        "filename": path.name if path is not None else source_name,
         "source_sha256": source_sha256,
         "statement_provenance": statement_provenance,
         "statement_as_of_date": (
