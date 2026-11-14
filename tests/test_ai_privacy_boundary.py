@@ -329,3 +329,26 @@ def test_online_scheme_query_cache_is_memory_only_and_legacy_file_is_purged(tmp_
     assert classifier._external_lookthrough_cache_file() is None
     assert classifier._purge_legacy_online_lookthrough_cache() is True
     assert not legacy.exists()
+
+
+
+def test_active_ui_and_api_do_not_enable_external_ai_without_consent():
+    import re
+    from pathlib import Path
+
+    project_root = Path(__file__).resolve().parents[1]
+    source_files = [project_root / "app.py"]
+    for folder in ("ui", "api"):
+        source_files.extend((project_root / folder).rglob("*.py"))
+
+    enabling_call = re.compile(
+        r"\b(?:use_live_ai|external_processing_consent)\s*=\s*True\b"
+    )
+    violations = []
+    for source_file in source_files:
+        if not source_file.is_file():
+            continue
+        if enabling_call.search(source_file.read_text(encoding="utf-8")):
+            violations.append(str(source_file.relative_to(project_root)))
+
+    assert violations == []
