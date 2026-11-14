@@ -639,3 +639,25 @@ def test_interactive_ai_does_not_transmit_free_text_question(monkeypatch):
     assert "ABCDE1234F" not in captured[0]
     assert "987654321" not in captured[0]
     assert "[WITHHELD" in captured[0]
+
+
+
+def test_numeric_folio_and_account_identifiers_are_collected_from_fact_objects():
+    from types import SimpleNamespace
+    from core.prompt_advisor import _sensitive_identifiers_from_facts
+
+    facts = SimpleNamespace(
+        client_name="Synthetic Investor",
+        holdings=[SimpleNamespace(
+            fund_name="Synthetic Scheme",
+            folio_number=987654321,
+            account_id=123456789012,
+        )],
+        fee_bleed=SimpleNamespace(details=[]),
+        overlap_matrix=[],
+        weighted_overlap=[],
+        thematic_exposures=[],
+    )
+    identifiers = _sensitive_identifiers_from_facts(facts)
+    assert "987654321" in identifiers
+    assert "123456789012" in identifiers
