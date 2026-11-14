@@ -395,23 +395,20 @@ def test_cgs_goal_and_risk_ai_paths_minimize_prompts_before_external_calls(monke
         assert kwargs["use_cache"] is False
 
 
-def test_online_scheme_cache_is_disabled_or_external_to_repository(tmp_path, monkeypatch):
+def test_online_scheme_cache_is_never_persisted(tmp_path, monkeypatch):
     from services.ai_fund_classifier import _external_lookthrough_cache_file
-    from pathlib import Path
     import services.ai_fund_classifier as classifier
 
     monkeypatch.delenv("MF_ENGINE_DATA_DIR", raising=False)
     assert _external_lookthrough_cache_file() is None
 
-    monkeypatch.setenv("MF_ENGINE_DATA_DIR", str(classifier.Path(__file__).resolve().parents[1] / "data" / "cache"))
+    project_cache = classifier.Path(__file__).resolve().parents[1] / "data" / "cache"
+    monkeypatch.setenv("MF_ENGINE_DATA_DIR", str(project_cache))
     assert _external_lookthrough_cache_file() is None
 
     external_root = tmp_path / "engine-data"
     monkeypatch.setenv("MF_ENGINE_DATA_DIR", str(external_root))
-    cache_file = _external_lookthrough_cache_file()
-    assert cache_file == external_root / "online_fund_lookthrough.json"
-    assert cache_file is not None
-    assert not cache_file.is_relative_to(Path(__file__).resolve().parents[1])
+    assert _external_lookthrough_cache_file() is None
 
 
 def test_active_fund_enrichment_propagates_explicit_external_consent(monkeypatch):
