@@ -460,7 +460,7 @@ Respond ONLY with a valid JSON array of objects, one per scheme, in this exact f
                     _AI_SCHEME_CACHE[c_key] = res
                     # Restore local caller keys without sending plan variants externally.
                     for original_name in needed:
-                        if extract_canonical_scheme_name(original_name) == c_key:
+                        if extract_canonical_scheme_name(original_name).casefold() == str(c_key).casefold():
                             _AI_SCHEME_CACHE[original_name] = res
                             results[original_name] = res
     except Exception as exc:
