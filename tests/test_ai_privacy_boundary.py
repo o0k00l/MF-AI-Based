@@ -389,3 +389,7 @@ def test_streamlit_upload_handling_does_not_retain_filenames_or_render_raw_error
     assert "Sensitive report and exception details are not displayed." in report_page
     assert 'st.caption(f"Raw alert data: {al}")' not in source
     assert "Sensitive alert data and exception details are not displayed." in source
+
+    classifier_source = (Path(__file__).resolve().parents[1] / "services" / "ai_fund_classifier.py").read_text(encoding="utf-8")
+    assert 'logger.warning("Could not read policy scheme_master.json: %s", exc)' not in classifier_source
+    assert 'logger.warning("Could not read policy scheme_master.json (%s)", type(exc).__name__)' in classifier_source
