@@ -249,15 +249,30 @@ def test_external_ai_requires_provider_policy_approval_even_with_investor_consen
     monkeypatch.setattr(ai_engine, "_call_openrouter", lambda *a, **k: called.append("openrouter") or "must not run")
     monkeypatch.setattr(ai_engine, "_call_requesty", lambda *a, **k: called.append("requesty") or "must not run")
 
-    with pytest.raises(ai_engine.ProviderError, match="provider data-use and retention review"):
+    with pytest.raises(ai_engine.ProviderError, match="auditable investor-consent ledger"):
         ai_engine.call_llm("synthetic minimized prompt", external_processing_consent=True)
     assert called == []
 
 
 def test_operator_environment_flag_cannot_bypass_missing_consent_ledger(monkeypatch):
+    called = []
+    monkeypatch.setattr(
+        ai_engine, "_call_openrouter",
+        lambda *a, **k: called.append("openrouter") or "unsafe",
+    )
+    monkeypatch.setattr(
+        ai_engine, "_call_requesty",
+        lambda *a, **k: called.append("requesty") or "unsafe",
+    )
     for value in ("", "false", "1 ", "approved", "yes-no", "true", "yes"):
         monkeypatch.setenv("MF_EXTERNAL_PROCESSING_POLICY_APPROVED", value)
         assert ai_engine.external_processing_policy_approved() is False
+        with pytest.raises(ai_engine.ProviderError, match="auditable investor-consent ledger"):
+            ai_engine.call_llm(
+                "synthetic minimized prompt",
+                external_processing_consent=True,
+            )
+    assert called == []
 
 
 
@@ -311,7 +326,7 @@ def test_direct_provider_adapter_requires_both_privacy_gates(monkeypatch):
         )
 
     monkeypatch.delenv("MF_EXTERNAL_PROCESSING_POLICY_APPROVED")
-    with pytest.raises(ai_engine.ProviderError, match="provider privacy approval"):
+    with pytest.raises(ai_engine.ProviderError, match="auditable investor-consent ledger"):
         ai_engine._call_openai_compatible(
             "OpenRouter", ai_engine.OPENROUTER_BASE_URL, "synthetic prompt",
             external_processing_consent=True,
