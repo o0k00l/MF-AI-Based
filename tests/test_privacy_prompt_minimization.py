@@ -577,3 +577,65 @@ def test_batch_classifier_sends_canonical_names_without_plan_variants(monkeypatc
     assert "Regular Growth" not in prompt
     assert kwargs["use_cache"] is False
     assert kwargs["external_processing_consent"] is True
+
+
+
+def test_sensitive_identifier_collection_covers_fee_and_overlap_records():
+    from types import SimpleNamespace
+    from core.prompt_advisor import _sensitive_identifiers_from_facts
+
+    facts = SimpleNamespace(
+        client_name="Synthetic Investor",
+        holdings=[],
+        fee_bleed=SimpleNamespace(details=[{"fund_name": "CANARY FEE SCHEME"}]),
+        overlap_matrix=[SimpleNamespace(
+            fund_a="CANARY OVERLAP FUND A",
+            fund_b="CANARY OVERLAP FUND B",
+            shared_stocks=["CANARY OVERLAP STOCK"],
+        )],
+        weighted_overlap=[SimpleNamespace(
+            fund_a="CANARY WEIGHTED FUND A",
+            fund_b="CANARY WEIGHTED FUND B",
+            shared_stocks=["CANARY WEIGHTED STOCK"],
+        )],
+        thematic_exposures=[],
+    )
+    identifiers = _sensitive_identifiers_from_facts(facts)
+    for value in (
+        "CANARY FEE SCHEME", "CANARY OVERLAP FUND A", "CANARY OVERLAP FUND B",
+        "CANARY OVERLAP STOCK", "CANARY WEIGHTED FUND A",
+        "CANARY WEIGHTED FUND B", "CANARY WEIGHTED STOCK",
+    ):
+        assert value in identifiers
+
+
+def test_interactive_ai_does_not_transmit_free_text_question(monkeypatch):
+    import core.ai_engine as ai_engine
+    import services.ai_fund_classifier as classifier
+
+    captured = []
+    monkeypatch.setenv("MF_EXTERNAL_PROCESSING_POLICY_APPROVED", "true")
+
+    def fake_call_llm(prompt, **kwargs):
+        captured.append(prompt)
+        return "Synthetic generic narrative response long enough for the live result path."
+
+    monkeypatch.setattr(ai_engine, "call_llm", fake_call_llm)
+    result = classifier.answer_fiduciary_query(
+        "My name is John Doe, PAN ABCDE1234F, folio 987654321; explain my situation.",
+        {
+            "total_value": 100000, "eq_pct": 70, "debt_pct": 30,
+            "regular_value": 25000, "regular_pct": 25, "annual_bleed": 200,
+            "compounded_10y_drag": 2000, "dual_count": 0,
+        },
+        [],
+        use_live_ai=True,
+        external_processing_consent=True,
+    )
+
+    assert result["source"] == "Live AI Assistant (Fiduciary Intelligence)"
+    assert len(captured) == 1
+    assert "John Doe" not in captured[0]
+    assert "ABCDE1234F" not in captured[0]
+    assert "987654321" not in captured[0]
+    assert "[WITHHELD" in captured[0]

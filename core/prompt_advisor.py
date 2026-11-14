@@ -85,6 +85,19 @@ def _sensitive_identifiers_from_facts(facts: Any) -> list[str]:
         for name in holding_fields:
             add(field(holding, name))
 
+    # Scheme names in fee-drag and overlap records must be redacted even when a
+    # caller supplied an incomplete holdings list.
+    fee_bleed = getattr(facts, "fee_bleed", None)
+    for detail in field(fee_bleed, "details") or []:
+        add(field(detail, "fund_name"))
+        add(field(detail, "scheme_name"))
+    for collection_name in ("overlap_matrix", "weighted_overlap"):
+        for pair in getattr(facts, collection_name, None) or []:
+            add(field(pair, "fund_a"))
+            add(field(pair, "fund_b"))
+            for stock in field(pair, "shared_stocks") or []:
+                add(stock)
+
     # Theme/stock names and deterministic destination names can reveal the
     # investor's portfolio composition just as directly as holding rows.
     for exposure in getattr(facts, "thematic_exposures", None) or []:

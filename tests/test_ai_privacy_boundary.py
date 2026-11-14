@@ -299,3 +299,20 @@ def test_legacy_cache_purge_refuses_to_follow_cache_directory_symlink(tmp_path, 
 
     assert ai_engine._purge_legacy_narrative_cache() is False
     assert legacy.exists()
+
+
+
+def test_direct_provider_adapter_requires_both_privacy_gates(monkeypatch):
+    monkeypatch.setenv("MF_EXTERNAL_PROCESSING_POLICY_APPROVED", "true")
+    with pytest.raises(ai_engine.ProviderError, match="explicit investor consent"):
+        ai_engine._call_openai_compatible(
+            "OpenRouter", ai_engine.OPENROUTER_BASE_URL, "synthetic prompt",
+            external_processing_consent=False,
+        )
+
+    monkeypatch.delenv("MF_EXTERNAL_PROCESSING_POLICY_APPROVED")
+    with pytest.raises(ai_engine.ProviderError, match="provider privacy approval"):
+        ai_engine._call_openai_compatible(
+            "OpenRouter", ai_engine.OPENROUTER_BASE_URL, "synthetic prompt",
+            external_processing_consent=True,
+        )

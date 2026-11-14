@@ -1792,7 +1792,7 @@ Format: Clear markdown bullet points."""
                     "content": raw_res.strip(),
                 }
         except Exception as exc:
-            logger.debug("Live AI narrative generation unavailable: %s", exc)
+            logger.debug("Live AI narrative generation unavailable (%s)", type(exc).__name__)
 
     # 2. Deterministic Statutory Fiduciary Synthesis (SEBI 2017 & AMFI Factual Rules)
     lines = [
@@ -2169,7 +2169,7 @@ def answer_fiduciary_query(
             from core.ai_engine import call_llm
             prompt = f"""You are a SEBI-registered Fee-Only Fiduciary Wealth Advisor. Answer the client's question strictly using their audited mutual fund portfolio data:
 
-Client Question: "{q_clean}"
+Client Question: [WITHHELD — user-entered text is not transmitted to third-party AI.]
 
 Portfolio Facts:
 - Total Valuation: INR {tot_val:,.0f} across {len(funds)} holdings.
