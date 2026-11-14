@@ -46,7 +46,7 @@ def safe_failure_category(diagnostics: str, exc: Exception) -> str:
 
 def main() -> int:
     if not ai_engine.external_processing_policy_approved():
-        print("Blocked: complete the provider data-use/retention review, then set MF_EXTERNAL_PROCESSING_POLICY_APPROVED=true.")
+        print("Blocked: external AI is hard-disabled in this release. An environment flag or caller-supplied boolean cannot authorize processing. Implement and deploy the audited investor-consent ledger and independently approved provider integration before enabling any provider smoke test.")
         return 2
     missing = [name for _, name, _ in PROVIDERS if not os.getenv(name, "").strip()]
     if missing:
