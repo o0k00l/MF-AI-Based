@@ -46,7 +46,7 @@ python app.py
 streamlit run app.py
 ```
 
-Both commands target the root `app.py` launcher. It displays a readiness/retirement notice and deliberately does not import or execute `ui/app.py`. The legacy Streamlit dashboard and its planning pages are not a supported investor workflow. Do not launch `ui/app.py` directly or re-enable it as a shortcut.
+Both commands target the root `app.py` launcher. It displays a readiness/retirement notice and deliberately does not import or execute `ui/app.py`. The legacy Streamlit dashboard and its planning pages are not a supported investor workflow. `ui/app.py` is itself a disabled retirement notice, so launching it directly cannot expose the legacy dashboard. Do not re-enable it as a shortcut.
 
 The API can be started separately for controlled development with:
 
