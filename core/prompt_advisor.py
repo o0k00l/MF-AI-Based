@@ -67,6 +67,8 @@ def _sensitive_identifiers_from_facts(facts: Any) -> list[str]:
     def add(value: Any) -> None:
         if isinstance(value, str) and value.strip():
             identifiers.add(value.strip())
+        elif isinstance(value, int) and not isinstance(value, bool):
+            identifiers.add(str(value))
 
     def field(record: Any, name: str) -> Any:
         return record.get(name) if isinstance(record, dict) else getattr(record, name, None)
