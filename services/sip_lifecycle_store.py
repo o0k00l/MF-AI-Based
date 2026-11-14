@@ -237,6 +237,16 @@ def transition_lifecycle(
     reason = _reason(reason_code)
     if to_state not in {"REVIEWED", "SUPERSEDED", "WITHDRAWN"}:
         raise ValueError("unsupported lifecycle target state")
+    replacement_value = replacement_decision_trace_sha256.lower() if isinstance(replacement_decision_trace_sha256, str) else None
+    idempotency_key = hashlib.sha256(_canonical({
+        "decision_trace_sha256": digest,
+        "to_state": to_state,
+        "actor_id": actor,
+        "reason_code": reason,
+        "policy_sha256": policy,
+        "source_evidence_sha256": source,
+        "replacement_decision_trace_sha256": replacement_value,
+    })).hexdigest()
     root = _storage_root(storage_dir)
     if root is None:
         return {"state": "DRAFT", "state_persisted": False, "persistence_status": "STORE_NOT_CONFIGURED"}
@@ -244,6 +254,16 @@ def transition_lifecycle(
         draft, previous, sequence = _load_state(root, digest)
         current = "DRAFT"
         event_dir = root / "events" / digest
+        if event_dir.exists():
+            for prior_path in sorted(event_dir.glob("*.json")):
+                prior_event = json.loads(prior_path.read_text(encoding="utf-8"))
+                if prior_event.get("idempotency_key") == idempotency_key:
+                    return {
+                        "state": prior_event["state"],
+                        "state_persisted": True,
+                        "event_sha256": prior_event["event_sha256"],
+                        "persistence_status": "ALREADY_RECORDED",
+                    }
         if sequence:
             latest = sorted(event_dir.glob("*.json"))[-1]
             current = json.loads(latest.read_text(encoding="utf-8"))["state"]
@@ -286,6 +306,7 @@ def transition_lifecycle(
             "policy_sha256": policy,
             "source_evidence_sha256": source,
             "replacement_decision_trace_sha256": replacement if to_state == "SUPERSEDED" else None,
+            "idempotency_key": idempotency_key,
             "created_at": datetime.now(timezone.utc).isoformat(timespec="microseconds"),
             "previous_event_sha256": previous,
             "execution_authorized": False,
@@ -306,13 +327,14 @@ def get_lifecycle_status(
     root = _storage_root(storage_dir)
     if root is None:
         return {"state": "UNKNOWN", "state_persisted": False, "persistence_status": "STORE_NOT_CONFIGURED"}
-    draft, previous, sequence = _load_state(root, digest)
-    state = "DRAFT"
-    event_dir = root / "events" / digest
-    if sequence:
-        latest = sorted(event_dir.glob("*.json"))[-1]
-        state = json.loads(latest.read_text(encoding="utf-8"))["state"]
-    return {"state": state, "state_persisted": True, "event_count": sequence, "last_event_sha256": previous, "execution_authorized": False}
+    with _decision_lock(root, digest):
+        draft, previous, sequence = _load_state(root, digest)
+        state = "DRAFT"
+        event_dir = root / "events" / digest
+        if sequence:
+            latest = sorted(event_dir.glob("*.json"))[-1]
+            state = json.loads(latest.read_text(encoding="utf-8"))["state"]
+        return {"state": state, "state_persisted": True, "event_count": sequence, "last_event_sha256": previous, "execution_authorized": False}
 
 
 def assess_review_triggers(
