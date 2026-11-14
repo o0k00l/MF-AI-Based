@@ -594,7 +594,7 @@ with tab_ai_tax:
 
     ai_c1, ai_c2 = st.columns([3, 1])
     with ai_c1:
-        st.markdown("Unlock your portfolio's untapped potential with AI-powered fiduciary insights, backed by SEBI & AMFI statutory benchmarks.")
+        st.markdown("Generate local deterministic fiduciary insights backed by supplied portfolio facts and verified policy evidence. External AI processing remains disabled until auditable investor consent and provider review are implemented.")
     with ai_c2:
         gen_ai_btn = st.button("🧠 **Synthesize Diagnosis**", use_container_width=True)
 
@@ -621,7 +621,7 @@ with tab_ai_tax:
                     portfolio_metrics=portfolio_metrics_summary,
                     funds=funds,
                     target_saa=st.session_state.get("saa_target"),
-                    use_live_ai=True,
+                    use_live_ai=False,
                 )
 
         diag = st.session_state.get("ai_portfolio_narrative")
@@ -680,8 +680,8 @@ with tab_ai_tax:
 
     st.markdown("---")
     # 3. Interactive AI Fiduciary Assistant
-    st.markdown("##### 💬 **AI Ask-Me-Anything** – Your Portfolio Questions, Instantly Answered")
-    st.caption("Query your investments in plain English – from commission bleed to optimal rebalancing strategies.")
+    st.markdown("##### 💬 **Fiduciary Portfolio Q&A** – Local Deterministic Analysis")
+    st.caption("Ask portfolio questions in plain English. Responses are generated locally; free-text questions and portfolio data are not sent to external AI providers.")
 
     quick_cols = st.columns(5)
     preset_q = None
@@ -716,7 +716,7 @@ with tab_ai_tax:
                 portfolio_metrics=portfolio_metrics_summary,
                 funds=funds,
                 target_saa=st.session_state.get("saa_target"),
-                use_live_ai=True,
+                use_live_ai=False,
             )
             st.markdown(f"""
             <div class="qa-callout">
