@@ -282,14 +282,16 @@ def test_provider_call_fails_closed_if_legacy_narrative_cache_cannot_be_removed(
 
 
 def test_legacy_cache_purge_refuses_to_follow_cache_directory_symlink(tmp_path, monkeypatch):
+    project_root = tmp_path / "checkout"
+    project_root.mkdir()
     outside = tmp_path / "outside"
     outside.mkdir()
     legacy = outside / "narrative_cache.json"
     legacy.write_text('{"sample":"CANARY"}', encoding="utf-8")
-    linked_cache_dir = tmp_path / "checkout-cache"
+    linked_cache_dir = project_root / "cache"
     linked_cache_dir.symlink_to(outside, target_is_directory=True)
 
-    monkeypatch.setattr(ai_engine, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(ai_engine, "PROJECT_ROOT", project_root)
     monkeypatch.setattr(
         ai_engine, "LEGACY_NARRATIVE_CACHE_FILE",
         linked_cache_dir / "narrative_cache.json",
