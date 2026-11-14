@@ -55,7 +55,7 @@ def test_retired_ui_entrypoint_is_disabled_even_when_launched_directly():
             imported.update(alias.name.split(".")[0] for alias in node.names)
         elif isinstance(node, ast.ImportFrom) and node.module:
             imported.add(node.module.split(".")[0])
-    assert imported == {"streamlit"}
+    assert imported - {"__future__"} == {"streamlit"}
     assert "st.stop()" in source
     assert "parse_cas_file" not in source
     assert "request_sip_recommendations" not in source
