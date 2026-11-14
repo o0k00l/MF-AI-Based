@@ -267,3 +267,14 @@ def test_openai_exception_does_not_preserve_free_form_provider_code():
     assert error.status_code == 400
     assert error.code is None
     assert "private prompt" not in str(error)
+
+
+
+def test_openai_exception_discards_pan_shaped_provider_code():
+    error = ai_engine._openai_exception(
+        "OpenRouter",
+        SimpleNamespace(status_code=400, code="ABCDE1234F"),
+        "vendor/model",
+    )
+    assert error.status_code == 400
+    assert error.code is None

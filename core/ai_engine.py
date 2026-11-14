@@ -331,14 +331,9 @@ def _should_try_next_model(error: ProviderError) -> bool:
 
 def _openai_exception(provider: str, exc: Exception, model: str) -> ProviderError:
     status = getattr(exc, "status_code", None)
-    raw_code = getattr(exc, "code", None)
+    # Provider error-code fields are not a trusted schema; some SDKs may
+    # surface response fragments or echoed request content here. Never retain them.
     code = None
-    if raw_code is not None and not isinstance(raw_code, bool):
-        candidate = str(raw_code).strip()
-        if candidate and len(candidate) <= 80 and all(
-            char.isalnum() or char in "_-." for char in candidate
-        ):
-            code = candidate
     return ProviderError(
         provider, f"{provider} request failed ({type(exc).__name__}).",
         status_code=status if isinstance(status, int) else None,
