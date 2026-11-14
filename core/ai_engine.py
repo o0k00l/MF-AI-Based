@@ -367,7 +367,7 @@ def _call_openai_compatible(
     if external_processing_consent is not True:
         raise ProviderError("Privacy", "External AI processing is blocked: explicit investor consent is required.")
     if not external_processing_policy_approved():
-        raise ProviderError("Privacy", "External AI processing is blocked: provider privacy approval is absent.")
+        raise ProviderError("Privacy", "External AI processing is blocked: auditable investor-consent ledger and provider approval integration are not implemented.")
     env_name = "REQUESTY_API_KEY" if provider == "Requesty" else "OPENROUTER_API_KEY"
     key = _get_provider_key(env_name)
     if not key:
@@ -476,14 +476,16 @@ def _call_gemini(prompt: str, system_prompt: str = "") -> str:
 
 
 def external_processing_policy_approved() -> bool:
-    """Return True only after an operator has approved external provider data-use terms.
+    """Fail closed until an auditable consent-ledger integration is implemented.
 
-    This deployment-level attestation is separate from per-investor consent.
-    The default is deny; callers must also pass external_processing_consent=True.
+    The former MF_EXTERNAL_PROCESSING_POLICY_APPROVED environment variable was
+    only an operator attestation. It could not prove that the current investor
+    gave purpose-specific consent or later withdrew it. Therefore no environment
+    setting may enable third-party processing in this release. Tests may stub
+    this function to exercise the isolated provider adapter without enabling it
+    in a deployed application.
     """
-    return os.getenv("MF_EXTERNAL_PROCESSING_POLICY_APPROVED", "").strip().lower() in {
-        "1", "true", "yes",
-    }
+    return False
 
 
 def call_llm(
@@ -507,7 +509,7 @@ def call_llm(
     if not external_processing_policy_approved():
         raise ProviderError(
             "Privacy",
-            "External AI processing is blocked: provider data-use and retention review is not approved for this deployment.",
+            "External AI processing is blocked: auditable investor-consent ledger and provider approval integration are not implemented.",
         )
     if not _purge_legacy_narrative_cache():
         raise ProviderError(

@@ -16,7 +16,7 @@ def test_external_ai_is_blocked_without_explicit_per_request_consent(monkeypatch
 
 
 def test_explicit_consent_allows_only_free_provider_and_never_persists_narrative(tmp_path, monkeypatch):
-    monkeypatch.setenv("MF_EXTERNAL_PROCESSING_POLICY_APPROVED", "true")
+    monkeypatch.setattr(ai_engine, "external_processing_policy_approved", lambda: True)
     monkeypatch.setattr(ai_engine, "MODEL_CACHE_FILE", None)
     monkeypatch.setattr(ai_engine, "_call_openrouter", lambda *a, **k: "approved narrative")
     monkeypatch.setattr(ai_engine, "_call_requesty", lambda *a, **k: pytest.fail("fallback should not run"))
@@ -131,7 +131,7 @@ def test_prompt_advisor_never_sends_client_name_or_folio_to_external_model(monke
 
 
 def test_free_provider_failure_is_controlled_and_never_falls_back_to_gemini(monkeypatch):
-    monkeypatch.setenv("MF_EXTERNAL_PROCESSING_POLICY_APPROVED", "true")
+    monkeypatch.setattr(ai_engine, "external_processing_policy_approved", lambda: True)
     attempted = []
     monkeypatch.setenv("GEMINI_API_KEY", "configured-but-prohibited")
     monkeypatch.setattr(
@@ -254,10 +254,10 @@ def test_external_ai_requires_provider_policy_approval_even_with_investor_consen
     assert called == []
 
 
-def test_provider_policy_approval_requires_explicit_true_value(monkeypatch):
-    for value in ("", "false", "1 ", "approved", "yes-no"):
+def test_operator_environment_flag_cannot_bypass_missing_consent_ledger(monkeypatch):
+    for value in ("", "false", "1 ", "approved", "yes-no", "true", "yes"):
         monkeypatch.setenv("MF_EXTERNAL_PROCESSING_POLICY_APPROVED", value)
-        assert ai_engine.external_processing_policy_approved() is (value.strip().lower() in {"1", "true", "yes"})
+        assert ai_engine.external_processing_policy_approved() is False
 
 
 
@@ -271,7 +271,7 @@ def test_legacy_plaintext_narrative_cache_is_removed(tmp_path):
 
 
 def test_provider_call_fails_closed_if_legacy_narrative_cache_cannot_be_removed(monkeypatch):
-    monkeypatch.setenv("MF_EXTERNAL_PROCESSING_POLICY_APPROVED", "true")
+    monkeypatch.setattr(ai_engine, "external_processing_policy_approved", lambda: True)
     monkeypatch.setattr(ai_engine, "_purge_legacy_narrative_cache", lambda path=None: False)
     monkeypatch.setattr(ai_engine, "_call_openrouter", lambda *a, **k: pytest.fail("provider must not run"))
     monkeypatch.setattr(ai_engine, "_call_requesty", lambda *a, **k: pytest.fail("provider must not run"))

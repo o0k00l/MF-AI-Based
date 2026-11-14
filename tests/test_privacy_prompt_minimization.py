@@ -330,7 +330,7 @@ def test_external_scheme_factsheet_lookup_requires_explicit_consent(monkeypatch)
     assert lookup_fund_segment_allocation_online("Private Investor Scheme 44") is None
     assert calls == []  # no scheme/holding disclosure to a search provider without consent
 
-    monkeypatch.setenv("MF_EXTERNAL_PROCESSING_POLICY_APPROVED", "true")
+    monkeypatch.setattr("core.ai_engine.external_processing_policy_approved", lambda: True)
     assert lookup_fund_segment_allocation_online(
         "Private Investor Scheme 44",
         external_processing_consent=True,
