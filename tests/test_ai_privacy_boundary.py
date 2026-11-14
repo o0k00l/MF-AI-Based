@@ -325,7 +325,7 @@ def test_direct_provider_adapter_requires_both_privacy_gates(monkeypatch):
             external_processing_consent=False,
         )
 
-    monkeypatch.delenv("MF_EXTERNAL_PROCESSING_POLICY_APPROVED")
+    monkeypatch.setenv("MF_EXTERNAL_PROCESSING_POLICY_APPROVED", "true")
     with pytest.raises(ai_engine.ProviderError, match="auditable investor-consent ledger"):
         ai_engine._call_openai_compatible(
             "OpenRouter", ai_engine.OPENROUTER_BASE_URL, "synthetic prompt",
