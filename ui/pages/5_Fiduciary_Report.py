@@ -545,7 +545,7 @@ else:
                         )
                         st.success("PDF report generated successfully!")
                     except Exception as _pdf_err:
-                        st.error(f"⚠️ PDF generation encountered an error: {_pdf_err}. Please use the HTML or Markdown download options above.")
+                        st.error("⚠️ PDF generation failed. Please use the HTML or Markdown download options above. Sensitive report and exception details are not displayed.")
         else:
             st.info("ℹ️ Direct PDF generation is offline in this environment (reportlab library not loaded). Please download as **HTML / Printable** above and press Ctrl+P (Print to PDF) in your browser for a client-ready document.")
 
