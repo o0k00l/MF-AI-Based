@@ -62,3 +62,55 @@ def test_call_llm_with_consent_sanitizes_prompt(monkeypatch):
     assert "[REDACTED_FOLIO]" in captured["prompt"]
     assert "the supplied investor portfolio" in captured["prompt"]
     assert res == "Sanitized narrative response"
+
+
+
+def test_interactive_fallback_withholds_untrusted_question_and_chat_history(monkeypatch):
+    from types import SimpleNamespace
+    import core.prompt_advisor as pa
+
+    captured = {}
+    monkeypatch.setattr(
+        pa,
+        "_engine_call_llm",
+        lambda prompt, **kwargs: captured.update({"prompt": prompt}) or "Generic response",
+    )
+    facts = SimpleNamespace(
+        client_name="Synthetic Investor",
+        holdings=[],
+        total_portfolio_value_inr=100000.0,
+        total_invested_value_inr=90000.0,
+        total_unrealized_gain_inr=10000.0,
+        holdings_count=0,
+        xirr_pct=0.12,
+        benchmark_xirr_pct=0.10,
+        alpha_pct=0.02,
+        monthly_sip_budget_inr=10000.0,
+        lumpsum_budget_inr=0.0,
+        fee_bleed=SimpleNamespace(
+            regular_funds_count=0, regular_portfolio_value_inr=0.0,
+            annual_bleed_inr=0.0, ten_year_compounded_loss_inr=0.0, details=[],
+        ),
+        saa_drift=SimpleNamespace(
+            current_equity_pct=70.0, current_debt_pct=30.0, current_cash_pct=0.0,
+            target_equity_pct=70.0, target_debt_pct=30.0, rebalance_required=False,
+        ),
+        thematic_exposures=[], overlap_matrix=[], weighted_overlap=[],
+        deterministic_sip_plan=None, deterministic_lumpsum_plan=None,
+        stability_buffer=None,
+    )
+    question = "My name is John Doe and my PAN is ABCDE1234F. Explain this portfolio."
+    history = [{"role": "user", "content": "Folio 987654321; account 123456789012"}]
+
+    result = answer_interactive_query(
+        facts, question, history, external_processing_consent=True,
+    )
+
+    assert result == "Generic response"
+    assert question not in captured["prompt"]
+    assert "John Doe" not in captured["prompt"]
+    assert "ABCDE1234F" not in captured["prompt"]
+    assert "987654321" not in captured["prompt"]
+    assert "123456789012" not in captured["prompt"]
+    assert "[WITHHELD" in captured["prompt"]
+    assert "CONVERSATION HISTORY:\n\n" in captured["prompt"]

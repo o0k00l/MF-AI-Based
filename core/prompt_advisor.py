@@ -890,7 +890,7 @@ CONVERSATION HISTORY:
 {history_str}
 
 USER QUESTION:
-"{sanitized_query}"
+[WITHHELD — arbitrary user-entered text is not sent to third-party AI.]
 
 Provide a qualitative fiduciary explanation only. Do not reconstruct redacted rupee amounts, investor names or scheme identifiers. Numerical financial decisions and figures remain in the deterministic local report.
 """
