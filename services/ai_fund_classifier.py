@@ -138,7 +138,8 @@ def _load_verified_policy_lookthrough() -> Dict[str, Dict[str, Any]]:
         with open(policy_file, "r", encoding="utf-8") as f:
             data = json.load(f)
     except Exception as exc:
-        logger.warning("Could not read policy scheme_master.json: %s", exc)
+        # Do not emit raw exception text into shared application logs.
+        logger.warning("Could not read policy scheme_master.json (%s)", type(exc).__name__)
         return {}
 
     registry: Dict[str, Dict[str, Any]] = {}
