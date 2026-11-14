@@ -139,6 +139,7 @@ class EngineBootstrapPipeline:
         require_commit_binding: bool = True,
         require_policy_binding: bool = True,
         require_artifact_binding: bool = True,
+        acquisition_errors: Optional[Dict[str, str]] = None,
     ) -> ValidationReport:
         """
         Builds and validates an unpromoted staging bundle.
@@ -424,6 +425,24 @@ class EngineBootstrapPipeline:
                 remediation="Acquire periodic portfolio constituent disclosures published by AMCs.",
             ))
 
+        # Acquisition failures must be visible in the report. A generic missing-data
+        # gate alone is insufficient to diagnose outages, parser drift, or source errors.
+        if acquisition_errors:
+            normalized_errors = tuple(
+                f"{source}: {message}"
+                for source, message in sorted(acquisition_errors.items())
+            )
+            gates.append(GateReport(
+                gate_name="SOURCE_ACQUISITION",
+                passed=False,
+                evidence_ref="acquisition_failed",
+                reasons=normalized_errors,
+                remediation=(
+                    "Restore the affected approved source or adapter, then rerun acquisition; "
+                    "do not substitute caller-authored or synthetic evidence."
+                ),
+            ))
+
         all_passed = all(g.passed for g in gates)
         status = "PROMOTABLE" if all_passed else "BLOCKED"
         unpromoted = None if all_passed else "One or more mandatory evidence gates failed."
@@ -469,31 +488,46 @@ class EngineBootstrapPipeline:
             raise ValueError("Staging bundle bootstrap requires mandatory cryptographic policy digest binding; caller cannot disable it.")
 
         inputs = dict(hermetic_inputs or {})
+        acquisition_errors: Dict[str, str] = {}
 
-        # Acquire Scheme Master if not supplied
+        # Acquire Scheme Master if not supplied. Preserve failures in the report;
+        # silently swallowing an outage makes an incomplete bootstrap look healthy.
         if "scheme_master" not in inputs:
             try:
                 rec = self.scheme_master_adapter.acquire(as_of)
                 inputs["scheme_master"] = rec.source_bytes
-            except Exception:
-                pass
+            except Exception as exc:
+                acquisition_errors["scheme_master"] = f"{type(exc).__name__}: {exc}"
 
-        # Acquire Daily NAV if not supplied
+        # Acquire Daily NAV if not supplied.
         if "daily_nav" not in inputs:
             try:
                 rec = self.nav_adapter.acquire(as_of)
                 inputs["daily_nav"] = rec.source_bytes
-            except Exception:
-                pass
+            except Exception as exc:
+                acquisition_errors["daily_nav"] = f"{type(exc).__name__}: {exc}"
 
-        # Acquire metrics if URL supplied and not in inputs
+        # A generic URL fetch is not a metrics adapter: it has no publisher-specific
+        # parsing, identity reconciliation, freshness or coverage contract. Do not
+        # mislabel arbitrary downloaded bytes as normalized fund metrics.
         if "metrics" not in inputs and metrics_source_url:
-            try:
-                raw_m = self.nav_adapter._fetch_url(metrics_source_url)
-                inputs["metrics"] = raw_m
-                inputs["metrics_json"] = raw_m
-            except Exception:
-                pass
+            acquisition_errors["fund_metrics"] = (
+                "No approved publisher-specific metrics adapter is configured; "
+                "raw URL bytes cannot be treated as normalized fund metrics."
+            )
+
+        if universe_source_url and "candidate_universe" not in inputs:
+            acquisition_errors["candidate_universe"] = (
+                "No approved candidate-universe adapter is configured for the supplied URL."
+            )
+        if master_source_url:
+            acquisition_errors["scheme_master_override"] = (
+                "Custom scheme-master URLs are not supported by the configured AMFI adapter."
+            )
+        if nav_source_url:
+            acquisition_errors["daily_nav_override"] = (
+                "Custom NAV URLs are not supported by the configured AMFI adapter."
+            )
 
         return self.build_staging_bundle(
             staging_dir=staging_dir,
@@ -507,6 +541,7 @@ class EngineBootstrapPipeline:
             require_commit_binding=True,
             require_policy_binding=True,
             require_artifact_binding=require_artifact_binding,
+            acquisition_errors=acquisition_errors,
         )
 
     def promote(
