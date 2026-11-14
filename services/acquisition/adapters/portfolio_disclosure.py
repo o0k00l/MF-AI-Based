@@ -8,6 +8,7 @@ from __future__ import annotations
 import hashlib
 import json
 from datetime import date, datetime, timezone
+from decimal import Decimal, InvalidOperation
 from typing import Any, Dict, Optional
 
 from services.acquisition.adapters.base import BaseSourceAdapter
@@ -40,7 +41,7 @@ class PortfolioDisclosureAdapter(BaseSourceAdapter):
         as_of: date,
         *,
         raw_bytes: Optional[bytes] = None,
-        reviewer_attested: bool = True,
+        reviewer_attested: bool = False,
     ) -> AcquisitionRecord:
         retrieval_timestamp = datetime.now(timezone.utc).isoformat()
         if raw_bytes is None:
@@ -59,29 +60,58 @@ class PortfolioDisclosureAdapter(BaseSourceAdapter):
         if not isinstance(payload, dict):
             raise ValueError(f"Portfolio disclosure payload for {self._scheme_id} must be a dictionary.")
 
+        if not self._scheme_id or not self._scheme_id.strip():
+            raise ValueError("A non-empty canonical scheme ID is required for disclosure acquisition.")
+        if not self.canonical_url.startswith("https://"):
+            raise ValueError("Portfolio disclosure source URL must use HTTPS.")
+        payload_scheme_id = payload.get("scheme_id")
+        if payload_scheme_id is not None and str(payload_scheme_id).strip() != self._scheme_id:
+            raise ValueError(
+                f"Disclosure scheme ID {payload_scheme_id!r} does not match requested scheme {self._scheme_id!r}."
+            )
+
         raw_weights = payload.get("constituent_weights")
         if not isinstance(raw_weights, dict) or not raw_weights:
             raise ValueError(f"Portfolio disclosure for {self._scheme_id} must contain non-empty constituent_weights.")
 
+        coverage_raw = payload.get("constituent_weights_coverage_pct")
+        if coverage_raw is None:
+            raise ValueError(
+                f"Portfolio disclosure for {self._scheme_id} must explicitly state constituent_weights_coverage_pct; "
+                "coverage is never inferred as 100%."
+            )
+        try:
+            coverage_decimal = Decimal(str(coverage_raw))
+            if not coverage_decimal.is_finite() or not (Decimal("0") < coverage_decimal <= Decimal("100")):
+                raise ValueError("Coverage percentage must be finite and in (0, 100].")
+        except (InvalidOperation, TypeError, ValueError) as exc:
+            raise ValueError(f"Invalid coverage percentage for {self._scheme_id}.") from exc
+
         clean_weights: Dict[str, float] = {}
+        total_weight = Decimal("0")
         for asset, weight in raw_weights.items():
             if not isinstance(asset, str) or not asset.strip():
                 raise ValueError(f"Portfolio disclosure for {self._scheme_id} has invalid asset identifier.")
             try:
-                w_val = float(weight)
-            except (ValueError, TypeError):
-                raise ValueError(f"Malformed weight value for {asset} in {self._scheme_id}.")
-            if w_val < 0:
+                weight_decimal = Decimal(str(weight))
+            except (InvalidOperation, TypeError, ValueError) as exc:
+                raise ValueError(f"Malformed weight value for {asset} in {self._scheme_id}.") from exc
+            if not weight_decimal.is_finite():
+                raise ValueError(f"Weight for {asset} in {self._scheme_id} must be finite.")
+            if weight_decimal < 0:
                 raise ValueError(f"Negative constituent weight for {asset} in {self._scheme_id}.")
-            clean_weights[asset.strip().upper()] = w_val
+            normalized_asset = asset.strip().upper()
+            if normalized_asset in clean_weights:
+                raise ValueError(f"Duplicate constituent identifier after normalization: {normalized_asset}.")
+            total_weight += weight_decimal
+            clean_weights[normalized_asset] = float(weight_decimal)
 
-        coverage_raw = payload.get("constituent_weights_coverage_pct", 100.0)
-        try:
-            coverage_pct = float(coverage_raw)
-            if not (0.0 <= coverage_pct <= 100.0):
-                raise ValueError(f"Coverage percentage out of range: {coverage_pct}")
-        except (ValueError, TypeError) as exc:
-            raise ValueError(f"Invalid coverage percentage for {self._scheme_id}.") from exc
+        if total_weight > coverage_decimal:
+            raise ValueError(
+                f"Constituent weights ({total_weight}) exceed disclosed coverage ({coverage_decimal}) "
+                f"for scheme {self._scheme_id}."
+            )
+        coverage_pct = float(coverage_decimal)
 
         normalized_record = {
             "source_url": self.canonical_url,
