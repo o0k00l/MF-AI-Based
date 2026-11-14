@@ -357,10 +357,11 @@ def test_stage_portfolio_rejects_envelope_with_tampered_stated_total(tmp_path):
     assert "stated_total mismatch" in result["error"]
 
 
-def test_stage_portfolio_rejects_repository_storage_root(tmp_path):
+def test_stage_portfolio_rejects_repository_storage_root(tmp_path, monkeypatch):
     from pathlib import Path
 
     repository_root = Path(__file__).resolve().parents[1]
+    monkeypatch.setenv("MF_CLIENT_DATA_DIR", str(repository_root))
     result = stage_portfolio({"holdings": []}, repository_root, slug="Must_Not_Write")
     assert result["staging_failed"] is True
     assert result["root"] is None
