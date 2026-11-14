@@ -333,8 +333,20 @@ def _get_provider_key(env_name: str) -> str:
     return ""
 
 
-def _call_openai_compatible(provider: str, base_url: str, prompt: str,
-                            system_prompt: str = "") -> str:
+def _call_openai_compatible(
+    provider: str,
+    base_url: str,
+    prompt: str,
+    system_prompt: str = "",
+    *,
+    external_processing_consent: bool = False,
+) -> str:
+    # Enforce both gates at the network adapter itself, not only in call_llm,
+    # so a direct/internal adapter call cannot bypass investor consent.
+    if external_processing_consent is not True:
+        raise ProviderError("Privacy", "External AI processing is blocked: explicit investor consent is required.")
+    if not external_processing_policy_approved():
+        raise ProviderError("Privacy", "External AI processing is blocked: provider privacy approval is absent.")
     env_name = "REQUESTY_API_KEY" if provider == "Requesty" else "OPENROUTER_API_KEY"
     key = _get_provider_key(env_name)
     if not key:
@@ -394,12 +406,22 @@ class _NullLock:
         return False
 
 
-def _call_requesty(prompt: str, system_prompt: str = "") -> str:
-    return _call_openai_compatible("Requesty", REQUESTY_BASE_URL, prompt, system_prompt)
+def _call_requesty(
+    prompt: str, system_prompt: str = "", *, external_processing_consent: bool = False
+) -> str:
+    return _call_openai_compatible(
+        "Requesty", REQUESTY_BASE_URL, prompt, system_prompt,
+        external_processing_consent=external_processing_consent,
+    )
 
 
-def _call_openrouter(prompt: str, system_prompt: str = "") -> str:
-    return _call_openai_compatible("OpenRouter", OPENROUTER_BASE_URL, prompt, system_prompt)
+def _call_openrouter(
+    prompt: str, system_prompt: str = "", *, external_processing_consent: bool = False
+) -> str:
+    return _call_openai_compatible(
+        "OpenRouter", OPENROUTER_BASE_URL, prompt, system_prompt,
+        external_processing_consent=external_processing_consent,
+    )
 
 
 def _exception_http_status(exc: Exception) -> int | None:
@@ -480,7 +502,11 @@ def call_llm(
     errors = []
     for name, function in providers:
         try:
-            result = function(full_prompt, system_prompt=system_instruction)
+            result = function(
+                full_prompt,
+                system_prompt=system_instruction,
+                external_processing_consent=external_processing_consent,
+            )
             if result:
                 return result
         except Exception as exc:
