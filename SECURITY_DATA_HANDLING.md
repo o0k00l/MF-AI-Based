@@ -77,6 +77,7 @@ A PR-based workflow is intended for future maintenance; it does not change the h
 ## 4. Current code and data-handling rules
 
 - Client data belongs outside the repository in a local directory supplied through `MF_CLIENT_DATA_DIR`.
+- The legacy CAS `stage_portfolio` materializer now refuses to write unless its root exactly matches `MF_CLIENT_DATA_DIR`, resolves outside the Git checkout, and uses a safe storage key. This is a path boundary, not encryption: any deployment using it must provide an encrypted volume, per-client OS/service-account isolation, least-privilege permissions, a documented retention/deletion schedule and verified backups. The helper is not approved for production until those controls are evidenced.
 - Commit only schemas, empty templates and synthetic test fixtures.
 - Never commit CAS statements, folio identifiers, transaction histories, identity data, bank balances, tax-lot details or client reports.
 - A filename being ignored is not proof that it is absent from a commit. Review `git status --ignored`, `git ls-files` and the actual staged diff before committing.
