@@ -87,6 +87,7 @@ def test_gemini_fails_closed_when_zero_cost_pricing_is_unverifiable():
 
 
 def test_narrative_provider_chain_excludes_gemini(monkeypatch):
+    monkeypatch.setenv("MF_EXTERNAL_PROCESSING_POLICY_APPROVED", "true")
     attempted = []
     def unavailable(prompt, system_prompt=""):
         attempted.append("openrouter")
@@ -218,6 +219,7 @@ def test_force_refresh_bypasses_stale_cache_even_when_cache_is_readable(monkeypa
 
 
 def test_gemini_key_never_activates_fallback_when_all_free_providers_fail(monkeypatch):
+    monkeypatch.setenv("MF_EXTERNAL_PROCESSING_POLICY_APPROVED", "true")
     attempted = []
     monkeypatch.setenv("GEMINI_API_KEY", "configured-but-prohibited")
     monkeypatch.setattr(
