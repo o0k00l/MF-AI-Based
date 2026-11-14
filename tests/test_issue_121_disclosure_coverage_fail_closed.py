@@ -35,11 +35,18 @@ def test_disclosure_rejects_non_finite_or_out_of_range_coverage(coverage):
         )
 
 
-@pytest.mark.parametrize("weight", [float("nan"), float("inf"), float("-inf"), -0.01])
-def test_disclosure_rejects_non_finite_or_negative_weights(weight):
-    with pytest.raises(ValueError, match="finite and non-negative"):
+@pytest.mark.parametrize("weight", [float("nan"), float("inf"), float("-inf")])
+def test_disclosure_rejects_non_finite_weights(weight):
+    with pytest.raises(ValueError, match="must be finite"):
         PortfolioDisclosureAdapter("scheme-123").acquire(
             AS_OF, raw_bytes=_payload(constituent_weights={"RELIANCE": weight})
+        )
+
+
+def test_disclosure_rejects_negative_weights():
+    with pytest.raises(ValueError, match="Negative constituent weight"):
+        PortfolioDisclosureAdapter("scheme-123").acquire(
+            AS_OF, raw_bytes=_payload(constituent_weights={"RELIANCE": -0.01})
         )
 
 
