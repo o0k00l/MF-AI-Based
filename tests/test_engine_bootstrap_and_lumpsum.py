@@ -534,6 +534,5 @@ def test_bootstrap_marks_only_engine_acquired_sources_as_production_provenance(t
     report = pipeline.bootstrap_staging_bundle(tmp_path / "staging", date(2026, 11, 14))
     provenance_gate = next(g for g in report.gates if g.gate_name == "PRODUCTION_SOURCE_PROVENANCE")
     assert provenance_gate.passed is True
-    # NAV + scheme-master acquisition is not a complete research dataset.
     assert report.status == "BLOCKED"
     assert any(g.gate_name == "FUND_METRICS_EVIDENCE" and not g.passed for g in report.gates)
