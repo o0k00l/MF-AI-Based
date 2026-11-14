@@ -125,7 +125,7 @@ class EngineBootstrapPipeline:
         self.nav_adapter = nav_adapter or AmfiNavAdapter()
         self.scheme_master_adapter = scheme_master_adapter or AmfiSchemeMasterAdapter()
 
-    def build_staging_bundle(
+    def _build_staging_bundle(
         self,
         staging_dir: Path,
         as_of: date,
@@ -140,6 +140,7 @@ class EngineBootstrapPipeline:
         require_policy_binding: bool = True,
         require_artifact_binding: bool = True,
         acquisition_errors: Optional[Dict[str, str]] = None,
+        production_acquisition: bool = False,
     ) -> ValidationReport:
         """
         Builds and validates an unpromoted staging bundle.
@@ -443,6 +444,33 @@ class EngineBootstrapPipeline:
                 ),
             ))
 
+        # Fixture/injected bytes are useful for deterministic tests, but they are
+        # not proof of publisher acquisition and must never authorize production
+        # promotion. Only bootstrap_staging_bundle may assert this after it has
+        # acquired the mandatory source feeds itself.
+        if not production_acquisition:
+            gates.append(GateReport(
+                gate_name="PRODUCTION_SOURCE_PROVENANCE",
+                passed=False,
+                evidence_ref="caller_supplied_or_unverified_inputs",
+                reasons=(
+                    "Evidence was supplied through hermetic_inputs or this validator "
+                    "was called outside the production acquisition path.",
+                ),
+                remediation=(
+                    "Run the engine-owned acquisition workflow against approved source "
+                    "adapters; test fixtures and caller-authored evidence are read-only "
+                    "validation inputs and cannot be promoted."
+                ),
+            ))
+        else:
+            gates.append(GateReport(
+                gate_name="PRODUCTION_SOURCE_PROVENANCE",
+                passed=True,
+                evidence_ref="engine_owned_adapter_acquisition",
+                freshness_date=as_of.isoformat(),
+            ))
+
         all_passed = all(g.passed for g in gates)
         status = "PROMOTABLE" if all_passed else "BLOCKED"
         unpromoted = None if all_passed else "One or more mandatory evidence gates failed."
@@ -457,6 +485,39 @@ class EngineBootstrapPipeline:
             unpromoted_reason=unpromoted,
         )
 
+
+    def build_staging_bundle(
+        self,
+        staging_dir: Path,
+        as_of: date,
+        *,
+        hermetic_inputs: Dict[str, Any],
+        reviewer_attested: bool = False,
+        reviewer_approval_envelope: Optional[Dict[str, Any]] = None,
+        reviewer_trust_registry: Optional[Dict[str, Any]] = None,
+        expected_commit_sha: Optional[str] = None,
+        expected_policy_digest: Optional[str] = None,
+        require_commit_binding: bool = True,
+        require_policy_binding: bool = True,
+        require_artifact_binding: bool = True,
+        acquisition_errors: Optional[Dict[str, str]] = None,
+    ) -> ValidationReport:
+        """Validate caller-provided inputs as read-only; never grant production provenance."""
+        return self._build_staging_bundle(
+            staging_dir,
+            as_of,
+            hermetic_inputs=hermetic_inputs,
+            reviewer_attested=reviewer_attested,
+            reviewer_approval_envelope=reviewer_approval_envelope,
+            reviewer_trust_registry=reviewer_trust_registry,
+            expected_commit_sha=expected_commit_sha,
+            expected_policy_digest=expected_policy_digest,
+            require_commit_binding=require_commit_binding,
+            require_policy_binding=require_policy_binding,
+            require_artifact_binding=require_artifact_binding,
+            acquisition_errors=acquisition_errors,
+            production_acquisition=False,
+        )
 
     def bootstrap_staging_bundle(
         self,
@@ -488,6 +549,10 @@ class EngineBootstrapPipeline:
             raise ValueError("Staging bundle bootstrap requires mandatory cryptographic policy digest binding; caller cannot disable it.")
 
         inputs = dict(hermetic_inputs or {})
+        # Any caller-injected evidence remains test/read-only evidence. The
+        # production provenance gate is satisfied only when the engine acquired
+        # all inputs itself in this invocation.
+        caller_supplied_inputs = bool(inputs)
         acquisition_errors: Dict[str, str] = {}
 
         # Acquire Scheme Master if not supplied. Preserve failures in the report;
@@ -529,7 +594,7 @@ class EngineBootstrapPipeline:
                 "Custom NAV URLs are not supported by the configured AMFI adapter."
             )
 
-        return self.build_staging_bundle(
+        return self._build_staging_bundle(
             staging_dir=staging_dir,
             as_of=as_of,
             hermetic_inputs=inputs,
@@ -542,6 +607,12 @@ class EngineBootstrapPipeline:
             require_policy_binding=True,
             require_artifact_binding=require_artifact_binding,
             acquisition_errors=acquisition_errors,
+            production_acquisition=(
+                not caller_supplied_inputs
+                and not acquisition_errors
+                and isinstance(inputs.get("scheme_master"), bytes)
+                and isinstance(inputs.get("daily_nav"), bytes)
+            ),
         )
 
     def promote(

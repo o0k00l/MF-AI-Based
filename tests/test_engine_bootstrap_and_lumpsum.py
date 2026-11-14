@@ -144,7 +144,7 @@ def test_engine_bootstrap_pipeline_validation_report(tmp_path):
     assert len(report.gates) >= 5
     assert not all(g.passed for g in report.gates)
 
-    # Complete inputs with valid cryptographic reviewer envelope produce PROMOTABLE status
+    # Complete-looking fixtures and a valid test signature must remain read-only.
     envelope, registry = _make_test_approval()
     report_valid = pipeline.build_staging_bundle(
         staging_dir,
@@ -161,8 +161,11 @@ def test_engine_bootstrap_pipeline_validation_report(tmp_path):
         reviewer_approval_envelope=envelope,
         reviewer_trust_registry=registry,
     )
-    assert report_valid.status == "PROMOTABLE"
-    assert all(g.passed for g in report_valid.gates)
+    assert report_valid.status == "BLOCKED"
+    provenance_gate = next(g for g in report_valid.gates if g.gate_name == "PRODUCTION_SOURCE_PROVENANCE")
+    assert provenance_gate.passed is False
+    assert "test fixtures" in provenance_gate.remediation
+    assert not all(g.passed for g in report_valid.gates)
 
 
 def test_evaluate_portfolio_aware_lumpsum_fails_closed_without_complete_evidence(tmp_path):
@@ -506,3 +509,30 @@ def test_bootstrap_does_not_treat_arbitrary_metrics_url_bytes_as_normalized_metr
                for reason in acquisition_gate.reasons)
     metrics_gate = next(g for g in report.gates if g.gate_name == "FUND_METRICS_EVIDENCE")
     assert metrics_gate.passed is False
+
+
+def test_bootstrap_marks_only_engine_acquired_sources_as_production_provenance(tmp_path):
+    from types import SimpleNamespace
+
+    class Adapter:
+        def __init__(self, payload):
+            self.payload = payload
+
+        def acquire(self, as_of):
+            return SimpleNamespace(source_bytes=self.payload)
+
+    pipeline = EngineBootstrapPipeline(
+        scheme_master_adapter=Adapter(
+            b"Scheme Code|ISIN Div Payout/ISIN Growth|ISIN Div Reinvestment|Scheme Name\\n"
+            b"100001|INF000000001|INF000000002|Example Fund\\n"
+        ),
+        nav_adapter=Adapter(
+            b"Scheme Code|ISIN Div Payout/ISIN Growth|ISIN Div Reinvestment|Scheme Name|Net Asset Value|Date\\n"
+            b"100001|INF000000001|INF000000002|Example Fund|123.45|14-Nov-2026\\n"
+        ),
+    )
+    report = pipeline.bootstrap_staging_bundle(tmp_path / "staging", date(2026, 11, 14))
+    provenance_gate = next(g for g in report.gates if g.gate_name == "PRODUCTION_SOURCE_PROVENANCE")
+    assert provenance_gate.passed is True
+    assert report.status == "BLOCKED"
+    assert any(g.gate_name == "FUND_METRICS_EVIDENCE" and not g.passed for g in report.gates)
