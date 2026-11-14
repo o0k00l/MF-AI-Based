@@ -134,6 +134,7 @@ def test_retry_policy_allows_network_failures_without_http_status():
 
 
 def test_openai_does_not_try_other_models_after_quota_failure(monkeypatch):
+    monkeypatch.setenv("MF_EXTERNAL_PROCESSING_POLICY_APPROVED", "true")
     attempted = []
 
     class Completions:

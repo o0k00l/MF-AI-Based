@@ -45,6 +45,9 @@ def safe_failure_category(diagnostics: str, exc: Exception) -> str:
 
 
 def main() -> int:
+    if not ai_engine.external_processing_policy_approved():
+        print("Blocked: complete the provider data-use/retention review, then set MF_EXTERNAL_PROCESSING_POLICY_APPROVED=true.")
+        return 2
     missing = [name for _, name, _ in PROVIDERS if not os.getenv(name, "").strip()]
     if missing:
         print("Missing required GitHub Actions secrets: " + ", ".join(missing))
@@ -54,7 +57,12 @@ def main() -> int:
         captured = io.StringIO()
         try:
             with contextlib.redirect_stdout(captured), contextlib.redirect_stderr(captured):
-                response = call(PROMPT, system_prompt="Return only the requested token.")
+                # This opt-in diagnostic sends a synthetic token prompt only; no investor data is loaded.
+                response = call(
+                    PROMPT,
+                    system_prompt="Return only the requested token.",
+                    external_processing_consent=True,
+                )
             if not isinstance(response, str) or not response.strip():
                 raise RuntimeError("empty response")
             print(f"{label}: PASS")
