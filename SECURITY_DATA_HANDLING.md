@@ -82,6 +82,12 @@ A PR-based workflow is intended for future maintenance; it does not change the h
 - A filename being ignored is not proof that it is absent from a commit. Review `git status --ignored`, `git ls-files` and the actual staged diff before committing.
 - Never use real-client values in unit tests, examples, screenshots, logs or benchmark fixtures.
 
+### Application upload/session boundary
+
+The active Streamlit UI reads CAS/CGS upload bytes into the current application session and parses them in memory. It does not intentionally write uploaded statement bytes to an application file or persistent narrative cache. Streamlit session state is server-side process/session memory, not client-side browser memory; it can contain parsed portfolio facts and derived report state until the session is discarded. The UI must not claim that this processing is client-side or that infrastructure-level logging/retention is controlled by application code.
+
+The UI stores a generic upload-source label rather than the original filename, and parser failures are shown as generic messages without echoing filenames, exception strings or parsed content. These application controls do not prove that a hosting provider, reverse proxy, crash reporter, APM agent, platform log collector, swap, backup or session-replay tool does not retain request metadata or memory. Deployment owners must disable payload capture, restrict operational logs, configure session expiry, and verify that uploaded bytes and parsed portfolio state are not exported to telemetry or backups.
+
 ## 5. Production-release conditions
 
 The application remains a non-executable decision-support prototype until the release report records the exact release SHA, complete passing CI results, tax/legal review, authenticated benchmark data and calendar, private-data purge verification, protected-branch status and independent reviewer sign-off.
