@@ -823,9 +823,8 @@ with tab_blueprint:
                         severity = al.get('severity', 'MEDIUM') or 'MEDIUM'
                         emoji = "🔴" if severity == "HIGH" else ("🟡" if severity == "MEDIUM" else "⚪")
                         st.warning(f"{emoji} **{slot}** - {action}")
-                    except (AttributeError, TypeError) as e:
-                        st.warning("⚠️ An alert could not be rendered. The underlying exception details are not displayed.")
-                        st.caption(f"Raw alert data: {al}")
+                    except (AttributeError, TypeError):
+                        st.warning("⚠️ An alert could not be rendered. Sensitive alert data and exception details are not displayed.")
 
         sip_table_data = []
         for rec in sip_res.get("recommendations", []):
