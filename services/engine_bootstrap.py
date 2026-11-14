@@ -125,7 +125,7 @@ class EngineBootstrapPipeline:
         self.nav_adapter = nav_adapter or AmfiNavAdapter()
         self.scheme_master_adapter = scheme_master_adapter or AmfiSchemeMasterAdapter()
 
-    def build_staging_bundle(
+    def _build_staging_bundle(
         self,
         staging_dir: Path,
         as_of: date,
@@ -486,6 +486,39 @@ class EngineBootstrapPipeline:
         )
 
 
+    def build_staging_bundle(
+        self,
+        staging_dir: Path,
+        as_of: date,
+        *,
+        hermetic_inputs: Dict[str, Any],
+        reviewer_attested: bool = False,
+        reviewer_approval_envelope: Optional[Dict[str, Any]] = None,
+        reviewer_trust_registry: Optional[Dict[str, Any]] = None,
+        expected_commit_sha: Optional[str] = None,
+        expected_policy_digest: Optional[str] = None,
+        require_commit_binding: bool = True,
+        require_policy_binding: bool = True,
+        require_artifact_binding: bool = True,
+        acquisition_errors: Optional[Dict[str, str]] = None,
+    ) -> ValidationReport:
+        """Validate caller-provided inputs as read-only; never grant production provenance."""
+        return self._build_staging_bundle(
+            staging_dir,
+            as_of,
+            hermetic_inputs=hermetic_inputs,
+            reviewer_attested=reviewer_attested,
+            reviewer_approval_envelope=reviewer_approval_envelope,
+            reviewer_trust_registry=reviewer_trust_registry,
+            expected_commit_sha=expected_commit_sha,
+            expected_policy_digest=expected_policy_digest,
+            require_commit_binding=require_commit_binding,
+            require_policy_binding=require_policy_binding,
+            require_artifact_binding=require_artifact_binding,
+            acquisition_errors=acquisition_errors,
+            production_acquisition=False,
+        )
+
     def bootstrap_staging_bundle(
         self,
         staging_dir: Path,
@@ -561,7 +594,7 @@ class EngineBootstrapPipeline:
                 "Custom NAV URLs are not supported by the configured AMFI adapter."
             )
 
-        return self.build_staging_bundle(
+        return self._build_staging_bundle(
             staging_dir=staging_dir,
             as_of=as_of,
             hermetic_inputs=inputs,
