@@ -33,7 +33,7 @@ try:
     from services.fiduciary_engine import generate_fiduciary_sip_blueprint, evaluate_portfolio_saa_audit, evaluate_fiduciary_lumpsum_blueprint
     from services.sidebar import render_fiduciary_sidebar
 except BaseException as _startup_exc:
-    st.error(f"⚠️ Service Engine Startup Notice: {type(_startup_exc).__name__}: {_startup_exc}")
+    st.error(f"⚠️ Service Engine Startup Notice: {type(_startup_exc).__name__}. Sensitive exception details are not displayed.")
     st.info(f"Target Repository Path: {_REPO_ROOT}")
     st.stop()
 
@@ -824,7 +824,7 @@ with tab_blueprint:
                         emoji = "🔴" if severity == "HIGH" else ("🟡" if severity == "MEDIUM" else "⚪")
                         st.warning(f"{emoji} **{slot}** - {action}")
                     except (AttributeError, TypeError) as e:
-                        st.warning(f"⚠️ Alert processing error: {str(e)}")
+                        st.warning("⚠️ An alert could not be rendered. The underlying exception details are not displayed.")
                         st.caption(f"Raw alert data: {al}")
 
         sip_table_data = []
