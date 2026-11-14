@@ -298,7 +298,7 @@ with upload_c2:
         help="Upload your CAMS / KFintech Capital Gains Statement for statutory tax audit",
         key="cgs_uploader_input",
     )
-    st.caption("🔒 100% Client-Side Privacy: Statement data remains strictly local in session memory. No data is stored or logged.")
+    st.caption("🔒 CAS/CGS files are parsed in this application session; this UI does not intentionally write uploaded statement bytes to an application file or persistent narrative cache. Processing occurs on the application server. External AI is disabled in this workflow. Deployment operators must separately control server logs, telemetry, backups and session retention.")
 
 # --- Parse Uploaded Statements ---
 funds = []
@@ -319,7 +319,7 @@ if uploaded_file is not None:
         has_detailed_txns = any(f.get("unrealized_ltcg") is not None for f in enriched_funds)
         st.session_state["portfolio_metadata"] = {
             "upload_time": str(__import__("datetime").datetime.now().isoformat()),
-            "upload_source": uploaded_file.name,
+            "upload_source": "Uploaded CAS statement",
             "fund_count": len(enriched_funds),
             "total_value": sum(f.get("current_value", 0) for f in enriched_funds),
             "is_detailed_statement": has_detailed_txns,
@@ -329,7 +329,7 @@ if uploaded_file is not None:
         st.session_state["ai_portfolio_narrative"] = None
 
     except Exception as exc:
-        st.error(f"❌ Error processing statement '{uploaded_file.name}': {exc}")
+        st.error("❌ The CAS statement could not be processed. Check that the file is a supported, valid statement and try again. Sensitive file contents and parser exception details are not displayed.")
         st.stop()
 
     if cgs_file is not None:
@@ -338,7 +338,7 @@ if uploaded_file is not None:
             cgs_result = parse_cgs_file(cgs_content)
             st.session_state["cgs_data"] = cgs_result
         except Exception as cgs_exc:
-            st.warning(f"⚠️ CGS Statement could not be fully parsed: {cgs_exc}")
+            st.warning("⚠️ The CGS statement could not be fully parsed. Check that the file is a supported, valid capital-gains statement and try again.")
 
 elif has_session_data:
     funds = enrich_funds_with_ai(st.session_state["user_portfolio"])
