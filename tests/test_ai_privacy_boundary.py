@@ -316,3 +316,16 @@ def test_direct_provider_adapter_requires_both_privacy_gates(monkeypatch):
             "OpenRouter", ai_engine.OPENROUTER_BASE_URL, "synthetic prompt",
             external_processing_consent=True,
         )
+
+
+
+def test_online_scheme_query_cache_is_memory_only_and_legacy_file_is_purged(tmp_path, monkeypatch):
+    import services.ai_fund_classifier as classifier
+
+    monkeypatch.setenv("MF_ENGINE_DATA_DIR", str(tmp_path))
+    legacy = tmp_path / "online_fund_lookthrough.json"
+    legacy.write_text('{"Synthetic Public Scheme": {"category": "Equity"}}', encoding="utf-8")
+
+    assert classifier._external_lookthrough_cache_file() is None
+    assert classifier._purge_legacy_online_lookthrough_cache() is True
+    assert not legacy.exists()

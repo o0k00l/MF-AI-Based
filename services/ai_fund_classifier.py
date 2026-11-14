@@ -50,33 +50,36 @@ def _call_privacy_safe_fiduciary_llm(
     )
 
 def _external_lookthrough_cache_file() -> Path | None:
-    """Use only the configured external engine-data directory; never the repository."""
+    """Persistent scheme-query caching is disabled because query history can reveal holdings."""
+    return None
+
+
+def _purge_legacy_online_lookthrough_cache() -> bool:
+    """Best-effort removal of the former shared disk cache; never read or rewrite it."""
     configured = os.getenv("MF_ENGINE_DATA_DIR", "").strip()
     if not configured:
-        return None
-    project_root = Path(__file__).resolve().parent.parent
-    root = Path(configured).expanduser().resolve()
+        return True
     try:
-        root.relative_to(project_root)
-    except ValueError:
-        pass
-    else:
-        return None
-    try:
-        root.mkdir(parents=True, exist_ok=True)
-        root = root.resolve(strict=True)
+        project_root = Path(__file__).resolve().parent.parent
+        root = Path(configured).expanduser().resolve()
+        try:
+            root.relative_to(project_root)
+        except ValueError:
+            pass
+        else:
+            return False
+        candidate = root / "online_fund_lookthrough.json"
+        if candidate.is_symlink() or candidate.is_file():
+            candidate.unlink()
+        return not candidate.exists() and not candidate.is_symlink()
     except OSError:
-        return None
-    try:
-        root.relative_to(project_root)
-    except ValueError:
-        pass
-    else:
-        return None
-    return root / "online_fund_lookthrough.json"
+        return False
 
 
-_CACHE_FILE = _external_lookthrough_cache_file()
+# Query results may be reused in memory for the current process only. They are
+# never persisted because the set of queried schemes can disclose an investor's holdings.
+_CACHE_FILE = None
+_ = _purge_legacy_online_lookthrough_cache()
 
 
 def _load_online_lookthrough_cache() -> Dict[str, Dict[str, Any]]:
