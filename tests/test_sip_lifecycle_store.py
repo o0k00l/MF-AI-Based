@@ -134,7 +134,7 @@ def test_review_lifecycle_detects_event_tampering(tmp_path):
     digest = "b" * 64
     _reviewable_draft(tmp_path, digest=digest)
     transition_lifecycle(
-        decision_trace_sha256=digest, to_state="WITHDRAWN", actor_id="investor-01",
+        decision_trace_sha256=digest, to_state="WITHDRAWN", actor_id="user-01",
         reason_code="CLIENT_WITHDRAWAL", policy_sha256="1" * 64, source_evidence_sha256="2" * 64,
         storage_dir=tmp_path,
     )
