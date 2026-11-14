@@ -96,8 +96,10 @@ class PortfolioDisclosureAdapter(BaseSourceAdapter):
                 weight_decimal = Decimal(str(weight))
             except (InvalidOperation, TypeError, ValueError) as exc:
                 raise ValueError(f"Malformed weight value for {asset} in {self._scheme_id}.") from exc
-            if not weight_decimal.is_finite() or weight_decimal < 0:
-                raise ValueError(f"Weight for {asset} in {self._scheme_id} must be finite and non-negative.")
+            if not weight_decimal.is_finite():
+                raise ValueError(f"Weight for {asset} in {self._scheme_id} must be finite.")
+            if weight_decimal < 0:
+                raise ValueError(f"Negative constituent weight for {asset} in {self._scheme_id}.")
             normalized_asset = asset.strip().upper()
             if normalized_asset in clean_weights:
                 raise ValueError(f"Duplicate constituent identifier after normalization: {normalized_asset}.")
