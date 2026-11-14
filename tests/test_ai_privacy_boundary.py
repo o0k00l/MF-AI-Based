@@ -352,3 +352,17 @@ def test_active_ui_and_api_do_not_enable_external_ai_without_consent():
             violations.append(str(source_file.relative_to(project_root)))
 
     assert violations == []
+
+
+
+def test_streamlit_upload_handling_does_not_retain_filenames_or_render_raw_errors():
+    from pathlib import Path
+
+    source = (Path(__file__).resolve().parents[1] / "ui" / "app.py").read_text(
+        encoding="utf-8"
+    )
+    assert "100% Client-Side Privacy" not in source
+    assert '"upload_source": uploaded_file.name' not in source
+    assert "Error processing statement" not in source
+    assert "{cgs_exc}" not in source
+    assert "Sensitive file contents and parser exception details are not displayed." in source
