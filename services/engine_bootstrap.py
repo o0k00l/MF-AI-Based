@@ -140,6 +140,7 @@ class EngineBootstrapPipeline:
         require_policy_binding: bool = True,
         require_artifact_binding: bool = True,
         acquisition_errors: Optional[Dict[str, str]] = None,
+        production_acquisition: bool = False,
     ) -> ValidationReport:
         """
         Builds and validates an unpromoted staging bundle.
@@ -443,6 +444,33 @@ class EngineBootstrapPipeline:
                 ),
             ))
 
+        # Fixture/injected bytes are useful for deterministic tests, but they are
+        # not proof of publisher acquisition and must never authorize production
+        # promotion. Only bootstrap_staging_bundle may assert this after it has
+        # acquired the mandatory source feeds itself.
+        if not production_acquisition:
+            gates.append(GateReport(
+                gate_name="PRODUCTION_SOURCE_PROVENANCE",
+                passed=False,
+                evidence_ref="caller_supplied_or_unverified_inputs",
+                reasons=(
+                    "Evidence was supplied through hermetic_inputs or this validator "
+                    "was called outside the production acquisition path.",
+                ),
+                remediation=(
+                    "Run the engine-owned acquisition workflow against approved source "
+                    "adapters; test fixtures and caller-authored evidence are read-only "
+                    "validation inputs and cannot be promoted."
+                ),
+            ))
+        else:
+            gates.append(GateReport(
+                gate_name="PRODUCTION_SOURCE_PROVENANCE",
+                passed=True,
+                evidence_ref="engine_owned_adapter_acquisition",
+                freshness_date=as_of.isoformat(),
+            ))
+
         all_passed = all(g.passed for g in gates)
         status = "PROMOTABLE" if all_passed else "BLOCKED"
         unpromoted = None if all_passed else "One or more mandatory evidence gates failed."
@@ -488,6 +516,10 @@ class EngineBootstrapPipeline:
             raise ValueError("Staging bundle bootstrap requires mandatory cryptographic policy digest binding; caller cannot disable it.")
 
         inputs = dict(hermetic_inputs or {})
+        # Any caller-injected evidence remains test/read-only evidence. The
+        # production provenance gate is satisfied only when the engine acquired
+        # all inputs itself in this invocation.
+        caller_supplied_inputs = bool(inputs)
         acquisition_errors: Dict[str, str] = {}
 
         # Acquire Scheme Master if not supplied. Preserve failures in the report;
@@ -542,6 +574,12 @@ class EngineBootstrapPipeline:
             require_policy_binding=True,
             require_artifact_binding=require_artifact_binding,
             acquisition_errors=acquisition_errors,
+            production_acquisition=(
+                not caller_supplied_inputs
+                and not acquisition_errors
+                and isinstance(inputs.get("scheme_master"), bytes)
+                and isinstance(inputs.get("daily_nav"), bytes)
+            ),
         )
 
     def promote(
