@@ -30,8 +30,12 @@ _SHA256 = re.compile(r"^[a-fA-F0-9]{64}$")
 
 
 def _digest(value: str, field: str) -> str:
-    if not isinstance(value, str) or not _SHA256.fullmatch(value):
+    if not isinstance(value, str) or len(value) != 64:
         raise ValueError(f"{field} must be a 64-character SHA-256 hex digest")
+    try:
+        int(value, 16)
+    except ValueError as exc:
+        raise ValueError(f"{field} must be hexadecimal") from exc
     return value.lower()
 
 
