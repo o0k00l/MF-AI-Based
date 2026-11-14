@@ -10,6 +10,12 @@ from ingestion.cas_parser import (
 )
 
 
+
+
+@pytest.fixture(autouse=True)
+def configure_external_client_data_root(tmp_path, monkeypatch):
+    monkeypatch.setenv("MF_CLIENT_DATA_DIR", str(tmp_path))
+
 def test_to_cache_csv_strict_rejects_missing_current_value():
     holdings = [
         {"scheme": "Scheme A", "units": 10.0, "invested_value": 1000.0}
@@ -349,3 +355,27 @@ def test_stage_portfolio_rejects_envelope_with_tampered_stated_total(tmp_path):
     result = stage_portfolio(parsed, tmp_path, envelope=envelope)
     assert result["staging_failed"] is True
     assert "stated_total mismatch" in result["error"]
+
+
+def test_stage_portfolio_rejects_repository_storage_root(tmp_path):
+    from pathlib import Path
+
+    repository_root = Path(__file__).resolve().parents[1]
+    result = stage_portfolio({"holdings": []}, repository_root, slug="Must_Not_Write")
+    assert result["staging_failed"] is True
+    assert result["root"] is None
+    assert not (repository_root / "Must_Not_Write").exists()
+
+
+def test_stage_portfolio_requires_explicit_external_root(tmp_path, monkeypatch):
+    monkeypatch.delenv("MF_CLIENT_DATA_DIR", raising=False)
+    result = stage_portfolio({"holdings": []}, tmp_path, slug="No_Storage_Policy")
+    assert result["staging_failed"] is True
+    assert result["root"] is None
+    assert not (tmp_path / "No_Storage_Policy").exists()
+
+
+def test_stage_portfolio_rejects_path_traversal_storage_key(tmp_path):
+    result = stage_portfolio({"holdings": []}, tmp_path, slug="../outside")
+    assert result["staging_failed"] is True
+    assert not (tmp_path.parent / "outside").exists()
