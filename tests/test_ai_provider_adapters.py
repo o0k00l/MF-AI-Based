@@ -66,7 +66,7 @@ def test_model_cache_is_key_scoped(monkeypatch, tmp_path):
 
 
 def test_openai_request_omits_optional_generation_parameters(monkeypatch):
-    monkeypatch.setenv("MF_EXTERNAL_PROCESSING_POLICY_APPROVED", "true")
+    monkeypatch.setattr(ai_engine, "external_processing_policy_approved", lambda: True)
     calls = []
     class Completions:
         def create(self, **kwargs):
@@ -88,7 +88,7 @@ def test_gemini_fails_closed_when_zero_cost_pricing_is_unverifiable():
 
 
 def test_narrative_provider_chain_excludes_gemini(monkeypatch):
-    monkeypatch.setenv("MF_EXTERNAL_PROCESSING_POLICY_APPROVED", "true")
+    monkeypatch.setattr(ai_engine, "external_processing_policy_approved", lambda: True)
     attempted = []
     def unavailable(prompt, system_prompt="", external_processing_consent=False):
         attempted.append("openrouter")
@@ -104,7 +104,7 @@ def test_narrative_provider_chain_excludes_gemini(monkeypatch):
 
 
 def test_provider_http_error_preserves_status_without_body(monkeypatch):
-    monkeypatch.setenv("MF_EXTERNAL_PROCESSING_POLICY_APPROVED", "true")
+    monkeypatch.setattr(ai_engine, "external_processing_policy_approved", lambda: True)
     error = ai_engine.ProviderError("OpenRouter", "request failed", status_code=401)
     assert error.status_code == 401
     assert "secret" not in str(error).lower()
@@ -134,7 +134,7 @@ def test_retry_policy_allows_network_failures_without_http_status():
 
 
 def test_openai_does_not_try_other_models_after_quota_failure(monkeypatch):
-    monkeypatch.setenv("MF_EXTERNAL_PROCESSING_POLICY_APPROVED", "true")
+    monkeypatch.setattr(ai_engine, "external_processing_policy_approved", lambda: True)
     attempted = []
 
     class Completions:
@@ -177,7 +177,7 @@ def test_google_exception_diagnostics_do_not_expose_free_form_message():
 
 
 def test_generation_blocks_model_when_live_zero_price_evidence_changes(monkeypatch):
-    monkeypatch.setenv("MF_EXTERNAL_PROCESSING_POLICY_APPROVED", "true")
+    monkeypatch.setattr(ai_engine, "external_processing_policy_approved", lambda: True)
     attempted = []
 
     class Completions:
@@ -223,7 +223,7 @@ def test_force_refresh_bypasses_stale_cache_even_when_cache_is_readable(monkeypa
 
 
 def test_gemini_key_never_activates_fallback_when_all_free_providers_fail(monkeypatch):
-    monkeypatch.setenv("MF_EXTERNAL_PROCESSING_POLICY_APPROVED", "true")
+    monkeypatch.setattr(ai_engine, "external_processing_policy_approved", lambda: True)
     attempted = []
     monkeypatch.setenv("GEMINI_API_KEY", "configured-but-prohibited")
     monkeypatch.setattr(
@@ -247,7 +247,7 @@ def test_gemini_key_never_activates_fallback_when_all_free_providers_fail(monkey
 
 
 def test_provider_adapter_blocks_direct_call_without_investor_consent(monkeypatch):
-    monkeypatch.setenv("MF_EXTERNAL_PROCESSING_POLICY_APPROVED", "true")
+    monkeypatch.setattr(ai_engine, "external_processing_policy_approved", lambda: True)
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
     monkeypatch.setattr(
         ai_engine, "discover_openrouter_free_models",
