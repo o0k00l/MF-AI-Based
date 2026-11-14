@@ -8,7 +8,6 @@ Adheres strictly to the repository architecture:
 from __future__ import annotations
 
 import logging
-import tempfile
 from pathlib import Path
 from typing import Any, BinaryIO
 
@@ -25,26 +24,20 @@ def parse_cgs_file(file_obj: BinaryIO | bytes | Path) -> dict[str, Any]:
     if isinstance(file_obj, (str, Path)):
         return parse_cgs_excel(file_obj)
 
-    # If BytesIO or raw bytes, write safely to temporary file
+    # Uploaded bytes are parsed directly in memory. Never stage investor
+    # statements in a named temporary file, which can survive process failure.
     if hasattr(file_obj, "read"):
         if hasattr(file_obj, "seek"):
             file_obj.seek(0)
         content = file_obj.read()
         if hasattr(file_obj, "seek"):
             file_obj.seek(0)
-    elif isinstance(file_obj, bytes):
-        content = file_obj
+    elif isinstance(file_obj, (bytes, bytearray, memoryview)):
+        content = bytes(file_obj)
     else:
         raise ValueError(f"Unsupported file object type: {type(file_obj)}")
 
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
-        tmp.write(content)
-        tmp_path = Path(tmp.name)
-
-    try:
-        return parse_cgs_excel(tmp_path)
-    finally:
-        tmp_path.unlink(missing_ok=True)
+    return parse_cgs_excel(content)
 
 
 def evaluate_tax_harvesting_strategy(
