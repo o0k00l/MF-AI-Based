@@ -346,6 +346,32 @@ def test_online_scheme_query_cache_is_memory_only_and_legacy_file_is_purged(tmp_
     assert not legacy.exists()
 
 
+def test_online_scheme_lookup_fails_closed_when_legacy_cache_purge_fails(monkeypatch):
+    from services import ai_fund_classifier as classifier
+
+    scheme = "Synthetic Legacy Cache Purge Failure Scheme 2026"
+    canonical = classifier.extract_canonical_scheme_name(scheme)
+    classifier._ONLINE_LOOKTHROUGH_CACHE.pop(canonical, None)
+    classifier._ONLINE_LOOKTHROUGH_CACHE.pop(scheme, None)
+
+    monkeypatch.setattr(classifier, "_purge_legacy_online_lookthrough_cache", lambda: False)
+    monkeypatch.setattr(
+        ai_engine,
+        "external_processing_policy_approved",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        classifier.urllib.request,
+        "urlopen",
+        lambda *args, **kwargs: pytest.fail("external lookup must not run"),
+    )
+
+    assert classifier.lookup_fund_segment_allocation_online(
+        scheme,
+        external_processing_consent=True,
+    ) is None
+
+
 
 def test_active_ui_and_api_do_not_enable_external_ai_without_consent():
     import re
