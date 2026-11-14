@@ -66,6 +66,7 @@ def test_model_cache_is_key_scoped(monkeypatch, tmp_path):
 
 
 def test_openai_request_omits_optional_generation_parameters(monkeypatch):
+    monkeypatch.setenv("MF_EXTERNAL_PROCESSING_POLICY_APPROVED", "true")
     calls = []
     class Completions:
         def create(self, **kwargs):
@@ -77,7 +78,7 @@ def test_openai_request_omits_optional_generation_parameters(monkeypatch):
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
     monkeypatch.setattr(ai_engine, "discover_openrouter_free_models", lambda key, force_refresh=False: ["vendor/model"])
     monkeypatch.setitem(__import__("sys").modules, "openai", SimpleNamespace(OpenAI=Client))
-    assert ai_engine._call_openrouter("test") == "READY"
+    assert ai_engine._call_openrouter("test", external_processing_consent=True) == "READY"
     assert calls == [{"model": "vendor/model", "messages": [{"role": "user", "content": "test"}]}]
 
 
@@ -102,7 +103,8 @@ def test_narrative_provider_chain_excludes_gemini(monkeypatch):
     assert attempted == ["openrouter", "requesty"]
 
 
-def test_provider_http_error_preserves_status_without_body():
+def test_provider_http_error_preserves_status_without_body(monkeypatch):
+    monkeypatch.setenv("MF_EXTERNAL_PROCESSING_POLICY_APPROVED", "true")
     error = ai_engine.ProviderError("OpenRouter", "request failed", status_code=401)
     assert error.status_code == 401
     assert "secret" not in str(error).lower()
@@ -150,7 +152,7 @@ def test_openai_does_not_try_other_models_after_quota_failure(monkeypatch):
     )
     monkeypatch.setitem(__import__("sys").modules, "openai", SimpleNamespace(OpenAI=Client))
     with pytest.raises(ai_engine.ProviderError) as caught:
-        ai_engine._call_openrouter("test")
+        ai_engine._call_openrouter("test", external_processing_consent=True)
     assert caught.value.status_code == 429
     assert attempted == ["vendor/model-a"]
 
@@ -174,6 +176,7 @@ def test_google_exception_diagnostics_do_not_expose_free_form_message():
 
 
 def test_generation_blocks_model_when_live_zero_price_evidence_changes(monkeypatch):
+    monkeypatch.setenv("MF_EXTERNAL_PROCESSING_POLICY_APPROVED", "true")
     attempted = []
 
     class Completions:
@@ -192,7 +195,7 @@ def test_generation_blocks_model_when_live_zero_price_evidence_changes(monkeypat
     monkeypatch.setitem(__import__("sys").modules, "openai", SimpleNamespace(OpenAI=Client))
 
     with pytest.raises(ai_engine.ProviderError, match="no longer verified as zero-priced"):
-        ai_engine._call_openrouter("test")
+        ai_engine._call_openrouter("test", external_processing_consent=True)
     assert attempted == []
 
 
@@ -239,3 +242,15 @@ def test_gemini_key_never_activates_fallback_when_all_free_providers_fail(monkey
             "test", external_processing_consent=True,
         )
     assert attempted == []
+
+
+
+def test_provider_adapter_blocks_direct_call_without_investor_consent(monkeypatch):
+    monkeypatch.setenv("MF_EXTERNAL_PROCESSING_POLICY_APPROVED", "true")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setattr(
+        ai_engine, "discover_openrouter_free_models",
+        lambda *args, **kwargs: pytest.fail("model discovery must not run"),
+    )
+    with pytest.raises(ai_engine.ProviderError, match="explicit investor consent"):
+        ai_engine._call_openrouter("private prompt")
