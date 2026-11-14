@@ -90,10 +90,10 @@ def test_gemini_fails_closed_when_zero_cost_pricing_is_unverifiable():
 def test_narrative_provider_chain_excludes_gemini(monkeypatch):
     monkeypatch.setenv("MF_EXTERNAL_PROCESSING_POLICY_APPROVED", "true")
     attempted = []
-    def unavailable(prompt, system_prompt=""):
+    def unavailable(prompt, system_prompt="", external_processing_consent=False):
         attempted.append("openrouter")
         raise ai_engine.ProviderError("OpenRouter", "unavailable")
-    def requesty(prompt, system_prompt=""):
+    def requesty(prompt, system_prompt="", external_processing_consent=False):
         attempted.append("requesty")
         return "READY"
     monkeypatch.setattr(ai_engine, "_call_openrouter", unavailable)
