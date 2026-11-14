@@ -396,25 +396,26 @@ def test_active_ui_and_api_do_not_enable_external_ai_without_consent():
 
 
 
-def test_streamlit_upload_handling_does_not_retain_filenames_or_render_raw_errors():
+def test_retired_streamlit_entrypoint_cannot_retain_uploads_or_render_sensitive_errors():
     from pathlib import Path
 
     source = (Path(__file__).resolve().parents[1] / "ui" / "app.py").read_text(
         encoding="utf-8"
     )
-    assert "100% Client-Side Privacy" not in source
-    assert '"upload_source": uploaded_file.name' not in source
-    assert "Error processing statement" not in source
+    # The legacy upload workflow is retired, not merely cosmetically hidden.
+    assert "st.file_uploader" not in source
+    assert "parse_cas_file" not in source
+    assert "parse_cgs_file" not in source
+    assert "uploaded_file" not in source
+    assert "st.stop()" in source
+    assert "disabled" in source.lower()
     assert "{cgs_exc}" not in source
-    assert "Sensitive file contents and parser exception details are not displayed." in source
     assert "{_startup_exc}" not in source
     assert "{str(e)}" not in source
 
     report_page = (Path(__file__).resolve().parents[1] / "ui" / "pages" / "5_Fiduciary_Report.py").read_text(encoding="utf-8")
     assert "{_pdf_err}" not in report_page
     assert "Sensitive report and exception details are not displayed." in report_page
-    assert 'st.caption(f"Raw alert data: {al}")' not in source
-    assert "Sensitive alert data and exception details are not displayed." in source
 
     classifier_source = (Path(__file__).resolve().parents[1] / "services" / "ai_fund_classifier.py").read_text(encoding="utf-8")
     assert 'logger.warning("Could not read policy scheme_master.json: %s", exc)' not in classifier_source
