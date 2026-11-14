@@ -456,3 +456,53 @@ def test_lumpsum_rejects_candidate_with_weak_or_unhashed_source_evidence(tmp_pat
     assert res.allocated_amount_inr == Decimal("0")
     assert res.unallocated_amount_inr == Decimal("500000")
     assert len(res.candidate_allocations) == 0
+
+def test_bootstrap_reports_source_acquisition_failures_instead_of_swallowing_them(tmp_path):
+    class FailingAdapter:
+        def __init__(self, source_name):
+            self.source_name = source_name
+
+        def acquire(self, as_of):
+            raise RuntimeError(f"{self.source_name} upstream unavailable")
+
+    pipeline = EngineBootstrapPipeline(
+        scheme_master_adapter=FailingAdapter("scheme-master"),
+        nav_adapter=FailingAdapter("daily-nav"),
+    )
+    report = pipeline.bootstrap_staging_bundle(
+        tmp_path / "staging",
+        date(2026, 11, 14),
+    )
+
+    assert report.status == "BLOCKED"
+    acquisition_gate = next(g for g in report.gates if g.gate_name == "SOURCE_ACQUISITION")
+    assert acquisition_gate.passed is False
+    assert any("scheme_master: RuntimeError: scheme-master upstream unavailable" in reason
+               for reason in acquisition_gate.reasons)
+    assert any("daily_nav: RuntimeError: daily-nav upstream unavailable" in reason
+               for reason in acquisition_gate.reasons)
+
+
+def test_bootstrap_does_not_treat_arbitrary_metrics_url_bytes_as_normalized_metrics(tmp_path):
+    class Adapter:
+        def acquire(self, as_of):
+            raise RuntimeError("NAV unavailable")
+
+        def _fetch_url(self, url):
+            raise AssertionError("generic URL fetch must not be used as a metrics adapter")
+
+    pipeline = EngineBootstrapPipeline(
+        scheme_master_adapter=Adapter(),
+        nav_adapter=Adapter(),
+    )
+    report = pipeline.bootstrap_staging_bundle(
+        tmp_path / "staging",
+        date(2026, 11, 14),
+        metrics_source_url="https://example.invalid/metrics.csv",
+    )
+
+    acquisition_gate = next(g for g in report.gates if g.gate_name == "SOURCE_ACQUISITION")
+    assert any("No approved publisher-specific metrics adapter" in reason
+               for reason in acquisition_gate.reasons)
+    metrics_gate = next(g for g in report.gates if g.gate_name == "FUND_METRICS_EVIDENCE")
+    assert metrics_gate.passed is False
