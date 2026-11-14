@@ -43,3 +43,22 @@ def test_legacy_dashboard_is_not_part_of_the_root_startup_contract():
     assert "ui.app" not in source
     assert "parse_cas_file" not in source
     assert "generate_fiduciary" not in source
+
+
+
+def test_retired_ui_entrypoint_is_disabled_even_when_launched_directly():
+    source = (ROOT / "ui" / "app.py").read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    imported = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            imported.update(alias.name.split(".")[0] for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            imported.add(node.module.split(".")[0])
+    assert imported == {"streamlit"}
+    assert "st.stop()" in source
+    assert "parse_cas_file" not in source
+    assert "request_sip_recommendations" not in source
+    assert "generate_fiduciary" not in source
+    assert "lumpsum" in source.lower()
+    assert "disabled" in source.lower()
