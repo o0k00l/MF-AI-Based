@@ -88,6 +88,8 @@ The active Streamlit UI reads CAS/CGS upload bytes into the current application 
 
 The UI stores a generic upload-source label rather than the original filename, and parser failures are shown as generic messages without echoing filenames, exception strings or parsed content. These application controls do not prove that a hosting provider, reverse proxy, crash reporter, APM agent, platform log collector, swap, backup or session-replay tool does not retain request metadata or memory. Deployment owners must disable payload capture, restrict operational logs, configure session expiry, and verify that uploaded bytes and parsed portfolio state are not exported to telemetry or backups.
 
+The repository's current GitHub Actions workflows retain only CycloneDX dependency SBOM artifacts (90-day retention) in the Security and tagged release-readiness workflows; the CI and SIP acceptance workflows do not upload application reports or portfolio fixtures. This is a source-configuration finding, not proof that all historical artifacts or prior workflow logs are free of sensitive content. Historical artifact/log review remains part of the owner-operated purge.
+
 ## 5. Production-release conditions
 
 The application remains a non-executable decision-support prototype until the release report records the exact release SHA, complete passing CI results, tax/legal review, authenticated benchmark data and calendar, private-data purge verification, protected-branch status and independent reviewer sign-off.
