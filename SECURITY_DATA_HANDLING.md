@@ -2,7 +2,7 @@
 
 This repository has previously contained client-specific portfolio configuration, transaction ledgers, fund metrics and aliases. A history review confirmed that the initial commit `b28f008b` also included a `.env` file containing third-party provider API credentials. Client configuration and transaction files were later removed in commits including `e7ebf41e` and `8689873d`. Those removals cleaned later trees; they did not erase the historical Git objects or existing clones.
 
-**Treat every credential ever present in the committed `.env` as compromised and rotate it with its provider.** Do not restore or reproduce the old values. The current GitHub repository is private, but privacy does not revoke exposed credentials or purge historical objects.
+**Treat every credential ever present in the committed `.env` as compromised and rotate it with its provider.** Do not restore or reproduce the old values. As of 2026-11-14, GitHub reports this repository as public (`private=false`). This violates the required privacy boundary: the owner must make it private immediately. Making it private does not revoke exposed credentials or purge historical objects.
 
 The repository must remain private until the history-remediation steps below are completed.
 
@@ -98,7 +98,7 @@ The environment variable is an operator attestation gate, not proof that a revie
 
 The gate applies to LLM narrative/classification requests and third-party online scheme lookups. Online scheme classification may transmit only the public scheme name required to resolve that scheme; it must not include a client's name, account/folio, balances, transaction history, goals or a holdings list. Narrative paths must continue to redact client/holding identifiers and numeric portfolio facts before the provider adapter. Provider failures and logs must not include prompts, credentials, raw response bodies or investor data.
 
-Narrative-response caching remains disabled. Do not re-enable it through `use_cache`; the compatibility argument is ignored. The external model-catalogue cache contains provider catalogue metadata only and must remain outside the repository. The third-party scheme look-through cache contains non-investor scheme metadata and is disabled unless an external data directory is configured outside the repository.
+Narrative-response caching remains disabled. The former repository-root `cache/narrative_cache.json` is removed on AI-engine startup; if it cannot be removed, external provider calls fail closed. This unlink operation does not guarantee forensic erasure from backups, snapshots or storage media, which require separate retention/purge handling. Do not re-enable caching through `use_cache`; the compatibility argument is ignored. The external model-catalogue cache contains provider catalogue metadata only and must remain outside the repository. The third-party scheme look-through cache contains non-investor scheme metadata and is disabled unless an external data directory is configured outside the repository.
 
 The boolean consent argument is an enforcement input, not an auditable consent ledger. Production UI/API integration must source it from a recorded, purpose-specific investor consent event and retain the consent version, timestamp, scope, withdrawal and evidence in the approved client-data store. Do not infer consent from login, upload, service use or a global setting.
 

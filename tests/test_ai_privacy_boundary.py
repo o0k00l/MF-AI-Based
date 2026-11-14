@@ -258,3 +258,23 @@ def test_provider_policy_approval_requires_explicit_true_value(monkeypatch):
     for value in ("", "false", "1 ", "approved", "yes-no"):
         monkeypatch.setenv("MF_EXTERNAL_PROCESSING_POLICY_APPROVED", value)
         assert ai_engine.external_processing_policy_approved() is (value.strip().lower() in {"1", "true", "yes"})
+
+
+
+def test_legacy_plaintext_narrative_cache_is_removed(tmp_path):
+    legacy_cache = tmp_path / "cache" / "narrative_cache.json"
+    legacy_cache.parent.mkdir(parents=True)
+    legacy_cache.write_text('{"sample":"CANARY"}', encoding="utf-8")
+
+    assert ai_engine._purge_legacy_narrative_cache(legacy_cache) is True
+    assert not legacy_cache.exists()
+
+
+def test_provider_call_fails_closed_if_legacy_narrative_cache_cannot_be_removed(monkeypatch):
+    monkeypatch.setenv("MF_EXTERNAL_PROCESSING_POLICY_APPROVED", "true")
+    monkeypatch.setattr(ai_engine, "_purge_legacy_narrative_cache", lambda path=None: False)
+    monkeypatch.setattr(ai_engine, "_call_openrouter", lambda *a, **k: pytest.fail("provider must not run"))
+    monkeypatch.setattr(ai_engine, "_call_requesty", lambda *a, **k: pytest.fail("provider must not run"))
+
+    with pytest.raises(ai_engine.ProviderError, match="legacy plaintext narrative cache"):
+        ai_engine.call_llm("synthetic minimized prompt", external_processing_consent=True)

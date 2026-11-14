@@ -255,3 +255,15 @@ def test_provider_adapter_blocks_direct_call_without_investor_consent(monkeypatc
     )
     with pytest.raises(ai_engine.ProviderError, match="explicit investor consent"):
         ai_engine._call_openrouter("private prompt")
+
+
+
+def test_openai_exception_does_not_preserve_free_form_provider_code():
+    error = ai_engine._openai_exception(
+        "OpenRouter",
+        SimpleNamespace(status_code=400, code="private prompt fragment"),
+        "vendor/model",
+    )
+    assert error.status_code == 400
+    assert error.code is None
+    assert "private prompt" not in str(error)

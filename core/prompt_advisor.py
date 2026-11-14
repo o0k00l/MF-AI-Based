@@ -107,21 +107,32 @@ def collect_sensitive_identifiers(*records: Any) -> list[str]:
     """Extract known investor/holding identifiers from nested input records."""
     sensitive_fields = {
         "client_name", "investor_name", "account_holder", "holder_name",
-        "beneficiary_name", "goal_name", "goal_description", "fund_name", "scheme_name", "scheme", "fund_id",
+        "beneficiary_name", "goal_name", "goal_description", "goal_title", "goal",
+        "name", "title", "description", "fund_name", "scheme_name", "scheme", "fund_id",
         "scheme_id", "folio", "folio_no", "folio_number", "account_id",
-        "account_number", "bank_account", "isin", "pan", "pan_number",
-        "aadhaar", "aadhaar_number", "email", "phone", "ifsc",
+        "account_number", "bank_account", "isin", "security_id", "security_name",
+        "stock_name", "theme_name", "key_underlying_holdings", "underlying_holdings",
+        "transaction_description", "transaction_narration", "narration", "payee",
+        "beneficiary", "merchant", "pan", "pan_number", "aadhaar", "aadhaar_number",
+        "email", "phone", "ifsc",
     }
     found: set[str] = set()
+
+    def add_sensitive_values(item: Any) -> None:
+        if isinstance(item, (str, int)) and not isinstance(item, bool):
+            candidate = str(item).strip()
+            if len(candidate) > 1:
+                found.add(candidate)
+        elif isinstance(item, (list, tuple, set)):
+            for nested in item:
+                add_sensitive_values(nested)
 
     def visit(value: Any) -> None:
         if isinstance(value, dict):
             for key, item in value.items():
                 normalized_key = str(key).strip().lower()
-                if normalized_key in sensitive_fields and isinstance(item, (str, int)):
-                    candidate = str(item).strip()
-                    if len(candidate) > 1:
-                        found.add(candidate)
+                if normalized_key in sensitive_fields:
+                    add_sensitive_values(item)
                 if isinstance(item, (dict, list, tuple)):
                     visit(item)
         elif isinstance(value, (list, tuple)):

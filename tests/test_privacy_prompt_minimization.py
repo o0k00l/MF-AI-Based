@@ -512,3 +512,30 @@ def test_classifier_sends_only_minimum_scheme_lookup_context_and_disables_cache(
     assert "portfolio value" not in prompt.lower()
     assert kwargs["use_cache"] is False
     assert kwargs["external_processing_consent"] is True
+
+
+
+def test_nested_goal_transaction_and_security_identifiers_are_collected():
+    from core.prompt_advisor import collect_sensitive_identifiers, sanitize_prompt_for_privacy
+
+    records = {
+        "goals": [{"name": "CANARY GOAL NAME", "description": "CANARY GOAL DESCRIPTION"}],
+        "transactions": [{
+            "transaction_description": "CANARY TRANSACTION DETAILS",
+            "narration": "CANARY NARRATION",
+        }],
+        "holdings": [{
+            "security_id": "CANARY SECURITY ID",
+            "key_underlying_holdings": ["CANARY UNDERLYING STOCK"],
+        }],
+    }
+    identifiers = collect_sensitive_identifiers(records)
+    expected = (
+        "CANARY GOAL NAME", "CANARY GOAL DESCRIPTION",
+        "CANARY TRANSACTION DETAILS", "CANARY NARRATION",
+        "CANARY SECURITY ID", "CANARY UNDERLYING STOCK",
+    )
+    assert set(expected).issubset(set(identifiers))
+    outbound = sanitize_prompt_for_privacy(" ".join(expected), sensitive_identifiers=identifiers)
+    for value in expected:
+        assert value not in outbound

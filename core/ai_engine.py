@@ -49,6 +49,22 @@ def _external_model_cache_file() -> Path | None:
 MODEL_CACHE_FILE = _external_model_cache_file()
 # Investor-specific narrative caching is disabled; no plaintext report cache.
 NARRATIVE_CACHE_FILE = None
+LEGACY_NARRATIVE_CACHE_FILE = PROJECT_ROOT / "cache" / "narrative_cache.json"
+
+
+def _purge_legacy_narrative_cache(path: Path | None = None) -> bool:
+    """Remove the former plaintext investor narrative cache; fail closed on errors."""
+    candidate = Path(path) if path is not None else LEGACY_NARRATIVE_CACHE_FILE
+    try:
+        if candidate.is_symlink() or candidate.is_file():
+            candidate.unlink()
+        return not candidate.exists() and not candidate.is_symlink()
+    except OSError:
+        return False
+
+
+# One-time migration on import. A failed purge also blocks any later provider call.
+_ = _purge_legacy_narrative_cache()
 
 REQUESTY_BASE_URL = "https://router.requesty.ai/v1"
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
@@ -310,9 +326,14 @@ def _should_try_next_model(error: ProviderError) -> bool:
 
 def _openai_exception(provider: str, exc: Exception, model: str) -> ProviderError:
     status = getattr(exc, "status_code", None)
-    code = getattr(exc, "code", None)
-    if code is not None:
-        code = str(code)[:80]
+    raw_code = getattr(exc, "code", None)
+    code = None
+    if raw_code is not None and not isinstance(raw_code, bool):
+        candidate = str(raw_code).strip()
+        if candidate and len(candidate) <= 80 and all(
+            char.isalnum() or char in "_-." for char in candidate
+        ):
+            code = candidate
     return ProviderError(
         provider, f"{provider} request failed ({type(exc).__name__}).",
         status_code=status if isinstance(status, int) else None,
@@ -487,6 +508,11 @@ def call_llm(
         raise ProviderError(
             "Privacy",
             "External AI processing is blocked: provider data-use and retention review is not approved for this deployment.",
+        )
+    if not _purge_legacy_narrative_cache():
+        raise ProviderError(
+            "Privacy",
+            "External AI processing is blocked: the legacy plaintext narrative cache could not be removed.",
         )
     full_prompt = prompt
     if append_guardrail:
