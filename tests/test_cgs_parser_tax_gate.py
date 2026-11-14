@@ -107,3 +107,32 @@ def test_cgs_malformed_transaction_row_is_not_silently_dropped(tmp_path):
     # Verify malformed row is detected
     assert result["parse_status"] == "INCOMPLETE"
     assert any("missing required columns" in error for error in result["parse_errors"])
+
+
+def test_cgs_ingestion_parser_accepts_uploaded_bytes_without_creating_a_file(tmp_path):
+    cgs_file = _create_synthetic_cgs_workbook(tmp_path / "private-source-name.xlsx")
+    source_bytes = cgs_file.read_bytes()
+
+    result = parse_ingestion_cgs(source_bytes)
+
+    assert result["statement_path"] is None
+    assert result["filename"] == "uploaded-cgs.xlsx"
+    assert result["source_sha256"] == __import__("hashlib").sha256(source_bytes).hexdigest()
+    assert result["summary"]["stcg_inr"] == 50000.0
+
+
+def test_cgs_service_wrapper_passes_upload_bytes_directly_to_parser(monkeypatch):
+    import io
+    from services import cgs_parser
+
+    captured = []
+    monkeypatch.setattr(
+        cgs_parser,
+        "parse_cgs_excel",
+        lambda payload: captured.append(payload) or {"status": "parsed"},
+    )
+
+    result = cgs_parser.parse_cgs_file(io.BytesIO(b"synthetic-upload-bytes"))
+
+    assert result == {"status": "parsed"}
+    assert captured == [b"synthetic-upload-bytes"]
