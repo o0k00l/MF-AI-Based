@@ -28,6 +28,7 @@ import pathlib
 import re
 import math
 import warnings
+import os
 from decimal import Decimal
 
 #: The columns a CAS holdings table carries, in the order CAMS writes them.
@@ -1094,13 +1095,44 @@ def stage_portfolio(
     source digest, stated statement totals, and exact parsed holdings.
     Ensures atomic replacement and preserves existing last-known-good cache on any failure.
     """
-    root = pathlib.Path(root)
+    # This legacy materializer persists investor holdings, folios and transactions.
+    # It is permitted only under the explicitly configured external client-data
+    # root; a caller-supplied arbitrary path must never redirect data into a
+    # repository checkout or shared application directory.
+    try:
+        configured_root = os.environ.get("MF_CLIENT_DATA_DIR", "").strip()
+        if not configured_root:
+            raise ValueError("MF_CLIENT_DATA_DIR must be configured for external client-data storage")
+        root = pathlib.Path(root).expanduser().resolve()
+        approved_root = pathlib.Path(configured_root).expanduser().resolve()
+        repo_root = pathlib.Path(__file__).resolve().parents[1]
+        if root != approved_root:
+            raise ValueError("Portfolio staging root must exactly match MF_CLIENT_DATA_DIR")
+        try:
+            root.relative_to(repo_root)
+        except ValueError:
+            pass
+        else:
+            raise ValueError("Investor data cannot be staged inside the Git repository")
+        if not isinstance(slug, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", slug):
+            raise ValueError("Portfolio storage key must be a safe 1-64 character identifier")
+    except (OSError, RuntimeError, TypeError, ValueError):
+        return {
+            "slug": str(slug),
+            "root": None,
+            "cache": None,
+            "holdings": len(parsed.get("holdings", [])) if isinstance(parsed, dict) else 0,
+            "identity_written": False,
+            "staging_failed": True,
+            "error": "Investor-data staging requires a safe, explicitly configured external client-data directory and valid storage key.",
+            "last_known_good_preserved": False,
+        }
+
     pdir = root / slug
     cache_path = pdir / "data" / "_active_funds_cache.csv"
     prior_cache_existed = cache_path.is_file()
 
     import json
-    import os
 
     # Strict row validation and an explicit caller-produced reconciliation
     # envelope are mandatory. There is intentionally no production opt-out.
