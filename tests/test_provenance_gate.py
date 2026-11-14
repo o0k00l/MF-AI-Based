@@ -2254,6 +2254,7 @@ def test_audit_cas_document_integrity_binds_complete_evidence():
 
 
 def test_classifier_never_infers_debt_from_market_cap_residual(monkeypatch):
+    monkeypatch.setenv("MF_EXTERNAL_PROCESSING_POLICY_APPROVED", "true")
     """P1-5: Classifier online factsheet resolution preserves residual as unclassified other, never debt."""
     from services import ai_fund_classifier
     import io
@@ -2680,6 +2681,7 @@ def test_adversarial_9_cas_scheme_name_heuristic_cannot_produce_measured_exposur
 
 
 def test_adversarial_10_third_party_online_lookup_cannot_become_verified(monkeypatch):
+    monkeypatch.setenv("MF_EXTERNAL_PROCESSING_POLICY_APPROVED", "true")
     """Adversarial 10: A third-party online lookup cannot become VERIFIED."""
     from services import ai_fund_classifier
 
