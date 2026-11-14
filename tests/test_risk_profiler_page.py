@@ -88,28 +88,18 @@ def test_risk_profiler_page_persists_session_state_contract():
         )
 
 
-def test_downstream_pages_read_risk_session_keys():
-    """Writer/reader contract: keys written by the profiler page must have readers.
-
-    Verified readers:
-        - ui/app.py reads 'user_risk_score' and 'risk_tier' (sidebar step-2 status)
-        - ui/pages/5_Fiduciary_Report.py reads 'risk_tier' or 'risk_bucket'
-    """
+def test_retired_dashboard_is_not_a_downstream_reader_of_risk_session_state():
+    """The retired dashboard must stay disabled; only an approved page may consume profile state."""
     dashboard = (ROOT / "ui" / "app.py").read_text(encoding="utf-8")
     report = (ROOT / "ui" / "pages" / "5_Fiduciary_Report.py").read_text(encoding="utf-8")
 
-    assert 'st.session_state.get("user_risk_score")' in dashboard, (
-        "Dashboard sidebar must read 'user_risk_score' written by the profiler page"
-    )
-    assert 'st.session_state.get("risk_tier")' in dashboard, (
-        "Dashboard sidebar must read 'risk_tier' written by the profiler page"
-    )
+    assert "st.stop()" in dashboard
+    assert "st.session_state.get(" not in dashboard
+    assert "disabled" in dashboard.lower()
     assert (
         'st.session_state.get("risk_tier")' in report
         or 'st.session_state.get("risk_bucket")' in report
-    ), "Fiduciary report must read 'risk_tier' or 'risk_bucket' from the profiler page"
-
-
+    ), "The report page must preserve the profiler's risk-state contract for any future approved integration"
 def test_profiler_navigation_target_exists():
     """Every st.switch_page target on the profiler page must be an existing page file."""
     source = _page_source()
