@@ -420,3 +420,18 @@ def test_retired_streamlit_entrypoint_cannot_retain_uploads_or_render_sensitive_
     classifier_source = (Path(__file__).resolve().parents[1] / "services" / "ai_fund_classifier.py").read_text(encoding="utf-8")
     assert 'logger.warning("Could not read policy scheme_master.json: %s", exc)' not in classifier_source
     assert 'logger.warning("Could not read policy scheme_master.json (%s)", type(exc).__name__)' in classifier_source
+
+
+def test_provider_exception_never_retains_or_echoes_raw_investor_payload():
+    """SDK exception text can contain echoed prompts; only safe metadata may survive."""
+    secret = "PRIVATE-CLIENT-CANARY-ACCOUNT-998877"
+    raw = RuntimeError(f"provider rejected request containing {secret} and prompt body")
+    raw.status_code = 400
+
+    safe = ai_engine._openai_exception("OpenRouter", raw, "synthetic-free-model")
+
+    assert secret not in str(safe)
+    assert "prompt body" not in str(safe)
+    assert safe.status_code == 400
+    assert safe.model == "synthetic-free-model"
+    assert safe.provider == "OpenRouter"
