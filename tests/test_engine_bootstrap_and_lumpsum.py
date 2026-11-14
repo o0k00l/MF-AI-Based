@@ -509,3 +509,31 @@ def test_bootstrap_does_not_treat_arbitrary_metrics_url_bytes_as_normalized_metr
                for reason in acquisition_gate.reasons)
     metrics_gate = next(g for g in report.gates if g.gate_name == "FUND_METRICS_EVIDENCE")
     assert metrics_gate.passed is False
+
+
+def test_bootstrap_marks_only_engine_acquired_sources_as_production_provenance(tmp_path):
+    from types import SimpleNamespace
+
+    class Adapter:
+        def __init__(self, payload):
+            self.payload = payload
+
+        def acquire(self, as_of):
+            return SimpleNamespace(source_bytes=self.payload)
+
+    pipeline = EngineBootstrapPipeline(
+        scheme_master_adapter=Adapter(
+            b"Scheme Code|ISIN Div Payout/ISIN Growth|ISIN Div Reinvestment|Scheme Name\\n"
+            b"100001|INF000000001|INF000000002|Example Fund\\n"
+        ),
+        nav_adapter=Adapter(
+            b"Scheme Code|ISIN Div Payout/ISIN Growth|ISIN Div Reinvestment|Scheme Name|Net Asset Value|Date\\n"
+            b"100001|INF000000001|INF000000002|Example Fund|123.45|14-Nov-2026\\n"
+        ),
+    )
+    report = pipeline.bootstrap_staging_bundle(tmp_path / "staging", date(2026, 11, 14))
+    provenance_gate = next(g for g in report.gates if g.gate_name == "PRODUCTION_SOURCE_PROVENANCE")
+    assert provenance_gate.passed is True
+    # NAV + scheme-master acquisition is not a complete research dataset.
+    assert report.status == "BLOCKED"
+    assert any(g.gate_name == "FUND_METRICS_EVIDENCE" and not g.passed for g in report.gates)
